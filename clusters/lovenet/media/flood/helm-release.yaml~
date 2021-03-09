@@ -1,0 +1,61 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: flood
+  namespace: media
+spec:
+  interval: 5m
+  chart:
+    spec:
+      # renovate: registryUrl=https://k8s-at-home.com/charts/
+      chart: flood
+      version: 3.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: k8s-at-home-charts
+        namespace: flux-system
+      interval: 5m
+  values:
+    controllerType: deployment
+    image:
+      repository: jesec/flood
+      tag: 4.4.1
+    env:
+      FLOOD_OPTION_RUNDIR: /data
+      FLOOD_OPTION_AUTH: "none"
+      FLOOD_OPTION_QBURL: "http://qbittorrent.media.svc.cluster.local:8080"
+    service:
+port:
+    port: 3000
+  type: LoadBalancer
+  loadBalancerIP: 192.168.6.38
+    ingress:
+      enabled: true
+      annotations:
+        kubernetes.io/ingress.class: "internal"
+      hosts:
+      - host: flood.thesteamedcrab.com
+        paths:
+        - path: /
+          pathType: Prefix
+      tls:
+      - hosts:
+        - "flood.devbu.io"
+    persistence:
+      data:
+        enabled: true
+        storageClass: "rook-ceph-block"
+        accessMode: ReadWriteOnce
+        size: "1Gi"
+    podAnnotations:
+      backup.velero.io/backup-volumes: data
+    resources:
+      requests:
+        memory: 250Mi
+        cpu: 500m
+      limits:
+        memory: 1500Mi
+  valuesFrom:
+  - kind: Secret
+    name: "flood-helm-values"

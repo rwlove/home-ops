@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -eu
 
-exit 0
-
 PROJECT_ROOT=$(git rev-parse --show-toplevel)
 CLUSTER_ROOT="${PROJECT_ROOT}/clusters/lovenet"
 PUB_CERT="${PROJECT_ROOT}/sealed-secrets-public-cert.pem"

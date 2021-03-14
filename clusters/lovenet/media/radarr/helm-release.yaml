@@ -1,0 +1,64 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: radarr
+  namespace: media
+spec:
+  interval: 5m
+  chart:
+    spec:
+      # renovate: registryUrl=https://k8s-at-home.com/charts/
+      chart: radarr
+      version: 9.2.0
+      sourceRef:
+        kind: HelmRepository
+        name: k8s-at-home-charts
+        namespace: flux-system
+      interval: 5m
+  values:
+    controllerType: deployment
+    image:
+      repository: ghcr.io/k8s-at-home/radarr
+      tag: v3.0.2.4552
+    env:
+      TZ: "America/New_York"
+      PUID: 1000
+      PGID: 1001
+    service:
+      type: LoadBalancer
+      loadBalancerIP: 192.168.6.28
+      port:
+        port: 7878    
+    ingress:
+      enabled: false
+    persistence:
+      config:
+        enabled: true
+        storageClass: "radarr-config-storage-class"
+        accessMode: ReadWriteOnce
+        size: 1Gi
+        ## Do not delete the pvc upon helm uninstall
+        skipuninstall: false
+      media:
+        enabled: true
+        storageClass: "radarr-media-storage-class"
+        accessMode: ReadWriteMany
+        size: 10Gi
+        ## Do not delete the pvc upon helm uninstall
+        skipuninstall: false
+    additionalVolumeMounts:
+      - name: radarr-data
+        mountPath: "/downloads"
+    additionalVolumes:
+      - name: radarr-data
+        persistentVolumeClaim:
+        claimName: radarr-data-pv-claim
+    podAnnotations:
+      backup.velero.io/backup-volumes: config
+    resources:
+      requests:
+        memory: 250Mi
+        cpu: 500m
+      limits:
+        memory: 1500Mi

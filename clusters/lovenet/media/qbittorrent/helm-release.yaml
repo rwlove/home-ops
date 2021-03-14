@@ -1,0 +1,122 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: qbittorrent
+  namespace: media
+spec:
+  interval: 5m
+  chart:
+    spec:
+      # renovate: registryUrl=https://k8s-at-home.com/charts/
+      chart: qbittorrent
+      version: 8.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: k8s-at-home-charts
+        namespace: flux-system
+      interval: 5m
+  values:
+    controllerType: deployment
+    image:
+      repository: ghcr.io/k8s-at-home/qbittorrent
+      tag: v4.3.3
+    env:
+      TZ: "America/New_York"
+      PUID: 1000
+      PGID: 1001
+    addons:
+      vpn:
+        enabled: true
+        # This Should be set to `wireguard`. This will set the add-on to use the default settings for Wireguard based connections.
+        type: wireguard
+
+        # If the podSecurityContext is set to run as a different user, make sure to run the Wireguard container as UID/GID 568.
+        # This is required for it to be able to read certain configuration files.
+        securityContext:
+          runAsUser: 568
+          runAsGroup: 568
+          capabilities:
+            add: ["NET_ADMIN", "SYS_MODULE"]
+
+        env:
+          # Enable a killswitch that kills all trafic when the VPN is not connected
+          KILLSWITCH: "true"
+          KILLSWITCH_EXCLUDEDNETWORKS_IPV4: "32.32.0.0/16;192.168.0.0/16"
+      
+        # The wireguard configuration file provided by your VPN provider goes here.
+        #
+        # Set AllowedIPs to 0.0.0.0/0 to route all traffic through the VPN.
+        #
+        # Pay close attention to the PostUp and PreDown lines. They must be added if you wish to run a script when the connection
+        # is opened / closed.
+        configFile: |-
+          [Interface]
+          PrivateKey = Qw6OfWI2krhkrF2ApmfvMVrey86t+Cz0Yo5lfAA0Ros=
+          Address = 10.68.226.83/32
+          DNS = 193.138.218.74
+          PostUp = /config/up.sh %i
+          PreDown = /config/down.sh %i
+
+          [Peer]
+          PublicKey = +/HYwELAaww6XTtPmvf3Hr8NqLIr69YNUpAMBvWJiGw=
+          AllowedIPs = 0.0.0.0/0
+          Endpoint = 89.46.62.145:51820
+
+        # The scripts that get run when the VPN connection opens/closes are defined here.
+        # The default scripts will write a string to represent the current connection state to a file.
+        # Our qBittorrent image has a feature that can wait for this file to contain the word 'connected' before actually starting the application.
+        scripts:
+          up: |-
+            #!/bin/bash
+            echo "connected" > /shared/vpnstatus
+
+          down: |-
+            #!/bin/bash
+            echo "disconnected" > /shared/vpnstatus
+    service:
+      type: LoadBalancer
+      port:
+        port: 8080
+      loadBalancerIP: 192.168.6.25
+      additionalServices:
+      - enabled: true
+        nameSuffix: bittorrent
+        type: ClusterIP
+        port:
+          port: 24589
+          name: bittorrent
+          protocol: TCP
+          targetPort: 24589
+    ingress:
+      enabled: false
+    persistence:
+      config:
+        enabled: true
+        mountPath: /config
+        storageClass: qbittorrent-config-storage-class
+        accessMode: ReadWriteOnce
+        size: 1Gi
+        subPath: ""
+        ## Do not delete the pvc upon helm uninstall
+        skipuninstall: false
+      downloads:
+        enabled: true
+        storageClass: qbittorrent-downloads-storage-class
+        accessMode: ReadWriteMany
+        size: 10Gi
+        subPath: ""
+        ## Do not delete the pvc upon helm uninstall
+        skipuninstall: false
+      # This should be enabled so that both the qBittorrent and OpenVPN container have access to a shared volume mounted to /shared.
+      # It will be used to communicate between the two containers.
+      shared:
+        enabled: true
+        emptyDir: true  
+        mountPath: /shared
+        resources:
+          requests:
+            memory: 250Mi
+            cpu: 500m
+          limits:
+            memory: 6000Mi

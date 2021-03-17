@@ -1,0 +1,86 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: lidarr
+  namespace: media
+spec:
+  interval: 5m
+  chart:
+    spec:
+      # renovate: registryUrl=https://k8s-at-home.com/charts/
+      chart: lidarr
+      version: 7.2.0
+      sourceRef:
+        kind: HelmRepository
+        name: k8s-at-home-charts
+        namespace: flux-system
+      interval: 5m
+  values:
+    controllerType: deployment
+    image:
+      repository: ghcr.io/k8s-at-home/lidarr
+      tag: v0.8.0.2082
+    env:
+      TZ: "America/New_York"
+    ingress:
+      enabled: false
+    service:
+      type: LoadBalancer
+      port:
+        port: 8686
+      loadBalancerIP: 192.168.6.35      
+    probes:
+      liveness:
+        enabled: true
+        custom: false
+        spec:
+          failureThreshold: 5
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 10
+      readiness:
+        enabled: true
+        custom: false
+        spec:
+          initialDelaySeconds: 600
+          periodSeconds: 10
+          timeoutSeconds: 1
+          failureThreshold: 3
+      startup:
+        enabled: true
+        custom: false
+        spec:
+          initialDelaySeconds: 600
+          timeoutSeconds: 1
+          periodSeconds: 5
+          failureThreshold: 30
+    persistence:
+      config:
+        enabled: true
+        storageClass: "lidarr-config-storage-class"
+        accessMode: ReadWriteOnce
+        size: 1Gi
+        skipuninstall: false
+      media:
+        enabled: true
+        storageClass: "music-storage-class"
+        accessMode: ReadWriteOnce
+        size: 10Gi
+        skipuninstall: false
+    additionalVolumeMounts:
+      - name: lidarr-data
+        mountPath: "/downloads"
+    additionalVolumes:
+      - name: lidarr-data
+        persistentVolumeClaim:
+          claimName: lidarr-qbittorrent-downloads-pvc
+    podAnnotations:
+      backup.velero.io/backup-volumes: config
+    resources:
+      requests:
+        memory: 250Mi
+        cpu: 500m
+      limits:
+        memory: 1500Mi

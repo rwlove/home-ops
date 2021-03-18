@@ -1,0 +1,173 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: pihole
+  namespace: network
+spec:
+  interval: 5m
+  chart:
+    spec:
+      chart: pihole
+      version: 1.8.29
+      sourceRef:
+        kind: HelmRepository
+        name: mojo2600
+        namespace: flux-system
+      interval: 5m
+  values:
+    replicaCount: 1
+    maxSurge: 1
+    maxUnavailable: 1
+
+    image:
+      repository: "pihole/pihole"
+      tag: v5.5.1
+      pullPolicy: IfNotPresent
+
+    serviceDns:
+      type: LoadBalancer
+      loadBalancerIP: 192.168.6.4
+      annotations:
+        metallb.universe.tf/allow-shared-ip: pihole-svc
+
+    serviceWeb:
+      type: LoadBalancer
+      loadBalancerIP: 192.168.6.4
+      annotations:
+        metallb.universe.tf/allow-shared-ip: pihole-svc
+
+    ingress:
+      enabled: false
+
+    # Probes configuration
+    probes:
+      # probes.liveness -- Configure the healthcheck for the ingress controller
+      liveness:
+        enabled: true
+        initialDelaySeconds: 60
+        failureThreshold: 10
+        timeoutSeconds: 5
+      readiness:
+        enabled: true
+        initialDelaySeconds: 60
+        failureThreshold: 3
+        timeoutSeconds: 5
+
+    persistentVolumeClaim:
+      # set to true to use pvc
+      enabled: false
+      # set to true to use you own pvc
+      # existingClaim: myExistingClaim
+      annotations: {}
+
+      accessModes:
+        - ReadWriteOnce
+      size: "500Mi"
+      ## If defined, storageClassName: <storageClass>
+      ## If set to "-", storageClassName: "", which disables dynamic provisioning
+      ## If undefined (the default) or set to null, no storageClassName spec is
+      ##   set, choosing the default provisioner.  (gp2 on AWS, standard on
+      ##   GKE, AWS & OpenStack)
+      ##
+      # storageClass: "-"
+
+      ## If subPath is set mount a sub folder of a volume instead of the root of the volume.
+      ## This is especially handy for volume plugins that don't natively support sub mounting (like glusterfs).
+
+      ## subPath: "pihole"
+
+    # Administrator password when not using an existing secret (see below)
+    adminPassword: "admin"
+
+    # Use an existing secret for the admin password.
+    admin:
+      existingSecret: ""
+      passwordKey: "password"
+
+    # extraEnvironmentVars is a list of extra enviroment variables to set for pihole to use
+    extraEnvVars:
+      TZ: "America/New_York"
+
+    # extraEnvVarsSecret is a list of secrets to load in as environment variables.
+    extraEnvVarsSecret: {}
+      # env_var:
+      #   name: secret-name
+      #   key: secret-key
+
+    # default upstream DNS servers to use
+    DNS1: "192.168.1.1"
+    DNS2: "no"
+
+    dnsmasq:
+      upstreamServers: []
+      # Here you can add upstream dns servers with. All lines will be added to the
+      # pihole dnsmasq configuration.
+      # The format should be like:
+      # - server=/foo.bar/192.168.178.10
+      # - server=/bar.foo/192.168.178.11
+
+      customDnsEntries: []
+      # Here you can add custom dns entries to override the
+      # dns resolution with. All lines will be added to the
+      # pihole dnsmasq configuration.
+      # The format should be like:
+      # - address=/foo.bar/192.168.178.10
+      # - address=/bar.foo/192.168.178.11
+
+      additionalHostsEntries: []
+      # Dnsmasq reads the /etc/hosts file to resolve ips. You can add additional entries if you like
+      # - 192.168.0.3     host4
+      # - 192.168.0.4     host5
+
+      staticDhcpEntries: []
+      # Static DHCP config
+      # staticDhcpEntries:
+      # - dhcp-host=MAC_ADDRESS,IP_ADDRESS,HOSTNAME
+
+    adlists: {}
+      # If you want to provide blocklists, add them here.
+      # - https://hosts-file.net/grm.txt
+      # - https://reddestdream.github.io/Projects/MinimalHosts/etc/MinimalHostsBlocker/minimalhosts
+
+    whitelist: {}
+      # If you want to provide whitelisted domains, add them here.
+      # - clients4.google.com
+
+    blacklist: {}
+      # If you want to have special domains blacklisted, add them here
+      # - *.blackist.com
+
+    regex: {}
+      # Add regular expression blacklist items
+      # - (^|\.)facebook\.com$
+
+
+    webHttp: "80"
+    webHttps: "443"
+    hostNetwork: "false"
+    privileged: "false"
+
+    customVolumes:
+      enabled: false
+      config: {}
+        # any volume type can be used here
+        # hostPath:
+        #   path: "/mnt/data"
+
+    monitoring:
+      podMonitor:
+        enabled: false
+      sidecar:
+        enabled: false
+        port: 9617
+        image:
+          repository: ekofr/pihole-exporter
+          tag: 0.0.10
+          pullPolicy: IfNotPresent
+        resources:
+          limits:
+            memory: 128Mi
+            # requests:
+            #  cpu: 100m
+            #  memory: 128Mi

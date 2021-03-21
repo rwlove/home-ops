@@ -1,0 +1,101 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: zenbot
+  namespace: crypto
+spec:
+  interval: 5m
+  chart:
+    spec:
+      chart: zenbot
+      version: 0.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: zenbot
+        namespace: flux-system
+      interval: 5m
+  values:
+    replicaCount: 1
+    image:
+      repository: deviavir/zenbot
+      tag: 4.1.4
+    ingress:
+      enabled: false
+    service:
+      type: LoadBalancer
+      loadBalancerIP: 192.168.6.45
+      port:
+        port: 17365
+    persistence:
+      storageClass: "zenbot-config-storage-class"
+      accessModes:
+        - ReadWriteOnce
+      size: 8Gi
+    # ZenBot Values
+    config:
+      # default selector. only used if omitting [selector] argument from a command.
+      selector: gdax.BTC-USD
+      # name of default trade strategy
+      strategy: trend_ema
+      # startup arguments, expressed as an array. Defaults to ['trade', '--paper'] so you'll need to drop '--paper'
+      # when you want to perform real trades
+      # common values:
+      # ['trade']
+      # ['trade', '--paper']
+      # ['sim']
+      args:
+        - "trade"
+        - "--paper"
+      # Exchange API keys
+      # GDAX / Coinbase Pro
+      #gdax:
+      #  key: YOUR-API-KEY
+      #  b64secret: YOUR-API-SECRET
+      #  passphrase: YOUR-API-PASSPHRASE
+      #  apiURI: https://api.pro.coinbase.com
+      #  websocketURI: wss://ws-feed.pro.coinbase.com
+      #  # set to true to trade on the sandbox platform API
+      #  sandbox: false
+
+      # Binance US
+      #binanceus:
+      #  key: YOUR-API-KEY
+      #  secret: YOUR-SECRET
+      # Notifiers
+      #notifiers:
+      #  only_completed_trades: false
+      #  pushbullet:
+      #    enabled: false
+      #    key: ""
+      #    deviceID:
+      output:
+        api:
+          enabled: true
+          # IPv4 or IPv6 address to listen on
+          # uses all available interfaces if omitted
+          ip: 0.0.0.0
+          port: 17365
+
+
+
+# Dependency Charts
+# https://github.com/bitnami/charts/blob/master/bitnami/mongodb/values.yaml
+mongodb:
+  service:
+    type: ClusterIP
+  architecture: standalone
+  auth:
+    rootPassword: "zenbot"
+    username: zenbot
+    password: zenbot
+    database: zenbot
+
+  persistence:
+    enabled: true
+    # existingClaim: "-"
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 8Gi
+    # mountPath: /bitnami/mongodb

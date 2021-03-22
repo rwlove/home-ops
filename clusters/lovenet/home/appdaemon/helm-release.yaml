@@ -1,0 +1,65 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: appdaemon
+  namespace: home
+spec:
+  interval: 5m
+  chart:
+    spec:
+      # renovate: registryUrl=https://k8s-at-home.com/charts/
+      chart: appdaemon
+      version: 3.2.1
+      sourceRef:
+        kind: HelmRepository
+        name: k8s-at-home-charts
+        namespace: flux-system
+      interval: 5m
+  values:
+    #
+    # IMPORTANT NOTE
+    #
+    # This chart inherits from our common library chart. You can check the default values/options here:
+    # https://github.com/k8s-at-home/charts/tree/master/charts/common/values.yaml
+    #
+
+    # Use our own image at https://github.com/k8s-at-home/container-images/tree/main/appdaemon
+    # until https://github.com/AppDaemon/appdaemon/pull/1002 is merged
+    image:
+      repository: k8sathome/appdaemon
+      pullPolicy: IfNotPresent
+      tag: v4.0.5
+
+    strategy:
+      type: Recreate
+
+    # Environment variables that can be configure can be seen at
+    # https://appdaemon.readthedocs.io/en/latest/DOCKER_TUTORIAL.html
+    env:
+      TZ:  "America/New_York"
+      # LATITUDE:
+      # LONGITUDE:
+      # ELEVATION:
+      # HA_URL:
+      # DASH_URL:
+      # TOKEN:
+
+    ingress:
+      enabled: false
+
+    service:
+      type: LoadBalancer
+      loadBalancerIP: 192.168.6.5
+      port:
+        port: 5050
+
+    persistence:
+      config:
+	enabled: true
+	emptyDir: false
+	storageClass: "appdaemon-config-storage-class"
+	accessMode: ReadWriteOnce
+	size: 1Gi
+	skipuninstall: false
+	# existingClaim: ""

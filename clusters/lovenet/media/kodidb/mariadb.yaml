@@ -1,0 +1,46 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kodidb
+  namespace: media
+spec:
+  ports:
+  - port: 3306
+  selector:
+    app: kodidb
+  type: LoadBalancer
+  externalIPs:
+  - 192.168.99.6
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kodidb
+  namespace: media
+spec:
+  selector:
+    matchLabels:
+      app: kodidb
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: kodidb
+    spec:
+      containers:
+      - image: arm64v8/mariadb:10.5.9
+        name: kodidb
+        envFrom:
+        - secretRef:
+            name: mysql-env
+        ports:
+        - containerPort: 3306
+          name: mysql
+        volumeMounts:
+        - name: kodidb-persistent-storage
+          mountPath: /var/lib/mysql
+      volumes:
+      - name: kodidb-persistent-storage
+        persistentVolumeClaim:
+          claimName: kodidb-pvc

@@ -26,28 +26,25 @@ spec:
         port: 80
       loadBalancerIP: 192.168.6.6
       externalPort: 80
-    rbac:
-      # Specifies whether namespaced RBAC resources (Role, Rolebinding) should be created
-      create: true
-      clusterRoleMetrics: true
-      clusterReadOnlyRole: false
-    serviceAccount:
-      # Specifies whether a service account should be created
-      create: true
-      name: kubernetes-dashboard
-    podSecurityPolicy:
-      # Specifies whether a pod security policy should be created
-      enabled: false
-    extraVolumes:
-    - name: dashboard-kubeconfig
-      secret:
-        defaultMode: 420
-        secretName: dashboard-kubeconfig
-    extraVolumeMounts: []
-    - mountPath: /kubeconfig
-      name: dashboard-kubeconfig
-      readOnly: true
-  valuesFrom:
-    - kind: Secret
-      name: "dashboard-helm-values"
-      optional: false
+    extraArgs:
+      - --enable-skip-login
+      - --disable-settings-authorizer
+      - --enable-insecure-login
+    metricsScraper:
+      enabled: true
+---
+# kubectl get serviceaccount | grep dash
+# kubectl create clusterrolebinding dashboard-admin-sa --clusterrole=cluster-admin --serviceaccount=system:kubernetes-dashboard
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: system-kubernetes-dashboard
+  namespace: home
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: system-kubernetes-dashboard
+    namespace: home

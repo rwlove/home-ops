@@ -10,48 +10,36 @@ spec:
     spec:
       # renovate: registryUrl=https://grafana.github.io/helm-charts
       chart: grafana
-      version: 6.6.4
+      version: 6.7.3
       sourceRef:
         kind: HelmRepository
         name: grafana-charts
         namespace: flux-system
       interval: 5m
   values:
-    image:
-      repository: grafana/grafana
-      tag: 7.0.4
     deploymentStrategy:
       type: Recreate
-    podAnnotations:
-      backup.velero.io/backup-volumes: storage
-      configmap.reloader.stakater.com/reload: "grafana"
-    persistence:
-      enabled: true
-      storageClassName: "grafana-storage-class"
-      size: 10Gi
-      accessModes:
-      - ReadWriteOnce
     env:
       GF_EXPLORE_ENABLED: true
-      GF_DISABLE_SANITIZE_HTML: true
       GF_PANELS_DISABLE_SANITIZE_HTML: true
       GF_LOG_FILTERS: rendering:debug
-    ingress:
-      enabled: false
-    service:
-      type: LoadBalancer
-      loadBalancerIP: 192.168.6.9
-      ports:
-      - port: 3000
-    plugins:
-    - natel-discrete-panel
-    - pr0ps-trackmap-panel
-    - grafana-piechart-panel
-    - grafana-clock-panel
-    - vonage-status-panel
-    - https://github.com/panodata/grafana-map-panel/releases/download/0.15.0/grafana-map-panel-0.15.0.zip;grafana-worldmap-panel-ng
-    serviceMonitor:
-      enabled: true
+      VAR_BLOCKY_URL: "http://blocky.networking.svc.cluster.local:4000"
+    grafana.ini:
+      server:
+        root_url: "https://grafana.devbu.io"
+      paths:
+        data: /var/lib/grafana/data
+        logs: /var/log/grafana
+        plugins: /var/lib/grafana/plugins
+        provisioning: /etc/grafana/provisioning
+      analytics:
+        check_for_updates: false
+      log:
+        mode: console
+      grafana_net:
+        url: https://grafana.net
+      auth.basic:
+        disable_login_form: false
     dashboardProviders:
       dashboardproviders.yaml:
         apiVersion: 1
@@ -61,20 +49,29 @@ spec:
           folder: ''
           type: file
           disableDeletion: false
-          allowUiUpdates: true
+          editable: true
           options:
             path: /var/lib/grafana/dashboards/default
+    datasources:
+      datasources.yaml:
+        apiVersion: 1
+        datasources:
+        - name: Prometheus
+          type: prometheus
+          url: http://prometheus-operated:9090
+          access: proxy
+          isDefault: true
+        - name: Loki
+          type: loki
+          access: proxy
+          url: http://loki:3100
     dashboards:
       default:
-        1-node-exporter:
-          url: https://grafana.com/api/dashboards/11074/revisions/9/download
+        # Ref: https://grafana.com/grafana/dashboards/12175
+        calico-felix:
+          gnetId: 12175
+          revision: 5
           datasource: Prometheus
-        blocky:
-          url: https://raw.githubusercontent.com/0xERR0R/blocky/v0.13/docs/blocky-grafana.json
-          datasource: Prometheus
-        cable-modem-stats:
-          url: https://raw.githubusercontent.com/billimek/k8s-gitops/master/monitoring/grafana/dashboards/cable_modem_stats.json
-          # datasource: cable_modem_stats
         # Ref: https://grafana.com/grafana/dashboards/2842
         ceph-cluster:
           gnetId: 2842
@@ -90,39 +87,6 @@ spec:
           gnetId: 5342
           revision: 5
           datasource: Prometheus
-        comcast-sucks:
-          url: https://raw.githubusercontent.com/billimek/k8s-gitops/master/monitoring/grafana/dashboards/comcast_sucks.json
-          # datasource: influxdb
-        flux-cluster:
-          url: https://raw.githubusercontent.com/fluxcd/flux2/v0.7.6/manifests/monitoring/grafana/dashboards/cluster.json
-          datasource: Prometheus
-        flux-control-plane:
-          url: https://raw.githubusercontent.com/fluxcd/flux2/v0.7.6/manifests/monitoring/grafana/dashboards/control-plane.json
-          datasource: Prometheus
-        # frigate:
-        #   url: https://raw.githubusercontent.com/billimek/k8s-gitops/master/monitoring/grafana/dashboards/frigate.json
-        #   datasource: influxdb
-        home-assistant:
-          url: https://raw.githubusercontent.com/billimek/k8s-gitops/master/monitoring/grafana/dashboards/home_assistant.json
-          datasource: home_assistant
-        internet-speed:
-          url: https://raw.githubusercontent.com/billimek/k8s-gitops/master/monitoring/grafana/dashboards/internet_speed.json
-          datasource: Prometheus
-        minio-overview:
-          url: https://raw.githubusercontent.com/billimek/k8s-gitops/master/monitoring/grafana/dashboards/minio_overview.json
-          datasource: Prometheus
-        nginx-dashboard:
-          url: https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/grafana/dashboards/nginx.json
-          datasource: Prometheus
-        node-exporter-full:
-          url: https://raw.githubusercontent.com/billimek/k8s-gitops/master/monitoring/grafana/dashboards/node_exporter_full.json
-          datasource: Prometheus
-        prometheus-exporter-summary:
-          url: https://raw.githubusercontent.com/billimek/k8s-gitops/master/monitoring/grafana/dashboards/prometheus_exporter_summary.json
-          datasource: Prometheus
-        TrueNAS:
-          url: https://grafana.com/api/dashboards/12921/revisions/1/download
-          datasource: TrueNAS
         # Ref: https://grafana.com/grafana/dashboards/11315
         unifi-client-insights:
           gnetId: 11315
@@ -143,109 +107,66 @@ spec:
           gnetId: 11312
           revision: 8
           datasource: Prometheus
-        ups:
-          url: https://raw.githubusercontent.com/billimek/k8s-gitops/master/monitoring/grafana/dashboards/ups.json
+        flux-cluster:
+          url: https://raw.githubusercontent.com/fluxcd/flux2/main/manifests/monitoring/grafana/dashboards/cluster.json
           datasource: Prometheus
-        uptimerobot:
-          url: https://raw.githubusercontent.com/lekpamartin/uptimerobot_exporter/master/dashboards/grafana.json
+        flux-control-plane:
+          url: https://raw.githubusercontent.com/fluxcd/flux2/main/manifests/monitoring/grafana/dashboards/control-plane.json
           datasource: Prometheus
         vernemq:
           url: https://raw.githubusercontent.com/vernemq/vernemq/master/metrics_scripts/grafana/VerneMQ%20Node%20Metrics.json
           datasource: Prometheus
-        velero:
-          url: https://grafana.com/api/dashboards/11055/revisions/2/download
+        nginx-dashboard:
+          url: https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/grafana/dashboards/nginx.json
           datasource: Prometheus
-        windows-node:
-          url: https://raw.githubusercontent.com/billimek/k8s-gitops/master/monitoring/grafana/dashboards/windows_node.json
+        blocky:
+          url: https://raw.githubusercontent.com/0xERR0R/blocky/master/docs/blocky-grafana.json
+          datasource: Prometheus
+        apc-smart-ups-1500:
+          url: https://raw.githubusercontent.com/k8s-at-home/grafana-dashboards/main/apc-smart-ups-1500-snmp.json
+          datasource: Prometheus
+        cyberpower-pdu41001:
+          url: https://raw.githubusercontent.com/k8s-at-home/grafana-dashboards/main/cyberpower-pdu41001-snmp.json
+          datasource: Prometheus
+        lidarr:
+          url: https://raw.githubusercontent.com/k8s-at-home/grafana-dashboards/main/lidarr.json
+          datasource: Prometheus
+        radarr:
+          url: https://raw.githubusercontent.com/k8s-at-home/grafana-dashboards/main/radarr.json
+          datasource: Prometheus
+        sonarr:
+          url: https://raw.githubusercontent.com/k8s-at-home/grafana-dashboards/main/sonarr.json
           datasource: Prometheus
     sidecar:
-      datasources:
-        enabled: true
-        searchNamespace: ALL
-        # defaultDatasourceEnabled: false
       dashboards:
         enabled: true
         searchNamespace: ALL
-    datasources:
-      datasources.yaml:
-        apiVersion: 1
-        # list of datasources that should be deleted from the database
-        deleteDatasources:
-        - name: Loki
-          orgId: 1
-        datasources:
-        - name: Prometheus
-          type: prometheus
-          access: proxy
-          url: http://thanos-query-http:10902/
-          isDefault: true
-        - name: loki
-          type: loki
-          access: proxy
-          url: http://loki.logs.svc.cluster.local:3100
-        - name: influxdb
-          type: influxdb
-          access: proxy
-          url: http://influxdb:8086
-          database: telegraf
-        - name: cable_modem_stats
-          type: influxdb
-          access: proxy
-          url: http://influxdb:8086
-          database: cable_modem_stats
-        - name: comcast
-          type: influxdb
-          access: proxy
-          url: http://influxdb:8086
-          database: comcast
-        - name: home_assistant
-          type: influxdb
-          access: proxy
-          url: http://influxdb:8086
-          database: home_assistant
-        - name: speedtests
-          type: influxdb
-          access: proxy
-          url: http://influxdb:8086
-          database: speedtests
-        - name: uptimerobot
-          type: influxdb
-          access: proxy
-          url: http://influxdb:8086
-          database: uptimerobot
-        - name: TeslaMate
-          type: postgres
-          access: proxy
-          url: teslamate-postgresql.default.svc.cluster.local:5432
-          database: teslamate
-          user: teslamate
-          password: "$TESLAMATE_DB_PASSWORD"
-          jsonData:
-            postgresVersion: 1100
-            sslmode: disable
-        - name: TrueNAS
-          type: influxdb
-          access: proxy
-          url: http://influxdb:8086
-          database: graphitedb
-    grafana.ini:
-      server:
-        root_url: "https://grafana.eviljungle.com"
-      # security:
-      #   admin_user: jeff@billimek.com
-      paths:
-        data: /var/lib/grafana/data
-        logs: /var/log/grafana
-        plugins: /var/lib/grafana/plugins
-        provisioning: /etc/grafana/provisioning
-      analytics:
-        check_for_updates: false
-      log:
-        mode: console
-      grafana_net:
-        url: https://grafana.net
-      auth.basic:
-        disable_login_form: true
+      datasources:
+        enabled: true
+        searchNamespace: ALL
+    plugins:
+    - natel-discrete-panel
+    - pr0ps-trackmap-panel
+    - grafana-piechart-panel
+    - vonage-status-panel
+    - grafana-worldmap-panel
+    - grafana-clock-panel
+    serviceMonitor:
+      enabled: true
+    ingress:
+      enabled: false
+    service:
+      type: LoadBalancer
+      loadBalancerIP: 192.168.6.9
+    persistence:
+      enabled: true
+      storageClassName: "grafana-storage-class"
+      size: 10Gi
+      accessModes:
+      - ReadWriteOnce
+    podAnnotations:
+      configmap.reloader.stakater.com/reload: "grafana"
   valuesFrom:
   - kind: Secret
     name: "grafana-helm-values"
+

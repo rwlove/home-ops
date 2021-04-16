@@ -1,0 +1,104 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: kanboard
+  namespace: home
+spec:
+  interval: 5m
+  chart:
+    spec:
+      # renovate: registryUrl=https://k8s-at-home.com/charts/
+      chart: kanboard
+      version: 2.2.0
+      sourceRef:
+        kind: HelmRepository
+        name: k8s-at-home-charts
+        namespace: flux-system
+      interval: 5m
+  values:
+    image:
+      repository: kanboard/kanboard
+      pullPolicy: IfNotPresent
+      tag: v1.2.18
+    strategy:
+      type: Recreate
+    # -- https://docs.kanboard.org/en/latest/admin_guide/docker.html#environment-variables
+    env: {}
+    service:
+      type: LoadBalancer
+      loadBalancerIP: 192.168.6.21    
+      port:
+	port: 80
+    ingress:
+      enabled: false
+    persistence:
+      data:
+	enabled: true
+	emptyDir:
+	  enabled: false
+        storageClass: "kanboard-data-storage-class"
+	mountPath: /var/www/app/data
+	accessMode: ReadWriteOnce
+	size: 1Gi
+      # -- enable SSL persistence
+      ssl:
+	enabled: false
+	emptyDir:
+	  enabled: false
+	mountPath: /etc/nginx/ssl
+    # https://docs.kanboard.org/en/latest/admin_guide/config_file.htm
+    config:
+      debug: false
+      urlRewrite: false
+      plugins:
+	# -- Enable/disable plugin installation from the user interface
+	installer: false
+	# -- Plugin folder
+	dir: 'data/plugins'
+	api:
+	  # -- default plugin directory URL
+	  url: 'https://kanboard.org/plugins.json'
+      files:
+	# -- Folder for uploaded files
+	dir: 'data/files'
+      cache:
+	# -- Available cache drivers are "file" and "memory"
+	driver: 'memory'
+	# -- Cache folder to use if cache driver is "file"
+	dir: null
+      mail:
+	# -- Enable/disable email configuration from the user interface
+	enabled: false
+	from: 'notifications@kanboard.local'
+	bcc: null
+      db:
+	# -- Run automatically database migrations
+	runMigrations: true
+	# -- Database driver: sqlite, mysql or postgres
+	driver: sqlite
+
+      logging:
+	# -- log driver: syslog, stderr, stdout or file
+	driver: stdout
+
+      session:
+	# -- Session duration in second (0 = until the browser is closed)
+	duration: 0
+	# -- Session handler: db or php
+	handler: db
+
+    # -- Bitnami postgres chart. For more options see https://github.com/bitnami/charts/tree/master/bitnami/postgresql
+    postgresql:
+      # -- true: use bitnami postgres instance
+      # -- false: use your own postgres instance
+      enabled: true
+      # -- Postgres database user name
+      postgresqlUsername: kanboard
+      # -- Postgres database password
+      postgresqlPassword: kanboard
+      # -- Postgres database password
+      postgresqlDatabase: kanboard
+      persistence:
+	enabled: true
+	storageClass: "kanboard-postgresql-storage-class"

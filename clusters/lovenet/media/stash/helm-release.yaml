@@ -1,0 +1,51 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: stash
+  namespace: media
+spec:
+  interval: 5m
+  chart:
+    spec:
+      # renovate: registryUrl=https://k8s-at-home.com/charts/
+      chart: stash
+      version: 1.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: k8s-at-home-charts
+        namespace: flux-system
+  values:
+    image:
+      repository: stashapp/stash
+      pullPolicy: IfNotPresent
+      tag: latest@sha256:24dbd76071745be0c4e75f730aa7ac2b37cb2b2918eabf8559643196b3b7a64a
+    strategy:
+      type: Recreate
+    # # See more environment variables in the stash documentation
+    # https://raw.githubusercontent.com/stashapp/stash/master/docker/production/docker-compose.yml
+    env: {}
+      # STASH_STASH:
+      # STASH_GENERATED:
+      # STASH_METADATA:
+      # STASH_CACHE:
+    service:
+      type: LoadBalancer
+      loadBalancerIP: 192.168.6.61      
+      port:
+        port: 9999
+    ingress:
+      enabled: false
+    persistence:
+      config:
+        enabled: true
+        mountPath: /root/.stash
+        storageClass: stash-config-storage-class
+        accessMode: ReadWriteOnce
+        size: 1Gi
+      media:
+        enabled: true
+        storageClass: stash-media-storage-class
+        accessMode: ReadWriteMany
+        size: 1Gi
+        mountPath: /media

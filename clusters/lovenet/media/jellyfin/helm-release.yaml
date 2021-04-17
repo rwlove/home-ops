@@ -1,0 +1,53 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: jellyfin
+  namespace: media
+spec:
+  interval: 5m
+  chart:
+    spec:
+      # renovate: registryUrl=https://k8s-at-home.com/charts/
+      chart: jellyfin
+      version: 7.2.0
+      sourceRef:
+        kind: HelmRepository
+        name: k8s-at-home-charts
+        namespace: flux-system
+  values:
+    image:
+      repository: jellyfin/jellyfin
+      tag: 10.7.2
+    env:
+      TZ: "America/New_York"
+      JELLYFIN_CACHE_DIR: "/config/cache"
+    podSecurityContext:
+      supplementalGroups:
+      - 1001
+    service:
+      enabled: true
+      type: LoadBalancer
+      port:
+        port: 8096
+      loadBalancerIP: 192.168.6.41
+    ingress:
+      enabled: false
+    persistence:
+      config:
+        enabled: true
+        mountPath: /config
+        storageClass: jellyfin-config-storage-class
+        accessMode: ReadWriteOnce
+        size: 1Gi
+      media:
+        enabled: true
+        mountPath: /media
+        storageClass: jellyfin-media-storage-class
+        accessMode: ReadWriteMany
+        size: 300Gi
+      transcode:
+        enabled: true
+        emptyDir:
+          enabled: true
+          medium: "Memory"

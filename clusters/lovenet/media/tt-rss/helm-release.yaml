@@ -1,0 +1,145 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: tt-rss
+  namespace: media
+spec:
+  interval: 5m
+  chart:
+    spec:
+      # renovate: registryUrl=https://k8s-at-home.com/charts/
+      chart: tt-rss
+      version: 2.3.1
+      sourceRef:
+        kind: HelmRepository
+        name: k8s-at-home-charts
+        namespace: flux-system
+      interval: 5m
+  values:
+    image:
+      repository: ghcr.io/k8s-at-home/tt-rss
+      pullPolicy: IfNotPresent
+      tag: v1.8723.0
+    strategy:
+      type: Recreate
+    # See more environment variables in the tt-rss documentation
+    # https://git.tt-rss.org/fox/tt-rss/src/branch/master/classes/config.php#L9
+    env:
+      # -- External URL you use to connect to the RSS (the one you enter in your browser)
+      TTRSS_SELF_URL_PATH: "rss"
+      # -- Postgres database hostname
+      # @default -- internal postgresql URL
+      #TTRSS_DB_HOST: ""
+      # -- Postgres database port.
+      #TTRSS_DB_PORT: "5432"
+      # -- Postgres database user name
+      # @default -- postgresql.postgresqlUsername value
+      #TTRSS_DB_USER: ""
+      # -- Postgres database password
+      # @default -- postgresql.postgresqlPassword value
+      #TTRSS_DB_PASS: ""
+      # -- Postgres database password
+      # @default -- postgresql.postgresqlDatabase value
+      #TTRSS_DB_NAME: ""
+    service:
+      type: LoadBalancer
+      loadBalancerIP: 192.168.6.64
+      port:
+	port: 8080
+
+    ingress:
+      enabled: false
+
+    probes:
+      startup:
+	enabled: true
+
+    # -- Bitnami postgres chart. For more options see https://github.com/bitnami/charts/tree/master/bitnami/postgresql
+    # @default -- see bellow
+    postgresql:
+      # -- By default uses an internal postgress. Dissable if you use your own Postgres.
+      enabled: true
+      # -- Postgres database user name
+      postgresqlUsername: postgres
+      # -- Postgres database password
+      postgresqlPassword: "changeme"
+      # -- Postgres database password
+      postgresqlDatabase: tt-rss
+      persistence:
+	enabled: true
+	# storageClass: ""
+        storageClass: tt-rss-config-storage-class
+        accessMode: ReadWriteOnce
+        size: 1Gi
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+controllerType: deployment
+    image:
+      repository: ghcr.io/k8s-at-home/radarr
+      tag: v3.0.2.4552
+    podSecurityContext:
+      runAsUser: 1000
+      runAsGroup: 1001
+    probes:
+      liveness:
+        enabled: false
+      readiness:
+        enabled: false
+      startup:
+        enabled: false
+    env:
+      TZ: "America/New_York"
+      PUID: 1000
+      PGID: 1001
+    service:
+      type: LoadBalancer
+      loadBalancerIP: 192.168.6.28
+      port:
+        port: 7878
+    ingress:
+      enabled: false
+    persistence:
+      config:
+        enabled: true
+        storageClass: "radarr-config-storage-class"
+        accessMode: ReadWriteOnce
+        size: 1Gi
+        ## Do not delete the pvc upon helm uninstall
+        skipuninstall: false
+      media:
+        enabled: true
+        storageClass: "movies-storage-class"
+        accessMode: ReadWriteMany
+        size: 10Gi
+        ## Do not delete the pvc upon helm uninstall
+        skipuninstall: false
+    additionalVolumeMounts:
+      - name: qbittorrent-downloads
+        mountPath: "/downloads"
+    additionalVolumes:
+      - name: qbittorrent-downloads
+        persistentVolumeClaim:
+          claimName: radarr-qbittorrent-downloads-pvc
+    podAnnotations:
+      backup.velero.io/backup-volumes: config
+    resources:
+      requests:
+        memory: 250Mi
+        cpu: 500m
+      limits:
+        memory: 1500Mi

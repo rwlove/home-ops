@@ -10,3 +10,6 @@ envsubst < ./tmpl/cluster-settings.yaml > ./clusters/lovenet/base/cluster-settin
 envsubst < ./tmpl/gotk-sync.yaml > ./clusters/lovenet/base/flux-system/gotk-sync.yaml
 
 sops --encrypt --in-place ./clusters/lovenet/base/cluster-secrets.yaml
+
+sops --encrypt ./clusters/lovenet/core/monitoring/grafana/tmpl/helm-values.yaml > ./clusters/lovenet/core/monitoring/grafana/grafana-helm-values.yaml
+sops --encrypt ./clusters/lovenet/core/monitoring/prometheus/tmpl/prometheus-helm-values.yaml > ./clusters/lovenet/core/monitoring/prometheus/prometheus-helm-values.yaml

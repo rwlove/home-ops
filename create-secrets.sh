@@ -9,8 +9,8 @@ envsubst < ./tmpl/cluster-secrets.yaml > ./clusters/lovenet/base/cluster-secrets
 envsubst < ./tmpl/cluster-settings.yaml > ./clusters/lovenet/base/cluster-settings.yaml
 envsubst < ./tmpl/gotk-sync.yaml > ./clusters/lovenet/base/flux-system/gotk-sync.yaml
 envsubst < ./clusters/lovenet/apps/home/home-assistant/tmpl/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/home-assistant/secrets.yaml
-envsubst < ./clusters/lovenet/core/notifications/github/tmpl/secrets-tmpl.yaml > ./clusters/lovenet/core/notifications/github/tmpl/secrets.yaml
-envsubst < ./clusters/lovenet/core/webhook/github/tmpl/secrets-tmpl.yaml > ./clusters/lovenet/core/webhook/github/tmpl/secrets.yaml
+envsubst < ./clusters/lovenet/core/notifications/github/tmpl/secrets-tmpl.yaml > ./clusters/lovenet/core/notifications/github/secrets.yaml
+envsubst < ./clusters/lovenet/core/webhook/github/tmpl/secrets-tmpl.yaml > ./clusters/lovenet/core/webhook/github/secrets.yaml
 
 sops --encrypt ./clusters/lovenet/apps/media/kodidb/tmpl/secrets-tmpl.yaml           > ./clusters/lovenet/apps/media/kodidb/secrets.yaml
 sops --encrypt ./clusters/lovenet/apps/media/kodidb/tmpl/mysql-env-secrets-tmpl.yaml > ./clusters/lovenet/apps/media/kodidb/mysql-env.secret.yaml

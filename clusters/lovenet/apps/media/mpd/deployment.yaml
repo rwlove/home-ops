@@ -1,0 +1,52 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mpd
+  namespace: media
+spec:
+  selector:
+    matchLabels:
+      app: mpd
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: mpd
+    spec:
+      containers:
+        - image: vimagick/mpd
+          name: mpd
+          env:
+            - name: TZ
+              value: "America/New_York"
+          ports:
+            - name: mpris
+              containerPort: 6600
+              protocol: TCP
+            - name: stream
+              containerPort: 8800
+              protocol: TCP
+          volumeMounts:
+            - name: mpd-config
+              mountPath: /root/.config
+            - name: mpd-music
+              mountPath: /var/lib/mpd/music
+            - name: mpd-playlists
+              mountPath: /var/lib/mpd/playlists
+      volumes:
+        - name: mpd-config
+          nfs:
+            server: brain.thesteamedcrab.com
+            path: /mnt/kubernetes/mpd/config
+        - name: mpd-music
+          nfs:
+            server: brain.thesteamedcrab.com
+            path: /mnt/mass_storage/storage/MP3s
+        - name: mpd-playlists
+          nfs:
+            server: brain.thesteamedcrab.com
+            path: /mnt/kubernetes/mpd/playlists
+      nodeSelector:
+        feature.node.kubernetes.io/custom-usb-bt: "true"

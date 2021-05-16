@@ -20,14 +20,32 @@ spec:
     image:
       registry: docker.io
       repository: bitnami/owncloud
-      tag: 10.6.0-debian-10-r71
+      tag: 10.7.0-debian-10-r26
       pullPolicy: IfNotPresent
       debug: true
+
+    ## Deployment pod host aliases
+    ## https://kubernetes.io/docs/concepts/services-networking/add-entries-to-pod-etc-hosts-with-host-aliases/
+    ##
+    hostAliases:
+      # Necessary for apache-exporter to work
+      - ip: "127.0.0.1"
+        hostnames:
+          - "status.localhost"
+
+    ## Number of replicas (requires ReadWriteMany PVC support)
+    ##
+    replicaCount: 1
+
+    ## Skip ownCloud installation wizard. Useful for migrations and restoring from SQL dump
+    ## ref: https://github.com/bitnami/bitnami-docker-owncloud#configuration
+    ##
+    owncloudSkipInstall: false
 
     ## ownCloud host to create application URLs
     ## ref: https://github.com/bitnami/bitnami-docker-owncloud#configuration
     ##
-    #owncloudHost:
+    # owncloudHost:
 
     ## User of the application
     ## ref: https://github.com/bitnami/bitnami-docker-owncloud#configuration
@@ -71,19 +89,22 @@ spec:
         username: bn_owncloud
         password: "password"
 
-      master:
+      primary:
         persistence:
           enabled: true
           storageClass: owncloud-mariadb-storage-class
           accessMode: ReadWriteOnce
           size: 8Gi
 
+    containerPorts:
+      http: 8080
+      https: 8443
+
     service:
       type: LoadBalancer
       loadBalancerIP: 192.168.6.49
-      ports:
-        - port: 8080
-        - port: 8443
+      port: 8080
+      httpsPort: 8443
 
     persistence:
       enabled: true
@@ -97,7 +118,49 @@ spec:
     resources:
       requests:
         memory: 512Mi
-        cpu: 300m
+        cpu: Configure
+
+    ## 300 Pods Security Context
+    ## ref: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/#set-the-security-context-for-a-pod
+    ##
+    podSecurityContext:
+      enabled: true
+      fsGroup: 1001
+
+    ## Configure Container Security Context (only main container)
+    ## ref: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/#set-the-security-context-for-a-container
+    ##
+    containerSecurityContext:
+      enabled: true
+      runAsUser: 1001
+
+    ## Configure extra options for liveness, readiness and startup probes
+    ## ref: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/#configure-probes
+    ##
+    livenessProbe:
+      enabled: true
+      path: /status.php
+      initialDelaySeconds: 120
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
+      successThreshold: 1
+    readinessProbe:
+      enabled: true
+      path: /status.php
+      initialDelaySeconds: 30
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 6
+      successThreshold: 1
+    startupProbe:
+      enabled: false
+      path: /status.php
+      initialDelaySeconds: 0
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 60
+      successThreshold: 1
 
     ## Prometheus Exporter / Metrics
     ##

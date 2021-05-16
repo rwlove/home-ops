@@ -24,26 +24,10 @@ spec:
       pullPolicy: IfNotPresent
       debug: true
 
-    ## Deployment pod host aliases
-    ## https://kubernetes.io/docs/concepts/services-networking/add-entries-to-pod-etc-hosts-with-host-aliases/
-    ##
-    hostAliases:
-      # Necessary for apache-exporter to work
-      - ip: "127.0.0.1"
-        hostnames:
-          - "status.localhost"
-
-    replicaCount: 1
-
-    ## Skip ownCloud installation wizard. Useful for migrations and restoring from SQL dump
-    ## ref: https://github.com/bitnami/bitnami-docker-owncloud#configuration
-    ##
-    owncloudSkipInstall: false
-
     ## ownCloud host to create application URLs
     ## ref: https://github.com/bitnami/bitnami-docker-owncloud#configuration
     ##
-    owncloudHost:
+    #owncloudHost:
 
     ## User of the application
     ## ref: https://github.com/bitnami/bitnami-docker-owncloud#configuration
@@ -64,7 +48,7 @@ spec:
     ## Set to `yes` to allow the container to be started with blank passwords
     ## ref: https://github.com/bitnami/bitnami-docker-owncloud#environment-variables
     ##
-    allowEmptyPassword: false
+    allowEmptyPassword: "yes"
 
     updateStrategy:
       type: RollingUpdate
@@ -94,10 +78,6 @@ spec:
           accessMode: ReadWriteOnce
           size: 8Gi
 
-    containerPorts:
-      http: 8080
-      https: 8443
-
     service:
       type: LoadBalancer
       loadBalancerIP: 192.168.6.49
@@ -111,69 +91,18 @@ spec:
       accessMode: ReadWriteOnce
       size: 8Gi
 
-    ## Pod anti-affinity preset
-    ## Ref: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#inter-pod-affinity-and-anti-affinity
-    ## Allowed values: soft, hard
+    ## Configure resource requests and limits
+    ## ref: http://kubernetes.io/docs/user-guide/compute-resources/
     ##
-    podAntiAffinityPreset: soft
-
-    ## Init containers parameters:
-    ## volumePermissions: Change the owner and group of the persistent volume mountpoint to runAsUser:fsGroup values from the securityContext section.
-    ##
-    volumePermissions:
-      enabled: false
-      image:
-        registry: docker.io
-        repository: bitnami/bitnami-shell
-        tag: "10"
-        pullPolicy: Always
-
-    ## Configure Pods Security Context
-    ## ref: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/#set-the-security-context-for-a-pod
-    ##
-    podSecurityContext:
-      enabled: true
-      fsGroup: 1001
-
-    ## Configure Container Security Context (only main container)
-    ## ref: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/#set-the-security-context-for-a-container
-    ##
-    containerSecurityContext:
-      enabled: true
-      runAsUser: 1001
-
-    ## Configure extra options for liveness, readiness and startup probes
-    ## ref: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/#configure-probes
-    ##
-    livenessProbe:
-      enabled: true
-      path: /status.php
-      initialDelaySeconds: 120
-      periodSeconds: 10
-      timeoutSeconds: 5
-      failureThreshold: 6
-      successThreshold: 1
-    readinessProbe:
-      enabled: true
-      path: /status.php
-      initialDelaySeconds: 30
-      periodSeconds: 5
-      timeoutSeconds: 3
-      failureThreshold: 6
-      successThreshold: 1
-    startupProbe:
-      enabled: false
-      path: /status.php
-      initialDelaySeconds: 0
-      periodSeconds: 10
-      timeoutSeconds: 3
-      failureThreshold: 60
-      successThreshold: 1
+    resources:
+      requests:
+        memory: 512Mi
+        cpu: 300m
 
     ## Prometheus Exporter / Metrics
     ##
     metrics:
-      enabled: false
+      enabled: true
       image:
         registry: docker.io
         repository: bitnami/apache-exporter
@@ -192,40 +121,3 @@ spec:
         annotations:
           prometheus.io/scrape: "true"
           prometheus.io/port: "{{ .Values.metrics.service.port }}"
-
-    # Add custom certificates and certificate authorities to ownCloud container
-    certificates:
-      customCertificate:
-        certificateSecret: ""
-        chainSecret: {}
-        # name: secret-name
-        # key: secret-key
-        certificateLocation: /etc/ssl/certs/ssl-cert-snakeoil.pem
-        keyLocation: /etc/ssl/private/ssl-cert-snakeoil.key
-        chainLocation: /etc/ssl/certs/mychain.pem
-      customCAs: []
-      ## Override container command
-      ##
-      command:
-      ## Override container args
-      ##
-      args:
-      # - secret: custom-CA
-      # - secret: more-custom-CAs
-      ## An array to add extra env vars
-      ##
-      extraEnvVars: []
-
-      ## ConfigMap with extra environment variables
-      ##
-      extraEnvVarsCM:
-
-      ## Secret with extra environment variables
-      ##
-      extraEnvVarsSecret:
-
-      image:
-        registry: docker.io
-        repository: bitnami/bitnami-shell
-        tag: "10"
-        pullPolicy: IfNotPresent

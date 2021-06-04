@@ -1,0 +1,89 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: bazarr
+  namespace: media
+spec:
+  interval: 5m
+  chart:
+    spec:
+      # renovate: registryUrl=https://k8s-at-home.com/charts/
+      chart: bazarr
+      version: v0.9.4
+      sourceRef:
+        kind: HelmRepository
+        name: k8s-at-home-charts
+        namespace: flux-system
+      interval: 5m
+  values:
+    controllerType: deployment
+    image:
+      repository: ghcr.io/k8s-at-home/bazarr
+      tag: v3.2.2.5080
+    podSecurityContext:
+      runAsUser: 1000
+      runAsGroup: 1001
+    probes:
+      liveness:
+        enabled: false
+      readiness:
+        enabled: false
+      startup:
+        enabled: false
+    env:
+      TZ: "America/New_York"
+      PUID: 1000
+      PGID: 1001
+    service:
+      type: LoadBalancer
+      loadBalancerIP: 192.168.6.69
+      port:
+        port: 6767
+    ingress:
+      enabled: false
+    persistence:
+      config:
+        enabled: true
+        storageClass: "bazarr-config-storage-class"
+        accessMode: ReadWriteOnce
+        size: 1Gi
+      media:
+        enabled: true
+        storageClass: "bazarr-media-storage-class"
+        accessMode: ReadWriteMany
+        size: 10Gi
+    resources:
+      requests:
+        memory: 250Mi
+        cpu: 1
+      limits:
+        memory: 1500Mi
+    prometheus:
+      podMonitor:
+        enabled: true
+        interval: 3m
+        scrapeTimeout: 1m30s
+    additionalContainers:
+      - name: exportarr
+        image: ghcr.io/onedr0p/exportarr:v0.6.0
+        imagePullPolicy: IfNotPresent
+        args: ["exportarr", "bazarr"]
+        env:
+          - name: PORT
+            value: "32123"
+          - name: URL
+            value: "http://localhost"
+          - name: CONFIG
+            value: "/config/config.xml"
+          - name: ENABLE_UNKNOWN_QUEUE_ITEMS
+            value: "true"
+          - name: ENABLE_ADDITIONAL_METRICS
+            value: "true"
+        ports:
+          - name: exportarr
+            containerPort: 32123
+        volumeMounts:
+          - name: config
+            mountPath: /config
+            readOnly: true

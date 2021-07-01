@@ -22,3 +22,8 @@ This is the configuration for my home Kubernetes cluster. It's based on the incr
 | worker5   | Virtual Machine | 2   | 32 GB  | k8s Worker |
 | worker6   | Virtual Machine | 2   | 32 GB  | k8s Worker |
 | worker7   | Virtual Machine | 2   | 32 GB  | k8s Worker |
+
+## Upgrades
+### Flux
+do not bootstrap, after initial bootstrap, as it use as it overwrites the sops code in gotk-sync.yaml. Instead use:
+ flux install --export ... > gotk-components.yaml

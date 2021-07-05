@@ -37,7 +37,11 @@ do not bootstrap, after initial bootstrap, as it use as it overwrites the sops c
 Run the following commands on master1.
 
 `export VIP=192.168.6.1`
+
 `export INTERFACE=eno1`
+
+`alias kube-vip="docker run --network host --rm plndr/kube-vip:0.3.1"`
+
 `kube-vip manifest pod --interface $INTERFACE --vip $VIP --controlplane --services --arp --leaderElection | tee /etc/kubernetes/manifests/kube-vip.yaml`
 
 ### Create the cluster

@@ -45,7 +45,7 @@ Run the following commands on master1.
 `kube-vip manifest pod --interface $INTERFACE --vip $VIP --controlplane --services --arp --leaderElection | tee /etc/kubernetes/manifests/kube-vip.yaml`
 
 ### Create the cluster
-`./create-cluster.sh` (in ([my kubernetes project](https://github.com/rwlove/kubernetes)))
+`./create-cluster.sh` in [my kubernetes project](https://github.com/rwlove/kubernetes)
 
 ### Create Calico Networking
 `./create-calico-networking.sh` (in ([my kubernetes project](https://github.com/rwlove/kubernetes)))

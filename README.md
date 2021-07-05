@@ -26,4 +26,32 @@ This is the configuration for my home Kubernetes cluster. It's based on the incr
 ## Upgrades
 ### Flux
 do not bootstrap, after initial bootstrap, as it use as it overwrites the sops code in gotk-sync.yaml. Instead use:
- flux install --export ... > gotk-components.yaml
+ `flux install --export ... > gotk-components.yaml`
+
+## Initialization
+### Provision the nodes
+`./provision_cluster.sh` (in ([my ansible project](https://github.com/rwlove/ansible)))
+
+### Kube-VIP
+([Reference](https://kube-vip.io/hybrid/static/))
+Run the following commands on master1.
+
+`export VIP=192.168.6.1`
+`export INTERFACE=eno1`
+`kube-vip manifest pod --interface $INTERFACE --vip $VIP --controlplane --services --arp --leaderElection | tee /etc/kubernetes/manifests/kube-vip.yaml`
+
+### Create the cluster
+`./create-cluster.sh` (in ([my kubernetes project](https://github.com/rwlove/kubernetes)))
+
+### Create Calico Networking
+`./create-calico-networking.sh` (in ([my kubernetes project](https://github.com/rwlove/kubernetes)))
+
+### Initialize Flux Cluster
+`./initialize-cluster.sh`
+
+## Teardown
+### Teardown Calico Networking
+`./destroy-calico-networking.sh` (in ([my ansible project](https://github.com/rwlove/ansible)))
+
+### Teardown the Cluster
+`./destroy-cluster.sh` (in ([my ansible project](https://github.com/rwlove/ansible)))

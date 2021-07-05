@@ -2,7 +2,7 @@
 This is the configuration for my home Kubernetes cluster. It's based on the incredible [k8s-at-home template](https://github.com/k8s-at-home/template-cluster-k3s).
 
 ## Infrastructure Software
-* Ansible ([my roles and playbooks](https://github.com/rwlove/ansible))
+* Ansible [my roles and playbooks](https://github.com/rwlove/ansible)
 * Calico Networking
 * Flux2
 
@@ -30,10 +30,10 @@ do not bootstrap, after initial bootstrap, as it use as it overwrites the sops c
 
 ## Initialization
 ### Provision the nodes
-`./provision_cluster.sh` (in ([my ansible project](https://github.com/rwlove/ansible)))
+`./provision_cluster.sh` in [my ansible project](https://github.com/rwlove/ansible)
 
 ### Kube-VIP
-([Reference](https://kube-vip.io/hybrid/static/))
+[Reference](https://kube-vip.io/hybrid/static/)
 Run the following commands on master1.
 
 `export VIP=192.168.6.1`
@@ -48,14 +48,14 @@ Run the following commands on master1.
 `./create-cluster.sh` in [my kubernetes project](https://github.com/rwlove/kubernetes)
 
 ### Create Calico Networking
-`./create-calico-networking.sh` (in ([my kubernetes project](https://github.com/rwlove/kubernetes)))
+`./create-calico-networking.sh` in [my kubernetes project](https://github.com/rwlove/kubernetes)
 
 ### Initialize Flux Cluster
 `./initialize-cluster.sh`
 
 ## Teardown
 ### Teardown Calico Networking
-`./destroy-calico-networking.sh` (in ([my ansible project](https://github.com/rwlove/ansible)))
+`./destroy-calico-networking.sh` in [my ansible project](https://github.com/rwlove/ansible)
 
 ### Teardown the Cluster
-`./destroy-cluster.sh` (in ([my ansible project](https://github.com/rwlove/ansible)))
+`./destroy-cluster.sh` in [my ansible project](https://github.com/rwlove/ansible)

@@ -21,15 +21,19 @@ spec:
     image:
       repository: ghcr.io/k8s-at-home/qbittorrent
       tag: v4.3.5
+
     nodeSelector:
       feature.node.kubernetes.io/custom-wireguard: true
+
     podSecurityContext:
       runAsUser: 1000
       runAsGroup: 1001
+
     env:
       TZ: "America/New_York"
       PUID: 1000
       PGID: 1001
+
     addons:
       vpn:
         enabled: true
@@ -79,43 +83,48 @@ spec:
           down: |-
             #!/bin/bash
             echo "disconnected" > /shared/vpnstatus
+
     service:
-      type: LoadBalancer
-      port:
-        port: 8080
-      loadBalancerIP: 192.168.6.25
-      additionalServices:
-      - enabled: true
-        nameSuffix: bittorrent
+      main:
+        type: LoadBalancer
+        loadBalancerIP: 192.168.6.25
+        ports:
+	  http:
+            port: 8080
+      bittorrent:
+        enabled: false
         type: ClusterIP
-        port:
-          port: 24589
-          name: bittorrent
-          protocol: TCP
-          targetPort: 24589
+        ports:
+          bittorrent:
+            enabled: true
+            port: 24589
+            protocol: TCP
+            targetPort: 24589
+
     ingress:
-      enabled: false
+      main:
+        enabled: false
+
     persistence:
       config:
         enabled: true
-        emptyDir:
-          enabled: false
         mountPath: /config
         storageClass: qbittorrent-config-storage-class
         accessMode: ReadWriteOnce
         size: 1Gi
+
       downloads:
         enabled: true
-        emptyDir:
-          enabled: false
         storageClass: qbittorrent-downloads-storage-class
         accessMode: ReadWriteMany
         size: 10Gi
+
       shared:
         enabled: true
         emptyDir:
           enabled: true
         mountPath: /shared
+
     resources:
       requests:
         memory: 250Mi

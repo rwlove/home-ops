@@ -17,10 +17,6 @@ spec:
         namespace: flux-system
       interval: 5m
   values:
-    image:
-      repository: jesec/rtorrent-flood
-      tag: latest@sha256:e51e894ee9d790db9b5a62afccb5af819ca8b13741b212f29b7b659d6bacdd0b
-
     nodeSelector:
       feature.node.kubernetes.io/custom-wireguard: "true"
 
@@ -50,16 +46,6 @@ spec:
         type: wireguard
 
         wireguard:
-          image:
-            # -- Specify the WireGuard image
-            repository: ghcr.io/k8s-at-home/wireguard
-            # -- Specify the WireGuard image tag
-            tag: v1.0.20210424
-            # -- Specify the WireGuard image pull policy
-            pullPolicy: IfNotPresent
-
-        # If the podSecurityContext is set to run as a different user, make sure to run the Wireguard container as UID/GID 568.
-        # This is required for it to be able to read certain configuration files.
         securityContext:
           runAsUser: 568
           runAsGroup: 568
@@ -71,28 +57,8 @@ spec:
           KILLSWITCH: "true"
           KILLSWITCH_EXCLUDEDNETWORKS_IPV4: "32.32.0.0/16;192.168.0.0/16"
 
-        # The wireguard configuration file provided by your VPN provider goes here.
-        #
-        # Set AllowedIPs to 0.0.0.0/0 to route all traffic through the VPN.
-        #
-        # Pay close attention to the PostUp and PreDown lines. They must be added if you wish to run a script when the connection
-        # is opened / closed.
-        configFile: |-
-          [Interface]
-          PrivateKey = hDH1eMnEMb/uzNuN6F1atvSYkzBo4Eft5KkBSCNUDpU=
-          Address = 10.65.220.247/32
-          DNS = 193.138.218.74
-          PostUp = /config/up.sh %i
-          PreDown = /config/down.sh %i
+        configFileSecret: vpnconfig
 
-          [Peer]
-          PublicKey = KmsxVTOtLaR3s1nI2wNCA24eISH5Rp7dZIKhEvIaci8=
-          AllowedIPs = 0.0.0.0/0
-          Endpoint = 198.54.130.146:51820
-
-        # The scripts that get run when the VPN connection opens/closes are defined here.
-        # The default scripts will write a string to represent the current connection state to a file.
-        # Our qBittorrent image has a feature that can wait for this file to contain the word 'connected' before actually starting the application.
         scripts:
           up: |-
             #!/bin/bash

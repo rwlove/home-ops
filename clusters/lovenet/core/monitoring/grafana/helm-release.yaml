@@ -26,7 +26,7 @@ spec:
     adminPassword: "password"
     grafana.ini:
       server:
-        root_url: "https://grafana"
+        root_url: "https://grafana.thesteamedcrab.com"
       paths:
         data: /var/lib/grafana/data
         logs: /var/log/grafana
@@ -98,9 +98,11 @@ spec:
       dashboards:
         enabled: true
         searchNamespace: ALL
+
       datasources:
         enabled: true
         searchNamespace: ALL
+
     plugins:
     - natel-discrete-panel
     - pr0ps-trackmap-panel
@@ -108,18 +110,34 @@ spec:
     - vonage-status-panel
     - grafana-worldmap-panel
     - grafana-clock-panel
+
     serviceMonitor:
       enabled: true
+
     ingress:
-      enabled: false
-    service:
-      type: LoadBalancer
-      loadBalancerIP: 192.168.6.9
+      main:
+        enabled: true
+        ingressClassName: "traefik"
+        annotations:
+          traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
+          external-dns/is-public: "true"
+          external-dns.alpha.kubernetes.io/target: "ipv4.${SECRET_DOMAIN}"
+        hosts:
+          - host: "grafana.${SECRET_DOMAIN}"
+            paths:
+              - path: /
+                pathType: Prefix
+        tls:
+          - secretName: "${SECRET_DOMAIN/./-}-tls"
+            hosts:
+              - "grafana.${SECRET_DOMAIN}"
+
     persistence:
       enabled: true
       storageClassName: grafana-storage-class
       size: 10Gi
       accessModes:
       - ReadWriteOnce
+
     podAnnotations:
       configmap.reloader.stakater.com/reload: "grafana"

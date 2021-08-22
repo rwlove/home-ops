@@ -59,3 +59,7 @@ Run the following commands on master1.
 
 ### Teardown the Cluster
 `./destroy-cluster.sh` in [my ansible project](https://github.com/rwlove/ansible)
+
+## Debugging
+* https://kubernetes.io/docs/tasks/administer-cluster/dns-debugging-resolution/
+* https://dnschecker.org

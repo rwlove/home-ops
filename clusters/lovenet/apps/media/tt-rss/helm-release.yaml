@@ -24,7 +24,7 @@ spec:
 
     env:
       # -- External URL you use to connect to the RSS (the one you enter in your browser)
-      TTRSS_SELF_URL_PATH: "http://rss:8080"
+      TTRSS_SELF_URL_PATH: "https://rss.${SECRET_DOMAIN}"
       # -- Postgres database hostname
       # @default -- internal postgresql URL
       # TTRSS_DB_HOST: ""
@@ -40,17 +40,22 @@ spec:
       # @default -- postgresql.postgresqlDatabase value
       # TTRSS_DB_NAME: ""
 
-    service:
-      main:
-        type: LoadBalancer
-        loadBalancerIP: 192.168.6.64
-        ports:
-          http:
-            port: 8080
-
     ingress:
       main:
-        enabled: false
+        enabled: true
+        ingressClassName: "traefik"
+        annotations:
+          traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
+          external-dns.alpha.kubernetes.io/target: "ipv4.${SECRET_DOMAIN}"
+        hosts:
+          - host: "rss.${SECRET_DOMAIN}"
+            paths:
+              - path: /
+                pathType: Prefix
+        tls:
+          - secretName: "${SECRET_DOMAIN/./-}-tls"
+            hosts:
+              - "rss.${SECRET_DOMAIN}"
 
     # -- Bitnami postgres chart. For more options see https://github.com/bitnami/charts/tree/master/bitnami/postgresql
     # @default -- see bellow

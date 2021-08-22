@@ -1,0 +1,45 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: k8s-gateway
+  namespace: networking
+spec:
+  interval: 5m
+  chart:
+    spec:
+      # renovate: https://ori-edge.github.io/k8s_gateway/
+      chart: k8s-gateway
+      version: 1.0.1
+      sourceRef:
+        kind: HelmRepository
+        name: k8s-gateway-charts
+        namespace: flux-system
+      interval: 5m
+  timeout: 20m
+  values:
+    image:
+      registry: quay.io
+      repository: oriedge/k8s_gateway
+      tag: latest
+#      pullPolicy: IfNotPresent
+
+    # Delegated domain
+    domain: "${SECRET_DOMAIN}"
+
+    # Name to use for apex records
+    # apex: "dns1"
+
+    # TTL for non-apex responses (in seconds)
+    # ttl: 300
+
+    # Limit what kind of resources to watch, e.g. resources: ["Ingress"]
+    watchedResources: ["Ingress","Service"]
+
+    serviceAccount:
+      create: true
+      name: "excoredns"
+    service:
+      type: LoadBalancer
+      port: 53
+      loadBalancerIP: 192.168.6.3

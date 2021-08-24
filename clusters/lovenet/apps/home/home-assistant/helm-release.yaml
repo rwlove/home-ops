@@ -32,6 +32,14 @@ spec:
       # -- (bool) Privileged securityContext may be required if USB devics are accessed directly through the host machine
       privileged:  # true
 
+    hostNetwork: true
+    dnsPolicy: ClusterFirstWithHostNet
+    service:
+      type: LoadBalancer
+      externalIPs:
+      - "${CLUSTER_LB_HOME_ASSISTANT}"
+      externalTrafficPolicy: Local
+
     ingress:
       main:
         enabled: true
@@ -92,12 +100,18 @@ spec:
         - --extensions-dir
         - "/config/.vscode"
         ingress:
-          enabled: false
-        service:
-          type: LoadBalancer
-          loadBalancerIP: 192.168.6.46
-          port:
-            port: 8080
+          enabled: true
+          annotations:
+            traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
+            external-dns.alpha.kubernetes.io/target: "ipv4.${SECRET_DOMAIN}"
+          hosts:
+          - host: "hass-config.${SECRET_CLUSTER_DOMAIN}"
+            paths:
+            - path: /
+              pathType: Prefix
+          tls:
+          - hosts:
+            - "hass-config.${SECRET_CLUSTER_DOMAIN}"
         volumeMounts:
         - name: config
           mountPath: /config
@@ -108,7 +122,7 @@ spec:
 
     resources:
       requests:
-        cpu: 500m
-        memory: 1000Mi
+        cpu: 100m
+        memory: 100Mi
       limits:
         memory: 4000Mi

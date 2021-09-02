@@ -8,11 +8,11 @@ spec:
   interval: 5m
   chart:
     spec:
-      chart: frigate
-      version: 6.0.0
+      chart: ./charts/frigate/
+      version: frigate-rwlove
       sourceRef:
-        kind: HelmRepository
-        name: k8s-at-home-charts
+        kind: GitRepository
+        name: frigate-rwlove-chart
         namespace: flux-system
       interval: 5m
   values:
@@ -20,58 +20,19 @@ spec:
       repository: blakeblackshear/frigate
       tag: 0.8.4-amd64
       # pullPolicy: Always
-
-    env:
-      TZ: America/New_York
-
-    ingress:
-      main:
-        enabled: true
-        ingressClassName: "traefik"
-        annotations:
-          traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
-          external-dns.alpha.kubernetes.io/target: "ipv4.${SECRET_DOMAIN}"
-        hosts:
-          - host: "frigate.${SECRET_DOMAIN}"
-            paths:
-              - path: /
-                pathType: Prefix
-        tls:
-          - secretName: "${SECRET_DOMAIN/./-}-tls"
-            hosts:
-              - "frigate.${SECRET_DOMAIN}"
-
-    persistence:
-      data:
-        enabled: true
-        mountPath: /data
-        storageClass: frigate-data-storage-class
-        accessMode: ReadWriteOnce
-        size: 10Gi
-
-      media:
-        enabled: true
-        mountPath: /media
-        storageClass: frigate-media-storage-class
-        accessMode: ReadWriteOnce
-        size: 300Gi
-
-      coral:
-        enabled: true
-        hostPath: /dev/apex_0
-        mountPath: /dev/apex_0
-        device: pci
-
-      cache:
-        enabled: true
-        type: emptyDir
-        medium: Memory
-        sizeLimit: 2Gi
-        mountPath: /dev/shm
-
+    initContainer:
+      image:
+        repository: busybox
+        tag: 1.34.0
+    coral:
+      enabled: true
+      hostPath: /dev/apex_0
+      mountPath: /dev/apex_0
+      device: pci
+    timezone: "America/New_York"
     config: |
       mqtt:
-        host: mosquitto.thesteamedcrab.com
+        host: mosquitto
         topic_prefix: frigate
       detectors:
         coral_pci:
@@ -131,6 +92,39 @@ spec:
           record:
             enabled: True
             retain_days: 5
-
+    ingress:
+      main:
+        enabled: true
+        ingressClassName: "traefik"
+        annotations:
+          traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
+          external-dns.alpha.kubernetes.io/target: "ipv4.${SECRET_DOMAIN}"
+        hosts:
+          - host: "frigate.${SECRET_DOMAIN}"
+            paths:
+              - path: /
+                pathType: Prefix
+        tls:
+          - secretName: "${SECRET_DOMAIN/./-}-tls"
+            hosts:
+              - "frigate.${SECRET_DOMAIN}"
     nodeSelector:
       feature.node.kubernetes.io/custom-coral-tpu: "true"
+    persistence:
+      data:
+        enabled: true
+        storageClass: frigate-data-storage-class
+    shmSize: 2Gi
+    extraVolumes:
+      - name: media
+        persistentVolumeClaim:
+          claimName: frigate-media-pvc
+      - name: cache
+        emptyDir:
+          medium: Memory
+    extraVolumeMounts:
+      - mountPath: /media
+        name: media
+        subPath: Videos
+      - mountPath: /tmp/cache
+        name: cache

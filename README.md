@@ -63,3 +63,4 @@ Run the following commands on master1.
 ## Debugging
 * https://kubernetes.io/docs/tasks/administer-cluster/dns-debugging-resolution/
 * https://dnschecker.org
+* https://kubernetes.io/docs/tasks/access-application-cluster/port-forward-access-application-cluster/

@@ -1,0 +1,58 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: hyperion-ng
+  namespace: media
+spec:
+  interval: 5m
+  chart:
+    spec:
+      # renovate: registryUrl=https://k8s-at-home.com/charts/
+      chart: hyperion-ng
+      version: 5.0.1
+      sourceRef:
+        kind: HelmRepository
+        name: k8s-at-home-charts
+        namespace: flux-system
+      interval: 5m
+  values:
+    env:
+      TZ: America/New_York
+      PUID: 1001
+      PGID: 1001
+
+    ingress:
+      main:
+        enabled: true
+        ingressClassName: "traefik"
+        annotations:
+          traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
+          external-dns.alpha.kubernetes.io/target: "ipv4.${SECRET_DOMAIN}"
+        hosts:
+          - host: "hyperion-ng.${SECRET_DOMAIN}"
+            paths:
+              - path: /
+                pathType: Prefix
+        tls:
+          - secretName: "${SECRET_DOMAIN/./-}-tls"
+            hosts:
+              - "hyperion-ng.${SECRET_DOMAIN}"
+
+    persistence:
+      config:
+        enabled: true
+        mountPath: /root/.hyperion
+        storageClass: hyperion-ng-storage-class
+        accessMode: ReadWriteOnce
+        size: 10Gi
+
+    exporter:
+      enabled: true
+      podMonitor:
+        interval: 3m
+        scrapeTimeout: 1m
+      env:
+        port: 32123
+        additionalMetrics: false
+        unknownQueueItems: false

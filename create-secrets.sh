@@ -28,4 +28,3 @@ sops --encrypt --in-place ./clusters/lovenet/core/notifications/github/secrets.y
 sops --encrypt --in-place ./clusters/lovenet/apps/network/traefik/middlewares/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/core/cert-manager/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/network/external-dns/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/home/nextcloud/secrets.yaml

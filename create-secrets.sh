@@ -15,7 +15,6 @@ envsubst < ./clusters/lovenet/core/notifications/github/tmpl/secrets-tmpl.yaml >
 envsubst < ./clusters/lovenet/apps/network/traefik/middlewares/tmpl/secrets-tmpl.yaml > ./clusters/lovenet/apps/network/traefik/middlewares/secrets.yaml
 envsubst < ./clusters/lovenet/core/cert-manager/tmpl/secrets-tmpl.yaml > ./clusters/lovenet/core/cert-manager/secrets.yaml
 envsubst < ./clusters/lovenet/apps/network/external-dns/tmpl/secrets-tmpl.yaml > ./clusters/lovenet/apps/network/external-dns/secrets.yaml
-envsubst < ./clusters/lovenet/apps/home/nextcloud/tmpl/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/nextcloud/secrets.yaml
 
 sops --encrypt ./clusters/lovenet/apps/media/kodidb/tmpl/secrets-tmpl.yaml           > ./clusters/lovenet/apps/media/kodidb/secrets.yaml
 sops --encrypt ./clusters/lovenet/apps/media/qbittorrent/tmpl/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/qbittorrent/secrets.yaml

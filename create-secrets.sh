@@ -27,3 +27,7 @@ sops --encrypt --in-place ./clusters/lovenet/core/notifications/github/secrets.y
 sops --encrypt --in-place ./clusters/lovenet/apps/network/traefik/middlewares/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/core/cert-manager/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/network/external-dns/secrets.yaml
+
+# Frigate (new style, convert others)
+envsubst < ./clusters/lovenet/apps/home/frigate/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/frigate/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/home/frigate/secrets.yaml

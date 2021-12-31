@@ -1,0 +1,59 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: beets
+  namespace: media
+spec:
+  interval: 5m
+  chart:
+    spec:
+      # renovate: registryUrl=https://k8s-at-home.com/charts/
+      chart: beets
+      version: 6.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: k8s-at-home-charts
+        namespace: flux-system
+      interval: 5m
+  values:
+    env:
+      TZ: America/New_York
+      PUID: 1000
+      GUID: 1001
+
+    ingress:
+      main:
+        enabled: true
+        ingressClassName: "traefik"
+        annotations:
+          traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
+          external-dns.alpha.kubernetes.io/target: "ipv4.${SECRET_DOMAIN}"
+        hosts:
+          - host: "beets.${SECRET_DOMAIN}"
+            paths:
+              - path: /
+                pathType: Prefix
+        tls:
+          - secretName: "${SECRET_DOMAIN/./-}-tls"
+            hosts:
+              - "beets.${SECRET_DOMAIN}"
+
+    persistence:
+      config:
+        enabled: true
+        storageClass: beets-config-storage-class
+        accessMode: ReadWriteOnce
+        size: 10Gi
+
+      music:
+        enabled: true
+        storageClass: beets-music-storage-class
+        accessMode: ReadWriteMany
+        size: 300Gi
+
+      ingest:
+        enabled: true
+        storageClass: beets-qbittorrent-downloads-storage-class
+        accessMode: ReadWriteMany
+        size: 500Gi

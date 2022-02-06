@@ -22,9 +22,13 @@ main() {
     local source_file=
     local target_file=
     local remove_common_labels=
+    echo "parse"
     parse_command_line "$@"
+    echo "check helm"
     check "helm"
+    echo "check yq"
     check "yq"
+    echo "entry"
     entry
 }
 

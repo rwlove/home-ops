@@ -6,12 +6,14 @@ echo "######"
 echo "# Create namespace"
 kubectl create namespace flux-system --dry-run=client -o yaml | kubectl apply -f -
 
+echo "######"
+echo "# Create sops-age Secret"
 cat ~/.config/sops/age/keys.txt |
     kubectl -n flux-system create secret generic sops-age \
     --from-file=age.agekey=/dev/stdin
 
-echo "######"
-echo "# Create sops-gpg Secret"
+#echo "######"
+#echo "# Create sops-gpg Secret"
 #gpg --export-secret-keys --armor "${FLUX_KEY_FP}" |
 #kubectl create secret generic sops-gpg \
 #    --namespace=flux-system \

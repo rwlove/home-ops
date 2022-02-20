@@ -1,15 +1,10 @@
 #!/usr/bin/env bash
-echo "source"
 # shellcheck source=/dev/null
 source "$(dirname "${0}")/lib/functions.sh"
 
-echo "set errexit"
 set -o errexit
-echo "set nounset"
 set -o nounset
-echo "set pipefail"
 set -o pipefail
-echo "shopt"
 shopt -s lastpipe
 
 show_help() {
@@ -23,17 +18,12 @@ EOF
 }
 
 main() {
-    echo "main entry"
     local source_file=
     local target_file=
     local remove_common_labels=
-    echo "parse"
     parse_command_line "$@"
-    echo "check helm"
     check "helm"
-    echo "check yq"
     check "yq"
-    echo "entry"
     entry
 }
 

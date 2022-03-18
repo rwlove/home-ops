@@ -17,33 +17,29 @@ spec:
         namespace: flux-system
       interval: 5m
   values:
-
-    logs:
-      general:
-        level: DEBUG
-      access:
-        level: DEBUG
-        enabled: true
-
     image:
       repository: mbentley/omada-controller
-      tag: '5.0'
-      pullPolicy: IfNotPresent
-
-    hostNetwork: true
-    # dnsPolicy: ClusterFirstWithHostNet
+      tag: "5.0"
 
     env:
       TZ: "${TIMEZONE}"
+      MANAGE_HTTP_PORT: 8088
+      MANAGE_HTTPS_PORT: 8043
+      PORTAL_HTTP_PORT: 8088
+      PORTAL_HTTPS_PORT: 8843
       SHOW_SERVER_LOGS: true
+      SHOW_MONGODB_LOGS: true
 
     ingress:
       main:
         enabled: true
         ingressClassName: "traefik"
         annotations:
-          traefik.ingress.kubernetes.io/router.middlewares: "network-omada@kubernetescrd"
+          kubernetes.io/tls-acme: "true"
+          cert-manager.io/cluster-issuer: letsencrypt-production
           traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
+          traefik.ingress.kubernetes.io/router.middlewares: "network-omada@kubernetescrd"
+          external-dns/is-public: "true"
           external-dns.alpha.kubernetes.io/target: "ipv4.${SECRET_DOMAIN}"
         hosts:
           - host: "omada.${SECRET_DOMAIN}"
@@ -55,19 +51,97 @@ spec:
             hosts:
               - "omada.${SECRET_DOMAIN}"
 
-    # service:
-    #  main:
-    #     type: LoadBalancer
-    #     passHostHeader: true
-    #     # scheme: https
-    #     # externalIPs:
-    #     #  - 192.168.6.9
-    #     # externalTrafficPolicy: Local
+    service:
+      main:
+        enabled: true
+        annotations:
+          traefik.ingress.kubernetes.io/service.serversscheme: https
+      controller:
+        enabled: true
+        type: LoadBalancer
+        loadBalancerIP: "${SECRET_CLUSTER_LB_OMADA}"
+        externalTrafficPolicy: Local
+        ports:
+          mgmt-8088-tcp:
+            enabled: true
+            port: 8088
+            protocol: TCP
+            targetPort: 8088
+          mgmt-8043-tcp:
+            enabled: true
+            port: 8043
+            protocol: TCP
+            targetPort: 8043
+          portal-8843-tcp:
+            enabled: true
+            port: 8843
+            protocol: TCP
+            targetPort: 8843
+          eap-29810-tcp:
+            enabled: true
+            port: 29810
+            protocol: TCP
+            targetPort: 29810
+          eap-29810-udp:
+            enabled: true
+            port: 29810
+            protocol: UDP
+            targetPort: 29810
+          eap-29811-tcp:
+            enabled: true
+            port: 29811
+            protocol: TCP
+            targetPort: 29811
+          eap-29811-udp:
+            enabled: true
+            port: 29811
+            protocol: UDP
+            targetPort: 29811
+          eap-29812-tcp:
+            enabled: true
+            port: 29812
+            protocol: TCP
+            targetPort: 29812
+          eap-29812-udp:
+            enabled: true
+            port: 29812
+            protocol: UDP
+            targetPort: 29812
+          eap-29813-tcp:
+            enabled: true
+            port: 29813
+            protocol: TCP
+            targetPort: 29813
+          eap-29813-udp:
+            enabled: true
+            port: 29813
+            protocol: UDP
+            targetPort: 29813
 
     persistence:
       data:
         enabled: true
-        storageClass: omada-data-storage-class
         mountPath: /opt/tplink/EAPController/data
-        accessMode: ReadWriteOnce
-        size: 10Gi
+        existingClaim: omada-data-pvc
+      work:
+        enabled: true
+        mountPath: /opt/tplink/EAPController/work
+        existingClaim: omada-work-pvc
+      logs:
+        enabled: true
+        mountPath: /opt/tplink/EAPController/logs
+        existingClaim: omada-logs-pvc
+      cert:
+        enabled: true
+        mountPath: /cert
+        type: custom
+        volumeSpec:
+          secret:
+            secretName: "${SECRET_DOMAIN/./-}-tls"
+
+    resources:
+      requests:
+        memory: 1200M
+        cpu: 1200m
+      limits:
+        memory: 1500M

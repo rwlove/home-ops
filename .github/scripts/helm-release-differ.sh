@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+
 # shellcheck source=/dev/null
 source "$(dirname "${0}")/lib/functions.sh"
 

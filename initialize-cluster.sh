@@ -29,3 +29,9 @@ kubectl apply --kustomize=./clusters/lovenet/base/flux-system
 
 # Bootstrap
 #./bootstrap.sh
+
+echo "######"
+echo "# Create Secrets "
+stg new -m update-secrets
+./create-secrets.sh
+stg refresh ; stg pop -a ; git pull ; stg push -a ; stg commit -a ; stg clean ; git push

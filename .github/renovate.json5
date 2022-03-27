@@ -23,6 +23,7 @@
     "prIgnoreNotification"
   ],
   "rebaseWhen": "conflicted",
+  "commitBodyTable": true,
   // set up ignored deps
   "ignoreDeps": [
     "ghcr.io/fluxcd/helm-controller",
@@ -59,46 +60,40 @@
     ]
   },
   "regexManagers": [
-    // regexManager to read and process kube-prometheus-stack CRDs
+    // Read and process GitHub Releases
     {
       "fileMatch": [
-        "clusters/lovenet/crds/kube-prometheus-stack/.+\\.ya?ml$"
-      ],
-      "matchStrings": [
-        "registryUrl=(?<registryUrl>.*?)\n *tag: (?<depName>[a-zA-Z-]+)-(?<currentValue>.*)\n"
-      ],
-      "datasourceTemplate": "helm"
-    },
-    // regexManager to read and process External Snapshotter and External DNS CRDs
-    {
-      "fileMatch": [
-        "clusters/lovenet/crds/external-snapshotter/.+\\.ya?ml$",
-        "clusters/lovenet/crds/external-dns/.+\\.ya?ml$"
-      ],
-      "matchStrings": [
-        "datasource=(?<datasource>.*?)\n *url: https:\/\/github\\.com\/(?<depName>.*?)\\.git\n *ref:\n *tag: (?<currentValue>.*)\n"
-      ],
-      "datasourceTemplate": "github-releases"
-    },
-    // regexManager to read and process github-releases in the ansible directory
-    {
-      "fileMatch": [
-        "ansible/.+\\.ya?ml$"
-      ],
-      "matchStrings": [
-        "datasource=(?<datasource>.*?) depName=(?<depName>.*?)\n.*?_version: \"(?<currentValue>.*)\"\n"
-      ],
-      "datasourceTemplate": "github-releases"
-    },
-    // regexManager to read and process github-releases in the hack directory
-    {
-      "fileMatch": [
+        "clusters/lovenet/.+\\.ya?ml$",
+        "ansible/.+\\.ya?ml$",
         "hack/.+\\.sh$"
       ],
       "matchStrings": [
+        "datasource=(?<datasource>.*?)\n *url: https:\/\/github\\.com\/(?<depName>.*?)\\.git\n *ref:\n *tag: (?<currentValue>.*)\n",
+        "datasource=(?<datasource>.*?) depName=(?<depName>.*?)\n.*?_version: \"(?<currentValue>.*)\"\n",
         "datasource=(?<datasource>.*?) depName=(?<depName>.*?)\n.*?_VERSION=\"(?<currentValue>.*)\"\n"
       ],
       "datasourceTemplate": "github-releases"
+    },
+    // Read and process Custom Resource Definitions
+    {
+      "fileMatch": [
+        "clusters/lovenet/.+\\.ya?ml$"
+      ],
+      "matchStrings": [
+        "registryUrl=(?<registryUrl>.*?)\n *tag: (?<depName>[a-zA-Z-]+)-(?<currentValue>.*)\n",
+        "registryUrl=(?<registryUrl>.*?) chart=(?<depName>.*?)\n.*\\/(?<currentValue>.*?)\\/"
+      ],
+      "datasourceTemplate": "helm"
+    },
+    // Read and process Custom Resources
+    {
+      "fileMatch": [
+        "clusters/lovenet/.+\\.ya?ml$"
+      ],
+      "matchStrings": [
+        "datasource=(?<datasource>.*?) depName=(?<depName>.*?)\n .*: (?<currentValue>.*=?)"
+      ],
+      "datasourceTemplate": "docker"
     }
   ],
   "packageRules": [
@@ -122,7 +117,7 @@
       ],
       "versioning": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(?<compatibility>.*)$",
       "matchPackageNames": [
-        "blakeblackshear/frigate"
+        "docker.io/blakeblackshear/frigate"
       ]
     },
     {
@@ -149,39 +144,52 @@
     },
     // group packages
     {
+      "groupName": "rook-ceph-suite",
       "matchDatasources": [
-        "helm",
-        "docker"
+        "docker",
+        "helm"
       ],
       "matchPackagePatterns": [
         "^rook.ceph"
       ],
-      "groupName": "rook-ceph-suite",
       "additionalBranchPrefix": "",
       "separateMinorPatch": true
     },
     {
+      "groupName": "external-snapshotter-suite",
       "matchDatasources": [
-        "github-releases",
-        "docker"
+        "docker",
+        "github-releases"
       ],
       "matchPackagePatterns": [
         "external-snapshotter",
         "snapshot-controller"
       ],
-      "groupName": "external-snapshotter-suite",
       "additionalBranchPrefix": "",
       "separateMinorPatch": true
     },
     {
+      "groupName": "system-upgrade-controller-suite",
       "matchDatasources": [
-        "github-tags",
-        "docker"
+        "docker",
+        "github-tags"
       ],
       "matchPackagePatterns": [
         "rancher/system-upgrade-controller"
       ],
-      "groupName": "system-upgrade-controller-suite",
+      "additionalBranchPrefix": "",
+      "separateMinorPatch": true
+    },
+    {
+      "groupName": "vector-suite",
+      "matchDatasources": [
+        "docker",
+        "github-releases",
+        "helm"
+      ],
+      "matchPackagePatterns": [
+        "vector"
+      ],
       "additionalBranchPrefix": "",
       "separateMinorPatch": true
     }

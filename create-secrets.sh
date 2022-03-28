@@ -4,13 +4,20 @@ export GPG_TTY=$(tty)
 
 . .cluster-secrets.env
 
-. .config.env
-
-envsubst < ./tmpl/.sops.yaml > ./.sops.yaml
+# Cluster Secrets
 envsubst < ./tmpl/cluster-secrets.yaml > ./clusters/lovenet/base/cluster-secrets.yaml
-envsubst < ./tmpl/cluster-settings.yaml > ./clusters/lovenet/base/cluster-settings.yaml
-envsubst < ./tmpl/gotk-sync.yaml > ./clusters/lovenet/base/flux-system/gotk-sync.yaml
-envsubst < ./clusters/lovenet/apps/home/home-assistant/tmpl/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/home-assistant/secrets.yaml
+
+# Frigate Secrets
+envsubst < ./clusters/lovenet/apps/home/frigate/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/frigate/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/home/frigate/secrets.yaml
+
+# Home Assistant Secrets
+envsubst < ./clusters/lovenet/apps/home/home-assistant/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/home-assistant/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/home/home-assistant/secrets.yaml
+
+
+
+
 envsubst < ./clusters/lovenet/apps/flux-system/webhook/github/tmpl/secrets-tmpl.yaml > ./clusters/lovenet/apps/flux-system/webhook/github/secrets.yaml
 envsubst < ./clusters/lovenet/apps/home/appdaemon/tmpl/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/appdaemon/secrets.yaml
 envsubst < ./clusters/lovenet/core/notifications/github/tmpl/secrets-tmpl.yaml > ./clusters/lovenet/core/notifications/github/secrets.yaml
@@ -30,6 +37,3 @@ sops --encrypt --in-place ./clusters/lovenet/apps/network/traefik/middlewares/se
 sops --encrypt --in-place ./clusters/lovenet/apps/network/external-dns/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/cert-manager/issuers/secrets.yaml
 
-# Frigate (new style, convert others)
-envsubst < ./clusters/lovenet/apps/home/frigate/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/frigate/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/home/frigate/secrets.yaml

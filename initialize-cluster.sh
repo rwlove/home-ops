@@ -41,8 +41,8 @@ echo "# 2nd Application"
 kubectl apply --kustomize=./clusters/lovenet/base/flux-system
 
 
-#echo "######"
-#echo "# Create Secrets "
-#stg new -m update-secrets
-#./create-secrets.sh
-#stg refresh ; stg pop -a ; git pull ; stg push -a ; stg commit -a ; stg clean ; git push
+echo "######"
+echo "# Create Secrets "
+stg new -m update-secrets
+./create-secrets.sh
+stg refresh ; stg pop -a ; git pull ; stg push -a ; stg commit -a ; stg clean ; git push

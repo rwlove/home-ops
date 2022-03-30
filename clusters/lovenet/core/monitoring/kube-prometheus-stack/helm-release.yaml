@@ -8,7 +8,6 @@ spec:
   interval: 5m
   chart:
     spec:
-      # renovate: registryUrl=https://prometheus-community.github.io/helm-charts
       chart: kube-prometheus-stack
       version: 34.6.0
       sourceRef:
@@ -26,7 +25,57 @@ spec:
   values:
     fullnameOverride: prometheus
     alertmanager:
-      enabled: false
+      config:
+        receivers:
+          - name: "null"
+          - name: "nodered"
+            webhook_configs:
+              - url: "http://node-red.home:1880/power-outage"
+                send_resolved: true
+        route:
+          group_by: ["alertname", "job"]
+          group_wait: 30s
+          group_interval: 5m
+          repeat_interval: 6h
+          receiver: "null"
+          routes:
+            - receiver: "null"
+              match:
+                alertname: InfoInhibitor
+            - receiver: "null"
+              match:
+                alertname: Watchdog
+              continue: true
+            - receiver: "nodered"
+              match:
+                alertname: UPSOnBattery
+              continue: true
+        inhibit_rules:
+          - source_match:
+              severity: "critical"
+            target_match:
+              severity: "warning"
+            equal: ["alertname", "namespace"]
+      ingress:
+        enabled: true
+        ingressClassName: "traefik"
+        annotations:
+          traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
+          external-dns.alpha.kubernetes.io/target: "ipv4.${SECRET_DOMAIN}"
+        hosts:
+          - &host "alert-manager.${SECRET_DOMAIN}"
+        tls:
+          - hosts:
+              - *host
+      alertmanagerSpec:
+        storage:
+          volumeClaimTemplate:
+            spec:
+              storageClassName: "alert-manager-storage-class"
+              accessModes: ["ReadWriteOnce"]
+              resources:
+                requests:
+                  storage: 1Gi
     kube-state-metrics:
       fullnameOverride: kube-state-metrics
     prometheus-node-exporter:
@@ -60,13 +109,33 @@ spec:
     kubeApiServer:
       enabled: true
     kubeControllerManager:
-      enabled: false
+      enabled: true
+      endpoints:
+        - 192.168.1.4
+        - 192.168.4.9
+        - 192.168.4.10
     kubeScheduler:
-      enabled: false
+      enabled: true
+      endpoints:
+        - 192.168.1.4
+        - 192.168.4.9
+        - 192.168.4.10
     kubeProxy:
-      enabled: false
+      enabled: true
+      endpoints:
+        - 192.168.1.4
+        - 192.168.4.9
+        - 192.168.4.10
     kubeEtcd:
-      enabled: false
+      enabled: true
+      endpoints:
+        - 192.168.1.4
+        - 192.168.4.9
+        - 192.168.4.10
+      service:
+        enabled: true
+        port: 2381
+        targetPort: 2381
     prometheusOperator:
       prometheusConfigReloader:
         resources:
@@ -85,14 +154,14 @@ spec:
           traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
           external-dns.alpha.kubernetes.io/target: "ipv4.${SECRET_DOMAIN}"
         hosts:
-          - &host "prometheus.thesteamedcrab.com"
+          - &host "prometheus.${SECRET_DOMAIN}"
         tls:
           - hosts:
               - *host
       thanosService:
-        enabled: false
+        enabled: true
       thanosServiceMonitor:
-        enabled: false
+        enabled: true
       prometheusSpec:
         replicas: 1
         replicaExternalLabelName: "replica"
@@ -111,9 +180,15 @@ spec:
               resources:
                 requests:
                   storage: 10Gi
+        thanos:
+          image: quay.io/thanos/thanos:v0.25.2
+          version: v0.22.0
+          objectStorageConfig:
+            name: thanos-objstore
+            key: objstore.yml
         additionalScrapeConfigs:
           - job_name: node-exporter
             honor_timestamps: true
             static_configs:
               - targets:
-                  - "valetudo:9100"
+                  - "valetudo.${SECRET_PRIVATE_DOMAIN}:9100"

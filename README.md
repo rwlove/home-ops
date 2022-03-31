@@ -75,3 +75,9 @@ github.com -> Settings -> Webhooks -> Payload URL
 * SSL: Enable SSL verification
 * Which events would you like to trigger this webhook?: Just the push event.
 * Active: <checked>
+ 
+ ## Hacks
+ My Omada Controller currently needs the MixedProtocolLBService feature gate added to the kube api-server. I have not yet figured out how to enable this with kubeadm, so I'm manually updating the kube api-server manifest and restarting the kube api-server, as such:
+
+* Add `- --feature-gates=MixedProtocolLBService=true` to /etc/kubernetes/manifests/kube-apiserver.yaml on each master node (for example: master1)
+* kubectl -n kube-system delete pods kube-apiserver-master1.thesteamedcrab.com

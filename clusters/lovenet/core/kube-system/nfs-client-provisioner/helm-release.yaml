@@ -17,12 +17,28 @@ spec:
         namespace: flux-system
       interval: 5m
   values:
-    image:
-      repository: gcr.io/k8s-staging-sig-storage/nfs-subdir-external-provisioner
-      tag: v4.0.2
     nfs:
       server: "${SECRET_NFS_HOST_0}"
       path: "/mnt/kubernetes/k8s-nfs"
+      mountOptions:
+        - noatime
     storageClass:
       defaultClass: false
       reclaimPolicy: Retain
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - nfs-subdir-external-provisioner
+              topologyKey: kubernetes.io/hostname
+    tolerations:
+      - effect: NoSchedule
+        operator: Exists
+      - effect: NoExecute
+        operator: Exists

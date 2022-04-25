@@ -1,0 +1,44 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mopidy
+  labels:
+    app: mopidy
+spec:
+  ports:
+  - port: 6680
+    targetPort: mopidy
+    protocol: TCP
+    name: mopidy
+  selector:
+    app: mopidy
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mopidy
+  namespace: media
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
+    external-dns.alpha.kubernetes.io/target: "ipv4.${SECRET_DOMAIN}"
+    hajimari.io/enable: "true"
+    hajimari.io/icon: "music"
+    hajimari.io/group: "media"
+spec:
+  tls:
+    - hosts:
+        - "mopidy.${SECRET_DOMAIN}"
+      secretName: "${SECRET_DOMAIN/./-}-tls"
+  rules:
+    - host: "mopidy.${SECRET_DOMAIN}"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mopidy
+                port:
+                  number: 6680

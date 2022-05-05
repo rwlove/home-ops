@@ -24,10 +24,6 @@ sops --encrypt --in-place ./clusters/lovenet/apps/home/home-assistant/secrets.ya
 envsubst < ./clusters/lovenet/apps/flux-system/webhook/github/secrets-tmpl.yaml > ./clusters/lovenet/apps/flux-system/webhook/github/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/flux-system/webhook/github/secrets.yaml
 
-# Appademon Secrets
-envsubst < ./clusters/lovenet/apps/home/appdaemon/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/appdaemon/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/home/appdaemon/secrets.yaml
-
 # Github Notification Secrets
 envsubst < ./clusters/lovenet/core/notifications/github/secrets-tmpl.yaml > ./clusters/lovenet/core/notifications/github/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/core/notifications/github/secrets.yaml

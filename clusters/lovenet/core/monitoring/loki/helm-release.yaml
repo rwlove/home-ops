@@ -8,7 +8,6 @@ spec:
   interval: 5m
   chart:
     spec:
-      # renovate: registryUrl=https://grafana.github.io/helm-charts
       chart: loki
       version: 2.11.1
       sourceRef:
@@ -16,38 +15,53 @@ spec:
         name: grafana-charts
         namespace: flux-system
       interval: 5m
+  install:
+    createNamespace: true
   values:
     ingress:
-      main:
-        enabled: true
-        ingressClassName: "traefik"
-        annotations:
-          traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
-          external-dns.alpha.kubernetes.io/target: "ipv4.${SECRET_DOMAIN}"
-        hosts:
-          - host: &host "loki.${SECRET_DOMAIN}"
-            paths:
-              - path: /
-                pathType: Prefix
-        tls:
-          - hosts:
-              - *host
-
+      enabled: true
+      annotations:
+        kubernetes.io/ingress.class: "nginx"
+      hosts:
+        - host: &host "loki.${SECRET_PUBLIC_DOMAIN}"
+          paths:
+            - /
+      tls:
+        - hosts:
+            - *host
     serviceMonitor:
       enabled: true
-
+    # extraArgs:
+    #   log.level: debug
+    config:
+      limits_config:
+        enforce_metric_name: false
+        reject_old_samples: true
+        reject_old_samples_max_age: 168h
+        ingestion_rate_mb: 16
+        ingestion_burst_size_mb: 24
+      storage_config:
+        aws:
+          s3forcepathstyle: true
+          insecure: true
+        boltdb_shipper:
+          active_index_directory: /data/loki/index
+          cache_location: /data/loki/index_cache
+          resync_interval: 5s
+          shared_store: s3
+      compactor:
+        retention_enabled: true
       ruler:
         storage:
           type: local
           local:
             directory: /rules
         rule_path: /tmp/scratch
-        alertmanager_url: http://prometheus-alertmanager:9093
+        alertmanager_url: http://alertmanager-operated:9093
         ring:
           kvstore:
             store: inmemory
         enable_api: true
-
     alerting_groups:
       #
       # SMART Failures
@@ -56,13 +70,13 @@ spec:
         rules:
           - alert: SmartFailures
             expr: |
-              sum by (hostname) (count_over_time({hostname=~".+"} |~ "(?i).*smartd.*(error|fail).*"[2m])) > 0
-            for: 10s
+              sum by (hostname) (count_over_time({hostname=~".+"} | json | _SYSTEMD_UNIT = "smartmontools.service" !~ "(?i)previous self-test completed without error" !~ "(?i)Prefailure" |~ "(?i)(error|fail)"[2m])) > 0
+            for: 2m
             labels:
               severity: critical
               category: logs
             annotations:
-              summary: "SMART has reported failures a drive on {{$hostname}}"
+              summary: "SMART has reported failures on host {{ $labels.hostname }}"
       #
       # zigbee2mqtt
       #
@@ -71,7 +85,7 @@ spec:
           - alert: ZigbeeUnableToReachMQTT
             expr: |
               sum(count_over_time({app="zigbee2mqtt"} |~ "(?i)not connected to mqtt server"[2m])) > 0
-            for: 10s
+            for: 2m
             labels:
               severity: critical
               category: logs
@@ -85,7 +99,7 @@ spec:
           - alert: ZwaveUnableToReachMQTT
             expr: |
               sum(count_over_time({app="zwavejs2mqtt"} |~ "(?i)error while connecting mqtt"[2m])) > 0
-            for: 10s
+            for: 2m
             labels:
               severity: critical
               category: logs
@@ -99,26 +113,35 @@ spec:
           - alert: FrigateUnableToReachMQTT
             expr: |
               sum(count_over_time({app="frigate"} |~ "(?i)unable to connect to mqtt server"[2m])) > 0
-            for: 10s
+            for: 2m
             labels:
               severity: critical
               category: logs
             annotations:
               summary: "Frigate is unable to reach MQTT"
       #
-      # *arr applications
+      # *arr
       #
       - name: arr
         rules:
           - alert: ArrDatabaseIsLocked
             expr: |
               sum by (app) (count_over_time({app=~".*arr"} |~ "(?i)database is locked"[2m])) > 0
-            for: 10s
+            for: 2m
             labels:
               severity: critical
               category: logs
             annotations:
-              summary: "{{$app}} is experiencing locked database issues"
+              summary: "{{ $labels.app }} is experiencing locked database issues"
+          - alert: ArrDatabaseIsMalformed
+            expr: |
+              sum by (app) (count_over_time({app=~".*arr"} |~ "(?i)database disk image is malformed"[2m])) > 0
+            for: 2m
+            labels:
+              severity: critical
+              category: logs
+            annotations:
+              summary: "{{ $labels.app }} is experiencing malformed database disk image issues"
       #
       # home-assistant
       #
@@ -126,27 +149,13 @@ spec:
         rules:
           - alert: HomeAssistantUnableToReachPostgresql
             expr: |
-              sum by (app) (count_over_time({app=~"home-assistant"} |~ "(?i)error in database connectivity during commit"[2m])) > 0
-            for: 10s
+              sum by (app) (count_over_time({app="home-assistant"} |~ "(?i)error in database connectivity"[2m])) > 0
+            for: 2m
             labels:
               severity: critical
               category: logs
             annotations:
               summary: "Home Assistant is unable to connect to postgresql"
-      #
-      # vaultwarden
-      #
-      - name: vaultwarden
-        rules:
-          - alert: VaultwardenUnableToReachPostgresql
-            expr: |
-              sum by (app) (count_over_time({app=~"vaultwarden"} |~ "(?i)could not connect to server"[2m])) > 0
-            for: 10s
-            labels:
-              severity: critical
-              category: logs
-            annotations:
-              summary: "Vaultwarden is unable to connect to postgresql"
       #
       # valetudo
       #
@@ -154,8 +163,8 @@ spec:
         rules:
           - alert: ValetudoUnableToReachMQTT
             expr: |
-              sum by (hostname) (count_over_time({hostname=~"valetudo"} |~ "(?i).*error.*mqtt.*"[2m])) > 0
-            for: 10s
+              sum by (hostname) (count_over_time({hostname="valetudo"} |~ "(?i).*error.*mqtt.*"[2m])) > 0
+            for: 2m
             labels:
               severity: critical
               category: logs
@@ -168,36 +177,27 @@ spec:
         rules:
           - alert: NodeRedUnableToReachHomeAssistant
             expr: |
-              sum by (app) (count_over_time({app=~"node-red"} |~ "(?i)home assistant.*connecting to undefined"[2m])) > 0
-            for: 10s
+              sum by (app) (count_over_time({app="node-red"} |~ "(?i)home assistant.*connecting to undefined"[2m])) > 0
+            for: 2m
             labels:
               severity: critical
               category: logs
             annotations:
               summary: "Node-Red is unable to connect to Home Assistant"
-
-  # TODO: https://github.com/grafana/helm-charts/pull/700
-  postRenderers:
-    - kustomize:
-        patchesJson6902:
-          - target:
-              version: v1beta1
-              kind: Ingress
-              name: loki
-            patch:
-              - op: replace
-                path: /apiVersion
-                value: networking.k8s.io/v1
-              - op: remove
-                path: /spec/rules/0/http/paths/0/backend/servicePort
-              - op: remove
-                path: /spec/rules/0/http/paths/0/backend/serviceName
-              - op: add
-                path: /spec/rules/0/http/paths/0/backend/service
-                value:
-                  name: loki
-                  port:
-                    name: http-metrics
-              - op: add
-                path: /spec/rules/0/http/paths/0/pathType
-                value: Prefix
+  valuesFrom:
+    - kind: ConfigMap
+      name: loki-ceph-bucket
+      valuesKey: BUCKET_NAME
+      targetPath: config.storage_config.aws.bucketnames
+    - kind: ConfigMap
+      name: loki-ceph-bucket
+      valuesKey: BUCKET_HOST
+      targetPath: config.storage_config.aws.endpoint
+    - kind: Secret
+      name: loki-ceph-bucket
+      valuesKey: AWS_ACCESS_KEY_ID
+      targetPath: config.storage_config.aws.access_key_id
+    - kind: Secret
+      name: loki-ceph-bucket
+      valuesKey: AWS_SECRET_ACCESS_KEY
+      targetPath: config.storage_config.aws.secret_access_key

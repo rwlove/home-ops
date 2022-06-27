@@ -21,7 +21,7 @@ This is the configuration for my home Kubernetes cluster. It's based on the incr
 | worker4   | Intel DG965WH   | 2   | 8  GB  | k8s Worker |                  |
 | worker5   | VM on beast     | 4   | 32 GB  | k8s Worker |                  |
 | worker6   | VM on beast     | 4   | 32 GB  | k8s Worker |                  |
-| worker7   | VM on beast     | 4   | 32 GB  | k8s Worker | coral TPU        |
+| worker7   | VM on beast     | 4   | 64 GB  | k8s Worker | coral TPU        |
 | worker8   | VM on beast     | 4   | 32 GB  | k8s Worker | zstick7          |
 
 ## Upgrades

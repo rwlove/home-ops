@@ -34,7 +34,7 @@ do not bootstrap, after initial bootstrap, as it use as it overwrites the sops c
 `./provision_cluster.sh` in [my ansible project](https://github.com/rwlove/ansible)
 
 ### Kube-VIP
-[Reference](https://kube-vip.io/hybrid/static/)
+[Reference](https://kube-vip.io/docs/installation/static/)
 Run the following commands on master1.
 
 `export VIP=192.168.6.1`

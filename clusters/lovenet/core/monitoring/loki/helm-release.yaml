@@ -15,13 +15,29 @@ spec:
         name: grafana-charts
         namespace: flux-system
       interval: 5m
+
   install:
-    createNamespace: true
+    createNamespace: false
+    remediation: # perform remediation when helm install fails
+      retries: 3
+
+  upgrade:
+    remediation: # perform remediation when helm upgrade fails
+      retries: 3
+      remediateLastFailure: true # remediate the last failure, when no retries remain
+    cleanupOnFail: true
+
+  dependsOn:
+    - name: kube-prometheus-stack
+      namespace: system-monitoring
+
   values:
 
-    livenessProbe:
-      periodSeconds: 120
-      initialDelaySeconds: 120
+    image:
+      repository: ghcr.io/k8s-at-home/loki
+
+    env:
+      TZ: "${TIMEZONE}"
 
     ingress:
       enabled: true
@@ -39,12 +55,13 @@ spec:
       tls:
         - hosts:
             - *host
+
     persistence:
       enabled: true
       existingClaim: loki-storage-pvc
 
     serviceMonitor:
-      enabled: false
+      enabled: true
 
     extraArgs:
       log.level: debug
@@ -58,6 +75,22 @@ spec:
         ingestion_burst_size_mb: 24
       compactor:
         retention_enabled: true
+      ruler:
+        storage:
+          type: local
+          local:
+            directory: /rules
+        rule_path: /tmp/scratch
+        alertmanager_url: http://alertmanager-operated.system-monitoring:9093
+        ring:
+          kvstore:
+            store: inmemory
+        enable_api: true
+
+    service:
+      type: LoadBalancer # Setting Ip external to cluster for easy port forward
+      externalTrafficPolicy: Cluster
+      loadBalancerIP: "${SVC_LOKI_ADDR}"
 
     alerting_groups:
       #

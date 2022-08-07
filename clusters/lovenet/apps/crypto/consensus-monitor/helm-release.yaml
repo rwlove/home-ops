@@ -1,0 +1,41 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: consensus-monitor
+  namespace: crypto
+spec:
+  interval: 5m
+  chart:
+    spec:
+      # renovate: registryUrl=https://skylenet.github.io/ethereum-helm-charts
+      chart: consensus-monitor
+      version: 0.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: ethereum-charts
+        namespace: flux-system
+      interval: 5m
+  values:
+    env:
+      TZ: "${TIMEZONE}"
+
+    ingress:
+      enabled: true
+      className: "traefik"
+      annotations:
+        traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
+        external-dns.alpha.kubernetes.io/target: "ipv4.${SECRET_DOMAIN}"
+        external-dns/is-public: "false"
+        hajimari.io/enable: "true"
+        hajimari.io/icon: "crypto"
+        hajimari.io/group: "crypto"
+        hajimari.io/appName: "consensus-monitor"
+      hosts:
+        - host: &host "consensus-monitor.${SECRET_DOMAIN}"
+          paths:
+            - path: /
+              pathType: Prefix
+      tls:
+        - hosts:
+            - *host

@@ -1,0 +1,42 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: prysm
+  namespace: crypto
+spec:
+  interval: 5m
+  chart:
+    spec:
+      # renovate: registryUrl=https://skylenet.github.io/ethereum-helm-charts
+      chart: prysm
+      version: 0.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: ethereum-charts
+        namespace: flux-system
+      interval: 5m
+  values:
+    env:
+      TZ: "${TIMEZONE}"
+
+    ingress:
+      main:
+        enabled: true
+        ingressClassName: "traefik"
+        annotations:
+          traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
+          external-dns.alpha.kubernetes.io/target: "ipv4.${SECRET_DOMAIN}"
+          external-dns/is-public: "false"
+          hajimari.io/enable: "true"
+          hajimari.io/icon: "crypto"
+          hajimari.io/group: "crypto"
+          hajimari.io/appName: "prysm"
+        hosts:
+          - host: &host "prysm.${SECRET_DOMAIN}"
+            paths:
+              - path: /
+                pathType: Prefix
+        tls:
+          - hosts:
+              - *host

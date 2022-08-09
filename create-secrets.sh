@@ -12,6 +12,10 @@ sops --encrypt --in-place ./clusters/lovenet/base/cluster-secrets.yaml
 envsubst < ./clusters/lovenet/apps/home/frigate/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/frigate/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/home/frigate/secrets.yaml
 
+# OwnCloud OCIS Secrets
+envsubst < ./clusters/lovenet/apps/home/owncloud-ocis/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/owncloud-ocis/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/home/owncloud-ocis/secrets.yaml
+
 # Mopidy Secrets
 envsubst < ./clusters/lovenet/apps/media/mopidy/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/mopidy/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/media/mopidy/secrets.yaml

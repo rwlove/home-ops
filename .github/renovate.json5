@@ -10,7 +10,8 @@
     ":enablePreCommit",
     "github>rwlove/fleet-infra//.github/renovate/autoMerge",
     "github>rwlove/fleet-infra//.github/renovate/labels",
-    "github>rwlove/fleet-infra//.github/renovate/semanticCommits"
+    "github>rwlove/fleet-infra//.github/renovate/semanticCommits",
+    "github>rwlove/fleet-infra//.github/renovate/autoMerge",
   ],
   "platform": "github",
   "username": "rosey-the-renovator-bot[bot]",
@@ -18,6 +19,7 @@
   "onboarding": false,
   "requireConfig": false,
   "gitAuthor": "rosey-the-renovator-bot <168686+rosey-the-renovator-bot[bot]@users.noreply.github.com>",
+  "timezone": "America/New_York",
   "dependencyDashboardTitle": "Renovate Dashboard 🤖",
   "suppressNotifications": [
     "prIgnoreNotification"
@@ -60,41 +62,36 @@
     ]
   },
   "regexManagers": [
-    // Read and process GitHub Releases
+    // regexManager to read and process GitHub release artifacts
     {
-      "fileMatch": [
-        "clusters/lovenet/.+\\.ya?ml$",
-        "ansible/.+\\.ya?ml$",
-        "hack/.+\\.sh$"
+      fileMatch: ["clusters/lovenet/.+\\.ya?ml$"],
+      matchStrings: [
+        "datasource=(?<datasource>.*?)\n *url: https://github\\.com/(?<depName>.*?)\\.git\n *ref:\n *tag: (?<currentValue>.*)\n",
+        'datasource=(?<datasource>.*?) depName=(?<depName>.*?)\n.*?_version: "(?<currentValue>.*)"\n',
+        'datasource=(?<datasource>.*?) depName=(?<depName>.*?)\n.*?_VERSION="(?<currentValue>.*)"\n',
       ],
-      "matchStrings": [
-        "datasource=(?<datasource>.*?)\n *url: https:\/\/github\\.com\/(?<depName>.*?)\\.git\n *ref:\n *tag: (?<currentValue>.*)\n",
-        "datasource=(?<datasource>.*?) depName=(?<depName>.*?)\n.*?_version: \"(?<currentValue>.*)\"\n",
-        "datasource=(?<datasource>.*?) depName=(?<depName>.*?)\n.*?_VERSION=\"(?<currentValue>.*)\"\n"
-      ],
-      "datasourceTemplate": "github-releases"
+      datasourceTemplate: "github-releases",
+      depNameTemplate: "{{org}}/{{repo}}",
     },
-    // Read and process Custom Resource Definitions
+    // Generic Regex Manager
     {
-      "fileMatch": [
-        "clusters/lovenet/.+\\.ya?ml$"
+      fileMatch: ["clusters/lovenet/.+\\.ya?ml$"],
+      matchStrings: [
+        "# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)( registryUrl=(?<registryUrl>.*?))?( versioning=(?<versioning>.*=?))?\n .*: (?<currentValue>.*=?)",
       ],
-      "matchStrings": [
-        "registryUrl=(?<registryUrl>.*?)\n *tag: (?<depName>[a-zA-Z-]+)-(?<currentValue>.*)\n",
-        "registryUrl=(?<registryUrl>.*?) chart=(?<depName>.*?)\n.*\\/(?<currentValue>.*?)\\/"
-      ],
-      "datasourceTemplate": "helm"
+      versioningTemplate: "{{#if versioning}}{{{versioning}}}{{else}}semver{{/if}}",
+      registryUrlTemplate: "{{#if registryUrl}}{{{registryUrl}}}{{else}}{{/if}}",
     },
-    // Read and process Custom Resources
+    // Generic Docker image Regex manager
     {
-      "fileMatch": [
-        "clusters/lovenet/.+\\.ya?ml$"
+      fileMatch: ["clusters/lovenet/.+\\.ya?ml$"],
+      matchStrings: [
+        "# renovate: docker-image( registryUrl=(?<registryUrl>.*?))?( versioning=(?<versioning>.*=?))?\n .*: (?<depName>.*?):(?<currentValue>.*=?)",
       ],
-      "matchStrings": [
-        "datasource=(?<datasource>.*?) depName=(?<depName>.*?)\n .*: (?<currentValue>.*=?)"
-      ],
-      "datasourceTemplate": "docker"
-    }
+      datasourceTemplate: "docker",
+      versioningTemplate: "{{#if versioning}}{{{versioning}}}{{else}}docker{{/if}}",
+      registryUrlTemplate: "{{#if registryUrl}}{{{registryUrl}}}{{else}}{{/if}}",
+    },
   ],
   "packageRules": [
     // setup datasources
@@ -112,22 +109,9 @@
     },
     // packages with custom versioning
     {
-      "matchDatasources": [
-        "docker"
-      ],
-      "versioning": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(?<compatibility>.*)$",
-      "matchPackageNames": [
-        "docker.io/blakeblackshear/frigate"
-      ]
-    },
-    {
-      "matchDatasources": [
-        "docker"
-      ],
-      "versioning": "regex:^RELEASE\\.(?<major>\\d+)-(?<minor>\\d+)-(?<patch>\\d+)T.*Z(-(?<compatibility>.*))?$",
-      "matchPackageNames": [
-        "quay.io/minio/minio"
-      ]
+      matchDatasources: ["docker"],
+      matchPackageNames: ["blakeblackshear/frigate"],
+      versioning: "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(?<compatibility>.*)$",
     },
     // packages with loose versioning
     {
@@ -137,48 +121,34 @@
       ],
       "versioning": "loose",
       "matchPackageNames": [
-        "ghcr.io/k8s-at-home/plex",
         "ghcr.io/k8s-at-home/qbittorrent",
         "Hypfer/Valetudo"
       ]
     },
     // group packages
     {
-      "groupName": "rook-ceph-suite",
+      "groupName": "longhorn",
       "matchDatasources": [
         "docker",
         "helm"
       ],
       "matchPackagePatterns": [
-        "^rook.ceph"
+        "^longhorn"
       ],
       "additionalBranchPrefix": "",
       "separateMinorPatch": true
     },
     {
-      "groupName": "external-snapshotter-suite",
-      "matchDatasources": [
-        "docker",
-        "github-releases"
+      matchDatasources: ["docker"],
+      matchPackageNames: [
+        "k8s.gcr.io/kube-apiserver",
+        "k8s.gcr.io/kube-controller-manager",
+        "k8s.gcr.io/kube-scheduler",
+        "ghcr.io/siderolabs/kubelet",
       ],
-      "matchPackagePatterns": [
-        "external-snapshotter",
-        "snapshot-controller"
-      ],
-      "additionalBranchPrefix": "",
-      "separateMinorPatch": true
-    },
-    {
-      "groupName": "system-upgrade-controller-suite",
-      "matchDatasources": [
-        "docker",
-        "github-tags"
-      ],
-      "matchPackagePatterns": [
-        "rancher/system-upgrade-controller"
-      ],
-      "additionalBranchPrefix": "",
-      "separateMinorPatch": true
+      groupName: "kubernetes",
+      additionalBranchPrefix: "",
+      separateMinorPatch: true,
     },
     {
       "groupName": "vector-suite",

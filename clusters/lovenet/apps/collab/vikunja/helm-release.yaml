@@ -10,7 +10,7 @@ spec:
     spec:
       # renovate: registryUrl=https://k8s-at-home.com/charts/
       chart: vikunja
-      version: 6.1.2
+      version: 5.1.1
       sourceRef:
         kind: HelmRepository
         name: k8s-at-home-charts
@@ -19,14 +19,9 @@ spec:
   values:
     image:
       repository: caddy
-      tag: 2.5.2-alpine
+      tag: 2.4.6-alpine
       pullPolicy: IfNotPresent
 
-    global:
-      postgresql:
-        auth:
-          postgresPassword: "${SECRET_VIKUNJA_POSTGRES_PASSWORD}"
-      
     controllerType: deployment
 
     strategy:
@@ -46,10 +41,8 @@ spec:
         env:
           - name: VIKUNJA_DATABASE_TYPE
             value: "postgres"
-          - name: VIKUNJA_SERVICE_JWTSECRET
-            value: ${SECRET_VIKUNJA_JWT_SECRET}
           - name: VIKUNJA_DATABASE_HOST
-            value: postgresql.databases
+            value: vikunja-postgresql.collab.svc.cluster.local.
           - name: VIKUNJA_DATABASE_DATABASE
             value: vikunja
           - name: VIKUNJA_DATABASE_USER
@@ -58,14 +51,6 @@ spec:
             value: ${SECRET_VIKUNJA_POSTGRES_PASSWORD}
           - name: VIKUNJA_SERVICE_FRONTENDURL
             value: https://tasks.${SECRET_DOMAIN}
-          - name: VIKUNJA_MAILER_FROMEMAIL
-            value: tasks@${SECRET_DOMAIN}
-          - name: VIKUNJA_MAILER_ENABLED
-            value: "false"
-          - name: VIKUNJA_MAILER_HOST
-            value: mailu-postfix.mail.svc.cluster.local
-          - name: VIKUNJA_MAILER_PORT
-            value: "25"
         volumeMounts:
           - name: files
             mountPath: /app/vikunja/files
@@ -81,24 +66,20 @@ spec:
         enabled: true
         ingressClassName: traefik
         annotations:
-          kubernetes.io/tls-acme: "true"
-          cert-manager.io/cluster-issuer: letsencrypt-production
           traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
-          external-dns/is-public: "true"
           external-dns.alpha.kubernetes.io/target: "ipv4.${SECRET_DOMAIN}"
-          # forecastle.stakater.com/expose: "true"
-          # forecastle.stakater.com/appName: "Vikunja"
-          # forecastle.stakater.com/icon: "https://vikunja.io/docs/images/vikunja-logo-white.svg"
-          # forecastle.stakater.com/network-restricted: "true"
+          hajimari.io/enable: "true"
+          hajimari.io/icon: note
+          hajimari.io/group: collab
+          hajimari.io/appName: tasks
         hosts:
-          - host: tasks.${SECRET_DOMAIN}
+          - host: "tasks.${SECRET_DOMAIN}"
             paths:
               - path: /
                 pathType: Prefix
         tls:
           - hosts:
               - "tasks.${SECRET_DOMAIN}"
-            secretName: "${SECRET_DOMAIN/./-}-tls"
 
     persistence:
       files:
@@ -115,8 +96,11 @@ spec:
             name: vikunja-config-yml
 
     postgresql:
-      postgresqlPostgresPassword: "${SECRET_POSTGRES_PASSWORD}"
-      postgresqlUsername: "vikunja"
-      postgresqlPassword: "${SECRET_VIKUNJA_POSTGRES_PASSWORD}"
-      postgresqlDatabase: "vikunja"
-      enabled: false
+      postgresqlPostgresPassword: ${SECRET_VIKUNJA_POSTGRES_ADMIN_PASSWORD}
+      postgresqlUsername: vikunja
+      postgresqlPassword: ${SECRET_VIKUNJA_POSTGRES_PASSWORD}
+      postgresqlDatabase: vikunja
+      enabled: true
+      persistence:
+        enabled: true
+        existingClaim: vikunja-postgresql-pvc

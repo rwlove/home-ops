@@ -45,4 +45,4 @@ echo "######"
 echo "# Create Secrets "
 stg new -m update-secrets
 ./create-secrets.sh
-stg refresh ; stg pop -a ; git pull ; stg push -a ; stg commit -a ; stg clean ; git push
+stg refresh --no-verify ; stg pop -a ; git pull ; stg push -a ; stg commit -a ; stg clean ; git push

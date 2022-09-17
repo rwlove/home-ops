@@ -5,247 +5,133 @@ metadata:
   name: loki
   namespace: monitoring
 spec:
-  interval: 5m
+  interval: 15m
   chart:
     spec:
       chart: loki
-      version: 3.0.3
+      version: 3.0.6
       sourceRef:
         kind: HelmRepository
         name: grafana-charts
         namespace: flux-system
-      interval: 5m
-
   install:
-    createNamespace: false
-    remediation: # perform remediation when helm install fails
-      retries: 3
-
+    createNamespace: true
+    remediation:
+      retries: 5
   upgrade:
-    remediation: # perform remediation when helm upgrade fails
-      retries: 3
-      remediateLastFailure: true # remediate the last failure, when no retries remain
-    cleanupOnFail: true
-
-  dependsOn:
-    - name: kube-prometheus-stack
-      namespace: monitoring
-
+    remediation:
+      retries: 5
   values:
-
-    image:
-      repository: ghcr.io/k8s-at-home/loki
-
-    env:
-      - name: TZ
-        value: "${TIMEZONE}"
-
-    resources:
-      requests:
-        cpu: 63m
-        memory: 588M
-      limits:
-        cpu: 63m
-        memory: 588M
-
-    probes:
-      liveness:
-        enabled: false
-      readiness:
-        enabled: false
-      startup:
-        enabled: true
-
-    ingress:
-      enabled: true
-      className: "nginx"
-      annotations:
-        hajimari.io/enable: "true"
-        hajimari.io/icon: "logs"
-        hajimari.io/group: "monitoring"
-      hosts:
-        - host: &host "loki.${SECRET_DOMAIN}"
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - hosts:
-            - *host
-
-    persistence:
-      enabled: true
-      existingClaim: loki-storage-pvc
-
-    serviceMonitor:
-      enabled: true
-
-    extraArgs:
-      log.level: debug
-
-    config:
-      auth_enabled: false
-
-      memberlist:
-        abort_if_cluster_join_fails: false
-
-      server:
-        http_listen_port: 3100
-
-      ingester:
-        lifecycler:
-          address: 127.0.0.1
+    loki:
+      structuredConfig:
+        auth_enabled: false
+        server:
+          log_level: info
+          http_listen_port: 3100
+          grpc_listen_port: 9095
+        memberlist:
+          join_members: ["loki-memberlist"]
+        limits_config:
+          retention_period: 14d
+          enforce_metric_name: false
+          reject_old_samples: true
+          reject_old_samples_max_age: 168h
+          max_cache_freshness_per_query: 10m
+          split_queries_by_interval: 15m
+          ingestion_rate_mb: 8
+          ingestion_burst_size_mb: 16
+        schema_config:
+          configs:
+            - from: "2021-08-01"
+              store: boltdb-shipper
+              object_store: s3
+              schema: v11
+              index:
+                prefix: loki_index_
+                period: 24h
+        common:
+          path_prefix: /var/loki
+          replication_factor: 3
+          storage:
+            s3:
+              s3: null
+              insecure: true
+              s3forcepathstyle: true
           ring:
             kvstore:
-              store: inmemory
-            replication_factor: 1
-          final_sleep: 0s
-        chunk_idle_period: 5m
-        chunk_retain_period: 30s
-
-      schema_config:
-        configs:
-          - from: "2020-05-15"
-            store: boltdb
-            object_store: filesystem
-            schema: v11
-            index:
-              prefix: index_
-              period: 168h
-
-      storage_config:
-        boltdb:
-          directory: /tmp/loki/index
-
-        filesystem:
-          directory: /tmp/loki/chunks
-
-      limits_config:
-        enforce_metric_name: false
-        reject_old_samples: true
-        reject_old_samples_max_age: 168h
-
-      ruler:
-        storage:
-          type: local
-          local:
-            directory: /rules
-        rule_path: /tmp/scratch
-        alertmanager_url: http://alertmanager-operated.monitoring.svc.cluster.local:9093
-        ring:
-          kvstore:
-            store: inmemory
-        enable_api: true
-
-    service:
-      type: LoadBalancer # Setting Ip external to cluster for easy port forward
-      externalTrafficPolicy: Local
-      loadBalancerIP: "${SVC_LOKI_ADDR}"
-
-    alerting_groups:
-      #
-      # SMART Failures
-      #
-      - name: smart-failure
-        rules:
-          - alert: SmartFailures
-            expr: |
-              sum by (hostname) (count_over_time({hostname=~".+"} | json | _SYSTEMD_UNIT = "smartmontools.service" !~ "(?i)previous self-test completed without error" !~ "(?i)Prefailure" |~ "(?i)(error|fail)"[2m])) > 0
-            for: 2m
-            labels:
-              severity: critical
-              category: logs
-            annotations:
-              summary: "SMART has reported failures on host {{ $labels.hostname }}"
-      #
-      # zwavejs2mqtt
-      #
-      - name: zwavejs2mqtt
-        rules:
-          - alert: ZwaveUnableToReachMQTT
-            expr: |
-              sum(count_over_time({app="zwavejs2mqtt"} |~ "(?i)error while connecting mqtt"[2m])) > 0
-            for: 2m
-            labels:
-              severity: critical
-              category: logs
-            annotations:
-              summary: "Zwavejs2mqtt is unable to reach MQTT"
-      #
-      # zwavejs2mqtt-z-stick-7
-      #
-      - name: zwavejs2mqtt-z-stick-7
-        rules:
-          - alert: ZwaveUnableToReachMQTT
-            expr: |
-              sum(count_over_time({app="zwavejs2mqtt"} |~ "(?i)error while connecting mqtt"[2m])) > 0
-            for: 2m
-            labels:
-              severity: critical
-              category: logs
-            annotations:
-              summary: "zwavejs2mqtt-z-stick-7 is unable to reach MQTT"
-      #
-      # frigate
-      #
-      - name: frigate
-        rules:
-          - alert: FrigateUnableToReachMQTT
-            expr: |
-              sum(count_over_time({app="frigate"} |~ "(?i)unable to connect to mqtt server"[2m])) > 0
-            for: 2m
-            labels:
-              severity: critical
-              category: logs
-            annotations:
-              summary: "Frigate is unable to reach MQTT"
-      #
-      # *arr
-      #
-      - name: arr
-        rules:
-          - alert: ArrDatabaseIsLocked
-            expr: |
-              sum by (app) (count_over_time({app=~".*arr"} |~ "(?i)database is locked"[2m])) > 0
-            for: 2m
-            labels:
-              severity: critical
-              category: logs
-            annotations:
-              summary: "{{ $labels.app }} is experiencing locked database issues"
-          - alert: ArrDatabaseIsMalformed
-            expr: |
-              sum by (app) (count_over_time({app=~".*arr"} |~ "(?i)database disk image is malformed"[2m])) > 0
-            for: 2m
-            labels:
-              severity: critical
-              category: logs
-            annotations:
-              summary: "{{ $labels.app }} is experiencing malformed database disk image issues"
-      #
-      # home-assistant
-      #
-      - name: home-assistant
-        rules:
-          - alert: HomeAssistantUnableToReachPostgresql
-            expr: |
-              sum by (app) (count_over_time({app="home-assistant"} |~ "(?i)error in database connectivity"[2m])) > 0
-            for: 2m
-            labels:
-              severity: critical
-              category: logs
-            annotations:
-              summary: "Home Assistant is unable to connect to postgresql"
-      #
-      # node-red
-      #
-      - name: node-red
-        rules:
-          - alert: NodeRedUnableToReachHomeAssistant
-            expr: |
-              sum by (app) (count_over_time({app="node-red"} |~ "(?i)home assistant.*connecting to undefined"[2m])) > 0
-            for: 2m
-            labels:
-              severity: critical
-              category: logs
-            annotations:
-              summary: "Node-Red is unable to connect to Home Assistant"
+              store: memberlist
+        ruler:
+          enable_api: true
+          enable_alertmanager_v2: true
+          alertmanager_url: http://kube-prometheus-stack-alertmanager:9093
+          storage:
+            type: local
+            local:
+              directory: /rules
+          rule_path: /tmp/scratch
+          ring:
+            kvstore:
+              store: memberlist
+        distributor:
+          ring:
+            kvstore:
+              store: memberlist
+        compactor:
+          working_directory: /var/loki/boltdb-shipper-compactor
+          shared_store: s3
+          compaction_interval: 10m
+          retention_enabled: true
+          retention_delete_delay: 2h
+          retention_delete_worker_count: 150
+        ingester:
+          max_chunk_age: 1h
+          lifecycler:
+            ring:
+              kvstore:
+                store: memberlist
+        analytics:
+          reporting_enabled: false
+    gateway:
+      enabled: true
+      replicas: 3
+      ingress:
+        enabled: true
+        ingressClassName: "nginx"
+        hosts:
+          - host: &host "loki.${SECRET_DOMAIN}"
+            paths:
+              - path: /
+                pathType: Prefix
+        tls:
+          - hosts:
+              - *host
+    write:
+      replicas: 3
+      persistence:
+        size: 10Gi
+        storageClass: longhorn-static
+    read:
+      replicas: 3
+      extraVolumeMounts:
+        - name: loki-rules
+          mountPath: /rules/fake
+        - name: loki-rules-tmp
+          mountPath: /tmp/scratch
+        - name: loki-tmp
+          mountPath: /tmp/loki-tmp
+      extraVolumes:
+        - name: loki-rules
+          configMap:
+            name: loki-alerting-rules
+        - name: loki-rules-tmp
+          emptyDir: {}
+        - name: loki-tmp
+          emptyDir: {}
+      persistence:
+        size: 10Gi
+        storageClass: longhorn-static
+    monitoring:
+      selfMonitoring:
+        enabled: false
+        grafanaAgent:
+          installOperator: false

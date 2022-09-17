@@ -16,13 +16,14 @@ This is the configuration for my home Kubernetes cluster. It's based on the incr
 | master2   | VM on beast     | 2   | 32 GB  | k8s Master |                  |
 | master3   | VM on beast     | 2   | 32 GB  | k8s Master |                  |
 | worker1   | Intel DN2820FYK | 2   | 8  GB  | k8s Worker | zstick6, wyze    |
-| worker2   | Intel DN2820FYK | 2   | 8  GB  | k8s Worker |                  |
+| worker2   | VM on beast     | 4   | 32 GB  | k8s Worker |                  |
 | worker3   | VM on brain     | 4   | 12 GB  | k8s Worker | longhorn storage |
 | worker4   | Intel DG965WH   | 2   | 8  GB  | k8s Worker |                  |
 | worker5   | VM on beast     | 4   | 32 GB  | k8s Worker |                  |
 | worker6   | VM on beast     | 4   | 32 GB  | k8s Worker |                  |
 | worker7   | VM on beast     | 4   | 64 GB  | k8s Worker | coral TPU        |
 | worker8   | VM on beast     | 4   | 32 GB  | k8s Worker | zstick7          |
+| worker9   | VM on beast     | 4   | 32 GB  | k8s Worker |                  |
 
 ## Upgrades
 ### Flux

@@ -16,6 +16,10 @@ sops --encrypt --in-place ./clusters/lovenet/apps/databases/postgresql/secrets.y
 envsubst < ./clusters/lovenet/apps/authentication/authelia/secrets-tmpl.yaml > ./clusters/lovenet/apps/authentication/authelia/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/authentication/authelia/secrets.yaml
 
+# MinIO Secrets
+envsubst < ./clusters/lovenet/apps/storage/minio/secrets-tmpl.yaml > ./clusters/lovenet/apps/storage/minio/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/storage/minio/secrets.yaml
+
 # Frigate Secrets
 envsubst < ./clusters/lovenet/apps/home/frigate/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/frigate/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/home/frigate/secrets.yaml

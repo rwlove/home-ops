@@ -45,8 +45,8 @@ envsubst < ./clusters/lovenet/apps/media/kodidb/secrets-tmpl.yaml > ./clusters/l
 sops --encrypt --in-place ./clusters/lovenet/apps/media/kodidb/secrets.yaml
 
 # Grafana #
-envsubst < ./clusters/lovenet/core/monitoring/grafana/secrets-tmpl.yaml > ./clusters/lovenet/core/monitoring/grafana/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/core/monitoring/grafana/secrets.yaml
+envsubst < ./clusters/lovenet/apps/monitoring/grafana/secrets-tmpl.yaml > ./clusters/lovenet/apps/monitoring/grafana/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/monitoring/grafana/secrets.yaml
 
 # GeoIPUpdate Secrets
 envsubst < ./clusters/lovenet/core/monitoring/vector/geoipupdate/secrets-tmpl.yaml > ./clusters/lovenet/core/monitoring/vector/geoipupdate/secrets.yaml

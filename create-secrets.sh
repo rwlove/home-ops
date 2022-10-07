@@ -8,6 +8,10 @@ export GPG_TTY=$(tty)
 envsubst < ./tmpl/cluster-secrets.yaml > ./clusters/lovenet/base/cluster-secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/base/cluster-secrets.yaml
 
+# Postgres Secrets
+envsubst < ./clusters/lovenet/apps/databases/postgres/secrets-tmpl.yaml > ./clusters/lovenet/apps/databases/postgres/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/databases/postgres/secrets.yaml
+
 # Frigate Secrets
 envsubst < ./clusters/lovenet/apps/home/frigate/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/frigate/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/home/frigate/secrets.yaml

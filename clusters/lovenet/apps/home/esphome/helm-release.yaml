@@ -5,40 +5,36 @@ metadata:
   name: esphome
   namespace: home
 spec:
-  interval: 5m
+  interval: 30m
   chart:
     spec:
-      # renovate: registryUrl=https://k8s-at-home.com/charts/
-      chart: esphome
-      version: 8.4.2
+      chart: app-template
+      version: 0.2.2
+      interval: 30m
       sourceRef:
         kind: HelmRepository
-        name: k8s-at-home-charts
+        name: bjw-s
         namespace: flux-system
-      interval: 5m
+
   values:
-    env:
-      # ESPHOME_DASHBOARD_USE_PING: true
-      # ESPHOME_DASHBOARD_RELATIVE_URL: "/"
-      # ESPHOME_QUICKWIZARD:
-      # ESPHOME_IS_HASSIO:
-      DISABLE_HA_AUTHENTICATION: true
-      # USERNAME:
-      # PASSWORD:
+    image:
+      repository: esphome/esphome
+      tag: 2022.9.4
+
+    service:
+      main:
+        ports:
+          http:
+            port: 6052
 
     ingress:
       main:
         enabled: true
-        ingressClassName: "traefik"
-        annotations:
-          traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
-          traefik.ingress.kubernetes.io/router.middlewares: "network-rfc1918-ips@kubernetescrd"
-          external-dns.alpha.kubernetes.io/target: "ipv4.${SECRET_DOMAIN}"
+        ingressClassName: "nginx"
         hosts:
-          - host: &host "esphome.${SECRET_DOMAIN}"
+          - host: &host "esphome.${INGRESS_DOMAIN}"
             paths:
               - path: /
-                pathType: Prefix
         tls:
           - hosts:
               - *host
@@ -49,3 +45,10 @@ spec:
         storageClass: esphome-config-storage-class
         accessMode: ReadWriteOnce
         size: 1Gi
+
+    resources:
+      requests:
+        cpu: 15m
+        memory: 512M
+      limits:
+        memory: 1024M

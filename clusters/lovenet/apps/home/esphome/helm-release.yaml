@@ -21,6 +21,14 @@ spec:
       repository: esphome/esphome
       tag: 2022.10.0
 
+    env:
+      TZ: "${TIMEZONE}"
+      ESPHOME_DASHBOARD_USE_PING: true
+      ESPHOME__INSTANCE_NAME: ESPHome
+      ESPHOME__PORT: &port 6052
+      ESPHOME__APPLICATION_URL: &host-cluster "esphome.${SECRET_DOMAIN}"
+      ESPHOME__LOG_LEVEL: info
+
     # App needs to run as root because of this: https://github.com/esphome/issues/issues/2752
     securityContext:
       runAsNonRoot: false
@@ -30,6 +38,9 @@ spec:
 
     service:
       main:
+        type: LoadBalancer
+        loadBalancerIP: "${SVC_ESPHOME_ADDR}"
+        externalTrafficPolicy: Local
         ports:
           http:
             port: 6052
@@ -43,12 +54,16 @@ spec:
           traefik.ingress.kubernetes.io/router.middlewares: "network-rfc1918-ips@kubernetescrd"
           external-dns.alpha.kubernetes.io/target: "ipv4.${SECRET_DOMAIN}"
         hosts:
+          - host: *host-cluster
+            paths:
+              - path: /
           - host: &host "esphome.${SECRET_DOMAIN}"
             paths:
               - path: /
                 pathType: Prefix
         tls:
           - hosts:
+              - *host-cluster
               - *host
 
     podAnnotations:

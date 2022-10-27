@@ -25,10 +25,6 @@
   "suppressNotifications": ["prIgnoreNotification"],
   "rebaseWhen": "conflicted",
   "commitBodyTable": true,
-  "ignorePaths": ["archive/**"],
-  "docker-compose": {
-    "fileMatch": ["ansible/.+/docker-compose.*\\.ya?ml(\\.j2)?$"]
-  },
   "flux": {
     "fileMatch": ["clusters/lovenet/.+\\.ya?ml$"]
   },
@@ -40,39 +36,32 @@
   },
   "regexManagers": [
     {
-      "description": "Process CRD dependencies",
-      "fileMatch": ["clusters/lovenet/.+helm-release\\.ya?ml$"],
+      "description": ["Process CRD dependencies - Chart and Github Release are the same version"],
+      "fileMatch": ["clusters/lovenet/.+\\.ya?ml$"],
       "matchStrings": [
-        "registryUrl=(?<registryUrl>.*?)\n *chart: (?<depName>.*?)\n *version: (?<currentValue>.*)\n"
+        "# renovate: registryUrl=(?<registryUrl>\\S+) chart=(?<depName>\\S+)\n.*?(?<currentValue>[^-\\s]*)\n",
       ],
       "datasourceTemplate": "helm"
     },
     {
-      "description": "Process raw GitHub URLs",
-      "fileMatch": ["clusters/lovenet/.+\\.ya?ml$"],
+      "description": ["Raw GitHub URL Regex manager"],
+      "fileMatch": [
+        "clusters/lovenet/.+\\.ya?ml$"
+      ],
       "matchStrings": [
-        "https:\\/\\/raw.githubusercontent.com\\/(?<depName>[\\w\\d\\-_]+\\/[\\w\\d\\-_]+)\\/(?<currentValue>[\\w\\d\\.\\-_]+)\\/.*"
+        "https:\\/\\/raw.githubusercontent.com\\/(?<depName>[\\w\\d\\-_]+\\/[\\w\\d\\-_]+)\\/(?<currentValue>[\\w\\d\\.\\-_]+)\\/.*",
       ],
       "datasourceTemplate": "github-releases",
       "versioningTemplate": "semver"
     }
   ],
   "packageRules": [
-    {
-      "description": "Use loose versioning for certain dependencies",
-      "matchDatasources": ["docker", "github-releases"],
-      "versioning": "loose",
-      "matchPackageNames": [
-        "ghcr.io/onedr0p/plex",
-        "ghcr.io/onedr0p/qbittorrent",
-        "Hypfer/Valetudo"
-      ]
-    },
+    // Custom version schemes
     {
       "description": "Use custom versioning for Minio",
       "matchDatasources": ["docker"],
       "versioning": "regex:^RELEASE\\.(?<major>\\d+)-(?<minor>\\d+)-(?<patch>\\d+)T.*Z(-(?<compatibility>.*))?$",
       "matchPackageNames": ["quay.io/minio/minio"]
-    }
+    },
   ]
 }

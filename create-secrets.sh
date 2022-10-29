@@ -28,10 +28,6 @@ sops --encrypt --in-place ./clusters/lovenet/apps/home/frigate/secrets.yaml
 envsubst < ./clusters/lovenet/apps/home/owncloud-ocis/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/owncloud-ocis/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/home/owncloud-ocis/secrets.yaml
 
-# Mopidy Secrets
-envsubst < ./clusters/lovenet/apps/media/mopidy/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/mopidy/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/media/mopidy/secrets.yaml
-
 # Home Assistant Secrets
 envsubst < ./clusters/lovenet/apps/home/home-assistant/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/home-assistant/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/home/home-assistant/secrets.yaml

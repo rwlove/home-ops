@@ -8,9 +8,9 @@ export GPG_TTY=$(tty)
 envsubst < ./tmpl/cluster-secrets.yaml > ./clusters/lovenet/base/cluster-secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/base/cluster-secrets.yaml
 
-# PostgreSQL Secrets
-envsubst < ./clusters/lovenet/apps/databases/postgresql/secrets-tmpl.yaml > ./clusters/lovenet/apps/databases/postgresql/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/databases/postgresql/secrets.yaml
+# Cloudnative PG (PostgreSQL) Secrets
+envsubst < clusters/lovenet/apps/databases/cloudnative-pg/config/secrets-tmpl.yaml > ./clusters/lovenet/apps/databases/cloudnative-pg/config/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/databases/cloudnative-pg/config/secrets.yaml
 
 # Authelia Secrets
 envsubst < ./clusters/lovenet/apps/authentication/authelia/secrets-tmpl.yaml > ./clusters/lovenet/apps/authentication/authelia/secrets.yaml

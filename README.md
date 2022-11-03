@@ -13,8 +13,8 @@ This is the configuration for my home Kubernetes cluster. It's based on the incr
 | Hostname  | Device          | CPU | RAM    | Role       | Devices          |
 | --------- | --------------- | --- | ------ | ---------- | ---------------- |
 | master1   | Intel NUC7PJYH  | 4   | 8  GB  | k8s Master |                  |
-| master2   | VM on beast     | 2   | 32 GB  | k8s Master |                  |
-| master3   | VM on beast     | 2   | 32 GB  | k8s Master |                  |
+| master2   | VM on beast     | 2   | 24 GB  | k8s Master |                  |
+| master3   | VM on beast     | 2   | 24 GB  | k8s Master |                  |
 | worker1   | Intel DN2820FYK | 2   | 8  GB  | k8s Worker | zstick6, wyze    |
 | worker2   | VM on beast     | 4   | 16 GB  | k8s Worker |                  |
 | worker3   | VM on brain     | 4   | 12 GB  | k8s Worker | longhorn storage |

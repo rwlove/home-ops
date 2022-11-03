@@ -14,7 +14,7 @@ sops --encrypt --in-place ./clusters/lovenet/apps/databases/cloudnative-pg/confi
 
 echo "Create Authelia Secrets"
 envsubst < ./clusters/lovenet/apps/authentication/authelia/secrets-tmpl.yaml > ./clusters/lovenet/apps/authentication/authelia/secrets.yaml
-#sops --encrypt --in-place ./clusters/lovenet/apps/authentication/authelia/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/authentication/authelia/secrets.yaml
 
 echo "Create MinIO Secrets"
 envsubst < ./clusters/lovenet/apps/storage/minio/secrets-tmpl.yaml > ./clusters/lovenet/apps/storage/minio/secrets.yaml

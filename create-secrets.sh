@@ -4,74 +4,74 @@ export GPG_TTY=$(tty)
 
 . .cluster-secrets.env
 
-# Cluster Secrets
+echo "Create Cluster Secrets"
 envsubst < ./tmpl/cluster-secrets.yaml > ./clusters/lovenet/base/cluster-secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/base/cluster-secrets.yaml
 
-# Cloudnative PG (PostgreSQL) Secrets
+echo "Create Cloudnative PG (PostgreSQL) Secrets"
 envsubst < clusters/lovenet/apps/databases/cloudnative-pg/config/secrets-tmpl.yaml > ./clusters/lovenet/apps/databases/cloudnative-pg/config/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/databases/cloudnative-pg/config/secrets.yaml
 
-# Authelia Secrets
+echo "Create Authelia Secrets"
 envsubst < ./clusters/lovenet/apps/authentication/authelia/secrets-tmpl.yaml > ./clusters/lovenet/apps/authentication/authelia/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/authentication/authelia/secrets.yaml
+#sops --encrypt --in-place ./clusters/lovenet/apps/authentication/authelia/secrets.yaml
 
-# MinIO Secrets
+echo "Create MinIO Secrets"
 envsubst < ./clusters/lovenet/apps/storage/minio/secrets-tmpl.yaml > ./clusters/lovenet/apps/storage/minio/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/storage/minio/secrets.yaml
 
-# Frigate Secrets
+echo "Create Frigate Secrets"
 envsubst < ./clusters/lovenet/apps/home/frigate/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/frigate/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/home/frigate/secrets.yaml
 
-# OwnCloud OCIS Secrets
+echo "Create OwnCloud OCIS Secrets"
 envsubst < ./clusters/lovenet/apps/home/owncloud-ocis/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/owncloud-ocis/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/home/owncloud-ocis/secrets.yaml
 
-# Home Assistant Secrets
+echo "Create Home Assistant Secrets"
 envsubst < ./clusters/lovenet/apps/home/home-assistant/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/home-assistant/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/home/home-assistant/secrets.yaml
 
-# Downloads Gateway Secrets
+echo "Create Downloads Gateway Secrets"
 envsubst < ./clusters/lovenet/core/downloads-gateway/secrets-tmpl.yaml > ./clusters/lovenet/core/downloads-gateway/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/core/downloads-gateway/secrets.yaml
 
-# Github Webhook Secrets
+echo "Create Github Webhook Secrets"
 envsubst < ./clusters/lovenet/apps/flux-system/webhook/github/secrets-tmpl.yaml > ./clusters/lovenet/apps/flux-system/webhook/github/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/flux-system/webhook/github/secrets.yaml
 
-# Github Notification Secrets
+echo "Create Github Notification Secrets"
 envsubst < ./clusters/lovenet/core/notifications/github/secrets-tmpl.yaml > ./clusters/lovenet/core/notifications/github/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/core/notifications/github/secrets.yaml
 
-# External DNS Secrets
+echo "Create External DNS Secrets"
 envsubst < ./clusters/lovenet/apps/network/external-dns/secrets-tmpl.yaml > ./clusters/lovenet/apps/network/external-dns/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/network/external-dns/secrets.yaml
 
-# Kodi Secrets
+echo "Create Kodi Secrets"
 envsubst < ./clusters/lovenet/apps/media/kodidb/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/kodidb/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/media/kodidb/secrets.yaml
 
-# Grafana #
+echo "Create Grafana Secrets"
 envsubst < ./clusters/lovenet/apps/monitoring/grafana/secrets-tmpl.yaml > ./clusters/lovenet/apps/monitoring/grafana/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/monitoring/grafana/secrets.yaml
 
-# GeoIPUpdate Secrets
+echo "Create Vector GeoIPUpdate Secrets"
 envsubst < ./clusters/lovenet/core/monitoring/vector/geoipupdate/secrets-tmpl.yaml > ./clusters/lovenet/core/monitoring/vector/geoipupdate/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/core/monitoring/vector/geoipupdate/secrets.yaml
 
-# Cloudflare DDNS #
+echo "Create Cloudflare DDNS Secrets"
 envsubst < ./clusters/lovenet/apps/network/cloudflare-ddns/secrets-tmpl.yaml > ./clusters/lovenet/apps/network/cloudflare-ddns/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/network/cloudflare-ddns/secrets.yaml
 
-# Qbittorrent Secrets (TODO: move vpn configuration into .cluster-secrets.yaml so that secrets-tmpl.yaml can be committed)
+echo "Create Qbittorrent Secrets (TODO: move vpn configuration into .cluster-secrets.yaml so that secrets-tmpl.yaml can be committed)"
 sops --encrypt ./clusters/lovenet/apps/media/qbittorrent/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/qbittorrent/secrets.yaml
 
-# Qbittorrent-rss Secrets
+echo "Create Qbittorrent-rss Secrets"
 sops --encrypt ./clusters/lovenet/apps/media/qbittorrent-rss/feeds-json-secrets-tmpl.yaml > ./clusters/lovenet/apps/media/qbittorrent-rss/feeds-json-secrets.yaml
 sops --encrypt ./clusters/lovenet/apps/media/qbittorrent-rss/env-secrets-tmpl.yaml > ./clusters/lovenet/apps/media/qbittorrent-rss/env-secrets.yaml
 
-# GLAuth
+echo "Create GLAuth Secrets"
 sops --encrypt ./clusters/lovenet/apps/authentication/glauth/config/server.toml > clusters/lovenet/apps/authentication/glauth/config/server.sops.toml
 sops --encrypt ./clusters/lovenet/apps/authentication/glauth/config/groups.toml > clusters/lovenet/apps/authentication/glauth/config/groups.sops.toml
 sops --encrypt ./clusters/lovenet/apps/authentication/glauth/config/users.toml > clusters/lovenet/apps/authentication/glauth/config/users.sops.toml

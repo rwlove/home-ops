@@ -56,6 +56,10 @@ echo "Create Grafana Secrets"
 envsubst < ./clusters/lovenet/apps/monitoring/grafana/secrets-tmpl.yaml > ./clusters/lovenet/apps/monitoring/grafana/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/monitoring/grafana/secrets.yaml
 
+echo "Create Vikunja Secrets"
+envsubst < ./clusters/lovenet/apps/collab/vikunja/secrets-tmpl.yaml > ./clusters/lovenet/apps/collab/vikunja/secrets.yaml
+#sops --encrypt --in-place ./clusters/lovenet/apps/collab/vikunja/secrets.yaml
+
 echo "Create Vector GeoIPUpdate Secrets"
 envsubst < ./clusters/lovenet/core/monitoring/vector/geoipupdate/secrets-tmpl.yaml > ./clusters/lovenet/core/monitoring/vector/geoipupdate/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/core/monitoring/vector/geoipupdate/secrets.yaml

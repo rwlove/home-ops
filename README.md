@@ -77,6 +77,12 @@ github.com -> Settings -> Webhooks -> Payload URL
 * Which events would you like to trigger this webhook?: Just the push event.
 * Active: <checked>
  
+ ## Notes
+ To get metrics-server to work with kubeadm, you need to do the following if it isn't setup with the clusterconfig provided to kubeadm
+ https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/kubeadm-certs/#kubelet-serving-certs
+ * Need to pull the kubeadm configuration into this repository
+ 
+ 
  ## Hacks
  My Omada Controller currently needs the MixedProtocolLBService feature gate added to the kube api-server. I have not yet figured out how to enable this with kubeadm, so I'm manually updating the kube api-server manifest and restarting the kube api-server, as such:
 

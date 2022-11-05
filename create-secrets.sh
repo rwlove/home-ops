@@ -60,6 +60,10 @@ echo "Create Radarr Secrets"
 envsubst < ./clusters/lovenet/apps/media/radarr/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/radarr/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/media/radarr/secrets.yaml
 
+echo "Create Sonarr Secrets"
+envsubst < ./clusters/lovenet/apps/media/sonarr/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/sonarr/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/media/sonarr/secrets.yaml
+
 echo "Create Prowlarr Secrets"
 envsubst < ./clusters/lovenet/apps/media/prowlarr/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/prowlarr/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/media/prowlarr/secrets.yaml

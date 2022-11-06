@@ -72,6 +72,10 @@ echo "Create Recyclarr Secrets"
 envsubst < ./clusters/lovenet/apps/media/recyclarr/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/recyclarr/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/media/recyclarr/secrets.yaml
 
+echo "Create EMQX (MQTT Broker) Secrets"
+envsubst < ./clusters/lovenet/apps/home/emqx/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/emqx/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/home/emqx/secrets.yaml
+
 echo "Create Grafana Secrets"
 envsubst < ./clusters/lovenet/apps/monitoring/grafana/secrets-tmpl.yaml > ./clusters/lovenet/apps/monitoring/grafana/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/monitoring/grafana/secrets.yaml

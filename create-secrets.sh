@@ -24,6 +24,10 @@ echo "Create Frigate Secrets"
 envsubst < ./clusters/lovenet/apps/home/frigate/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/frigate/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/home/frigate/secrets.yaml
 
+echo "Create Double-Take Secrets"
+envsubst < ./clusters/lovenet/apps/home/double-take/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/double-take/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/home/double-take/secrets.yaml
+
 echo "Create OwnCloud OCIS Secrets"
 envsubst < ./clusters/lovenet/apps/home/owncloud-ocis/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/owncloud-ocis/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/home/owncloud-ocis/secrets.yaml

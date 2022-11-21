@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Get all local networks
-# ipv4_rfc1918='[ "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" ]'
+# ipv4_rfc1918='[ "11.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" ]'
 
 # Get all cloudflare ipv4 ranges in an array
 ipv4_cloudflare="$(curl -sL https://www.cloudflare.com/ips-v4 | jq --raw-input --slurp 'split("\n")')"

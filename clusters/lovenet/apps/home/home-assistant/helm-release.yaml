@@ -2,54 +2,59 @@
 apiVersion: helm.toolkit.fluxcd.io/v2beta1
 kind: HelmRelease
 metadata:
-  name: home-assistant
+  name: &app home-assistant
   namespace: home
 spec:
-  interval: 5m
+  interval: 15m
   chart:
     spec:
-      # renovate: registryUrl=https://k8s-at-home.com/charts/
-      chart: home-assistant
-      version: 13.4.2
+      chart: app-template
+      version: 1.0.1
       sourceRef:
         kind: HelmRepository
-        name: k8s-at-home-charts
+        name: bjw-s-charts
         namespace: flux-system
-      interval: 5m
+  install:
+    remediation:
+      retries: 5
+
+  upgrade:
+    remediation:
+      retries: 5
+
+  dependsOn:
+    - name: emqx
+      namespace: home
+    - name: postgres
+      namespace: databases
+    - name: longhorn
+      namespace: storage
+
   values:
+    controller:
+      type: statefulset
+
     image:
-      repository: ghcr.io/home-assistant/home-assistant
-      tag: 2022.11.4
+      repository: ghcr.io/onedr0p/home-assistant
+      tag: 2022.11.3@sha256:2ad10631a2b574b77baab79145d8b773ff7307f6d52542d0b458f599ce689d26
 
     env:
       TZ: "${TIMEZONE}"
+      POSTGRES_HOST: postgres-rw.default.svc.cluster.local
+      POSTGRES_DB: home_assistant
 
     envFrom:
       - secretRef:
-          name: home-assistant-helm-values
-
-    securityContext:
-      # -- (bool) Privileged securityContext may be required if USB devics are accessed directly through the host machine
-      privileged: true
+          name: *app
 
     service:
       main:
         type: LoadBalancer
-        loadBalancerIP: "${SVC_HOME_ASSISTANT_ADDR}"
+        externalIPs: ["${SVC_HOME_ASSISTANT_ADDR}"]
         externalTrafficPolicy: Local
         ports:
           http:
             port: 8123
-          mdns-tcp:
-            enabled: true
-            port: 5353
-            protocol: TCP
-            targetPort: 5353
-          mdns-udp:
-            enabled: true
-            port: 5353
-            protocol: UDP
-            targetPort: 5353
 
     ingress:
       main:
@@ -71,12 +76,6 @@ spec:
         tls:
           - hosts:
               - *host
-
-    podAnnotations:
-      # k8s.v1.cni.cncf.io/networks: hass-iot-static,hass-iot-dhcp
-      k8s.v1.cni.cncf.io/networks: hass-iot-static
-      secret.reloader.stakater.com/reload: home-assistant-secrets
-
     probes:
       liveness:
         enabled: false
@@ -88,39 +87,15 @@ spec:
     persistence:
       config:
         enabled: true
-        emptyDir: false
-        storageClass: home-assistant-config-storage-class
-        accessMode: ReadWriteOnce
-        size: 10Gi
+        existingClaim: home-assistant-config-pvc
 
-    addons:
-      codeserver:
-        enabled: true
-        workingDir: /config
-        args:
-          - --auth
-          - "none"
-          - --user-data-dir
-          - "/config/.vscode"
-          - --extensions-dir
-          - "/config/.vscode"
-        ingress:
-          main:
-            enabled: true
-            annotations:
-              traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
-              external-dns.alpha.kubernetes.io/target: "ipv4.${SECRET_DOMAIN}"
-            hosts:
-              - host: &host "hass-config.${SECRET_DOMAIN}"
-                paths:
-                  - path: /
-                    pathType: Prefix
-            tls:
-              - hosts:
-                  - *host
-        volumeMounts:
-          - name: config
-            mountPath: /config
+    podSecurityContext:
+      runAsUser: 568
+      runAsGroup: 568
+      fsGroup: 568
+      fsGroupChangePolicy: "OnRootMismatch"
+      supplementalGroups:
+        - 100
 
     # IOT VLAN (20) is only configured on worker9
     affinity:
@@ -132,6 +107,12 @@ spec:
                   operator: In
                   values:
                     - "worker9.thesteamedcrab.com"
+
+    podAnnotations:
+      podAnnotations:
+      # k8s.v1.cni.cncf.io/networks: hass-iot-static,hass-iot-dhcp
+      k8s.v1.cni.cncf.io/networks: hass-iot-static
+      secret.reloader.stakater.com/reload: *app
 
     resources:
       requests:

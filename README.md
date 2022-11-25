@@ -66,6 +66,7 @@ Run the following commands on master1.
 * https://kubernetes.io/docs/tasks/administer-cluster/dns-debugging-resolution/
 * https://dnschecker.org
 * https://kubernetes.io/docs/tasks/access-application-cluster/port-forward-access-application-cluster/
+* https://github.com/nicolaka/netshoot
 
 ## Github Webhook
 `kubectl -n flux-system get receivers.notification.toolkit.fluxcd.io` generates token URL to be put into

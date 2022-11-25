@@ -76,19 +76,45 @@ spec:
       fsGroupChangePolicy: "OnRootMismatch"
       supplementalGroups:
         - 100
-    volumeClaimTemplates:
-      - name: config
-        mountPath: /config
-        accessMode: ReadWriteOnce
-        size: 1Gi
-        storageClass: ceph-block
+
+    initContainers:
+      copy-config:
+        image: busybox:latest@sha256:fcd85228d7a25feb59f101ac3a955d27c80df4ad824d65f5757a954831450185
+        command:
+          - "/bin/sh"
+          - -c
+        args:
+          - cp /data/configfiles/* /data/config/
+        volumeMounts:
+          - name: config
+            mountPath: /data/config
+          - name: configfiles
+            mountPath: /data/configfiles
+
     persistence:
+      config:
+        enabled: true
+        type: emptyDir
+        mountPath: /config/qBittorrent/config
+
+      cache:
+        enabled: true
+        type: emptyDir
+        mountPath: /config/qBittorrent/cache
+
+      configfiles:
+        enabled: true
+        type: configMap
+        name: qbittorrent-config
+        mountPath: "-"
+
       downloads:
         enabled: true
         type: nfs
         server: "${SECRET_NFS_HOST_1}"
         path: /mnt/sda/media/Download/qbittorrent
         mountPath: /downloads
+
       media:
         enabled: true
         type: nfs

@@ -23,7 +23,7 @@ This is the configuration for my home Kubernetes cluster. It's based on the incr
 | worker6   | VM on beast     | 6   | 32 GB  | k8s Worker | ceph volume      |
 | worker7   | VM on beast     | 4   | 64 GB  | k8s Worker | coral TPU        |
 | worker8   | VM on beast     | 4   | 32 GB  | k8s Worker | zstick7          |
-| worker9   | VM on beast     | 4   | 32 GB  | k8s Worker |                  |
+| worker9   | VM on beast     | 6   | 32 GB  | k8s Worker | ceph volume      |
 
 ## Upgrades
 ### Flux

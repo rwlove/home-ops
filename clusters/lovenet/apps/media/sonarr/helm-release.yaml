@@ -14,35 +14,46 @@ spec:
         kind: HelmRepository
         name: bjw-s-charts
         namespace: flux-system
+
   install:
     remediation:
       retries: 5
+
   upgrade:
     remediation:
       retries: 5
+
   dependsOn:
     - name: longhorn
       namespace: storage
+
   values:
     image:
       repository: ghcr.io/onedr0p/sonarr-develop
       tag: 4.0.0.202@sha256:668748f62badcd44d05b39ff84ff4227a6dda26b0f9ecae1f62003cb5ecb819e
+
     env:
       TZ: "${TIMEZONE}"
-      PUSHOVER_DEBUG: "false"
-      PUSHOVER_APP_URL: &host "{{ .Release.Name }}.${SECRET_DOMAIN}"
       SONARR__INSTANCE_NAME: Sonarr
       SONARR__PORT: &port 80
       SONARR__APPLICATION_URL: "https://{{ .Release.Name }}.${SECRET_DOMAIN}"
       SONARR__LOG_LEVEL: info
+
     envFrom:
       - secretRef:
           name: *app
+
+    securityContext:
+      capabilities:
+        add:
+          - NET_ADMIN
+
     service:
       main:
         ports:
           http:
             port: *port
+
     ingress:
       main:
         enabled: true
@@ -56,13 +67,14 @@ spec:
             sub_filter '</head>' '<link rel="stylesheet" type="text/css" href="https://theme-park.${SECRET_DOMAIN}/css/base/sonarr/nord.css"></head>';
             sub_filter_once on;
         hosts:
-          - host: *host
+          - host: &host "{{ .Release.Name }}.${SECRET_DOMAIN}"
             paths:
               - path: /
                 pathType: Prefix
         tls:
           - hosts:
               - *host
+
     podSecurityContext:
       runAsUser: 1000
       runAsGroup: 1001
@@ -70,10 +82,6 @@ spec:
       fsGroupChangePolicy: "OnRootMismatch"
       supplementalGroups:
         - 100
-    securityContext:
-      capabilities:
-        add:
-          - NET_ADMIN
 
     persistence:
       config:
@@ -85,8 +93,10 @@ spec:
       downloads:
         enabled: true
         existingClaim: sonarr-downloads
+
     podAnnotations:
       secret.reloader.stakater.com/reload: *app
+
     resources:
       requests:
         cpu: 10m

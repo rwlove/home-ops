@@ -52,10 +52,6 @@ echo "Create External DNS Secrets"
 envsubst < ./clusters/lovenet/apps/network/external-dns/secrets-tmpl.yaml > ./clusters/lovenet/apps/network/external-dns/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/network/external-dns/secrets.yaml
 
-echo "Create Kodi Secrets"
-envsubst < ./clusters/lovenet/apps/media/kodidb/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/kodidb/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/media/kodidb/secrets.yaml
-
 echo "Create Lidarr Secrets"
 envsubst < ./clusters/lovenet/apps/media/lidarr/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/lidarr/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/media/lidarr/secrets.yaml

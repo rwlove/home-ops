@@ -26,7 +26,7 @@ spec:
       ESPHOME_DASHBOARD_USE_PING: true
       ESPHOME__INSTANCE_NAME: ESPHome
       ESPHOME__PORT: &port 6052
-      ESPHOME__APPLICATION_URL: &host-cluster "esphome.${SECRET_DOMAIN}"
+      ESPHOME__APPLICATION_URL: &host "{{ .Release.Name }}.${SECRET_DOMAIN}"
       ESPHOME__LOG_LEVEL: info
 
     # App needs to run as root because of this: https://github.com/esphome/issues/issues/2752
@@ -47,7 +47,7 @@ spec:
         externalTrafficPolicy: Local
         ports:
           http:
-            port: 6052
+            port: *port
 
     ingress:
       main:
@@ -58,16 +58,12 @@ spec:
           traefik.ingress.kubernetes.io/router.middlewares: "network-rfc1918-ips@kubernetescrd"
           external-dns.alpha.kubernetes.io/target: "ipv4.${SECRET_DOMAIN}"
         hosts:
-          - host: *host-cluster
-            paths:
-              - path: /
-          - host: &host "esphome.${SECRET_DOMAIN}"
+          - host: *host
             paths:
               - path: /
                 pathType: Prefix
         tls:
           - hosts:
-              - *host-cluster
               - *host
 
     podAnnotations:

@@ -1,0 +1,80 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: pgadmin
+  namespace: databases
+spec:
+  interval: 15m
+  chart:
+    spec:
+      chart: pgadmin4
+      version: 1.13.9
+      sourceRef:
+        kind: HelmRepository
+        name: runix
+        namespace: flux-system
+
+  dependsOn:
+    - name: cloudnative-pg
+      namespace: databases
+    - name: rook-ceph-cluster
+      namespace: rook-ceph
+
+  install:
+    remediation:
+      retries: 5
+
+  upgrade:
+    remediation:
+      retries: 5
+
+  values:
+    image:
+      registry: docker.io
+      repository: dpage/pgadmin4
+      tag: "6.17"
+
+    # pgadmin upgrades get stuck on the PV if we use RollingUpdate
+    strategy:
+      type: Recreate
+
+    existingSecret: pgadmin-secrets
+
+    podAnnotations:
+      secret.reloader.stakater.com/reload: pgadmin-secrets
+
+    env:
+      email: ${SECRET_EMAIL}
+      password:
+        valueFrom:
+          secretKeyRef:
+            name: pgadmin-secrets
+            key: password
+
+    ingress:
+      enabled: true
+      ingressClassName: nginx
+      hosts:
+        - host: &host "pgadmin.${SECRET_DOMAIN}"
+          paths:
+            - path: /
+              pathType: Prefix
+      tls:
+        - hosts:
+            - *host
+
+    persistentVolume:
+      enabled: true
+      storageClass: ceph-block
+      accessModes:
+        - ReadWriteOnce
+      size: 200Mi
+
+    resources:
+      requests:
+        cpu: 15m
+        memory: 183M
+      limits:
+        # cpu: 15m
+        memory: 283M

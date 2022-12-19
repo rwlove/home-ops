@@ -107,3 +107,7 @@ echo "Create GLAuth Secrets"
 sops --encrypt ./clusters/lovenet/apps/authentication/glauth/config/server.toml > clusters/lovenet/apps/authentication/glauth/config/server.sops.toml
 sops --encrypt ./clusters/lovenet/apps/authentication/glauth/config/groups.toml > clusters/lovenet/apps/authentication/glauth/config/groups.sops.toml
 sops --encrypt ./clusters/lovenet/apps/authentication/glauth/config/users.toml > clusters/lovenet/apps/authentication/glauth/config/users.sops.toml
+
+echo "Create pgadmin Secrets"
+envsubst < ./clusters/lovenet/apps/databases/pgadmin/secrets-tmpl.yaml > ./clusters/lovenet/apps/databases/pgadmin/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/databases/pgadmin/secrets.yaml

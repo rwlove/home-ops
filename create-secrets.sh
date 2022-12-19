@@ -96,12 +96,15 @@ echo "Create Cloudflare DDNS Secrets"
 envsubst < ./clusters/lovenet/apps/network/cloudflare-ddns/secrets-tmpl.yaml > ./clusters/lovenet/apps/network/cloudflare-ddns/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/network/cloudflare-ddns/secrets.yaml
 
-echo "Create Qbittorrent Secrets (TODO: move vpn configuration into .cluster-secrets.yaml so that secrets-tmpl.yaml can be committed)"
+echo "Create QBittorrent Secrets (TODO: move vpn configuration into .cluster-secrets.yaml so that secrets-tmpl.yaml can be committed)"
 sops --encrypt ./clusters/lovenet/apps/media/qbittorrent/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/qbittorrent/secrets.yaml
 
-echo "Create Qbittorrent-rss Secrets"
+echo "Create QBittorrent-rss Secrets"
 sops --encrypt ./clusters/lovenet/apps/media/qbittorrent-rss/feeds-json-secrets-tmpl.yaml > ./clusters/lovenet/apps/media/qbittorrent-rss/feeds-json-secrets.yaml
 sops --encrypt ./clusters/lovenet/apps/media/qbittorrent-rss/env-secrets-tmpl.yaml > ./clusters/lovenet/apps/media/qbittorrent-rss/env-secrets.yaml
+
+echo "Create QBittorrent Categories"
+envsubst < ./clusters/lovenet/apps/downloads/qbittorrent/config/categories-tmpl.json > ./clusters/lovenet/apps/downloads/qbittorrent/config/categories.json
 
 echo "Create GLAuth Secrets"
 sops --encrypt ./clusters/lovenet/apps/authentication/glauth/config/server.toml > clusters/lovenet/apps/authentication/glauth/config/server.sops.toml

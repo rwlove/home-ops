@@ -115,3 +115,7 @@ sops --encrypt ./clusters/lovenet/apps/authentication/glauth/config/users.toml >
 echo "Create pgadmin Secrets"
 envsubst < ./clusters/lovenet/apps/databases/pgadmin/secrets-tmpl.yaml > ./clusters/lovenet/apps/databases/pgadmin/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/databases/pgadmin/secrets.yaml
+
+echo "Create Mastodon Secrets"
+envsubst < ./clusters/lovenet/apps/social-media/mastodon/secrets-tmpl.yaml > ./clusters/lovenet/apps/social-media/mastodon/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/social-media/mastodon/secrets.yaml

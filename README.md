@@ -16,7 +16,7 @@ This is the configuration for my home Kubernetes cluster. It's based on the incr
 | master2   | VM on beast     | 2   | 24 GB  | k8s Master |                  |
 | master3   | VM on beast     | 2   | 24 GB  | k8s Master |                  |
 | worker1   | Intel DN2820FYK | 2   | 8  GB  | k8s Worker | zstick6, wyze    |
-| worker2   | VM on beast     | 6   | 16 GB  | k8s Worker | ceph volume      |
+| worker2   | VM on beast     | 8   | 16 GB  | k8s Worker | ceph volume      |
 | worker3   | VM on brain     | 4   | 12 GB  | k8s Worker | longhorn storage |
 | worker4   | Intel DG965WH   | 2   | 8  GB  | k8s Worker |                  |
 | worker5   | VM on beast     | 6   | 16 GB  | k8s Worker | ceph volume      |

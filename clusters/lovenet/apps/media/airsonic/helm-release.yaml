@@ -2,20 +2,35 @@
 apiVersion: helm.toolkit.fluxcd.io/v2beta1
 kind: HelmRelease
 metadata:
-  name: airsonic
+  name: &app airsonic
   namespace: media
 spec:
-  interval: 5m
+  interval: 15m
   chart:
     spec:
       chart: app-template
       version: 1.2.0
       sourceRef:
         kind: HelmRepository
-        name: bjw-s
+        name: bjw-s-charts
         namespace: flux-system
-      interval: 15m
+
+  install:
+    remediation:
+      retries: 5
+
+  upgrade:
+    remediation:
+      retries: 5
+
+  dependsOn:
+    - name: longhorn
+      namespace: storage
+
   values:
+    controller:
+      type: statefulset
+
     image:
       repository: ghcr.io/airsonic-advanced/airsonic-advanced
       tag: edge-11.0.0-SNAPSHOT.20220625052932
@@ -32,12 +47,14 @@ spec:
     env:
       TZ: "${TIMEZONE}"
       JAVA_OPTS: "-Xmx768m -Dserver.forward-headers-strategy=native"
+      AIRSONIC__PORT: &port 8080
+      AIRSONIC__LOG_LEVEL: info
 
     service:
       main:
         ports:
           http:
-            port: 4040
+            port: *port
 
     enableServiceLinks: false
 

@@ -2,66 +2,83 @@
 apiVersion: helm.toolkit.fluxcd.io/v2beta1
 kind: HelmRelease
 metadata:
-  name: nut
+  name: &app network-ups-tools
   namespace: monitoring
 spec:
-  interval: 5m
+  interval: 15m
   chart:
     spec:
-      # renovate: registryUrl=https://k8s-at-home.com/charts/
-      chart: network-ups-tools
-      version: 6.4.2
+      chart: app-template
+      version: 1.2.0
       sourceRef:
         kind: HelmRepository
-        name: k8s-at-home-charts
+        name: bjw-s-charts
         namespace: flux-system
-      interval: 5m
+
+  install:
+    remediation:
+      retries: 3
+
+  upgrade:
+    remediation:
+      retries: 3
 
   values:
     image:
-      repository: ghcr.io/k8s-at-home/network-ups-tools
-      tag: v2.7.4-2479-g86a32237
+      repository: ghcr.io/jr0dd/network-ups-tools
+      tag: v2.8.0@sha256:0abc889228b26a1bb2f577cfb7e757047ed2345f8e1906fda0207aae401f628e
+    controller:
+      strategy: RollingUpdate
 
     env:
       TZ: "${TIMEZONE}"
 
     service:
       main:
+        type: LoadBalancer
+        externalTrafficPolicy: Cluster
         ports:
           http:
-            enabled: true
-            port: 9995
+            port: 3493
+            protocol: TCP
+        externalIPs:
+          - ${SVC_NUT_ADDR}
 
-    ingress:
-      main:
+      metrics:
         enabled: true
-        ingressClassName: "traefik"
-        annotations:
-          traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
-          external-dns.alpha.kubernetes.io/target: "ipv4.${SECRET_DOMAIN}"
-          hajimari.io/enable: "true"
-          hajimari.io/icon: "power"
-          hajimari.io/group: "monitoring"
-        hosts:
-          - host: &host "nut.${SECRET_DOMAIN}"
-            paths:
-              - path: /
-                pathType: Prefix
-        tls:
-          - hosts:
-              - *host
+        ports:
+          metrics:
+            enabled: true
+            port: 9199
+            protocol: TCP
 
-    # The main configuration files for network-ups-tools
-    config:
-      files:
-        nut.conf: |
-          MODE=netserver
+    persistence:
+      config:
+        enabled: true
+        type: configMap
+        name: &config network-ups-tools-config
+        mountPath: /etc/nut
+        defaultMode: 256
 
-        ups.conf: |
-          [apcupsd]
-            driver = apcupsd-ups
-            port = 192.168.1.1:3551
-            desc = "APC 1500VA Smart UPS with SmartConnect"
+    configmap:
+      config:
+        enabled: true
+        files:
+          nut.conf: |
+            MODE=netserver
 
-    metrics:
-      enabled: true
+          ups.conf: |
+            [apcupsd]
+              driver = apcupsd-ups
+              port = 192.168.1.1:3551
+              desc = "APC 1500VA Smart UPS with SmartConnect"
+
+          upsd.users: |
+            [upsmon]
+              password  = "password"
+              actions = SET
+              instcmds = ALL
+              upsmon primary
+
+    podAnnotations:
+      configmap.reloader.stakater.com/reload: *config

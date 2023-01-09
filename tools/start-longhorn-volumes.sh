@@ -18,5 +18,4 @@ kubectl -n collab scale --replicas=1 deploy/vikunja
 kubectl -n media scale --replicas=1 statefulsets.apps kodidb-helm-mariadb whisparr lidarr sonarr radarr airsonic
 kubectl -n home scale --replicas=1 statefulsets.apps home-assistant emqx zwavejs2mqtt-z-stick-7 zwavejs2mqtt node-red
 kubectl -n downloads scale --replicas=1 statefulsets.apps prowlarr
-kubectl -n monitoring scale --replicas=1 statefulsets.apps statping statping-postgresql
 kubectl -n databases scale --replicas=1 statefulsets.apps redis-master redis-replicas influxdb-influxdb2

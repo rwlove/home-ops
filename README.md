@@ -10,20 +10,20 @@ This is the configuration for my home Kubernetes cluster. It's based on the incr
 
 ## :gear:&nbsp; Hardware
 
-| Hostname  | Device          | CPU | RAM    | Role       | Devices                      |
-| --------- | --------------- | --- | ------ | ---------- | ---------------------------- |
-| master1   | Intel NUC7PJYH  | 4   | 8  GB  | k8s Master |                              |
-| master2   | VM on beast     | 2   | 24 GB  | k8s Master |                              |
-| master3   | VM on beast     | 2   | 24 GB  | k8s Master |                              |
-| worker1   | Intel DN2820FYK | 2   | 8  GB  | k8s Worker | zstick6, wyze                |
-| worker2   | VM on beast     | 8   | 16 GB  | k8s Worker | ceph volume                  |
-| worker3   | VM on brain     | 6   | 12 GB  | k8s Worker | longhorn volume              |
-| worker4   | Intel DG965WH   | 2   | 8  GB  | k8s Worker |                              |
-| worker5   | VM on beast     | 6   | 16 GB  | k8s Worker | ceph volume                  |
-| worker6   | VM on beast     | 8   | 32 GB  | k8s Worker | ceph volume,wg               |
-| worker7   | VM on beast     | 8   | 64 GB  | k8s Worker | coral TPU                    |
-| worker8   | VM on beast     | 8   | 32 GB  | k8s Worker | zstick7, longhorn volume     |
-| worker9   | VM on beast     | 8   | 32 GB  | k8s Worker | ceph volume, longhorn volume |
+| Hostname  | Device          | CPU | RAM    | Role       | Devices                                |
+| --------- | --------------- | --- | ------ | ---------- | -------------------------------------- |
+| master1   | Intel NUC7PJYH  | 4   | 8  GB  | k8s Master |                                        |
+| master2   | VM on beast     | 2   | 24 GB  | k8s Master |                                        |
+| master3   | VM on beast     | 2   | 24 GB  | k8s Master |                                        |
+| worker1   | Intel DN2820FYK | 2   | 8  GB  | k8s Worker | zstick6, wyze                          |
+| worker2   | VM on beast     | 8   | 16 GB  | k8s Worker | ceph volume                            |
+| worker3   | VM on brain     | 6   | 12 GB  | k8s Worker | longhorn volume                        |
+| worker4   | Intel DG965WH   | 2   | 8  GB  | k8s Worker |                                        |
+| worker5   | VM on beast     | 6   | 16 GB  | k8s Worker | ceph volume                            |
+| worker6   | VM on beast     | 8   | 32 GB  | k8s Worker | ceph volume,wg                         |
+| worker7   | VM on beast     | 8   | 64 GB  | k8s Worker | coral TPU                              |
+| worker8   | VM on beast     | 8   | 32 GB  | k8s Worker | zstick7, longhorn volume               |
+| worker9   | VM on beast     | 8   | 32 GB  | k8s Worker | ceph volume, longhorn volume, iot-vlan |
 
 ## Upgrades
 ### Flux

@@ -124,3 +124,7 @@ sops --encrypt --in-place ./clusters/lovenet/apps/social-media/mastodon/secrets.
 echo "Create Statping Secrets"
 envsubst < ./clusters/lovenet/apps/monitoring/statping/secrets-tmpl.yaml > ./clusters/lovenet/apps/monitoring/statping/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/monitoring/statping/secrets.yaml
+
+echo "Create Vaultwarden Secrets"
+envsubst < ./clusters/lovenet/apps/home/vaultwarden/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/vaultwarden/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/home/vaultwarden/secrets.yaml

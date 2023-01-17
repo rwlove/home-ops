@@ -2,67 +2,97 @@
 apiVersion: helm.toolkit.fluxcd.io/v2beta1
 kind: HelmRelease
 metadata:
-  name: vaultwarden
+  name: &app vaultwarden
   namespace: home
 spec:
-  interval: 5m
+  releaseName: *app
+  interval: 15m
   chart:
     spec:
-      # renovate: registryUrl=https://k8s-at-home.com/charts/
-      chart: vaultwarden
-      version: 5.3.2
+      chart: app-template
+      version: 0.2.2
       sourceRef:
         kind: HelmRepository
-        name: k8s-at-home-charts
+        name: bjw-s-charts
         namespace: flux-system
-      interval: 5m
+      interval: 15m
+
+  install:
+    remediation:
+      retries: 5
+
+  upgrade:
+    remediation:
+      retries: 5
+
+  dependsOn:
+    - name: cloudnative-pg
+      namespace: databases
+
   values:
+    global:
+      nameOverride: *app
+
+    image:
+      repository: ghcr.io/k8s-at-home/vaultwarden
+      tag: 1.25.1@sha256:ea7901a9629897801b38b6afbce1869d357ebb9e080ec6ffff5839d85d8a79e4
+
     env:
-      TZ: "${TIMEZONE}"
+      DATA_FOLDER: "config"
+      SIGNUPS_ALLOWED: false
+      WEBSOCKET_ENABLED: true
+      WEBSOCKET_ADDRESS: 0.0.0.0
+      WEBSOCKET_PORT: 3012
       DOMAIN: https://vault.${SECRET_DOMAIN}
+      ADMIN_TOKEN: ${SECRET_VAULTWARDEN_ADMIN_TOKEN}
+      SMTP_HOST: "smtp.changeme.net"
+      SMTP_FROM: "no-reply@56k.jp"
+      SMTP_FROM_NAME: "Vaultwarden"
+      SMTP_SSL: true
+      SMTP_PORT: 587
+      SMTP_USERNAME: "apikey"
+      SMTP_PASSWORD: "${SECRET_SENDGRID_API_KEY}"
+      DATABASE_URL: postgres-rw.databases.svc.cluster.local
+      TZ: "${TIMEZONE}"
+
+    service:
+      main:
+        ports:
+          http:
+            port: &port 80
+          websocket:
+            enabled: true
+            port: &websocket-port 3012
 
     ingress:
       main:
         enabled: true
-        ingressClassName: "traefik"
+        ingressClassName: "nginx"
         annotations:
-          external-dns.alpha.kubernetes.io/target: "ipv4.${SECRET_DOMAIN}"
           external-dns/is-public: "true"
           hajimari.io/enable: "true"
-          hajimari.io/icon: "shield-key"
-          traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
+          hajimari.io/icon: "form-textbox-password"
+          external-dns.home.arpa/enabled: "true"
         hosts:
-          - host: &host "vault.${SECRET_DOMAIN}"
+          - host: "vault.${SECRET_DOMAIN}"
             paths:
               - path: /
                 pathType: Prefix
+                service:
+                  port: *port
+              - path: /notifications/hub/negotiate
+                pathType: Prefix
+                service:
+                  port: *port
               - path: /notifications/hub
                 pathType: Prefix
                 service:
-                  port: 3012
-              - path: /notifications/hub/negotiate
-                pathType: Prefix
+                  port: *websocket-port
         tls:
           - hosts:
-              - *host
-      admin:
-        enabled: true
-        ingressClassName: "traefik"
-        annotations:
-          traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
-          traefik.ingress.kubernetes.io/router.middlewares: "network-rfc1918@kubernetescrd"
-        hosts:
-          - host: &host "vault.${SECRET_DOMAIN}"
-            paths:
-              - path: /admin
-                pathType: Prefix
-        tls:
-          - hosts:
-              - *host
+              - "vault.${SECRET_DOMAIN}"
 
     persistence:
       config:
         enabled: true
         existingClaim: vaultwarden-config
-        accessMode: ReadWriteOnce
-        size: 1Gi

@@ -3,7 +3,7 @@ This is the configuration for my home Kubernetes cluster. It's based on the incr
 
 ## Infrastructure Software
 * Ansible [my roles and playbooks](https://github.com/rwlove/ansible)
-* Calico Networking
+* Cilium Networking
 * Flux2
 
 ---

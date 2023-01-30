@@ -103,12 +103,6 @@ echo "Create QBittorrent-rss Secrets"
 sops --encrypt ./clusters/lovenet/apps/media/qbittorrent-rss/feeds-json-secrets-tmpl.yaml > ./clusters/lovenet/apps/media/qbittorrent-rss/feeds-json-secrets.yaml
 sops --encrypt ./clusters/lovenet/apps/media/qbittorrent-rss/env-secrets-tmpl.yaml > ./clusters/lovenet/apps/media/qbittorrent-rss/env-secrets.yaml
 
-echo "Create QBittorrent Secrets"
-envsubst < ./clusters/lovenet/apps/downloads/qbittorrent/secrets-tmpl.yaml > ./clusters/lovenet/apps/downloads/qbittorrent/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/downloads/qbittorrent/secrets.yaml
-sops --encrypt ./clusters/lovenet/apps/downloads/qbittorrent/config/watched_folders.json > ./clusters/lovenet/apps/downloads/qbittorrent/config/watched_folders.sops.json
-sops --encrypt ./clusters/lovenet/apps/downloads/qbittorrent/config/categories.json > ./clusters/lovenet/apps/downloads/qbittorrent/config/categories.sops.json
-
 echo "Create GLAuth Secrets"
 sops --encrypt ./clusters/lovenet/apps/authentication/glauth/config/server.toml > clusters/lovenet/apps/authentication/glauth/config/server.sops.toml
 sops --encrypt ./clusters/lovenet/apps/authentication/glauth/config/groups.toml > clusters/lovenet/apps/authentication/glauth/config/groups.sops.toml

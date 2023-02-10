@@ -1,0 +1,130 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: nextcloud
+  namespace: home
+spec:
+  releaseName: nextcloud
+  interval: 5m
+  chart:
+    spec:
+      # renovate: registryUrl=https://nextcloud.github.io/helm/
+      chart: nextcloud
+      version: 3.4.5
+      sourceRef:
+        kind: HelmRepository
+        name: nextcloud-charts
+        namespace: flux-system
+      interval: 5m
+  values:
+    image:
+      tag: 25.0.3-fpm
+
+    ingress:
+      enabled: true
+      className: "nginx"
+      annotations:
+        nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+        nginx.ingress.kubernetes.io/cors-allow-headers: "X-Forwarded-For, X-Real-IP, X-Frame-Options, X-Content-Type-Options, X-Forwarded-Proto"
+        nginx.ingress.kubernetes.io/proxy-body-size: "10G"
+        nginx.ingress.kubernetes.io/proxy-buffering: "off"
+        nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+        nginx.ingress.kubernetes.io/server-snippet: |-
+          server_tokens off;
+          proxy_hide_header X-Powered-By;
+          # rewrite ^/.well-known/webfinger /public.php?service=webfinger last;
+          # rewrite ^/.well-known/host-meta /public.php?service=host-meta last;
+          rewrite ^/.well-known/host-meta.json /public.php?service=host-meta-json;
+          rewrite ^/.well-known/webfinger /index.php/.well-known/webfinger last;
+          rewrite ^/.well-known/nodeinfo /index.php/.well-known/nodeinfo last;
+
+      tls:
+        - hosts:
+            - &host cloud.${SECRET_DOMAIN}
+          secretName: tls.nextcloud
+
+    nextcloud:
+      host: *host
+      username: admin
+      password: ${SECRET_NEXTCLOUD_ADMIN_PASSWORD}
+      mail:
+        enabled: true
+        fromAddress: nc
+        domain: ${SECRET_DOMAIN}
+        smtp:
+          host: smtp-relay.home.svc.cluster.local
+          secure: ssl
+          port: 2525
+          authtype: LOGIN
+          name: ${SECRET_NEXTCLOUD_MAIL_USER}
+          password: ${SECRET_NEXTCLOUD_MAIL_PASSWORD}
+      extraVolumes:
+        - name: photos
+          nfs:
+            server: "${SECRET_NFS_HOST_0}"
+            path: /mnt/mass_storage/storage/pictures/
+      extraVolumeMounts:
+        - name: photos
+          mountPath: /photos
+
+      # extraVolumes:
+      #   - name: media
+      #     type: custom
+      #     volumeSpec:
+      #       nfs:
+      #         server: ${SECRET_NAS1}
+      #         path: /mnt/fatguys/Media
+      #     mountPath: /media
+      #     readOnly: true
+
+    nginx:
+      ## You need to set an fpm version of the image for nextcloud if you want to use nginx!
+      enabled: true
+
+    internalDatabase:
+      enabled: false
+
+    externalDatabase:
+      enabled: true
+      type: postgresql
+      host: postgres-rw.databases.svc.cluster.local
+      database: nextcloud
+      password: ${SECRET_NEXTCLOUD_DB_PASSWORD}
+      user: ncuser
+
+    redis:
+      enabled: true
+      cluster:
+        enabled: false
+      auth:
+        enabled: true
+        password: "TODO"
+      master:
+        persistence:
+          enabled: false
+      replica:
+        persistence:
+          enabled: false
+
+    cronjob:
+      enabled: true
+
+    persistence:
+      enabled: true
+      accessMode: ReadWriteOnce
+      size: 2Gi
+      existingClaim: nextcloud-config-pvc
+
+    livenessProbe:
+      enabled: false
+
+    readinessProbe:
+      enabled: false
+
+    resources:
+      requests:
+        cpu: 35m
+        memory: 164M
+      # limits:
+      #   memory: 508M

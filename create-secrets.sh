@@ -127,3 +127,7 @@ sops --encrypt --in-place ./clusters/lovenet/apps/home/vaultwarden/secrets.yaml
 echo "Create SMTP Relay Secrets"
 envsubst < ./clusters/lovenet/apps/home/smtp-relay/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/smtp-relay/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/home/smtp-relay/secrets.yaml
+
+echo "Create NextCloud Secrets"
+envsubst < ./clusters/lovenet/apps/home/nextcloud/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/nextcloud/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/home/nextcloud/secrets.yaml

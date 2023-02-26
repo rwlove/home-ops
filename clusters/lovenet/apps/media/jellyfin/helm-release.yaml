@@ -5,35 +5,47 @@ metadata:
   name: jellyfin
   namespace: media
 spec:
-  interval: 5m
   chart:
     spec:
-      # renovate: registryUrl=https://k8s-at-home.com/charts/
-      chart: jellyfin
-      version: 9.5.3
+      chart: app-template
+      version: 1.3.2
+      interval: 30m
       sourceRef:
         kind: HelmRepository
-        name: k8s-at-home-charts
+        name: bjw-s
         namespace: flux-system
+  interval: 30m
   values:
+    image:
+      repository: ghcr.io/onedr0p/jellyfin
+      tag: 10.8.9@sha256:01a6497a1290b73f63251aebe6d01327c15b3413c3e1013c2a396ffe116ced4d
+
+    podSecurityContext:
+      runAsUser: 568
+      runAsGroup: 568
+      fsGroup: 568
+      fsGroupChangePolicy: "OnRootMismatch"
+      supplementalGroups:
+        - 1001
+
     env:
-      TZ: "${TIMEZONE}"
-      JELLYFIN_CACHE_DIR: /config/cache
-      PUID: 1000
-      PGID: 1001
+      DOTNET_SYSTEM_IO_DISABLEFILELOCKING: "true"
+
+    service:
+      main:
+        type: LoadBalancer
+        externalTrafficPolicy: Local
+        loadBalancerIP: "${SVC_JELLYFIN_ADDR}"
+        ports:
+          http:
+            port: 8096
 
     ingress:
       main:
         enabled: true
-        ingressClassName: "traefik"
-        annotations:
-          traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
-          external-dns.alpha.kubernetes.io/target: "ipv4.${SECRET_DOMAIN}"
-          hajimari.io/enable: "true"
-          hajimari.io/icon: "play-network"
-          hajimari.io/group: "media"
+        ingressClassName: nginx
         hosts:
-          - host: &host "jellyfin.${SECRET_DOMAIN}"
+          - host: &host "{{ .Release.Name }}.${SECRET_DOMAIN}"
             paths:
               - path: /
                 pathType: Prefix
@@ -44,18 +56,25 @@ spec:
     persistence:
       config:
         enabled: true
-        mountPath: /config
-        storageClass: jellyfin-config-storage-class
-        accessMode: ReadWriteOnce
-        size: 1Gi
-      media:
+        existingClaim: jellyfin-config-pvc
+      music:
         enabled: true
-        mountPath: /media
-        storageClass: jellyfin-media-storage-class
-        accessMode: ReadWriteMany
-        size: 20Ti
-        # transcode:
-        #   enabled: true
-        #   emptyDir:
-        #     enabled: true
-        #     medium: "Memory"
+        existingClaim: jellyfin-music-pvc
+      movies:
+        enabled: true
+        existingClaim: jellyfin-movies-pvc
+      television:
+        enabled: true
+        existingClaim: jellyfin-television-pvc
+      transcode:
+        enabled: true
+        type: emptyDir
+
+    resources:
+      requests:
+        cpu: 100m
+        gpu.intel.com/i915: 1
+        memory: 4282M
+      limits:
+        gpu.intel.com/i915: 1
+        memory: 12G

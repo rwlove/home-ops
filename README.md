@@ -66,19 +66,17 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 | Kubernetes Services Subnet (Cilium)   | `11.96.0.0/12`             | N/A  |       |
 | Kubernetes MetalLB Range              | `192.168.6.2-192.168.6.250`| N/A  |       |
 
-## Upgrades
-### Flux
-do not bootstrap, after initial bootstrap, as it use as it overwrites the sops code in gotk-sync.yaml. Instead use:
- `flux install --export ... > gotk-components.yaml`
-
 ## Initialization
-./init/create-cluster.sh (on master)
-kubectl apply -f clusters/lovenet/core/kube-system/cilium-quick-install/quick-install.yaml
-./initialize-cluster.sh
+```./init/create-cluster.sh``` (on master)
+
+```kubectl apply -f clusters/lovenet/core/kube-system/cilium-quick-install/quick-install.yaml```
+
+```./initialize-cluster.sh```
+
 Remove master1 kube-vip static manifest
 
 ## Teardown
-./init/destroy-cluster.sh
+```./init/destroy-cluster.sh```
 
 ## Debugging
 * https://kubernetes.io/docs/tasks/administer-cluster/dns-debugging-resolution/

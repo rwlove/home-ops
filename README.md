@@ -25,6 +25,14 @@ This is the configuration for my home Kubernetes cluster. It's based on the incr
 | worker8   | VM on beast     | 8   | 32 GB  | k8s Worker | zstick7, longhorn volume (NVMe)               |
 | worker9   | VM on beast     | 8   | 32 GB  | k8s Worker | ceph volume, longhorn volume (NVMe), iot-vlan |
 
+## Network
+<details>
+  <summary>Click to see a high level physical network diagram</summary>
+
+  <img src="" align="center" width="600px" alt="dns"/>
+</details>
+
+
 ## Upgrades
 ### Flux
 do not bootstrap, after initial bootstrap, as it use as it overwrites the sops code in gotk-sync.yaml. Instead use:
@@ -77,13 +85,13 @@ github.com -> Settings -> Webhooks -> Payload URL
 * SSL: Enable SSL verification
 * Which events would you like to trigger this webhook?: Just the push event.
 * Active: <checked>
- 
+
  ## Notes
  To get metrics-server to work with kubeadm, you need to do the following if it isn't setup with the clusterconfig provided to kubeadm
  https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/kubeadm-certs/#kubelet-serving-certs
  * Need to pull the kubeadm configuration into this repository
- 
- 
+
+
  ## Hacks
  My Omada Controller currently needs the MixedProtocolLBService feature gate added to the kube api-server. I have not yet figured out how to enable this with kubeadm, so I'm manually updating the kube api-server manifest and restarting the kube api-server, as such:
 

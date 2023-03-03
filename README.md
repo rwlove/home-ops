@@ -73,36 +73,13 @@ do not bootstrap, after initial bootstrap, as it use as it overwrites the sops c
  `flux install --export ... > gotk-components.yaml`
 
 ## Initialization
-### Provision the nodes
-`./provision_cluster.sh` in [my ansible project](https://github.com/rwlove/ansible)
-
-### Kube-VIP
-[Reference](https://kube-vip.io/docs/installation/static/)
-Run the following commands on master1.
-
-`export VIP=192.168.6.1`
-
-`export INTERFACE=eno1`
-
-`alias kube-vip="docker run --network host --rm plndr/kube-vip:0.3.1"`
-
-`kube-vip manifest pod --interface $INTERFACE --vip $VIP --controlplane --services --arp --leaderElection | tee /etc/kubernetes/manifests/kube-vip.yaml`
-
-### Create the cluster
-`./create-cluster.sh` in [my kubernetes project](https://github.com/rwlove/kubernetes)
-
-### Create Calico Networking
-`./create-calico-networking.sh` in [my kubernetes project](https://github.com/rwlove/kubernetes)
-
-### Initialize Flux Cluster
-`./initialize-cluster.sh`
+./init/create-cluster.sh (on master)
+kubectl apply -f clusters/lovenet/core/kube-system/cilium-quick-install/quick-install.yaml
+./initialize-cluster.sh
+Remove master1 kube-vip static manifest
 
 ## Teardown
-### Teardown Calico Networking
-`./destroy-calico-networking.sh` in [my ansible project](https://github.com/rwlove/ansible)
-
-### Teardown the Cluster
-`./destroy-cluster.sh` in [my ansible project](https://github.com/rwlove/ansible)
+./init/destroy-cluster.sh
 
 ## Debugging
 * https://kubernetes.io/docs/tasks/administer-cluster/dns-debugging-resolution/

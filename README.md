@@ -6,6 +6,29 @@ This is the configuration for my home Kubernetes cluster. It's based on the incr
 * Cilium Networking
 * Flux2
 
+## Core Components
+### Infrastructure
+- [CentOS 8 Stream](https://www.centos.org/centos-stream/): Kubernetes Node Operating System.
+- [crun](https://github.com/containers/crun): Container Runtime implemented in C.
+
+### Networking
+- [cilium](https://cilium.io/): Kubernetes Container Network Interface (CNI).
+- [cert-manager](https://cert-manager.io/docs/): Creates SSL certificates for services in my Kubernetes cluster.
+- [external-dns](https://github.com/kubernetes-sigs/external-dns): Automatically manages DNS records from my cluster in a cloud DNS provider.
+- [ingress-nginx](https://github.com/kubernetes/ingress-nginx/): Ingress controller to expose HTTP traffic to pods over DNS.
+- [Traefik](https://traefik.io/): Ingress Controller.
+
+### Storage
+- [Rook-Ceph](https://github.com/rook/rook): Distributed block storage for peristent storage..
+- [Minio](https://min.io/): S3 Compatible Storage Interface.
+- [Longhorn](https://longhorn.io/): Cloud native distributed block storage for Kubernetes.
+- [NFS](https://github.com/kubernetes-sigs/nfs-subdir-external-provisioner): NFS storage.
+
+### GitOps
+- [actions-runner-controller](https://github.com/actions/actions-runner-controller): Self-hosted Github runners.
+- [sops](https://toolkit.fluxcd.io/guides/mozilla-sops/): Managed secrets for Kubernetes which are commited to Git.
+- [Rennovate](https://github.com/renovatebot/renovate): Automated Cluster Management.
+
 ---
 
 ## :gear:&nbsp; Hardware

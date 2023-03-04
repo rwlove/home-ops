@@ -98,3 +98,8 @@ github.com -> Settings -> Webhooks -> Payload URL
  To get metrics-server to work with kubeadm, you need to do the following if it isn't setup with the clusterconfig provided to kubeadm
  https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/kubeadm-certs/#kubelet-serving-certs
  * Need to pull the kubeadm configuration into this repository
+ 
+ ### Resources: Limits and Requests Philosophy
+ In short, do set CPU requests, but don't set CPU limits and set the Memory limit to be the same as the Memory requests.
+ * [CPU Guidance](https://home.robusta.dev/blog/stop-using-cpu-limits)
+ * [Limits Guidance](https://home.robusta.dev/blog/kubernetes-memory-limit)

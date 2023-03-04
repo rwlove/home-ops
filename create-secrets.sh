@@ -68,10 +68,6 @@ echo "Create Prowlarr Secrets"
 envsubst < ./clusters/lovenet/apps/media/prowlarr/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/prowlarr/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/media/prowlarr/secrets.yaml
 
-echo "Create Whisparr Secrets"
-envsubst < ./clusters/lovenet/apps/media/whisparr/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/whisparr/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/media/whisparr/secrets.yaml
-
 echo "Create Recyclarr Secrets"
 envsubst < ./clusters/lovenet/apps/media/recyclarr/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/recyclarr/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/media/recyclarr/secrets.yaml

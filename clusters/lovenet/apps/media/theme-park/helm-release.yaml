@@ -14,28 +14,41 @@ spec:
         kind: HelmRepository
         name: bjw-s-charts
         namespace: flux-system
+
+  maxHistory: 3
+
   install:
     remediation:
-      retries: 5
+      retries: 3
+
   upgrade:
+    cleanupOnFail: true
     remediation:
-      retries: 5
+      retries: 3
+      remediateLastFailure: true
+
+  uninstall:
+    keepHistory: false
+
   values:
     controller:
       replicas: 3
       strategy: RollingUpdate
+
     image:
       repository: ghcr.io/onedr0p/theme-park
       tag: 1.13.4@sha256:b8cf3cdeda48e7abebc1644534fd7dbdd7c823560ca582caa83af2094342fdc5
+
     service:
       main:
         ports:
           http:
             port: 8080
+
     ingress:
       main:
         enabled: true
-        ingressClassName: "nginx"
+        ingressClassName: nginx
         hosts:
           - host: &host "{{ .Release.Name }}.${SECRET_DOMAIN}"
             paths:
@@ -44,6 +57,7 @@ spec:
         tls:
           - hosts:
               - *host
+
     topologySpreadConstraints:
       - maxSkew: 1
         topologyKey: kubernetes.io/hostname
@@ -51,9 +65,11 @@ spec:
         labelSelector:
           matchLabels:
             app.kubernetes.io/name: *app
+
     resources:
       requests:
-        cpu: 5m
-        memory: 10Mi
+        cpu: 15m
+        memory: 64M
       limits:
-        memory: 50Mi
+        cpu: 15m
+        memory: 64M

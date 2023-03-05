@@ -14,41 +14,62 @@ spec:
         kind: HelmRepository
         name: rook-ceph-charts
         namespace: flux-system
+
+  maxHistory: 3
+
   install:
     remediation:
-      retries: 5
+      retries: 3
+
   upgrade:
+    cleanupOnFail: true
     remediation:
-      retries: 5
+      retries: 3
+
+  uninstall:
+    keepHistory: false
+
   dependsOn:
     - name: rook-ceph-operator
       namespace: rook-ceph
+
   values:
     monitoring:
       enabled: true
       createPrometheusRules: true
+
     ingress:
       dashboard:
-        ingressClassName: "nginx"
+        ingressClassName: nginx
+        annotations:
+          hajimari.io/enable: "true"
+          hajimari.io/appName: "Rook"
+          hajimari.io/group: "storage"
+          hajimari.io/icon: mdi:chess-rook
         host:
           name: &host "rook.${SECRET_DOMAIN}"
           path: /
         tls:
           - hosts:
               - *host
+
     configOverride: |
       [global]
       bdev_enable_discard = true
       bdev_async_discard = true
+
     cephClusterSpec:
       network:
         provider: host
+
       crashCollector:
         disable: false
+
       dashboard:
         enabled: true
         urlPrefix: /
         ssl: false
+
       storage:
         useAllNodes: false
         useAllDevices: false
@@ -67,17 +88,14 @@ spec:
           - name: "worker9.${SECRET_DOMAIN}"
             devices:
               - name: "/dev/vdb"
-    # cephBlockPoolsVolumeSnapshotClass:
-    #   enabled: true
-    #   name: csi-rbdplugin-snapclass
-    #   annotations:
-    #     velero.io/csi-volumesnapshot-class: "true"
+
     cephBlockPools:
       - name: ceph-blockpool
         spec:
           failureDomain: host
           replicated:
             size: 3
+
         storageClass:
           enabled: true
           name: ceph-block
@@ -94,6 +112,7 @@ spec:
             csi.storage.k8s.io/node-stage-secret-name: rook-csi-rbd-node
             csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph
             csi.storage.k8s.io/fstype: ext4
+
     cephFileSystems:
       - name: ceph-filesystem
         spec:
@@ -114,6 +133,7 @@ spec:
                 memory: 4Gi
               limits:
                 memory: 4Gi
+
         storageClass:
           enabled: true
           isDefault: false
@@ -129,6 +149,7 @@ spec:
             csi.storage.k8s.io/node-stage-secret-name: rook-csi-cephfs-node
             csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph
             csi.storage.k8s.io/fstype: ext4
+
     cephObjectStores:
       - name: ceph-objectstore
         spec:

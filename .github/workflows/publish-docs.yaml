@@ -1,0 +1,42 @@
+---
+name: "Publish Docs"
+
+on:
+  push:
+    branches: ["main"]
+    paths: ["docs/**", "**/*.md"]
+  pull_request:
+    branches: ["main"]
+    paths: ["docs/**", "**/*.md"]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+    steps:
+      - name: Generate Token
+        uses: tibdex/github-app-token@b62528385c34dbc9f38e5f4225ac829252d1ea92 # v1.8.0
+        id: generate-token
+        with:
+          app_id: "${{ secrets.BOT_APP_ID }}"
+          private_key: "${{ secrets.BOT_APP_PRIVATE_KEY }}"
+
+      - name: Checkout
+        uses: actions/checkout@ac593985615ec2ede58e132d2e21d2b1cbd6127c # v3.3.0
+        with:
+          token: "${{ steps.generate-token.outputs.token }}"
+
+      - name: Build docs
+        uses: docker://ghcr.io/bjw-s/mdbook:0.4.28@sha256:6d1a6c0e03b0c25e2892be58e5423afdebdef5b55c4487e3a2f0fbb6d4bd265c
+        with:
+          args: mdbook build docs
+
+      - name: Deploy
+        uses: peaceiris/actions-gh-pages@bd8c6b06eba6b3d25d72b7a1767993c0aeee42e7 # v3.9.2
+        if: ${{ github.ref == 'refs/heads/main' }}
+        with:
+          github_token: "${{ steps.generate-token.outputs.token }}"
+          publish_dir: ./docs/book
+          user_name: "rosey-bot[bot]"
+          user_email: "rosey-bot <98030736+rosey-bot[bot]@users.noreply.github.com>"

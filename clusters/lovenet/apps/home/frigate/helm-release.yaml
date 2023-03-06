@@ -1,64 +1,93 @@
 ---
+# yaml-language-server: $schema=https://kubernetes-schemas.devbu.io/helmrelease_v2beta1.json
 apiVersion: helm.toolkit.fluxcd.io/v2beta1
 kind: HelmRelease
 metadata:
   name: frigate
   namespace: home
 spec:
-  interval: 5m
+  interval: 15m
   chart:
     spec:
-      # renovate: registryUrl=https://k8s-at-home.com/charts/
-      chart: frigate
-      version: 8.2.2
+      chart: app-template
+      version: 1.3.2
       sourceRef:
         kind: HelmRepository
-        name: k8s-at-home-charts
+        name: bjw-s-charts
         namespace: flux-system
-      interval: 5m
+
+  maxHistory: 3
+
+  install:
+    remediation:
+      retries: 3
+
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+
+  uninstall:
+    keepHistory: false
+
+
   dependsOn:
     - name: node-feature-discovery
       namespace: kube-system
     - name: emqx
       namespace: home
+
   values:
+    controller:
+      type: statefulset
+
     image:
-      repository: ghcr.io/k8s-at-home/frigate
-      tag: v0.10.1-amd64
+      repository: ghcr.io/blakeblackshear/frigate
+      tag: 0.12.0-beta8
 
     env:
       TZ: "${TIMEZONE}"
 
-    coral:
-      enabled: true
-      hostPath: /dev/apex_0
-      mountPath: /dev/apex_0
-      device: pci
+    envFrom:
+      - secretRef:
+          name: frigate-secret
 
     service:
       main:
         ports:
           http:
-            port: 5000
-          rtmp:
+            port: &port 5000
+          rtsp:
             enabled: true
-            port: 1935
-            protocol: TCP
-            targetPort: 1935
+            port: 8554
+
+    probes:
+      liveness: &probes
+        enabled: true
+        custom: true
+        spec:
+          httpGet:
+            path: /api/version
+            port: *port
+          initialDelaySeconds: 0
+          periodSeconds: 10
+          timeoutSeconds: 1
+          failureThreshold: 3
+      readiness: *probes
+      startup:
+        enabled: false
 
     ingress:
       main:
         enabled: true
-        ingressClassName: "traefik"
+        ingressClassName: nginx
         annotations:
-          traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
-          external-dns.alpha.kubernetes.io/target: "ipv4.${SECRET_DOMAIN}"
           hajimari.io/enable: "true"
           hajimari.io/appName: "Security Cameras"
-          hajimari.io/icon: "camera"
-          hajimari.io/group: "home automation"
+          hajimari.io/icon: mdi:cctv
+          hajimari.io/grou: "security"
         hosts:
-          - host: &host "frigate.${SECRET_DOMAIN}"
+          - host: &host "{{ .Release.Name }}.${SECRET_DOMAIN}"
             paths:
               - path: /
                 pathType: Prefix
@@ -68,10 +97,6 @@ spec:
 
     securityContext:
       privileged: true
-
-    configmap:
-      config:
-        enabled: false
 
     podAnnotations:
       configmap.reloader.stakater.com/reload: frigate-config
@@ -87,37 +112,48 @@ spec:
                   values:
                     - "true"
 
+    volumeClaimTemplates:
+      - name: config
+        mountPath: /data
+        accessMode: ReadWriteOnce
+        size: 5Gi
+        storageClass: ceph-block
+
     persistence:
-      config:
+      config-file:
         enabled: true
         type: configMap
         name: frigate-config
         subPath: config.yaml
         mountPath: /config/config.yml
         readOnly: true
-      data:
-        enabled: true
-        existingClaim: frigate-data
-        accessMode: ReadWriteOnce
-        size: 1Gi
+
       media:
         enabled: true
         storageClass: frigate-media-storage-class
         accessMode: ReadWriteOnce
         size: 300Gi
+
       cache:
         enabled: true
         type: emptyDir
         medium: Memory
-        sizeLimit: 2Gi
+        sizeLimit: 4Gi
         mountPath: /dev/shm
+
+      usb:
+        enabled: true
+        type: hostPath
+        hostPath: /dev/bus/usb
+        hostPathType: Directory
+        mountPath: /dev/bus/usb
 
     resources:
       requests:
-        cpu: 500m
-        memory: 4000M
+        cpu: 10m
+        memory: 1000Mi
       limits:
-        memory: 4000M
+        memory: 6000Mi
 
   valuesFrom:
     - kind: Secret

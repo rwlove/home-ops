@@ -28,10 +28,6 @@ echo "Create Double-Take Secrets"
 envsubst < ./clusters/lovenet/apps/home/double-take/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/double-take/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/home/double-take/secrets.yaml
 
-echo "Create OwnCloud OCIS Secrets"
-envsubst < ./clusters/lovenet/apps/home/owncloud-ocis/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/owncloud-ocis/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/home/owncloud-ocis/secrets.yaml
-
 echo "Create Home Assistant Secrets"
 envsubst < ./clusters/lovenet/apps/home/home-assistant/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/home-assistant/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/home/home-assistant/secrets.yaml

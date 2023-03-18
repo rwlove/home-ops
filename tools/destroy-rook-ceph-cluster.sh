@@ -18,17 +18,15 @@ kubectl -n rook-ceph wait --for=delete cephcluster rook-ceph
 kubectl -n rook-ceph delete hr rook-ceph-cluster
 kubectl -n rook-ceph delete hr rook-ceph-operator
 
-ssh root@worker2 /root/ceph-cleanup.sh
-ssh root@worker5 /root/ceph-cleanup.sh
-ssh root@worker6 /root/ceph-cleanup.sh
-ssh root@worker9 /root/ceph-cleanup.sh
 
-ssh root@worker2 ls /dev/mapper/ceph-* | xargs -I% -- dmsetup remove %
-ssh root@worker5 ls /dev/mapper/ceph-* | xargs -I% -- dmsetup remove %
-ssh root@worker6 ls /dev/mapper/ceph-* | xargs -I% -- dmsetup remove %
-ssh root@worker9 ls /dev/mapper/ceph-* | xargs -I% -- dmsetup remove %
+for worker in worker2 worker5 worker6 worker9 ; do
+    echo "cleaning up ${worker}"
+    echo "- run /root/ceph-cleanup.sh"
+    ssh root@${worker} /root/ceph-cleanup.sh
 
-ssh root@worker2 rm -rf /dev/ceph-* /dev/mapper/ceph--*
-ssh root@worker5 rm -rf /dev/ceph-* /dev/mapper/ceph--*
-ssh root@worker6 rm -rf /dev/ceph-* /dev/mapper/ceph--*
-ssh root@worker9 rm -rf /dev/ceph-* /dev/mapper/ceph--*
+    echo "- dmsetup remove"
+    ssh root@${worker} ls /dev/mapper/ceph-* | xargs -I% -- dmsetup remove %
+
+    echo "- rm -rf /dev/ceph-* /dev/mapper/ceph--*"
+    ssh root@${worker} rm -rf /dev/ceph-* /dev/mapper/ceph--*
+done

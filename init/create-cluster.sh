@@ -24,6 +24,7 @@ certs=`kubeadm init phase upload-certs --upload-certs --config ./clusterconfigur
 echo "certs: ${certs}"
 worker_join_cmd=`kubeadm token create --print-join-command`
 master_join_cmd="${worker_join_cmd} --control-plane --certificate-key ${certs}"
+mkdir /etc/kubernetes/manifests
 
 #echo "XXXXXXXXXXX master_join_cmd START XXXXXXXXXXX"
 #echo "${master_join_cmd}"
@@ -35,6 +36,7 @@ for control_plane in master2.thesteamedcrab.com master3.thesteamedcrab.com ; do
     echo_cmd="echo '1' > /proc/sys/net/ipv4/ip_forward"
     ssh "$control_plane"  "$echo_cmd"
     ssh "$control_plane" "$master_join_cmd"
+    ssh "$control_plane" "mkdir /etc/kubernetes/manifests"
 done
 
 for worker in worker1.thesteamedcrab.com \
@@ -53,6 +55,8 @@ for worker in worker1.thesteamedcrab.com \
     ssh "$control_plane"  "$echo_cmd"
     echo "########## Joining (worker) $worker to the Cluster #"
     ssh "$worker" "$worker_join_cmd"
+    echo "mkdir /etc/kubernetes/manifests"
+    ssh "$worker" "mkdir /etc/kubernetes/manifests"
 done
 
 # Configure Longhorn Disks (NVMe Drives) -- see README hardware section

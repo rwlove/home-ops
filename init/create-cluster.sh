@@ -6,13 +6,13 @@ if [ -d ${HOME}/.kube ] ; then
 fi
 
 echo "Create Kube VIP"
-./kube-vip.sh
+./init/kube-vip.sh
 
 modprobe br_netfilter
 echo '1' > /proc/sys/net/ipv4/ip_forward
 
 echo "#### Initialize the K8S Cluster ####"
-kubeadm init --skip-phases=addon/kube-proxy --config ./clusterconfiguration.yaml
+kubeadm init --skip-phases=addon/kube-proxy --config ./init/clusterconfiguration.yaml
 [ $? -ne 0 ] && exit 1
 
 echo "#### Copy K8S config ####"
@@ -20,7 +20,7 @@ mkdir ${HOME}/.kube
 cp -f /etc/kubernetes/admin.conf ${HOME}/.kube/config
 chown -R ${USER}.${USER} ${HOME}/.kube
 
-certs=`kubeadm init phase upload-certs --upload-certs --config ./clusterconfiguration.yaml | tail -n 1`
+certs=`kubeadm init phase upload-certs --upload-certs --config ./init/clusterconfiguration.yaml | tail -n 1`
 echo "certs: ${certs}"
 worker_join_cmd=`kubeadm token create --print-join-command`
 master_join_cmd="${worker_join_cmd} --control-plane --certificate-key ${certs}"

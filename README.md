@@ -42,7 +42,7 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 | worker2   | VM on beast     | 8   | 16 GB  | k8s Worker | ceph volume                                   |
 | worker3   | VM on brain     | 6   | 12 GB  | k8s Worker |                                               |
 | worker4   | Intel DG965WH   | 2   | 8  GB  | k8s Worker |                                               |
-| worker5   | VM on beast     | 6   | 16 GB  | k8s Worker | ceph volume                                   |
+| worker5   | VM on beast     | 6   | 16 GB  | k8s Worker | ceph volume, skyconnect                       |
 | worker6   | VM on beast     | 8   | 32 GB  | k8s Worker | ceph volume,wg                                |
 | worker7   | VM on beast     | 8   | 64 GB  | k8s Worker | coral TPU, longhorn volume (NVMe)             |
 | worker8   | VM on beast     | 8   | 32 GB  | k8s Worker | zstick7, longhorn volume (NVMe)               |

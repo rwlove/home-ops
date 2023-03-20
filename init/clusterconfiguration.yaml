@@ -1,32 +1,46 @@
----
 apiVersion: kubeadm.k8s.io/v1beta3
-kind: ClusterConfiguration
-controlPlaneEndpoint: 192.168.6.1:6443
+bootstrapTokens:
+- groups:
+  - system:bootstrappers:kubeadm:default-node-token
+  token: hrbrbd.61natuc4sb45au85
+  ttl: 24h0m0s
+  usages:
+  - signing
+  - authentication
+kind: InitConfiguration
+localAPIEndpoint:
+  advertiseAddress: 192.168.1.4
+  bindPort: 6443
+nodeRegistration:
+  criSocket: unix:///var/run/crio/crio.sock
+  imagePullPolicy: IfNotPresent
+  name: master1.thesteamedcrab.com
+  taints:
+  - effect: NoSchedule
+    key: node-role.kubernetes.io/control-plane
+---
 apiServer:
   extraArgs:
-    "feature-gates": "ReadWriteOncePod=true"
+    feature-gates: ReadWriteOncePod=true
   timeoutForControlPlane: 4m0s
+apiVersion: kubeadm.k8s.io/v1beta3
+certificatesDir: /etc/kubernetes/pki
+clusterName: kubernetes
+controlPlaneEndpoint: 192.168.6.1:6443
 controllerManager:
   extraArgs:
-    "feature-gates": "ReadWriteOncePod=true"
-scheduler:
-  extraArgs:
-    "feature-gates": "ReadWriteOncePod=true"
-certificatesDir: "/etc/kubernetes/pki"
+    feature-gates: ReadWriteOncePod=true
+dns: {}
 etcd:
-  # one of local or external
   local:
-    dataDir: "/var/lib/etcd"
-kubernetesVersion: "1.25.8"
+    dataDir: /var/lib/etcd
+imageRepository: registry.k8s.io
+kind: ClusterConfiguration
+kubernetesVersion: v1.25.8
 networking:
   dnsDomain: cluster.local
   podSubnet: 10.42.0.0/16
   serviceSubnet: 10.43.0.0/16
----
-apiVersion: kubelet.config.k8s.io/v1beta1
-kind: KubeletConfiguration
-clusterDomain: cluster.local
-cgroupDriver: systemd
-featureGates:
-  ReadWriteOncePod: true
-serverTLSBootstrap: true
+scheduler:
+  extraArgs:
+    feature-gates: ReadWriteOncePod=true

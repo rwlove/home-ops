@@ -124,3 +124,6 @@ sops --encrypt --in-place ./clusters/lovenet/apps/home/nextcloud/secrets.yaml
 echo "Create Sabnzbd Secrets"
 envsubst < ./clusters/lovenet/apps/media/sabnzbd/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/sabnzbd/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/media/sabnzbd/secrets.yaml
+
+echo "Create Kodi Mariadb (mariadb-operator)"
+sops --encrypt ./clusters/lovenet/apps/media/kodi-mariadb/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/kodi-mariadb/secrets.yaml

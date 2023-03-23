@@ -9,30 +9,58 @@ spec:
   chart:
     spec:
       chart: metallb
-      version: v0.13.9
+      version: 0.13.9
       sourceRef:
         kind: HelmRepository
         name: metallb-charts
         namespace: flux-system
-      interval: 5m
+
+  maxHistory: 3
+
+  install:
+    timeout: 10m
+    replace: true
+    crds: CreateReplace
+    remediation:
+      retries: 3
+
+  upgrade:
+    remediation:
+      remediateLastFailure: true
+      retries: 3
+      strategy: rollback
+    cleanupOnFail: true
+    crds: CreateReplace
+
+  test:
+    enable: true
+
+  rollback:
+    recreate: true
+    force: true
+    cleanupOnFail: true
+
+  uninstall:
+    keepHistory: false
+
   values:
     controller:
       logLevel: debug
-    prometheus:
-      serviceAccount: prometheus-prometheus
-      namespace: monitoring
-      podMonitor:
+
+    prometheusRule:
+      enabled: true
+
+    controller:
+      metrics:
         enabled: true
-      prometheusRule:
-        enabled: true
+        serviceMonitor:
+          enabled: true
+
     speaker:
-      tolerateMaster: true
-      logLevel: debug
-      frr:
+      metrics:
         enabled: true
-        image:
-          repository: docker.io/frrouting/frr
-          tag: v8.4.1
+        serviceMonitor:
+          enabled: true
 
     crds:
       enabled: false

@@ -60,10 +60,9 @@ for worker in worker1.thesteamedcrab.com \
 done
 
 # Configure Longhorn Disks (NVMe Drives) -- see README hardware section
-echo " Label workers 2,4,6,8,8 and 9 for longhorn since they have NVMe drives"
+echo " Label workers 2,4,6,8 and 9 for longhorn since they have NVMe drives"
 kubectl label nodes worker2.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
 kubectl label nodes worker4.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
 kubectl label nodes worker6.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
-kubectl label nodes worker7.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
 kubectl label nodes worker8.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
 kubectl label nodes worker9.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"

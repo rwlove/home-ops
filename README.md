@@ -62,8 +62,8 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 | IOT VLAN                              | `10.10.20.1/24`            | 20   |       |
 | Guest VLAN                            | `10.10.30.1/24`            | 30   |       |
 | Security VLAN                         | `10.10.40.1/24`            | 40   |       |
-| Kubernetes Pod Subnet (Cilium)        | `11.0.0.0/8`               | N/A  |       |
-| Kubernetes Services Subnet (Cilium)   | `11.96.0.0/12`             | N/A  |       |
+| Kubernetes Pod Subnet (Cilium)        | `10.42.0.0/16`             | N/A  |       |
+| Kubernetes Services Subnet (Cilium)   | `10.43.0.0/16`             | N/A  |       |
 | Kubernetes MetalLB Range              | `192.168.6.2-192.168.6.250`| N/A  |       |
 
 ## Initialization

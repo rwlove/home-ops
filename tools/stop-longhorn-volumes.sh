@@ -1,22 +1,15 @@
 #!/bin/bash
 
 
-
-kubectl -n home scale --replicas=0 deploy/hajimari
-kubectl -n home scale --replicas=0 deploy/double-take
-
-kubectl -n media scale --replicas=0 deploy/gonic
-kubectl -n media scale --replicas=0 deploy/rompr
-kubectl -n media scale --replicas=0 deploy/stash
-kubectl -n media scale --replicas=0 deploy/youtubedl-material
-kubectl -n media scale --replicas=0 deploy/photoprism
-
-kubectl -n monitoring scale --replicas=0 deploy/statping deploy/portainer deploy/netdata-parent
-
-kubectl -n collab scale --replicas=0 deploy/vikunja
+# Deployments
+kubectl -n home scale --replicas=0 deployment hajimari double-take nextcloud
+kubectl -n media scale --replicas=0 deployment gonic rompr stash youtubedl-material photoprism beets
+kubectl -n downloads scale --replicas=0 deploy/qbittorrent
+kubectl -n monitoring scale --replicas=0 deployment statping portainer netdata-parent
+kubectl -n collab scale --replicas=0 deployment vikunja
 
 # Stateful Sets
-kubectl -n media scale --replicas=0 statefulsets.apps whisparr lidarr sonarr radarr airsonic kodi-nexus kodidb-nexus-mariadb
-kubectl -n home scale --replicas=0 statefulsets.apps home-assistant emqx zwavejs2mqtt-z-stick-7 zwavejs2mqtt node-red esphome barcode-buddy grocy vaultwarden frigate
-kubectl -n downloads scale --replicas=0 statefulsets.apps prowlarr
-kubectl -n databases scale --replicas=0 statefulsets.apps redis-master redis-replicas influxdb-influxdb2
+kubectl -n media scale --replicas=0 statefulsets whisparr lidarr sonarr radarr airsonic kodi-nexus kodidb-nexus-mariadb jellyfin kodi-mariadb
+kubectl -n home scale --replicas=0 statefulsets home-assistant emqx zwavejs2mqtt-z-stick-7 zwavejs2mqtt node-red esphome barcode-buddy grocy vaultwarden frigate zigbee2mqtt
+kubectl -n downloads scale --replicas=0 statefulsets prowlarr
+kubectl -n databases scale --replicas=0 statefulsets redis-master redis-replicas influxdb-influxdb2

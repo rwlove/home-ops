@@ -48,6 +48,7 @@ for worker in worker1.thesteamedcrab.com \
           worker7.thesteamedcrab.com \
           worker8.thesteamedcrab.com \
           worker9.thesteamedcrab.com \
+	  worker10.thesteamedcrab.com \
           ; do
     echo "$worker netfilter setup"
     ssh "$control_plane" modprobe br_netfilter

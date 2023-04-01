@@ -47,6 +47,7 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 | worker7   | VM on beast     | 8   | 64 GB  | k8s Worker |                                               |
 | worker8   | VM on beast     | 8   | 32 GB  | k8s Worker | skyconnect, longhorn volume (NVMe)            |
 | worker9   | VM on beast     | 8   | 32 GB  | k8s Worker | ceph volume, iot-vlan                         |
+| worker10  | Intel DN2820FYK | 2   | 8 GB   | k8s Worker |                                               |
 
 ## Network
 <details>

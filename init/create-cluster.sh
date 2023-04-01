@@ -39,16 +39,14 @@ for control_plane in master2.thesteamedcrab.com master3.thesteamedcrab.com ; do
     ssh "$control_plane" "mkdir /etc/kubernetes/manifests"
 done
 
+#          worker4.thesteamedcrab.com \
 for worker in worker1.thesteamedcrab.com \
           worker2.thesteamedcrab.com \
           worker3.thesteamedcrab.com \
-          worker4.thesteamedcrab.com \
           worker5.thesteamedcrab.com \
           worker6.thesteamedcrab.com \
           worker7.thesteamedcrab.com \
           worker8.thesteamedcrab.com \
-          worker9.thesteamedcrab.com \
-	  worker10.thesteamedcrab.com \
           ; do
     echo "$worker netfilter setup"
     ssh "$control_plane" modprobe br_netfilter
@@ -61,9 +59,9 @@ for worker in worker1.thesteamedcrab.com \
 done
 
 # Configure Longhorn Disks (NVMe Drives) -- see README hardware section
-echo " Label workers 2,3,4,6 and 8 for longhorn since they have NVMe drives"
-kubectl label nodes worker2.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
+echo " Label workers 3, 4, 5, 6 and 7 for longhorn since they have NVMe drives"
 kubectl label nodes worker3.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
-kubectl label nodes worker4.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
+#kubectl label nodes worker4.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
+kubectl label nodes worker5.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
 kubectl label nodes worker6.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
-kubectl label nodes worker8.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
+kubectl label nodes worker7.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"

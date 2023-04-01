@@ -3,17 +3,15 @@
 
 reset_cmd='kubeadm reset -f'
 
+#        worker4.thesteamedcrab.com \
 for node in worker1.thesteamedcrab.com \
         worker2.thesteamedcrab.com \
         worker3.thesteamedcrab.com \
-        worker4.thesteamedcrab.com \
         worker5.thesteamedcrab.com \
         worker6.thesteamedcrab.com \
         worker7.thesteamedcrab.com \
         worker8.thesteamedcrab.com \
-        worker9.thesteamedcrab.com \
-	worker10.thesteamedcrab.com \
-        master3.thesteamedcrab.com \
+         master3.thesteamedcrab.com \
         master2.thesteamedcrab.com \
         master1.thesteamedcrab.com \
           ; do
@@ -29,17 +27,15 @@ if [ -d ${HOME}/.kube ] ; then
     rm -rf ${HOME}/.kube
 fi
 
+#         worker4.thesteamedcrab.com \
 for node in worker1.thesteamedcrab.com \
           worker2.thesteamedcrab.com \
           worker3.thesteamedcrab.com \
-          worker4.thesteamedcrab.com \
           worker5.thesteamedcrab.com \
           worker6.thesteamedcrab.com \
           worker7.thesteamedcrab.com \
           worker8.thesteamedcrab.com \
-          worker9.thesteamedcrab.com \
-	  worker10.thesteamedcrab.com \
-          master3.thesteamedcrab.com \
+           master3.thesteamedcrab.com \
           master2.thesteamedcrab.com \
           master1.thesteamedcrab.com \
           ; do

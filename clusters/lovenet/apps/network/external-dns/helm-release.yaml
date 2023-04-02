@@ -31,40 +31,28 @@ spec:
     keepHistory: false
 
   values:
-
-    dependsOn:
-      - name: internal-dns
-        namespace: network
-
-    interval: 5m
-
-    logLevel: debug
-
-    sources:
-      - crd
-      - ingress
-
     provider: cloudflare
 
-    cloudflare:
-      secretName: cloudflare-token-secret
-      proxied: true
+    extraArgs:
+      - --cloudflare-proxied
+      - --annotation-filter="external-dns/is-public in (true)"
+
+    env:
+      - name: CF_API_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: cloudflare-token-secret
+            key: cloudflare_api_token
 
     policy: sync
 
     domainFilters:
       - "${SECRET_DOMAIN}"
+    
+    sources:
+      - ingress
 
-    crd:
-      create: false
-      apiversion: externaldns.k8s.io/v1alpha1
-      kind: DNSEndpoint
-
-    annotationFilter: "external-dns/is-public in (true)"
-
-    serviceAccount:
-      name: externaldns
-      create: false
+    logLevel: debug
 
     podAnnotations:
       secret.reloader.stakater.com/reload: cloudflare-token-secret
@@ -75,3 +63,5 @@ spec:
         cpu: 25m
       limits:
         memory: 250Mi
+
+    txtPrefix: "k8s."

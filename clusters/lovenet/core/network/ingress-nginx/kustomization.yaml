@@ -1,13 +1,43 @@
 ---
-apiVersion: kustomize.config.k8s.io/v1beta1
+# yaml-language-server: $schema=https://kubernetes-schemas.devbu.io/kustomization_v1beta2.json
+apiVersion: kustomize.toolkit.fluxcd.io/v1beta2
 kind: Kustomization
-namespace: network
-resources:
-  - dashboard
-  - helm-release.yaml
-configMapGenerator:
-  - name: cloudflare-proxied-networks
-    files:
-      - cloudflare-proxied-networks.txt
-generatorOptions:
-  disableNameSuffixHash: true
+metadata:
+  name: cluster-core-ingress-nginx-certificates
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: cluster-core-cert-manager-issuers
+  path: ./clusters/lovenet/core/network/ingress-nginx/certificates
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  wait: true
+  interval: 30m
+  retryInterval: 1m
+  timeout: 3m
+
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.devbu.io/kustomization_v1beta2.json
+apiVersion: kustomize.toolkit.fluxcd.io/v1beta2
+kind: Kustomization
+metadata:
+  name: cluster-core-ingress-nginx
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: cluster-core-ingress-nginx-certificates
+  path: ./clusters/lovenet/core/network/ingress-nginx/app
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  healthChecks:
+    - apiVersion: helm.toolkit.fluxcd.io/v2beta1
+      kind: HelmRelease
+      name: ingress-nginx
+      namespace: network
+  interval: 30m
+  retryInterval: 1m
+  timeout: 3m

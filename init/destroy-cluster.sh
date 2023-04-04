@@ -3,6 +3,8 @@
 
 reset_cmd='kubeadm reset -f'
 
+../tools/destroy-rook-ceph-cluster.sh
+
 #        worker4.thesteamedcrab.com \
 for node in worker1.thesteamedcrab.com \
         worker2.thesteamedcrab.com \
@@ -36,7 +38,7 @@ for node in worker1.thesteamedcrab.com \
           ; do
     echo "## $node ## ${reset_cmd} ##"
     ssh $node "$reset_cmd"
-    
+
     echo "## $node ## rm -rf ~/.kube"
     ssh $node "rm -rf ~/.kube/"
 

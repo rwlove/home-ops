@@ -18,8 +18,7 @@ kubectl -n rook-ceph wait --for=delete cephcluster rook-ceph
 kubectl -n rook-ceph delete hr rook-ceph-cluster
 kubectl -n rook-ceph delete hr rook-ceph-operator
 
-
-for worker in worker2 worker5 worker6 worker9 ; do
+for worker in worker5 worker6 worker7 worker8 ; do
     echo "cleaning up ${worker}"
     echo "- run /root/ceph-cleanup.sh"
     ssh root@${worker} /root/ceph-cleanup.sh

@@ -15,8 +15,8 @@ for node in worker1.thesteamedcrab.com \
         master2.thesteamedcrab.com \
         master1.thesteamedcrab.com \
           ; do
-    echo "## $node ## kubectl drain $node --delete-emptydir-data --force --ignore-daemonsets"
-    kubectl drain $node --delete-emptydir-data --force --ignore-daemonsets
+    echo "## $node ## kubectl drain $node --delete-emptydir-data --force --ignore-daemonsets --grace-period=10"
+    kubectl drain $node --delete-emptydir-data --force --ignore-daemonsets --grace-period=10
 
     echo "## $node ## kubectl delete node $node"
     kubectl delete node $node

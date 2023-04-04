@@ -48,10 +48,10 @@ for node in worker1.thesteamedcrab.com \
     echo "## $node ## rm -rf /etc/kubernetes/"
     ssh $node "rm -rf /etc/kubernetes/"
 
-    echo "## $node ## /var/lib/kubelet/"
+    echo "## $node ## rm -rf /var/lib/kubelet/"
     ssh $node "rm -rf /var/lib/kubelet/"
 
-    echo "## $node ## /var/lib/etcd/"
+    echo "## $node ## rm -rf /var/lib/etcd/"
     ssh $node "rm -rf /var/lib/etcd/"
 
     echo "## $node ## clear iptables"

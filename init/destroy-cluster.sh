@@ -3,7 +3,7 @@
 
 reset_cmd='kubeadm reset -f'
 
-../tools/destroy-rook-ceph-cluster.sh
+./tools/destroy-rook-ceph-cluster.sh
 
 #        worker4.thesteamedcrab.com \
 for node in worker1.thesteamedcrab.com \

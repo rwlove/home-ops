@@ -74,7 +74,7 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 
 ```./initialize-cluster.sh```
 
-Remove master1 kube-vip static manifest
+```ssh root@master1 rm /etc/kubernetes/manifests/kube-vip.yaml```
 
 ## Teardown
 ```./init/destroy-cluster.sh```

@@ -6,7 +6,10 @@ metadata:
   name: cluster-core-rook-ceph
   namespace: flux-system
 spec:
-  path: ./clusters/lovenet/core/storage/rook-ceph/app/
+  interval: 10m
+  retryInterval: 1m
+  timeout: 3m
+  path: ./clusters/lovenet/core/storage/rook-ceph/app
   prune: true
   sourceRef:
     kind: GitRepository
@@ -23,14 +26,12 @@ spec:
       - kind: Secret
         name: cluster-secrets
         optional: false
+  wait: true
   healthChecks:
     - apiVersion: helm.toolkit.fluxcd.io/v2beta1
       kind: HelmRelease
       name: rook-ceph-operator
       namespace: storage
-  interval: 30m
-  retryInterval: 1m
-  timeout: 3m
 
 ---
 # yaml-language-server: $schema=https://kubernetes-schemas.devbu.io/kustomization_v1beta2.json
@@ -40,8 +41,9 @@ metadata:
   name: cluster-core-rook-ceph-cluster
   namespace: flux-system
 spec:
-  dependsOn:
-    - name: cluster-core-rook-ceph
+  interval: 10m
+  retryInterval: 1m
+  timeout: 5m
   path: ./clusters/lovenet/core/storage/rook-ceph/cluster
   prune: true
   sourceRef:
@@ -59,14 +61,14 @@ spec:
       - kind: Secret
         name: cluster-secrets
         optional: false
+  wait: true
   healthChecks:
     - apiVersion: helm.toolkit.fluxcd.io/v2beta1
       kind: HelmRelease
       name: rook-ceph-cluster
       namespace: rook-ceph
-  interval: 30m
-  retryInterval: 1m
-  timeout: 5m
+  dependsOn:
+    - name: cluster-core-rook-ceph
 
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1beta2
@@ -78,6 +80,8 @@ metadata:
     substitution.flux.home.arpa/enabled: "true"
 spec:
   interval: 10m
+  retryInterval: 1m
+  timeout: 5m
   path: ./clusters/lovenet/core/storage/rook-ceph/add-ons
   prune: true
   sourceRef:
@@ -96,5 +100,10 @@ spec:
         name: cluster-secrets
         optional: false
   wait: false
+  healthChecks:
+    - apiVersion: helm.toolkit.fluxcd.io/v2beta1
+      kind: HelmRelease
+      name: rook-ceph-direct-mount
+      namespace: storage
   dependsOn:
     - name: cluster-core-rook-ceph-cluster

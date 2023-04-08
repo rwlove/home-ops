@@ -65,3 +65,7 @@ kubectl label nodes worker3.thesteamedcrab.com "node.longhorn.io/create-default-
 kubectl label nodes worker5.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
 kubectl label nodes worker6.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
 kubectl label nodes worker7.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
+
+kubectl label nodes worker2.thesteamedcrab.com "node.network/vlan=iot"
+kubectl label nodes worker7.thesteamedcrab.com "node.network/vlan=iot"
+kubectl label nodes worker3.thesteamedcrab.com "node.network/vlan=security"

@@ -33,21 +33,19 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 
 ## :gear:&nbsp; Hardware
 
-| Hostname  | Device          | CPU | RAM    | Role       | Devices                                       |
-| --------- | --------------- | --- | ------ | ---------- | --------------------------------------------- |
-| master1   | Intel NUC7PJYH  | 4   | 8  GB  | k8s Master |                                               |
-| master2   | VM on beast     | 2   | 24 GB  | k8s Master |                                               |
-| master3   | VM on beast     | 2   | 24 GB  | k8s Master |                                               |
-| worker1   | Intel DN2820FYK | 2   | 8  GB  | k8s Worker | zstick6, wyze                                 |
-| worker2   | VM on beast     | 8   | 16 GB  | k8s Worker | ceph volume, longhorn volume (NVMe)           |
-| worker3   | VM on brain     | 6   | 12 GB  | k8s Worker | coral TPU                                     |
-| worker4   | Intel DG965WH   | 2   | 8  GB  | k8s Worker | longhorn volume (NVMe)                        |
-| worker5   | VM on beast     | 6   | 16 GB  | k8s Worker | ceph volume, zstick-7                         |
-| worker6   | VM on beast     | 8   | 32 GB  | k8s Worker | ceph volume, wg, longhorn volume (NVMe)       |
-| worker7   | VM on beast     | 8   | 64 GB  | k8s Worker |                                               |
-| worker8   | VM on beast     | 8   | 32 GB  | k8s Worker | skyconnect, longhorn volume (NVMe)            |
-| worker9   | VM on beast     | 8   | 32 GB  | k8s Worker | ceph volume, iot-vlan                         |
-| worker10  | Intel DN2820FYK | 2   | 8 GB   | k8s Worker |                                               |
+| Hostname  | Device          | CPU | RAM    | OS       |Role        | Storage                 | IOT        | Network  |
+| --------- | --------------- | --- | ------ | -------- | ---------- | ----------------------------------------------- |
+| master1   | Intel DN2820FYK | 2   | 8  GB  | CentOS 9 | k8s Master |                         |            |          |
+| master2   | VM on beast     | 2   | 8  GB  | CentOS 8 | k8s Master |                         |            |          |
+| master3   | VM on beast     | 2   | 8  GB  | CentOS 8 | k8s Master |                         |            |          |
+| worker1   | Intel DN2820FYK | 2   | 8  GB  | CentOS 8 | k8s Worker |                         |            |          |
+| worker2   | Intel NUC7PJYH  | 4   | 8  GB  | CentOS 8 | k8s Worker |                         |            |          |
+| worker3   | Intel DG965WH   | 2   | 8  GB  | CentOS 8 | k8s Worker | longhorn NVMe           | zstick-6   |          |
+| worker4   | VM on brain     | 6   | 12 GB  | CentOS 8 | k8s Worker | longhorn NVMe           |            |          |
+| worker5   | VM on beast     | 10  | 36 GB  | CentOS 8 | k8s Worker | longhorn NVMe, ceph osd | zstick-7   |          |
+| worker6   | VM on beast     | 10  | 36 GB  | CentOS 8 | k8s Worker | longhorn NVMe, ceph osd | skyconnect |          |
+| worker7   | VM on beast     | 10  | 36 GB  | CentOS 8 | k8s Worker | longhorn NVMe, ceph osd | |          | iot-vlan |
+| worker8   | VM on beast     | 10  | 36 GB  | CentOS 8 | k8s Worker |                ceph osd |            |          |
 
 ## Network
 <details>

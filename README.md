@@ -34,7 +34,7 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 ## :gear:&nbsp; Hardware
 
 | Hostname  | Device          | CPU | RAM    | OS       |Role        | Storage                 | IOT        | Network  |
-| --------- | --------------- | --- | ------ | -------- | ---------- | ----------------------------------------------- |
+| --------- | --------------- | --- | ------ | -------- | ---------- | ----------------------- | ---------- | -------- |
 | master1   | Intel DN2820FYK | 2   | 8  GB  | CentOS 9 | k8s Master |                         |            |          |
 | master2   | VM on beast     | 2   | 8  GB  | CentOS 8 | k8s Master |                         |            |          |
 | master3   | VM on beast     | 2   | 8  GB  | CentOS 8 | k8s Master |                         |            |          |

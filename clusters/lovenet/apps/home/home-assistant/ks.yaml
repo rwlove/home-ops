@@ -1,0 +1,39 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.devbu.io/kustomization_v1.json
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: home-automation-home-assistant
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: home-automation-emqx
+    - name: databases-cloudnative-pg-cluster
+    - name: databases-influxdb
+    - name: storage-longhorn
+    - name: network-multus
+  path: ./clusters/lovenet/apps/home/home-assistant/app
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: cluster-settings
+        optional: false
+      - kind: Secret
+        name: cluster-secrets
+        optional: false
+  healthChecks:
+    - apiVersion: helm.toolkit.fluxcd.io/v2beta1
+      kind: HelmRelease
+      name: home-assistant
+      namespace: home
+  interval: 30m
+  retryInterval: 1m
+  timeout: 3m

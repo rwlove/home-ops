@@ -2,7 +2,7 @@
 apiVersion: helm.toolkit.fluxcd.io/v2beta1
 kind: HelmRelease
 metadata:
-  name: external-dns
+  name: &app external-dns
   namespace: network
 spec:
   interval: 5m
@@ -31,11 +31,12 @@ spec:
     keepHistory: false
 
   values:
+    nameOverride: *app
     provider: cloudflare
 
     extraArgs:
       - --cloudflare-proxied
-      - --annotation-filter="external-dns/is-public in (true)"
+      - --annotation-filter=external-dns/is-public in (true)
 
     env:
       - name: CF_API_TOKEN
@@ -46,22 +47,27 @@ spec:
 
     policy: sync
 
-    domainFilters:
-      - "${SECRET_DOMAIN}"
-    
     sources:
       - ingress
 
-    logLevel: debug
+    domainFilters:
+      - "${SECRET_DOMAIN}"
+    
+    txtPrefix: "k8s."
+    txtOwnerId: "homelab"
+
+    logLevel: info
 
     podAnnotations:
       secret.reloader.stakater.com/reload: cloudflare-token-secret
 
     resources:
       requests:
-        memory: 250Mi
         cpu: 25m
+        memory: 100Mi
       limits:
-        memory: 250Mi
+        memory: 100Mi
 
-    txtPrefix: "k8s."
+    tolerations:
+      - key: "node-role.kubernetes.io/control-plane"
+        operator: "Exists"

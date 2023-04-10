@@ -17,7 +17,7 @@ envsubst < ./clusters/lovenet/apps/authentication/authelia/secrets-tmpl.yaml > .
 sops --encrypt --in-place ./clusters/lovenet/apps/authentication/authelia/secrets.yaml
 
 echo "Create MinIO Secrets"
-envsubst < ././clusters/lovenet/core/storage/minio/app/secrets-tmpl.yaml > ./clusters/lovenet/core/storage/minio/app/secrets.yaml
+envsubst < ./clusters/lovenet/core/storage/minio/app/secrets-tmpl.yaml > ./clusters/lovenet/core/storage/minio/app/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/core/storage/minio/app/secrets.yaml
 
 echo "Create Frigate Secrets"
@@ -29,8 +29,8 @@ envsubst < ./clusters/lovenet/apps/home/double-take/secrets-tmpl.yaml > ./cluste
 sops --encrypt --in-place ./clusters/lovenet/apps/home/double-take/secrets.yaml
 
 echo "Create Home Assistant Secrets"
-envsubst < ./clusters/lovenet/apps/home/home-assistant/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/home-assistant/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/home/home-assistant/secrets.yaml
+envsubst < ./clusters/lovenet/apps/home/home-assistant/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/home-assistant/app/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/home/home-assistant/app/secrets.yaml
 
 echo "Create Downloads Gateway Secrets"
 envsubst < ./clusters/lovenet/core/downloads-gateway/secrets-tmpl.yaml > ./clusters/lovenet/core/downloads-gateway/secrets.yaml
@@ -69,8 +69,8 @@ envsubst < ./clusters/lovenet/apps/media/recyclarr/secrets-tmpl.yaml > ./cluster
 sops --encrypt --in-place ./clusters/lovenet/apps/media/recyclarr/secrets.yaml
 
 echo "Create EMQX (MQTT Broker) Secrets"
-envsubst < ./clusters/lovenet/apps/home/emqx/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/emqx/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/home/emqx/secrets.yaml
+envsubst < ./clusters/lovenet/apps/home/emqx/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/emqx/app/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/home/emqx/app/secrets.yaml
 
 echo "Create Grafana Secrets"
 envsubst < ./clusters/lovenet/apps/monitoring/grafana/secrets-tmpl.yaml > ./clusters/lovenet/apps/monitoring/grafana/secrets.yaml

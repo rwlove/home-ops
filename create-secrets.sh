@@ -33,8 +33,8 @@ envsubst < ./clusters/lovenet/apps/home/home-assistant/app/secrets-tmpl.yaml > .
 sops --encrypt --in-place ./clusters/lovenet/apps/home/home-assistant/app/secrets.yaml
 
 echo "Create Downloads Gateway Secrets"
-envsubst < ./clusters/lovenet/core/downloads-gateway/secrets-tmpl.yaml > ./clusters/lovenet/core/downloads-gateway/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/core/downloads-gateway/secrets.yaml
+envsubst < ./clusters/lovenet/core/downloads-gateway/app/secrets-tmpl.yaml > ./clusters/lovenet/core/downloads-gateway/app/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/core/downloads-gateway/app/secrets.yaml
 
 echo "Create Github Webhook Secrets"
 envsubst < ./clusters/lovenet/apps/flux-system/webhook/github/secrets-tmpl.yaml > ./clusters/lovenet/apps/flux-system/webhook/github/secrets.yaml

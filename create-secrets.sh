@@ -49,20 +49,20 @@ envsubst < ./clusters/lovenet/apps/network/external-dns/secrets-tmpl.yaml > ./cl
 sops --encrypt --in-place ./clusters/lovenet/apps/network/external-dns/secrets.yaml
 
 echo "Create Lidarr Secrets"
-envsubst < ./clusters/lovenet/apps/media/lidarr/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/lidarr/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/media/lidarr/secrets.yaml
+envsubst < ./clusters/lovenet/apps/media/lidarr/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/lidarr/app/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/media/lidarr/app/secrets.yaml
 
 echo "Create Radarr Secrets"
-envsubst < ./clusters/lovenet/apps/media/radarr/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/radarr/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/media/radarr/secrets.yaml
+envsubst < ./clusters/lovenet/apps/media/radarr/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/radarr/app/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/media/radarr/app/secrets.yaml
 
 echo "Create Sonarr Secrets"
-envsubst < ./clusters/lovenet/apps/media/sonarr/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/sonarr/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/media/sonarr/secrets.yaml
+envsubst < ./clusters/lovenet/apps/media/sonarr/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/sonarr/app/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/media/sonarr/app/secrets.yaml
 
 echo "Create Prowlarr Secrets"
-envsubst < ./clusters/lovenet/apps/media/prowlarr/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/prowlarr/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/media/prowlarr/secrets.yaml
+envsubst < ./clusters/lovenet/apps/media/prowlarr/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/prowlarr/app/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/media/prowlarr/app/secrets.yaml
 
 echo "Create Recyclarr Secrets"
 envsubst < ./clusters/lovenet/apps/media/recyclarr/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/recyclarr/secrets.yaml

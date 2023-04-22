@@ -5,10 +5,10 @@ reset_cmd='kubeadm reset -f'
 
 ./tools/destroy-rook-ceph-cluster.sh
 
-#        worker4.thesteamedcrab.com \
 for node in worker1.thesteamedcrab.com \
         worker2.thesteamedcrab.com \
         worker3.thesteamedcrab.com \
+        worker4.thesteamedcrab.com \
         worker5.thesteamedcrab.com \
         worker6.thesteamedcrab.com \
         worker7.thesteamedcrab.com \
@@ -24,10 +24,10 @@ for node in worker1.thesteamedcrab.com \
     kubectl delete node $node
 done
 
-#         worker4.thesteamedcrab.com \
 for node in worker1.thesteamedcrab.com \
           worker2.thesteamedcrab.com \
           worker3.thesteamedcrab.com \
+          worker4.thesteamedcrab.com \
           worker5.thesteamedcrab.com \
           worker6.thesteamedcrab.com \
           worker7.thesteamedcrab.com \

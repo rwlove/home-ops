@@ -39,10 +39,11 @@ for control_plane in master2.thesteamedcrab.com master3.thesteamedcrab.com ; do
     ssh "$control_plane" "mkdir /etc/kubernetes/manifests"
 done
 
-#          worker4.thesteamedcrab.com \
+
 for worker in worker1.thesteamedcrab.com \
           worker2.thesteamedcrab.com \
           worker3.thesteamedcrab.com \
+          worker4.thesteamedcrab.com \
           worker5.thesteamedcrab.com \
           worker6.thesteamedcrab.com \
           worker7.thesteamedcrab.com \

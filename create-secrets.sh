@@ -21,8 +21,8 @@ envsubst < ./clusters/lovenet/core/storage/minio/app/secrets-tmpl.yaml > ./clust
 sops --encrypt --in-place ./clusters/lovenet/core/storage/minio/app/secrets.yaml
 
 echo "Create Frigate Secrets"
-envsubst < ./clusters/lovenet/apps/home/frigate/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/frigate/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/home/frigate/secrets.yaml
+envsubst < ./clusters/lovenet/apps/home/frigate/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/frigate/app/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/home/frigate/app/secrets.yaml
 
 echo "Create Double-Take Secrets"
 envsubst < ./clusters/lovenet/apps/home/double-take/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/double-take/secrets.yaml

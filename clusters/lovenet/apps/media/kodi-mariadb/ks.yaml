@@ -1,0 +1,36 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.devbu.io/kustomization_v1beta2.json
+apiVersion: kustomize.toolkit.fluxcd.io/v1beta2
+kind: Kustomization
+metadata:
+  name: databases-kodi-nexus-mariadb
+  namespace: flux-system
+spec:
+  path: ./clusters/lovenet/apps/media/kodi-mariadb/app
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+  # TODO: nfs-client, or better move storage to ceph-block
+  #dependsOn:
+  #  - name: storage-longhorn
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: cluster-settings
+        optional: false
+      - kind: Secret
+        name: cluster-secrets
+        optional: false
+  healthChecks:
+    - apiVersion: mariadb.mmontes.io/v1alpha1
+      kind: MariaDB
+      name: kodi-mariadb
+      namespace: media
+  interval: 30m
+  retryInterval: 1m
+  timeout: 3m

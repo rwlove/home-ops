@@ -98,8 +98,8 @@ sops --encrypt ./clusters/lovenet/apps/authentication/glauth/config/groups.toml 
 sops --encrypt ./clusters/lovenet/apps/authentication/glauth/config/users.toml > clusters/lovenet/apps/authentication/glauth/config/users.sops.toml
 
 echo "Create pgadmin Secrets"
-envsubst < ./clusters/lovenet/apps/databases/pgadmin/secrets-tmpl.yaml > ./clusters/lovenet/apps/databases/pgadmin/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/databases/pgadmin/secrets.yaml
+envsubst < ./clusters/lovenet/apps/databases/pgadmin/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/databases/pgadmin/app/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/databases/pgadmin/app/secrets.yaml
 
 echo "Create Mastodon Secrets"
 envsubst < ./clusters/lovenet/apps/social-media/mastodon/secrets-tmpl.yaml > ./clusters/lovenet/apps/social-media/mastodon/secrets.yaml
@@ -126,4 +126,4 @@ envsubst < ./clusters/lovenet/apps/media/sabnzbd/app/secrets-tmpl.yaml > ./clust
 sops --encrypt --in-place ./clusters/lovenet/apps/media/sabnzbd/app/secrets.yaml
 
 echo "Create Kodi Mariadb (mariadb-operator)"
-sops --encrypt ./clusters/lovenet/apps/media/kodi-mariadb/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/kodi-mariadb/secrets.yaml
+sops --encrypt ./clusters/lovenet/apps/media/kodi-mariadb/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/kodi-mariadb/app/secrets.yaml

@@ -25,8 +25,8 @@ envsubst < ./clusters/lovenet/apps/home/frigate/app/secrets-tmpl.yaml > ./cluste
 sops --encrypt --in-place ./clusters/lovenet/apps/home/frigate/app/secrets.yaml
 
 echo "Create Double-Take Secrets"
-envsubst < ./clusters/lovenet/apps/home/double-take/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/double-take/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/home/double-take/secrets.yaml
+envsubst < ./clusters/lovenet/apps/home/double-take/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/double-take/app/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/home/double-take/app/secrets.yaml
 
 echo "Create Home Assistant Secrets"
 envsubst < ./clusters/lovenet/apps/home/home-assistant/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/home-assistant/app/secrets.yaml
@@ -118,8 +118,8 @@ envsubst < ./clusters/lovenet/apps/home/smtp-relay/secrets-tmpl.yaml > ./cluster
 sops --encrypt --in-place ./clusters/lovenet/apps/home/smtp-relay/secrets.yaml
 
 echo "Create NextCloud Secrets"
-envsubst < ./clusters/lovenet/apps/home/nextcloud/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/nextcloud/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/home/nextcloud/secrets.yaml
+envsubst < ./clusters/lovenet/apps/home/nextcloud/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/nextcloud/app/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/home/nextcloud/app/secrets.yaml
 
 echo "Create Sabnzbd Secrets"
 envsubst < ./clusters/lovenet/apps/media/sabnzbd/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/sabnzbd/app/secrets.yaml

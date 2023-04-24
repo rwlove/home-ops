@@ -13,30 +13,37 @@ spec:
       version: 1.4.0
       sourceRef:
         kind: HelmRepository
-        name: bjw-s
+        name: bjw-s-charts
         namespace: flux-system
+
   maxHistory: 3
+
   install:
-    createNamespace: true
     remediation:
       retries: 3
+
   upgrade:
     cleanupOnFail: true
     remediation:
       retries: 3
+
   uninstall:
     keepHistory: false
+
   values:
     controller:
       type: daemonset
+
     image:
       repository: ghcr.io/onedr0p/intel-gpu-exporter
       tag: rolling@sha256:de268763b0ecf6b596d54cfdb81cd8d51778fe5898b7f41011fa1ac0d7d8e487
+
     service:
       main:
         ports:
           http:
             port: 8080
+
     serviceMonitor:
       main:
         enabled: true
@@ -49,10 +56,20 @@ spec:
             relabelings:
               - sourceLabels: [__meta_kubernetes_pod_node_name]
                 targetLabel: node
+
     securityContext:
       privileged: true
-    nodeSelector:
-      intel.feature.node.kubernetes.io/gpu: "true"
+
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: intel.feature.node.kubernetes.io/gpu
+                  operator: In
+                  values:
+                    - "true"
+
     resources:
       requests:
         gpu.intel.com/i915: 1

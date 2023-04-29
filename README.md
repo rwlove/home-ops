@@ -46,6 +46,7 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 | worker6   | VM on beast     | 10  | 36 GB  | CentOS 8 | k8s Worker | longhorn NVMe, ceph osd | skyconnect |          |
 | worker7   | VM on beast     | 10  | 36 GB  | CentOS 8 | k8s Worker | longhorn NVMe, ceph osd |            | iot-vlan |
 | worker8   | VM on beast     | 10  | 36 GB  | CentOS 8 | k8s Worker | longhorn NVMe, ceph osd |            |          |
+| worker9   | VM on brain     | 4   |  8 GB  | CentOS 8 | k8s Worker | longhorn NVMe           |            |          |
 
 ## Network
 <details>

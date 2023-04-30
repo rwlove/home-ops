@@ -24,7 +24,6 @@ certs=`kubeadm init phase upload-certs --upload-certs --config ./init/clustercon
 echo "certs: ${certs}"
 worker_join_cmd=`kubeadm token create --print-join-command`
 master_join_cmd="${worker_join_cmd} --control-plane --certificate-key ${certs}"
-mkdir /etc/kubernetes/manifests
 
 #echo "XXXXXXXXXXX master_join_cmd START XXXXXXXXXXX"
 #echo "${master_join_cmd}"

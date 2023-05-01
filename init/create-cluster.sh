@@ -61,12 +61,17 @@ done
 
 # Configure Longhorn Disks (NVMe Drives) -- see README hardware section
 echo " Label workers 3, 5, 6, 7 and 8 for longhorn since they have NVMe drives"
+ssh root@worker3.thesteamedcrab.com rm -rf /var/lib/longhorn/*
 kubectl label nodes worker3.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
-#kubectl label nodes worker4.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
+ssh root@worker5.thesteamedcrab.com rm -rf /var/lib/longhorn/*
 kubectl label nodes worker5.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
+ssh root@worker6.thesteamedcrab.com rm -rf /var/lib/longhorn/*
 kubectl label nodes worker6.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
+ssh root@worker7.thesteamedcrab.com rm -rf /var/lib/longhorn/*
 kubectl label nodes worker7.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
+ssh root@worker8.thesteamedcrab.com rm -rf /var/lib/longhorn/*
 kubectl label nodes worker8.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
+ssh root@worker9.thesteamedcrab.com rm -rf /var/lib/longhorn/*
 kubectl label nodes worker9.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
 
 #kubectl label nodes worker2.thesteamedcrab.com "node.network/vlan=iot"

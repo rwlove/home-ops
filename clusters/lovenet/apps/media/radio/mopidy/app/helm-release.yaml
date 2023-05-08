@@ -1,0 +1,85 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: mopidy
+  namespace: radio
+spec:
+  dependsOn:
+  - name: authelia
+    namespace: auth
+  - name: longhorn
+    namespace: storage
+  interval: 5m
+  install:
+    timeout: 15m
+    remediation:
+      retries: 5
+  upgrade:
+    timeout: 15m
+    remediation:
+      retries: 5
+      remediateLastFailure: true
+    cleanupOnFail: true
+  chart:
+    spec:
+      # renovate: registryUrl=https://charts.buvis.net
+      chart: mopidy
+      version: 0.5.2
+      sourceRef:
+        kind: HelmRepository
+        name: buvis
+        namespace: flux-system
+      interval: 5m
+  values:
+    image:
+      repository: ghcr.io/buvis/mopidy
+      tag: v3.66.1@sha256:3fc2a05f8e33f4033b309eda56dfae3c4d8e72ce46903b13c18f79ecf6eea970
+    service:
+      main:
+        enabled: true
+        type: LoadBalancer
+        externalIPs:
+        - ${SVC_MOPIDY_ADDR}
+        externalTrafficPolicy: Local
+        ports:
+          http:
+            port: 6680
+      zeroconf:
+        enabled: true
+        type: LoadBalancer
+        externalIPs:
+        - ${SVC_MOPIDY_ADDR}
+        externalTrafficPolicy: Local
+        ports:
+          http:
+            port: 6600
+    ingress:
+      main:
+        enabled: true
+        annotations:
+          kubernetes.io/ingress.class: nginx
+        hosts:
+        - host: &host "radio.${SECRET_DOMAIN}"
+          paths:
+          - path: /
+            pathType: Prefix
+        tls:
+        - hosts:
+            - *host
+
+    persistence:
+      media:
+        enabled: true
+        existingClaim: mopidy-music-pvc
+      data:
+        enabled: true
+        existingClaim: mopidy-data-pvc
+    config:
+      snapserver:
+        ip: ${SVC_SNAPSERVER_ADDR}
+        port: 4955
+      scrobbler:
+        username: ${TODO_SECRET_LASTFM_USERNAME}
+        password: ${TODO_SECRET_LASTFM_PASSWORD}
+      enableTidal: true

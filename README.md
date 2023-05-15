@@ -15,7 +15,6 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 - [cert-manager](https://cert-manager.io/docs/): Creates SSL certificates for services in my Kubernetes cluster.
 - [external-dns](https://github.com/kubernetes-sigs/external-dns): Automatically manages DNS records from my cluster in a cloud DNS provider.
 - [ingress-nginx](https://github.com/kubernetes/ingress-nginx/): Ingress controller to expose HTTP traffic to pods over DNS.
-- [Traefik](https://traefik.io/): Ingress Controller.
 
 ### Storage
 - [Rook-Ceph](https://github.com/rook/rook): Distributed block storage for peristent storage..

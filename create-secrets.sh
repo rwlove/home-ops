@@ -93,9 +93,9 @@ sops --encrypt ./clusters/lovenet/apps/media/qbittorrent-rss/feeds-json-secrets-
 sops --encrypt ./clusters/lovenet/apps/media/qbittorrent-rss/env-secrets-tmpl.yaml > ./clusters/lovenet/apps/media/qbittorrent-rss/env-secrets.yaml
 
 echo "Create GLAuth Secrets"
-sops --encrypt ./clusters/lovenet/apps/authentication/glauth/app/config/server.toml > clusters/lovenet/apps/authentication/glauth/app/config/server.sops.toml
-sops --encrypt ./clusters/lovenet/apps/authentication/glauth/app/config/groups.toml > clusters/lovenet/apps/authentication/glauth/app/config/groups.sops.toml
-sops --encrypt ./clusters/lovenet/apps/authentication/glauth/app/config/users.toml > clusters/lovenet/apps/authentication/glauth/app/config/users.sops.toml
+sops --encrypt ./clusters/lovenet/apps/authentication/glauth/config/server.toml > clusters/lovenet/apps/authentication/glauth/config/server.sops.toml
+sops --encrypt ./clusters/lovenet/apps/authentication/glauth/config/groups.toml > clusters/lovenet/apps/authentication/glauth/config/groups.sops.toml
+sops --encrypt ./clusters/lovenet/apps/authentication/glauth/config/users.toml > clusters/lovenet/apps/authentication/glauth/config/users.sops.toml
 
 echo "Create pgadmin Secrets"
 envsubst < ./clusters/lovenet/apps/databases/pgadmin/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/databases/pgadmin/app/secrets.yaml
@@ -110,8 +110,8 @@ envsubst < ./clusters/lovenet/apps/monitoring/statping/secrets-tmpl.yaml > ./clu
 sops --encrypt --in-place ./clusters/lovenet/apps/monitoring/statping/secrets.yaml
 
 echo "Create Vaultwarden Secrets"
-envsubst < ./clusters/lovenet/apps/home/vaultwarden/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/vaultwarden/app/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/home/vaultwarden/app/secrets.yaml
+envsubst < ./clusters/lovenet/apps/home/vaultwarden/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/vaultwarden/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/home/vaultwarden/secrets.yaml
 
 echo "Create SMTP Relay Secrets"
 envsubst < ./clusters/lovenet/apps/home/smtp-relay/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/smtp-relay/app/secrets.yaml

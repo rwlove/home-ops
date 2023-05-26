@@ -13,8 +13,8 @@ envsubst < ./clusters/lovenet/core/cloudnative-pg/config/secrets-tmpl.yaml > ./c
 sops --encrypt --in-place ./clusters/lovenet/core/cloudnative-pg/config/secrets.yaml
 
 echo "Create Authelia Secrets"
-envsubst < ./clusters/lovenet/apps/authentication/authelia/secrets-tmpl.yaml > ./clusters/lovenet/apps/authentication/authelia/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/authentication/authelia/secrets.yaml
+envsubst < ./clusters/lovenet/apps/authentication/authelia/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/authentication/authelia/app/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/authentication/authelia/app/secrets.yaml
 
 echo "Create MinIO Secrets"
 envsubst < ./clusters/lovenet/core/storage/minio/app/secrets-tmpl.yaml > ./clusters/lovenet/core/storage/minio/app/secrets.yaml
@@ -73,8 +73,8 @@ envsubst < ./clusters/lovenet/apps/home/emqx/app/secrets-tmpl.yaml > ./clusters/
 sops --encrypt --in-place ./clusters/lovenet/apps/home/emqx/app/secrets.yaml
 
 echo "Create Grafana Secrets"
-envsubst < ./clusters/lovenet/apps/monitoring/grafana/secrets-tmpl.yaml > ./clusters/lovenet/apps/monitoring/grafana/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/monitoring/grafana/secrets.yaml
+envsubst < ./clusters/lovenet/apps/monitoring/grafana/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/monitoring/grafana/app/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/monitoring/grafana/app/secrets.yaml
 
 echo "Create Vikunja Secrets"
 envsubst < ./clusters/lovenet/apps/collab/vikunja/secrets-tmpl.yaml > ./clusters/lovenet/apps/collab/vikunja/secrets.yaml

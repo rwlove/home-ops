@@ -131,7 +131,3 @@ sops --encrypt ./clusters/lovenet/apps/media/kodi-mariadb/app/secrets-tmpl.yaml 
 echo "Create Immich Secrets"
 envsubst < ./clusters/lovenet/apps/media/immich/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/immich/app/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/media/immich/app/secrets.yaml
-
-echo "Create Alert Manager (Prometheus) Secrets"
-envsubst < ./clusters/lovenet/core/monitoring/kube-prometheus-stack/app/secrets-tmpl.yaml > ./clusters/lovenet/core/monitoring/kube-prometheus-stack/app/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/core/monitoring/kube-prometheus-stack/app/secrets.yaml

@@ -84,6 +84,9 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 * https://github.com/nicolaka/netshoot
 * https://www.redhat.com/sysadmin/using-nfsstat-nfsiostat
 
+## Useful References
+* https://developer.skao.int/en/latest/tools/containers/docker-proxy-cache.html
+
 ## Github Webhook
 `kubectl -n flux-system get receivers.notification.toolkit.fluxcd.io` generates token URL to be put into
 github.com -> Settings -> Webhooks -> Payload URL

@@ -85,8 +85,8 @@ envsubst < ./clusters/lovenet/core/monitoring/vector/geoipupdate/secrets-tmpl.ya
 sops --encrypt --in-place ./clusters/lovenet/core/monitoring/vector/geoipupdate/secrets.yaml
 
 echo "Create Cloudflare DDNS Secrets"
-envsubst < ./clusters/lovenet/apps/network/cloudflare-ddns/secrets-tmpl.yaml > ./clusters/lovenet/apps/network/cloudflare-ddns/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/network/cloudflare-ddns/secrets.yaml
+envsubst < ./clusters/lovenet/apps/network/cloudflare-ddns/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/network/cloudflare-ddns/app/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/network/cloudflare-ddns/app/secrets.yaml
 
 echo "Create QBittorrent-rss Secrets"
 sops --encrypt ./clusters/lovenet/apps/media/qbittorrent-rss/feeds-json-secrets-tmpl.yaml > ./clusters/lovenet/apps/media/qbittorrent-rss/feeds-json-secrets.yaml

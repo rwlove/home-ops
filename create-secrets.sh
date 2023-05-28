@@ -89,8 +89,8 @@ envsubst < ./clusters/lovenet/apps/network/cloudflare-ddns/app/secrets-tmpl.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/network/cloudflare-ddns/app/secrets.yaml
 
 echo "Create QBittorrent-rss Secrets"
-sops --encrypt ./clusters/lovenet/apps/media/qbittorrent-rss/feeds-json-secrets-tmpl.yaml > ./clusters/lovenet/apps/media/qbittorrent-rss/feeds-json-secrets.yaml
-sops --encrypt ./clusters/lovenet/apps/media/qbittorrent-rss/env-secrets-tmpl.yaml > ./clusters/lovenet/apps/media/qbittorrent-rss/env-secrets.yaml
+sops --encrypt ./clusters/lovenet/apps/media/qbittorrent-rss/app/feeds-json-secrets-tmpl.yaml > ./clusters/lovenet/apps/media/qbittorrent-rss/app/feeds-json-secrets.yaml
+sops --encrypt ./clusters/lovenet/apps/media/qbittorrent-rss/app/env-secrets-tmpl.yaml > ./clusters/lovenet/apps/media/qbittorrent-rss/app/env-secrets.yaml
 
 echo "Create GLAuth Secrets"
 sops --encrypt ./clusters/lovenet/apps/authentication/glauth/app/config/server.toml > clusters/lovenet/apps/authentication/glauth/app/config/server.sops.toml

@@ -65,8 +65,8 @@ envsubst < ./clusters/lovenet/apps/media/prowlarr/app/secrets-tmpl.yaml > ./clus
 sops --encrypt --in-place ./clusters/lovenet/apps/media/prowlarr/app/secrets.yaml
 
 echo "Create Recyclarr Secrets"
-envsubst < ./clusters/lovenet/apps/media/recyclarr/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/recyclarr/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/media/recyclarr/secrets.yaml
+envsubst < ./clusters/lovenet/apps/media/recyclarr/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/recyclarr/app/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/media/recyclarr/app/secrets.yaml
 
 echo "Create EMQX (MQTT Broker) Secrets"
 envsubst < ./clusters/lovenet/apps/home/emqx/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/emqx/app/secrets.yaml
@@ -89,8 +89,8 @@ envsubst < ./clusters/lovenet/apps/network/cloudflare-ddns/app/secrets-tmpl.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/network/cloudflare-ddns/app/secrets.yaml
 
 echo "Create QBittorrent-rss Secrets"
-sops --encrypt ./clusters/lovenet/apps/media/qbittorrent-rss/app/feeds-json-secrets-tmpl.yaml > ./clusters/lovenet/apps/media/qbittorrent-rss/app/feeds-json-secrets.yaml
-sops --encrypt ./clusters/lovenet/apps/media/qbittorrent-rss/app/env-secrets-tmpl.yaml > ./clusters/lovenet/apps/media/qbittorrent-rss/app/env-secrets.yaml
+#sops --encrypt ./clusters/lovenet/apps/media/qbittorrent-rss/app/feeds-json-secrets-tmpl.yaml > ./clusters/lovenet/apps/media/qbittorrent-rss/app/feeds-json-secrets.yaml
+#sops --encrypt ./clusters/lovenet/apps/media/qbittorrent-rss/app/env-secrets-tmpl.yaml > ./clusters/lovenet/apps/media/qbittorrent-rss/app/env-secrets.yaml
 
 echo "Create GLAuth Secrets"
 sops --encrypt ./clusters/lovenet/apps/authentication/glauth/app/config/server.toml > clusters/lovenet/apps/authentication/glauth/app/config/server.sops.toml

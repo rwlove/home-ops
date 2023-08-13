@@ -106,3 +106,5 @@ github.com -> Settings -> Webhooks -> Payload URL
  In short, do set CPU requests, but don't set CPU limits and set the Memory limit to be the same as the Memory requests.
  * [CPU Guidance](https://home.robusta.dev/blog/stop-using-cpu-limits)
  * [Limits Guidance](https://home.robusta.dev/blog/kubernetes-memory-limit)
+
+ [@whazor](https://github.com/whazor) created [this website](https://nanne.dev/k8s-at-home-search/) as a creative way to search Helm Releases across GitHub. You may use it as a means to get ideas on how to configure an applications' Helm values.

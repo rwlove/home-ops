@@ -37,30 +37,30 @@ for node in worker2.thesteamedcrab.com \
           master1.thesteamedcrab.com \
           ; do
     echo "## $node ## ${reset_cmd} ##"
-    ssh $node "$reset_cmd"
+    ssh root@$node "$reset_cmd"
 
     echo "## $node ## rm -rf ~/.kube"
-    ssh $node "rm -rf ~/.kube/"
+    ssh root@$node "rm -rf ~/.kube/"
 
     echo "## $node ## rm -rf /etc/cni/"
-    ssh $node "rm -rf /etc/cni/"
+    ssh root@$node "rm -rf /etc/cni/"
 
     echo "## $node ## rm -rf /etc/kubernetes/"
-    ssh $node "rm -rf /etc/kubernetes/"
+    ssh root@$node "rm -rf /etc/kubernetes/"
 
     echo "## $node ## rm -rf /var/lib/kubelet/"
-    ssh $node "rm -rf /var/lib/kubelet/"
+    ssh root@$node "rm -rf /var/lib/kubelet/"
 
     echo "## $node ## rm -rf /var/lib/etcd/"
-    ssh $node "rm -rf /var/lib/etcd/"
+    ssh root@$node "rm -rf /var/lib/etcd/"
 
     echo "## $node ## clear iptables"
-    ssh $node "iptables -F && iptables -X && \
+    ssh root@$node "iptables -F && iptables -X && \
                  iptables -t nat -F && iptables -t nat -X && \
                  iptables -t raw -F && iptables -t raw -X && \
              iptables -t mangle -F && iptables -t mangle -X"
     echo "## $node ## Restart crio"
-    ssh $node "systemctl restart crio"
+    ssh root@$node "systemctl restart crio"
 done
 
 if [ -d ${HOME}/.kube ] ; then

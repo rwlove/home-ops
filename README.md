@@ -37,8 +37,7 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 | master1   | Intel DN2820FYK   | 2   | 8  GB  | CentOS 9 | k8s Master |                         |            |          |
 | master2   | VM on beast       | 3   | 8  GB  | CentOS 8 | k8s Master |                         |            |          |
 | master3   | VM on beast       | 3   | 8  GB  | CentOS 8 | k8s Master |                         |            |          |
-| ~~worker1~~   | ~~Intel DN2820FYK~~   | ~~2~~   | ~~8  GB~~  | ~~CentOS 8~~ | ~~k8s Worker~~ |                         |            |          |
-| worker2   | ThinkCentre M910x | 8   | 32 GB  | CentOS 9 | k8s Worker |                         |            |          |
+| worker1   | ThinkCentre M910x | 8   | 32 GB  | CentOS 9 | k8s Worker |                         |            |          |
 | worker2   | Intel NUC7PJYH    | 4   | 8  GB  | CentOS 8 | k8s Worker |                         | zstick-6   |          |
 | worker3   | Intel DG965WH     | 2   | 8  GB  | CentOS 8 | k8s Worker | longhorn NVMe           |            | sec-vlan |
 | worker4   | Intel D34010WYK   | 4   | 8 GB   | CentOS 8 | k8s Worker |                         | Coral TPU  |          |

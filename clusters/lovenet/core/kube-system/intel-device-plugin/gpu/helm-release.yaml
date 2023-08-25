@@ -9,11 +9,11 @@ spec:
   interval: 15m
   chart:
     spec:
-      chart: intel-device-plugins-gpu
-      version: 0.26.1
+      chart: app-template
+      version: 0.5.1
       sourceRef:
         kind: HelmRepository
-        name: intel
+        name: bjws-charts
         namespace: flux-system
 
   maxHistory: 3
@@ -30,7 +30,54 @@ spec:
   uninstall:
     keepHistory: false
 
+  dependsOn:
+    - name: node-feature-discovery
+      namespace: kube-system
+
   values:
-    name: intel-gpu-plugin
-    sharedDevNum: 3
-    nodeFeatureRule: true
+    controller:
+      type: daemonset
+      strategy: RollingUpdate
+    image:
+      repository: docker.io/intel/intel-gpu-plugin
+      tag: "0.27.0"
+    args:
+      - "-shared-dev-num"
+      - "4"
+    service:
+      main:
+        enabled: false
+    probes:
+      liveness:
+        enabled: false
+      readiness:
+        enabled: false
+      startup:
+        enabled: false
+    persistence:
+      devfs:
+        enabled: true
+        type: hostPath
+        hostPath: /dev/dri
+        hostPathType: Directory
+        readOnly: true
+      sysfs:
+        enabled: true
+        type: hostPath
+        hostPath: /sys/class/drm
+        hostPathType: Directory
+        readOnly: true
+      kubeletsockets:
+        enabled: true
+        type: hostPath
+        hostPathType: Directory
+        hostPath: /var/lib/kubelet/device-plugins
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: feature.node.kubernetes.io/custom-intel-gpu
+                  operator: In
+                  values:
+                    - "true"

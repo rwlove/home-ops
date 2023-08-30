@@ -32,7 +32,6 @@ for node in worker1.thesteamedcrab.com \
           worker6.thesteamedcrab.com \
           worker7.thesteamedcrab.com \
           worker8.thesteamedcrab.com \
-	  worker9.thesteamedcrab.com \
           master3.thesteamedcrab.com \
           master2.thesteamedcrab.com \
           master1.thesteamedcrab.com \

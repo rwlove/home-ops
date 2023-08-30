@@ -76,10 +76,6 @@ echo "Create Grafana Secrets"
 envsubst < ./clusters/lovenet/apps/monitoring/grafana/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/monitoring/grafana/app/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/monitoring/grafana/app/secrets.yaml
 
-echo "Create Vikunja Secrets"
-envsubst < ./clusters/lovenet/apps/collab/vikunja/secrets-tmpl.yaml > ./clusters/lovenet/apps/collab/vikunja/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/collab/vikunja/secrets.yaml
-
 echo "Create Vector GeoIPUpdate Secrets"
 envsubst < ./clusters/lovenet/core/monitoring/vector/geoipupdate/secrets-tmpl.yaml > ./clusters/lovenet/core/monitoring/vector/geoipupdate/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/core/monitoring/vector/geoipupdate/secrets.yaml
@@ -100,10 +96,6 @@ sops --encrypt ./clusters/lovenet/apps/authentication/glauth/app/config/users.to
 echo "Create pgadmin Secrets"
 envsubst < ./clusters/lovenet/apps/databases/pgadmin/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/databases/pgadmin/app/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/databases/pgadmin/app/secrets.yaml
-
-echo "Create Mastodon Secrets"
-envsubst < ./clusters/lovenet/apps/social-media/mastodon/secrets-tmpl.yaml > ./clusters/lovenet/apps/social-media/mastodon/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/social-media/mastodon/secrets.yaml
 
 echo "Create Statping Secrets"
 envsubst < ./clusters/lovenet/apps/monitoring/statping/secrets-tmpl.yaml > ./clusters/lovenet/apps/monitoring/statping/secrets.yaml

@@ -68,7 +68,9 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 ## Initialization
 ```./init/create-cluster.sh``` (on master)
 
-```kubectl apply -f clusters/lovenet/core/kube-system/cilium-quick-install/quick-install.yaml```
+```./init/approve-csrs.sh```
+
+```kubectl kustomize --enable-helm clusters/lovenet/core/kube-system/cilium-quick-install | kubectl apply -f -```
 
 ```./initialize-cluster.sh```
 

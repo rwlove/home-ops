@@ -39,14 +39,14 @@ for control_plane in master2.thesteamedcrab.com master3.thesteamedcrab.com ; do
 done
 
 
-for worker in worker2.thesteamedcrab.com \
+for worker in worker1.thesteamedcrab.com \
+	  worker2.thesteamedcrab.com \
           worker3.thesteamedcrab.com \
           worker4.thesteamedcrab.com \
           worker5.thesteamedcrab.com \
           worker6.thesteamedcrab.com \
           worker7.thesteamedcrab.com \
           worker8.thesteamedcrab.com \
-	  worker9.thesteamedcrab.com \
           ; do
     echo "$worker netfilter setup"
     ssh "$control_plane" modprobe br_netfilter

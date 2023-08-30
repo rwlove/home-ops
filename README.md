@@ -72,7 +72,7 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 
 ```./init/approve-csrs.sh```
 
-```kubectl kustomize --enable-helm clusters/lovenet/core/kube-system/cilium-quick-install | kubectl apply -f -```
+```kubectl kustomize --enable-helm bootstrap/cilium-quick-install | kubectl apply -f -```
 
 ```./initialize-cluster.sh```
 

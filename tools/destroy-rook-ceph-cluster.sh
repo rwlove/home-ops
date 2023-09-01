@@ -6,7 +6,6 @@ flux -n rook-ceph suspend hr rook-ceph-operator
 kubectl patch cephblockpools.ceph.rook.io ceph-blockpool -n rook-ceph -p '{"metadata":{"finalizers":[]}}' --type=merge
 kubectl patch cephclusters.ceph.rook.io rook-ceph -n rook-ceph -p '{"metadata":{"finalizers":[]}}' --type=merge
 
-
 kubectl delete -n rook-ceph cephblockpool ceph-blockpool
 
 kubectl delete storageclasses.storage.k8s.io ceph-block ceph-bucket ceph-filesystem

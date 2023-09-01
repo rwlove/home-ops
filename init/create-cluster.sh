@@ -41,7 +41,6 @@ done
 
 for worker in worker1.thesteamedcrab.com \
 	  worker2.thesteamedcrab.com \
-          worker3.thesteamedcrab.com \
           worker4.thesteamedcrab.com \
           worker5.thesteamedcrab.com \
           worker6.thesteamedcrab.com \
@@ -80,4 +79,4 @@ kubectl label nodes worker8.thesteamedcrab.com "node.longhorn.io/create-default-
 #kubectl label nodes worker2.thesteamedcrab.com "node.network/vlan=iot"
 kubectl label nodes worker7.thesteamedcrab.com "node.network/vlan=iot"
 kubectl label nodes worker8.thesteamedcrab.com "node.network/vlan=iot"
-kubectl label nodes worker3.thesteamedcrab.com "node.network/vlan=security"
+#kubectl label nodes worker3.thesteamedcrab.com "node.network/vlan=security"

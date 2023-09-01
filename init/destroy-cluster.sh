@@ -7,7 +7,6 @@ reset_cmd='kubeadm reset -f'
 
 for node in worker1.thesteamedcrab.com \
         worker2.thesteamedcrab.com \
-        worker3.thesteamedcrab.com \
         worker4.thesteamedcrab.com \
         worker5.thesteamedcrab.com \
         worker6.thesteamedcrab.com \
@@ -26,7 +25,6 @@ done
 
 for node in worker1.thesteamedcrab.com \
           worker2.thesteamedcrab.com \
-   	  worker3.thesteamedcrab.com \
           worker4.thesteamedcrab.com \
           worker5.thesteamedcrab.com \
           worker6.thesteamedcrab.com \

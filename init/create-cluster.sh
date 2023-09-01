@@ -1,8 +1,8 @@
 #!/bin/bash
 
 if [ -d ${HOME}/.kube ] ; then
-    echo "#### Delete ${HOME}/.kube since it exists ####"
-    rm -rf ${HOME}/.kube
+    echo "#### Delete ${HOME}/.kube/* since it exists ####"
+    rm -rf ${HOME}/.kube/*
 fi
 
 echo "Create Kube VIP"

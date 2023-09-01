@@ -1,7 +1,7 @@
 #!/bin/bash
 
 export VIP=192.168.6.1
-export INTERFACE=enp3s0
+export INTERFACE=eno1
 
 mkdir -p /etc/kubernetes/manifests/
 

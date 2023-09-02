@@ -62,6 +62,6 @@ for node in worker1.thesteamedcrab.com \
 done
 
 if [ -d ${HOME}/.kube ] ; then
-    echo "## rm -rf ${HOME}/.kube"
-    rm -rf ${HOME}/.kube
+    echo "## rm -rf ${HOME}/.kube/*"
+    rm -rf ${HOME}/.kube/*
 fi

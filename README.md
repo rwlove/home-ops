@@ -54,16 +54,16 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
   <img src="https://github.com/rwlove/fleet-infra/blob/5d052422d64299f22c499d7bd2768f1ac58e71f6/docs/assets/physical-network-diagram.jpg" align="center" width="600px" alt="dns"/>
 </details>
 
-| Name                                  | CIDR                       | VLAN | Notes |
-|---------------------------------------|----------------------------| ---- | ----- |
-| Management VLAN                       |                            |      | TBD   |
-| Default                               | `192.168.0.0/16`           |  0   |       |
-| IOT VLAN                              | `10.10.20.1/24`            | 20   |       |
-| Guest VLAN                            | `10.10.30.1/24`            | 30   |       |
-| Security VLAN                         | `10.10.40.1/24`            | 40   |       |
-| Kubernetes Pod Subnet (Cilium)        | `10.42.0.0/16`             | N/A  |       |
-| Kubernetes Services Subnet (Cilium)   | `10.43.0.0/16`             | N/A  |       |
-| Kubernetes MetalLB Range              | `192.168.6.2-192.168.6.250`| N/A  |       |
+| Name                                           | CIDR                       | VLAN | Notes |
+|------------------------------------------------|----------------------------| ---- | ----- |
+| Management VLAN                                |                            |      | TBD   |
+| Default                                        | `192.168.0.0/16`           |  0   |       |
+| IOT VLAN                                       | `10.10.20.1/24`            | 20   |       |
+| Guest VLAN                                     | `10.10.30.1/24`            | 30   |       |
+| Security VLAN                                  | `10.10.40.1/24`            | 40   |       |
+| Kubernetes Pod Subnet (Cilium)                 | `10.42.0.0/16`             | N/A  |       |
+| Kubernetes Services Subnet (Cilium)            | `10.43.0.0/16`             | N/A  |       |
+| Kubernetes LB Range (CiliumLoadBalancerIPPool) | `10.45.0.1/24`             | N/A  |       |
 
 ## Initialization
 ```./init/create-cluster.sh``` (on master)

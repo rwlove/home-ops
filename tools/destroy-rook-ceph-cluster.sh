@@ -28,3 +28,5 @@ for worker in worker5 worker6 worker7 worker8 ; do
     echo "- rm -rf /dev/ceph-* /dev/mapper/ceph--*"
     ssh root@${worker} rm -rf /dev/ceph-* /dev/mapper/ceph--*
 done
+
+./tools/run-on-all-nodes.sh rm -rf /var/lib/rook/*

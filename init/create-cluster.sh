@@ -39,8 +39,7 @@ for control_plane in master2.thesteamedcrab.com master3.thesteamedcrab.com ; do
 done
 
 
-for worker in worker1.thesteamedcrab.com
-              ; do
+for worker in worker1.thesteamedcrab.com ; do
     echo "$worker netfilter setup"
     ssh "$control_plane" modprobe br_netfilter
     echo_cmd="echo '1' > /proc/sys/net/ipv4/ip_forward"

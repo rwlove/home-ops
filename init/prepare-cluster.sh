@@ -6,12 +6,13 @@ kubectl kustomize --enable-helm bootstrap/cilium-quick-install | kubectl apply -
 
 all_nodes_ready() {
     if [ `kubectl get nodes | grep -c "NotReady"` -eq 0 ] ; then
-	echo 1
+	ready=1
     else
-	echo 0
+	ready=0
     fi
 }
 
-while [ all_nodes_ready == 0 ] ; do
+while [ ready == 0 ] ; do
     sleep 1
+    all_nodes_ready
 done

@@ -13,7 +13,7 @@ all_nodes_ready() {
     fi
 }
 
-while [ ready == 0 ] ; do
+while [ ${ready} == 0 ] ; do
     sleep 1
     all_nodes_ready
 done

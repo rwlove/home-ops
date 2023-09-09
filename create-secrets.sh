@@ -128,3 +128,7 @@ sops --encrypt --in-place ./clusters/lovenet/apps/media/immich/app/secrets.yaml
 echo "Create Mopidy Secrets"
 envsubst < ./clusters/lovenet/apps/media/radio/mopidy/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/radio/mopidy/app/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/media/radio/mopidy/app/secrets.yaml
+
+echo "Create Autobrr Secrets"
+envsubst < ./clusters/lovenet/apps/downloads/autobrr/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/downloads/autobrr/app/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/downloads/autobrr/app/secrets.yaml

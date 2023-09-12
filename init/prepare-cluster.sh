@@ -1,4 +1,4 @@
-#!/bin/bash -x
+#!/bin/bash
 
 scp root@master1:~/.kube/config ~/.kube/config && \
 ./init/approve-csrs.sh && \
@@ -17,3 +17,5 @@ while [ ${ready} -ne 1 ] ; do
     sleep 1
     all_nodes_ready
 done
+
+echo "run ./init/initialize-cluster.sh"

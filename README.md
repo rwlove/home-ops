@@ -35,16 +35,16 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 | Hostname  | Device            | CPU | RAM    | OS       |Role        | Storage                 | IOT        | Network  |
 | --------- | ----------------- | --- | ------ | -------- | ---------- | ----------------------- | ---------- | -------- |
 | master1   | Intel NUC7PJYH    | 4   | 8  GB  | CentOS 9 | k8s Master |                         |            |          |
-| master2   | VM on beast       | 3   | 8  GB  | CentOS 8 | k8s Master |                         |            |          |
-| master3   | VM on beast       | 3   | 8  GB  | CentOS 8 | k8s Master |                         |            |          |
+| master2   | VM on beast       | 3   | 8  GB  | CentOS 9 | k8s Master |                         |            |          |
+| master3   | VM on beast       | 3   | 8  GB  | CentOS 9 | k8s Master |                         |            |          |
 | worker1   | ThinkCentre M910x | 8   | 32 GB  | CentOS 9 | k8s Worker | longhorn NVMe           | zstick-6   |          |
 | worker2   | ThinkCentre M910x | 8   | 32 GB  | CentOS 9 | k8s Worker | longhorn NVMe           |            |          |
 | ~~worker3~~   | ~~Intel DG965WH~~     | ~~2~~   | ~~8  GB~~  | ~~CentOS 8~~ | ~~k8s Worker~~ | ~~longhorn NVMe~~           |            | ~~sec-vlan~~ |
-| worker4   | Intel D34010WYK   | 4   | 8 GB   | CentOS 8 | k8s Worker |                         | Coral TPU  |          |
-| worker5   | VM on beast       | 10  | 24 GB  | CentOS 8 | k8s Worker | longhorn NVMe, ceph osd | zstick-7   |          |
-| worker6   | VM on beast       | 10  | 24 GB  | CentOS 8 | k8s Worker | longhorn NVMe, ceph osd | skyconnect |          |
-| worker7   | VM on beast       | 10  | 24 GB  | CentOS 8 | k8s Worker | longhorn NVMe, ceph osd |            | iot-vlan |
-| worker8   | VM on beast       | 10  | 24 GB  | CentOS 8 | k8s Worker | longhorn NVMe, ceph osd |            | iot-vlan |
+| worker4   | Intel D34010WYK   | 4   | 8 GB   | CentOS 9 | k8s Worker |                         | Coral TPU  |          |
+| worker5   | VM on beast       | 10  | 24 GB  | CentOS 9 | k8s Worker | longhorn NVMe, ceph osd | zstick-7   |          |
+| worker6   | VM on beast       | 10  | 24 GB  | CentOS 9 | k8s Worker | longhorn NVMe, ceph osd | skyconnect |          |
+| worker7   | VM on beast       | 10  | 24 GB  | CentOS 9 | k8s Worker | longhorn NVMe, ceph osd |            | iot-vlan |
+| worker8   | VM on beast       | 10  | 24 GB  | CentOS 9 | k8s Worker | longhorn NVMe, ceph osd |            | iot-vlan |
 | ~~worker9~~   | ~~VM on brain~~       | ~~4~~   |  ~~8 GB~~  | ~~CentOS 8~~ | ~~k8s Worker~~ | ~~longhorn NVMe~~           |            |          |
 
 ## Network

@@ -22,8 +22,7 @@ chown -R ${USER}.${USER} ${HOME}/.kube
 
 certs=`kubeadm init phase upload-certs --upload-certs --config ./init/clusterconfiguration.yaml | tail -n 1`
 echo "certs: ${certs}"
-join_cmd=`kubeadm token create --print-join-command`
-worker_join_cmd="${join_cmd} --skip-phases=addon/kube-proxy"
+worker_join_cmd=`kubeadm token create --print-join-command`
 master_join_cmd="${worker_join_cmd} --control-plane --certificate-key ${certs}"
 
 #echo "XXXXXXXXXXX master_join_cmd START XXXXXXXXXXX"

@@ -7,7 +7,7 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 
 ## Core Components
 ### Infrastructure
-- [CentOS 8 Stream](https://www.centos.org/centos-stream/): Kubernetes Node Operating System.
+- [CentOS 9 Stream](https://www.centos.org/centos-stream/): Kubernetes Node Operating System.
 - [crun](https://github.com/containers/crun): Container Runtime implemented in C.
 
 ### Networking

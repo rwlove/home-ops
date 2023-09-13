@@ -68,18 +68,14 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 ## Initialization
 ```./init/create-cluster.sh``` (on master)
 
-```scp root@master1:~/.kube/config ~/.kube/config```
+```./init/prepare-cluster.sh``` (on laptop)
 
-```./init/approve-csrs.sh```
+```./init/initialize-cluster.sh``` (on laptop)
 
-```kubectl kustomize --enable-helm bootstrap/cilium-quick-install | kubectl apply -f -```
-
-```./initialize-cluster.sh```
-
-```ssh root@master1 rm /etc/kubernetes/manifests/kube-vip.yaml```
+```ssh root@master1 rm /etc/kubernetes/manifests/kube-vip.yaml``` (on laptop)
 
 ## Teardown
-```./init/destroy-cluster.sh```
+```./init/destroy-cluster.sh``` (on laptop)
 
 ## Debugging
 * https://kubernetes.io/docs/tasks/administer-cluster/dns-debugging-resolution/

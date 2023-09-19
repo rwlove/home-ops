@@ -10,7 +10,7 @@ envsubst < "./tmpl/gotk-sync.yaml" \
          > "./clusters/lovenet/base/flux-system/gotk-sync.yaml"
 
 envsubst < "./tmpl/kube-vip-daemonset.yaml" \
-         > "./clusters/lovenet/core/kube-system/kube-vip/daemon-set.yaml"
+         > "./clusters/lovenet/apps/kube-system/kube-vip/daemon-set.yaml"
 
 envsubst < "./tmpl/cluster-secrets.yaml" \
          > "./clusters/lovenet/base/cluster-secrets.yaml"
@@ -18,9 +18,9 @@ envsubst < "./tmpl/cluster-secrets.yaml" \
 sops --encrypt --in-place "./clusters/lovenet/base/cluster-secrets.yaml"
 
 envsubst < "./tmpl/cert-manager-secrets.yaml" \
-         > "./clusters/lovenet/core/cert-manager/issuers/secrets.yaml"
+         > "./clusters/lovenet/apps/cert-manager/issuers/secrets.yaml"
 
-sops --encrypt --in-place "./clusters/lovenet/core/cert-manager/issuers/secrets.yaml"
+sops --encrypt --in-place "./clusters/lovenet/apps/cert-manager/issuers/secrets.yaml"
 
 echo "######"
 echo "# Create namespace"

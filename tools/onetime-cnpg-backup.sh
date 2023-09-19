@@ -1,3 +1,3 @@
 #!/bin/bash
 
-kubectl apply -f clusters/lovenet/core/cloudnative-pg/config/onetimebackup.yaml
+kubectl apply -f clusters/lovenet/apps/databases/cloudnative-pg/config/onetimebackup.yaml

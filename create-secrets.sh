@@ -9,8 +9,8 @@ envsubst < ./tmpl/cluster-secrets.yaml > ./clusters/lovenet/base/cluster-secrets
 sops --encrypt --in-place ./clusters/lovenet/base/cluster-secrets.yaml
 
 echo "Create Cloudnative PG (PostgreSQL) Secrets"
-envsubst < ./clusters/lovenet/core/cloudnative-pg/config/secrets-tmpl.yaml > ./clusters/lovenet/core/cloudnative-pg/config/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/core/cloudnative-pg/config/secrets.yaml
+envsubst < ./clusters/lovenet/apps/databases/cloudnative-pg/config/secrets-tmpl.yaml > ./clusters/lovenet/apps/databases/cloudnative-pg/config/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/databases/cloudnative-pg/config/secrets.yaml
 
 echo "Create Authelia Secrets"
 envsubst < ./clusters/lovenet/apps/authentication/authelia/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/authentication/authelia/app/secrets.yaml

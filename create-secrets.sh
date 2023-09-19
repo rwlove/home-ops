@@ -77,8 +77,8 @@ envsubst < ./clusters/lovenet/apps/monitoring/grafana/app/secrets-tmpl.yaml > ./
 sops --encrypt --in-place ./clusters/lovenet/apps/monitoring/grafana/app/secrets.yaml
 
 echo "Create Vector GeoIPUpdate Secrets"
-envsubst < ./clusters/lovenet/apps/monitoring/vector/geoipupdate/secrets-tmpl.yaml > ./clusters/lovenet/apps/monitoring/vector/geoipupdate/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/monitoring/vector/geoipupdate/secrets.yaml
+envsubst < ./clusters/lovenet/apps/monitoring/vector/aggregator/secrets-tmpl.yaml > ./clusters/lovenet/apps/monitoring/vector/aggregator/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/monitoring/vector/aggregator/secrets.yaml
 
 echo "Create Cloudflare DDNS Secrets"
 envsubst < ./clusters/lovenet/apps/network/cloudflare-ddns/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/network/cloudflare-ddns/app/secrets.yaml

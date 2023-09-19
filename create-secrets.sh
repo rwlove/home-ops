@@ -33,8 +33,8 @@ envsubst < ./clusters/lovenet/apps/home/home-assistant/app/secrets-tmpl.yaml > .
 sops --encrypt --in-place ./clusters/lovenet/apps/home/home-assistant/app/secrets.yaml
 
 echo "Create Downloads Gateway Secrets"
-envsubst < ./clusters/lovenet/apps/downloads-gateway/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/downloads-gateway/app/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/downloads-gateway/app/secrets.yaml
+envsubst < ./clusters/lovenet/apps/network/downloads-gateway/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/network/downloads-gateway/app/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/network/downloads-gateway/app/secrets.yaml
 
 echo "Create Github Webhook Secrets"
 envsubst < ./clusters/lovenet/apps/flux-system/webhook/github/secrets-tmpl.yaml > ./clusters/lovenet/apps/flux-system/webhook/github/secrets.yaml
@@ -96,10 +96,6 @@ sops --encrypt ./clusters/lovenet/apps/authentication/glauth/app/config/users.to
 echo "Create pgadmin Secrets"
 envsubst < ./clusters/lovenet/apps/databases/pgadmin/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/databases/pgadmin/app/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/databases/pgadmin/app/secrets.yaml
-
-echo "Create Statping Secrets"
-envsubst < ./clusters/lovenet/apps/monitoring/statping/secrets-tmpl.yaml > ./clusters/lovenet/apps/monitoring/statping/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/monitoring/statping/secrets.yaml
 
 echo "Create Vaultwarden Secrets"
 envsubst < ./clusters/lovenet/apps/home/vaultwarden/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/vaultwarden/app/secrets.yaml

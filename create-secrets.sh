@@ -17,8 +17,8 @@ envsubst < ./clusters/lovenet/apps/authentication/authelia/app/secrets-tmpl.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/authentication/authelia/app/secrets.yaml
 
 echo "Create MinIO Secrets"
-envsubst < ./clusters/lovenet/core/storage/minio/app/secrets-tmpl.yaml > ./clusters/lovenet/core/storage/minio/app/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/core/storage/minio/app/secrets.yaml
+envsubst < ./clusters/lovenet/apps/storage/minio/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/storage/minio/app/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/storage/minio/app/secrets.yaml
 
 echo "Create Frigate Secrets"
 envsubst < ./clusters/lovenet/apps/home/frigate/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/frigate/app/secrets.yaml
@@ -33,8 +33,8 @@ envsubst < ./clusters/lovenet/apps/home/home-assistant/app/secrets-tmpl.yaml > .
 sops --encrypt --in-place ./clusters/lovenet/apps/home/home-assistant/app/secrets.yaml
 
 echo "Create Downloads Gateway Secrets"
-envsubst < ./clusters/lovenet/core/downloads-gateway/app/secrets-tmpl.yaml > ./clusters/lovenet/core/downloads-gateway/app/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/core/downloads-gateway/app/secrets.yaml
+envsubst < ./clusters/lovenet/apps/downloads-gateway/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/downloads-gateway/app/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/downloads-gateway/app/secrets.yaml
 
 echo "Create Github Webhook Secrets"
 envsubst < ./clusters/lovenet/apps/flux-system/webhook/github/secrets-tmpl.yaml > ./clusters/lovenet/apps/flux-system/webhook/github/secrets.yaml

@@ -41,8 +41,8 @@ envsubst < ./clusters/lovenet/apps/flux-system/webhook/github/secrets-tmpl.yaml 
 sops --encrypt --in-place ./clusters/lovenet/apps/flux-system/webhook/github/secrets.yaml
 
 echo "Create Github Notification Secrets"
-envsubst < ./clusters/lovenet/core/notifications/github/secrets-tmpl.yaml > ./clusters/lovenet/core/notifications/github/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/core/notifications/github/secrets.yaml
+envsubst < ./clusters/lovenet/apps/notifications/github/secrets-tmpl.yaml > ./clusters/lovenet/apps/notifications/github/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/notifications/github/secrets.yaml
 
 echo "Create External DNS Secrets"
 envsubst < ./clusters/lovenet/apps/network/external-dns/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/network/external-dns/app/secrets.yaml

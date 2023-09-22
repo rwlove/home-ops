@@ -5,18 +5,50 @@ metadata:
   name: speedtest-prometheus
   namespace: monitoring
 spec:
-  interval: 5m
+  interval: 15m
   chart:
     spec:
-      # renovate: registryUrl=https://k8s-at-home.com/charts/
-      chart: speedtest-prometheus
-      version: 2.2.1
+      # renovate: registryUrl=https://bjw-s.github.io/helm-charts/
+      chart: app-template
+      version: 1.5.1
       sourceRef:
         kind: HelmRepository
-        name: k8s-at-home-charts
+        name: bjw-s-charts
         namespace: flux-system
-      interval: 5m
+
+  install:
+    remediation:
+      retries: 3
+
+  upgrade:
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+    cleanupOnFail: true
+
   values:
+    image:
+      repository: ghcr.io/miguelndecarvalho/speedtest-exporter
+      tag: v3.5.4
+    env:
+      SPEEDTEST_SERVER: "39677"
+    service:
+      main:
+        ports:
+          http:
+            port: 9798
     serviceMonitor:
-      enabled: true
-      interval: "60m"
+      main:
+        enabled: true
+        endpoints:
+        - port: http
+          scheme: http
+          path: /metrics
+          interval: 30m
+          scrapeTimeout: 3m
+    resources:
+      requests:
+        cpu: 15m
+        memory: 100M
+      limits:
+        memory: 100M

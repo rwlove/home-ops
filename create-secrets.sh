@@ -105,9 +105,9 @@ echo "Create SMTP Relay Secrets"
 envsubst < ./clusters/lovenet/apps/home/smtp-relay/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/smtp-relay/app/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/home/smtp-relay/app/secrets.yaml
 
-echo "Create ChatGPT Secrets"
-envsubst < ./clusters/lovenet/apps/home/chatgpt/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/chatgpt/app/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/home/chatgpt/app/secrets.yaml
+echo "Create K8SGPT Secrets"
+envsubst < ./clusters/lovenet/apps/kube-system/k8sgpt/config/secrets-tmpl.yaml > ./clusters/lovenet/apps/kube-system/k8sgpt/config/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/kube-system/k8sgpt/config/secrets.yaml
 
 echo "Create NextCloud Secrets"
 envsubst < ./clusters/lovenet/apps/home/nextcloud/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/nextcloud/app/secrets.yaml

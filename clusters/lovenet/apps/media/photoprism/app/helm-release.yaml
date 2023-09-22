@@ -9,15 +9,37 @@ spec:
   interval: 15m
   chart:
     spec:
-      # renovate: registryUrl=https://k8s-at-home.com/charts/
-      chart: photoprism
-      version: 7.1.2
+            # renovate: registryUrl=https://bjw-s.github.io/helm-charts/
+      chart: app-template
+      version: 1.5.1
       sourceRef:
         kind: HelmRepository
-        name: k8s-at-home-charts
+        name: bjw-s-charts
         namespace: flux-system
 
+  maxHistory: 3
+
+  install:
+    createNamespace: true
+    remediation:
+      retries: 3
+
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+
+  uninstall:
+    keepHistory: false
+
   values:
+    controller:
+      type: statefulset
+
+    image:
+      repository: docker.io/photoprism/photoprism
+      tag: latest@sha256:523ead1dd226a2f30c8fc333aea553a18681f20ee20167e003de1151d0b82edf
+
     env:
       PHOTOPRISM_STORAGE_PATH: /photoprism/storage
       PHOTOPRISM_ORIGINALS_PATH: /photoprism/originals
@@ -41,6 +63,12 @@ spec:
       runAsUser: 1000
       runAsGroup: 1001
 
+    service:
+      main:
+        ports:
+          http:
+            port: 2342
+
     ingress:
       main:
         enabled: true
@@ -48,8 +76,9 @@ spec:
         annotations:
           hajimari.io/enable: "true"
           hajimari.io/appName: "Photo Gallery"
-          hajimari.io/icon: "camera"
+          hajimari.io/icon: arcticons:photoprism
           hajimari.io/group: "media"
+          hajimari.io/instance: "user,admin"
         hosts:
           - host: &host photoprism.${SECRET_DOMAIN}
             paths:
@@ -59,20 +88,13 @@ spec:
           - hosts:
               - *host
 
-    probes:
-      liveness:
-        enabled: false
-      readiness:
-        enabled: false
-      startup:
-        enabled: false
-
     persistence:
       config:
         enabled: true
         existingClaim: photoprism-config
         accessMode: ReadWriteOnce
         size: 10Mi
+
       originals:
         enabled: true
         mountPath: /photoprism/originals

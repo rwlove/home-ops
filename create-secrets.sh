@@ -128,3 +128,7 @@ sops --encrypt --in-place ./clusters/lovenet/apps/media/radio/mopidy/app/secrets
 echo "Create Autobrr Secrets"
 envsubst < ./clusters/lovenet/apps/downloads/autobrr/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/downloads/autobrr/app/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/downloads/autobrr/app/secrets.yaml
+
+echo "Create actions-runner-controller Secrets"
+envsubst < ./clusters/lovenet/apps/actions-runner-system/actions-runner-controller/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/actions-runner-system/actions-runner-controller/app/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/actions-runner-system/actions-runner-controller/app/secrets.yaml

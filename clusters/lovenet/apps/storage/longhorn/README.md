@@ -1,4 +1,5 @@
 ### To Fix permission deinied errors
+
 1. Scale Down the service in K8s (kubectl scale --replicas=0 deploy/<serviceName>)
 2. Go into the Longhorn UI, click on Volume, and find the PV. It should be in a "Detached" state. Click on the "Name" field.
 3. In the Volume details screen, click the --- in the upper right and select "Attach"

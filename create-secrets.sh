@@ -132,3 +132,7 @@ sops --encrypt --in-place ./clusters/lovenet/apps/downloads/autobrr/app/secrets.
 echo "Create actions-runner-controller Secrets"
 envsubst < ./clusters/lovenet/apps/actions-runner-system/actions-runner-controller/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/actions-runner-system/actions-runner-controller/app/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/actions-runner-system/actions-runner-controller/app/secrets.yaml
+
+echo "Create External Password (1Password) Secrets"
+envsubst < ./clusters/lovenet/apps/kube-system/external-secrets/stores/secrets-tmpl.yaml > ./clusters/lovenet/apps/kube-system/external-secrets/stores/secrets.yaml
+sops --encrypt --in-place ./clusters/lovenet/apps/kube-system/external-secrets/stores/secrets.yaml

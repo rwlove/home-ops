@@ -12,10 +12,6 @@ echo "Create Cloudnative PG (PostgreSQL) Secrets"
 envsubst < ./clusters/lovenet/apps/databases/cloudnative-pg/config/secrets-tmpl.yaml > ./clusters/lovenet/apps/databases/cloudnative-pg/config/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/databases/cloudnative-pg/config/secrets.yaml
 
-echo "Create Authelia Secrets"
-envsubst < ./clusters/lovenet/apps/authentication/authelia/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/authentication/authelia/app/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/authentication/authelia/app/secrets.yaml
-
 echo "Create MinIO Secrets"
 envsubst < ./clusters/lovenet/apps/storage/minio/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/storage/minio/app/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/storage/minio/app/secrets.yaml

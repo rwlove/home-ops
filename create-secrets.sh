@@ -93,10 +93,6 @@ echo "Create pgadmin Secrets"
 envsubst < ./clusters/lovenet/apps/databases/pgadmin/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/databases/pgadmin/app/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/databases/pgadmin/app/secrets.yaml
 
-echo "Create Vaultwarden Secrets"
-envsubst < ./clusters/lovenet/apps/home/vaultwarden/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/vaultwarden/app/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/home/vaultwarden/app/secrets.yaml
-
 echo "Create SMTP Relay Secrets"
 envsubst < ./clusters/lovenet/apps/home/smtp-relay/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/smtp-relay/app/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/home/smtp-relay/app/secrets.yaml

@@ -6,12 +6,12 @@ metadata:
   name: &app prowlarr
   namespace: downloads
 spec:
-  interval: 15m
+  interval: 30m
   chart:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts
       chart: app-template
-      version: 1.5.1
+      version: 2.0.3
       sourceRef:
         kind: HelmRepository
         name: bjw-s-charts
@@ -33,22 +33,51 @@ spec:
     keepHistory: false
 
   values:
-    controller:
-      type: statefulset
+    controllers:
+      main:
+        type: statefulset
+        annotations:
+          reloader.stakater.com/auto: "true"
 
-    image:
-      repository: ghcr.io/onedr0p/prowlarr-nightly
-      tag: 1.9.4.4030@sha256:cf5d7b52fc666b425133f0add29d7fe54b1e2c2b1f17f7dc5fd29a31f3cf0a06
+        pod:
+          annotations:
+            setGateway: "true"
 
-    env:
-      TZ: "${TIMEZONE}"
-      PROWLARR__INSTANCE_NAME: Prowlarr
-      PROWLARR__PORT: &port 80
-      PROWLARR__LOG_LEVEL: info
+          securityContext:
+            runAsUser: 568
+            runAsGroup: 568
+            fsGroup: 568
+            fsGroupChangePolicy: "OnRootMismatch"
 
-    envFrom:
-      - secretRef:
-          name: *app
+        containers:
+          main:
+            image:
+              repository: ghcr.io/onedr0p/prowlarr-nightly
+              tag: 1.9.4.4030@sha256:cf5d7b52fc666b425133f0add29d7fe54b1e2c2b1f17f7dc5fd29a31f3cf0a06
+
+            env:
+              TZ: ${TIMEZONE}
+              PROWLARR__INSTANCE_NAME: Prowlarr
+              PROWLARR__PORT: &port 80
+              PROWLARR__LOG_LEVEL: info
+
+            envFrom:
+              - secretRef:
+                  name: *app
+
+            securityContext:
+              privileged: true
+              capabilities:
+                add:
+                  - NET_ADMIN
+                  - NET_RAW
+
+            resources:
+              requests:
+                cpu: 400m
+                memory: 500M
+              limits:
+                memory: 500M
 
     service:
       main:
@@ -74,36 +103,14 @@ spec:
           - host: &host "{{ .Release.Name }}.${SECRET_DOMAIN}"
             paths:
               - path: /
-                pathType: Prefix
+                service:
+                  name: main
+                  port: http
         tls:
           - hosts:
               - *host
-
-    podSecurityContext:
-      runAsUser: 568
-      runAsGroup: 568
-      fsGroup: 568
-      fsGroupChangePolicy: "OnRootMismatch"
-
-    securityContext:
-      privileged: true
-      capabilities:
-        add:
-          - NET_ADMIN
-          - NET_RAW
 
     persistence:
       config:
         enabled: true
         existingClaim: prowlarr-config-pvc
-
-    podAnnotations:
-      setGateway: "true"
-      secret.reloader.stakater.com/reload: *app
-
-    resources:
-      requests:
-        cpu: 400m
-        memory: 500M
-      limits:
-        memory: 500M

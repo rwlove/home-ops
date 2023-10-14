@@ -76,11 +76,6 @@ echo "Create QBittorrent-rss Secrets"
 #sops --encrypt ./clusters/lovenet/apps/media/qbittorrent-rss/app/feeds-json-secrets-tmpl.yaml > ./clusters/lovenet/apps/media/qbittorrent-rss/app/feeds-json-secrets.yaml
 #sops --encrypt ./clusters/lovenet/apps/media/qbittorrent-rss/app/env-secrets-tmpl.yaml > ./clusters/lovenet/apps/media/qbittorrent-rss/app/env-secrets.yaml
 
-echo "Create GLAuth Secrets"
-sops --encrypt ./clusters/lovenet/apps/auth/glauth/app/config/server.toml > clusters/lovenet/apps/auth/glauth/app/config/server.sops.toml
-sops --encrypt ./clusters/lovenet/apps/auth/glauth/app/config/groups.toml > clusters/lovenet/apps/auth/glauth/app/config/groups.sops.toml
-sops --encrypt ./clusters/lovenet/apps/auth/glauth/app/config/users.toml > clusters/lovenet/apps/auth/glauth/app/config/users.sops.toml
-
 echo "Create pgadmin Secrets"
 envsubst < ./clusters/lovenet/apps/databases/pgadmin/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/databases/pgadmin/app/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/databases/pgadmin/app/secrets.yaml

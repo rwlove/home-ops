@@ -3,15 +3,15 @@
 apiVersion: helm.toolkit.fluxcd.io/v2beta1
 kind: HelmRelease
 metadata:
-  name: &app zwavejs2mqtt-z-stick-7
+  name: &app zwavejs2mqtt
   namespace: home
 spec:
-  interval: 15m
+  interval: 30m
   chart:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts
       chart: app-template
-      version: 1.5.1
+      version: 2.0.3
       sourceRef:
         kind: HelmRepository
         name: bjw-s-charts
@@ -33,15 +33,27 @@ spec:
     keepHistory: false
 
   values:
-    controller:
-      type: statefulset
+    controllers:
+      main:
+        type: statefulset
+        annotations:
+          reloader.stakater.com/auto: "true"
 
-    image:
-      repository: ghcr.io/zwave-js/zwave-js-ui
-      tag: 9.1.2
+        containers:
+          main:
+            image:
+              repository: ghcr.io/zwave-js/zwave-js-ui
+              tag: 9.1.2
 
-    env:
-      TZ: "${TIMEZONE}"
+            env:
+              TZ: ${TIMEZONE}
+
+            resources:
+              requests:
+                cpu: 35m
+                memory: 500M
+              limits:
+                memory: 500M
 
     service:
       main:
@@ -51,22 +63,6 @@ spec:
           websocket:
             enabled: true
             port: 3000
-
-    probes:
-      liveness: &probes
-        enabled: true
-        custom: true
-        spec:
-          httpGet:
-            path: /health
-            port: *port
-          initialDelaySeconds: 0
-          periodSeconds: 10
-          timeoutSeconds: 1
-          failureThreshold: 3
-      readiness: *probes
-      startup:
-        enabled: false
 
     ingress:
       main:
@@ -86,9 +82,6 @@ spec:
         tls:
           - hosts:
               - *host
-
-    securityContext:
-      privileged: true
 
     persistence:
       config:
@@ -111,9 +104,21 @@ spec:
                   values:
                     - "true"
 
-    resources:
-      requests:
-        cpu: 35m
-        memory: 500M
-      limits:
-        memory: 500M
+    probes:
+      liveness: &probes
+        enabled: true
+        custom: true
+        spec:
+          httpGet:
+            path: /health
+            port: *port
+          initialDelaySeconds: 0
+          periodSeconds: 10
+          timeoutSeconds: 1
+          failureThreshold: 3
+      readiness: *probes
+      startup:
+        enabled: false
+
+    securityContext:
+      privileged: true

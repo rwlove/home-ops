@@ -11,7 +11,7 @@ spec:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts
       chart: app-template
-      version: 2.0.3
+      version: 1.5.1
       sourceRef:
         kind: HelmRepository
         name: bjw-s-charts
@@ -33,27 +33,15 @@ spec:
     keepHistory: false
 
   values:
-    controllers:
-      main:
-        type: statefulset
-        annotations:
-          reloader.stakater.com/auto: "true"
+    controller:
+      type: statefulset
 
-        containers:
-          main:
-            image:
-              repository: ghcr.io/zwave-js/zwave-js-ui
-              tag: 9.1.2
+    image:
+      repository: ghcr.io/zwave-js/zwave-js-ui
+      tag: 9.1.2
 
-            env:
-              TZ: ${TIMEZONE}
-
-            resources:
-              requests:
-                cpu: 35m
-                memory: 500M
-              limits:
-                memory: 500M
+    env:
+      TZ: "${TIMEZONE}"
 
     service:
       main:
@@ -63,51 +51,6 @@ spec:
           websocket:
             enabled: true
             port: 3000
-
-    ingress:
-      main:
-        enabled: true
-        ingressClassName: nginx
-        annotations:
-          hajimari.io/enable: "true"
-          hajimari.io/appName: "Zwave 2 MQTT"
-          hajimari.io/icon: mdi:z-wave
-          hajimari.io/group: "home automation"
-          hajimari.io/instance: "admin"
-        hosts:
-          - host: &host "zwave.${SECRET_DOMAIN}"
-            paths:
-              - path: /
-                service:
-                  name: main
-                  port: http
-        tls:
-          - hosts:
-              - *host
-
-    persistence:
-      config:
-        type: persistentVolumeClaim
-        existingClaim: zwavejs2mqtt-config-pvc
-        advancedMounts:
-          main:
-            main:
-              - path: /usr/src/app/store
-      usb:
-        enabled: true
-        type: hostPath
-        hostPath: /dev/zstick-7
-        hostPathType: CharDevice
-
-    affinity:
-      nodeAffinity:
-        requiredDuringSchedulingIgnoredDuringExecution:
-          nodeSelectorTerms:
-            - matchExpressions:
-                - key: aeotec.feature.node.kubernetes.io/zstick-7
-                  operator: In
-                  values:
-                    - "true"
 
     probes:
       liveness: &probes
@@ -125,5 +68,52 @@ spec:
       startup:
         enabled: false
 
+    ingress:
+      main:
+        enabled: true
+        ingressClassName: nginx
+        annotations:
+          hajimari.io/enable: "true"
+          hajimari.io/appName: "Zwave 2 MQTT"
+          hajimari.io/icon: mdi:z-wave
+          hajimari.io/group: "home automation"
+          hajimari.io/instance: "admin"
+        hosts:
+          - host: &host "zwave.${SECRET_DOMAIN}"
+            paths:
+              - path: /
+                pathType: Prefix
+        tls:
+          - hosts:
+              - *host
+
     securityContext:
       privileged: true
+
+    persistence:
+      config:
+        enabled: true
+        existingClaim: zwavejs2mqtt-config-pvc
+        mountPath: /usr/src/app/store
+      usb:
+        enabled: true
+        type: hostPath
+        hostPath: /dev/zstick-7
+        hostPathType: CharDevice
+
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: aeotec.feature.node.kubernetes.io/zstick-7
+                  operator: In
+                  values:
+                    - "true"
+
+    resources:
+      requests:
+        cpu: 35m
+        memory: 500M
+      limits:
+        memory: 500M

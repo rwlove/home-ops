@@ -11,7 +11,7 @@ spec:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts
       chart: app-template
-      version: 1.5.1
+      version: 2.0.3
       sourceRef:
         kind: HelmRepository
         name: bjw-s-charts
@@ -33,19 +33,36 @@ spec:
     keepHistory: false
 
   values:
-    controller:
-      type: statefulset
+    controllers:
+      main:
+        type: statefulset
+        annotations:
+          reloader.stakater.com/auto: "true"
 
-    image:
-      repository: ghcr.io/sentriz/gonic
-      tag: v0.16.0@sha256:257089075b207bd66a7cc2cf552c463eeae9e35b0b6a839ef6cf61fda9fc26d0
+        pod:
+          podSecurityContext:
+            supplementalGroups:
+              - 1001
 
-    env:
-      TZ: "${TIMEZONE}"
-      # GONIC_MUSIC_PATH: "/media-serenity/Library/Music"
-      # GONIC_PODCAST_PATH: "/media-serenity/Library/Podcasts"
-      # GONIC_CACHE_PATH: "/data/cache"
-      GONIC_SCAN_INTERVAL: "120"
+        containers:
+          main:
+            image:
+              repository: ghcr.io/sentriz/gonic
+              tag: v0.16.0@sha256:257089075b207bd66a7cc2cf552c463eeae9e35b0b6a839ef6cf61fda9fc26d0
+
+            env:
+              TZ: ${TIMEZONE}
+              # GONIC_MUSIC_PATH: "/media-serenity/Library/Music"
+              # GONIC_PODCAST_PATH: "/media-serenity/Library/Podcasts"
+              # GONIC_CACHE_PATH: "/data/cache"
+              GONIC_SCAN_INTERVAL: "120"
+
+            resources:
+              requests:
+                cpu: 15m
+                memory: 500M
+              limits:
+                memory: 500M
 
     service:
       main:
@@ -68,7 +85,9 @@ spec:
           - host: &host "gonic.${SECRET_DOMAIN}"
             paths:
               - path: /
-                pathType: Prefix
+                service:
+                  name: main
+                  port: http
         tls:
           - hosts:
               - *host
@@ -91,14 +110,3 @@ spec:
       playlist:
         enabled: true
         type: emptyDir
-
-    podSecurityContext:
-      supplementalGroups:
-        - 1001
-
-    resources:
-      requests:
-        cpu: 15m
-        memory: 500M
-      limits:
-        memory: 500M

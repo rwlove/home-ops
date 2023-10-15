@@ -24,10 +24,6 @@ echo "Create Double-Take Secrets"
 envsubst < ./clusters/lovenet/apps/home/double-take/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/double-take/app/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/home/double-take/app/secrets.yaml
 
-echo "Create Home Assistant Secrets"
-envsubst < ./clusters/lovenet/apps/home/home-assistant/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/home-assistant/app/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/home/home-assistant/app/secrets.yaml
-
 echo "Create Downloads Gateway Secrets"
 envsubst < ./clusters/lovenet/apps/network/downloads-gateway/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/network/downloads-gateway/app/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/network/downloads-gateway/app/secrets.yaml

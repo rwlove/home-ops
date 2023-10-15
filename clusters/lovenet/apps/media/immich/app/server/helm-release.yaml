@@ -6,7 +6,7 @@ metadata:
   name: &app immich-server
   namespace: media
 spec:
-  interval: 15m
+  interval: 30m
   chart:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts
@@ -33,32 +33,40 @@ spec:
     - name: immich-typesense
       namespace: media
   values:
+    initContainers:
+      01-init-db:
+        image: ghcr.io/onedr0p/postgres-init:14.8
+        imagePullPolicy: IfNotPresent
+        envFrom: &envFrom
+          - configMapRef:
+              name: &configMap immich-configmap
+          - secretRef:
+              name: &secret immich
     controller:
       replicas: 2
       strategy: RollingUpdate
       annotations:
         reloader.stakater.com/auto: "true"
+
     image:
       repository: ghcr.io/immich-app/immich-server
       tag: v1.81.1
-    command: /bin/sh
-    args:
-      - ./start-server.sh
-    envFrom:
-      - secretRef:
-          name: immich
-      - configMapRef:
-          name: immich-configmap
+    args: ["start-server.sh"]
+
+    envFrom: *envFrom
+
     service:
       main:
         ports:
           http:
             port: 3001
+
     persistence:
       library:
         enabled: true
         existingClaim: immich-upload-pvc
         mountPath: /usr/src/app/upload
+
     topologySpreadConstraints:
       - maxSkew: 1
         topologyKey: kubernetes.io/hostname
@@ -71,4 +79,6 @@ spec:
     resources:
       requests:
         cpu: 100m
-        memory: 250M
+        memory: 250Mi
+      limits:
+        memory: 250Mi

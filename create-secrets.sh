@@ -44,10 +44,6 @@ echo "Create External DNS Secrets"
 envsubst < ./clusters/lovenet/apps/network/external-dns/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/network/external-dns/app/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/network/external-dns/app/secrets.yaml
 
-echo "Create Sonarr Secrets"
-envsubst < ./clusters/lovenet/apps/media/sonarr/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/sonarr/app/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/media/sonarr/app/secrets.yaml
-
 echo "Create Prowlarr Secrets"
 envsubst < ./clusters/lovenet/apps/media/prowlarr/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/prowlarr/app/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/media/prowlarr/app/secrets.yaml

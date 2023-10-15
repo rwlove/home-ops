@@ -6,7 +6,7 @@ metadata:
   name: &app immich-microservices
   namespace: media
 spec:
-  interval: 15m
+  interval: 30m
   chart:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts
@@ -37,7 +37,6 @@ spec:
 
   values:
     controller:
-      replicas: 2
       strategy: RollingUpdate
       annotations:
         reloader.stakater.com/auto: "true"
@@ -45,13 +44,10 @@ spec:
     image:
       repository: ghcr.io/immich-app/immich-server
       tag: v1.81.1
-    command: /bin/sh
-    args:
-      - ./start-microservices.sh
-
+    args: ["start-microservices.sh"]
     envFrom:
       - secretRef:
-          name: immich-secret
+          name: immich
       - configMapRef:
           name: immich-configmap
 
@@ -64,6 +60,21 @@ spec:
         enabled: true
         existingClaim: immich-upload-pvc
         mountPath: /usr/src/app/upload
+      geocoding-dump:
+        enabled: true
+        type: emptyDir
+        mountPath: /usr/src/app/.reverse-geocoding-dump
+      geoname-dump:
+        enabled: true
+        type: emptyDir
+        mountPath: /usr/src/app/node_modules/local-reverse-geocoder/geonames_dump
+      transformers-cache:
+        enabled: true
+        type: emptyDir
+        mountPath: /usr/src/app/.transformers_cache
+
+    nodeSelector:
+      intel.feature.node.kubernetes.io/gpu: "true"
 
     topologySpreadConstraints:
       - maxSkew: 1
@@ -73,8 +84,11 @@ spec:
           matchLabels:
             app.kubernetes.io/name: *app
 
-    # don't limit memory
     resources:
       requests:
+        gpu.intel.com/i915: 1
         cpu: 100m
-        memory: 250M
+        memory: 6000Mi
+      limits:
+        gpu.intel.com/i915: 1
+        memory: 6000Mi

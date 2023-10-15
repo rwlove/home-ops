@@ -84,10 +84,6 @@ echo "Create Sabnzbd Secrets"
 envsubst < ./clusters/lovenet/apps/media/sabnzbd/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/sabnzbd/app/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/media/sabnzbd/app/secrets.yaml
 
-echo "Create Immich Secrets"
-envsubst < ./clusters/lovenet/apps/media/immich/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/immich/app/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/media/immich/app/secrets.yaml
-
 echo "Create Mopidy Secrets"
 envsubst < ./clusters/lovenet/apps/media/radio/mopidy/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/radio/mopidy/app/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/media/radio/mopidy/app/secrets.yaml

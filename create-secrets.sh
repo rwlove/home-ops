@@ -24,10 +24,6 @@ echo "Create QBittorrent-rss Secrets"
 #sops --encrypt ./clusters/lovenet/apps/media/qbittorrent-rss/app/feeds-json-secrets-tmpl.yaml > ./clusters/lovenet/apps/media/qbittorrent-rss/app/feeds-json-secrets.yaml
 #sops --encrypt ./clusters/lovenet/apps/media/qbittorrent-rss/app/env-secrets-tmpl.yaml > ./clusters/lovenet/apps/media/qbittorrent-rss/app/env-secrets.yaml
 
-echo "Create Mopidy Secrets"
-envsubst < ./clusters/lovenet/apps/media/radio/mopidy/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/radio/mopidy/app/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/media/radio/mopidy/app/secrets.yaml
-
 echo "Create External Password (1Password) Secrets"
 envsubst < ./clusters/lovenet/apps/kube-system/external-secrets/stores/secrets-tmpl.yaml > ./clusters/lovenet/apps/kube-system/external-secrets/stores/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/kube-system/external-secrets/stores/secrets.yaml

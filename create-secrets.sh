@@ -32,10 +32,6 @@ echo "Create External DNS Secrets"
 envsubst < ./clusters/lovenet/apps/network/external-dns/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/network/external-dns/app/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/network/external-dns/app/secrets.yaml
 
-echo "Create EMQX (MQTT Broker) Secrets"
-envsubst < ./clusters/lovenet/apps/home/emqx/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/emqx/app/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/home/emqx/app/secrets.yaml
-
 echo "Create Cloudflare DDNS Secrets"
 envsubst < ./clusters/lovenet/apps/network/cloudflare-ddns/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/network/cloudflare-ddns/app/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/network/cloudflare-ddns/app/secrets.yaml

@@ -3,10 +3,10 @@
 apiVersion: helm.toolkit.fluxcd.io/v2beta1
 kind: HelmRelease
 metadata:
-  name: double-take
+  name: &app double-take
   namespace: home
 spec:
-  interval: 15m
+  interval: 30m
   chart:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts
@@ -20,13 +20,19 @@ spec:
   values:
     controller:
       type: statefulset
+      annotations:
+        reloader.stakater.com/auto: "true"
 
     image:
       repository: jakowenko/double-take
       tag: 1.13.1
 
     env:
-      TZ: "${TIMEZONE}"
+      TZ: ${TIMEZONE}
+
+    envFrom:
+      - secretRef:
+          name: *app
 
     service:
       main:
@@ -74,8 +80,8 @@ spec:
           config.yml: |-
             mqtt:
               host: emqx.home.svc.cluster.local
-              username: "${SECRET_DOUBLE_TAKE_MQTT_USER}"
-              password: "${SECRET_DOUBLE_TAKE_MQTT_PASSWORD}"
+              username: "${DT_MQTT_USERNAME}"
+              password: "${DT_MQTT_PASSWORD}"
 
             frigate:
               url: http://frigate.home.svc.cluster.local:5000

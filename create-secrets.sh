@@ -52,10 +52,6 @@ echo "Create QBittorrent-rss Secrets"
 #sops --encrypt ./clusters/lovenet/apps/media/qbittorrent-rss/app/feeds-json-secrets-tmpl.yaml > ./clusters/lovenet/apps/media/qbittorrent-rss/app/feeds-json-secrets.yaml
 #sops --encrypt ./clusters/lovenet/apps/media/qbittorrent-rss/app/env-secrets-tmpl.yaml > ./clusters/lovenet/apps/media/qbittorrent-rss/app/env-secrets.yaml
 
-echo "Create pgadmin Secrets"
-envsubst < ./clusters/lovenet/apps/databases/pgadmin/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/databases/pgadmin/app/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/databases/pgadmin/app/secrets.yaml
-
 echo "Create SMTP Relay Secrets"
 envsubst < ./clusters/lovenet/apps/home/smtp-relay/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/smtp-relay/app/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/home/smtp-relay/app/secrets.yaml

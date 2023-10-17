@@ -40,10 +40,6 @@ echo "Create Prowlarr Secrets"
 envsubst < ./clusters/lovenet/apps/media/prowlarr/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/prowlarr/app/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/media/prowlarr/app/secrets.yaml
 
-echo "Create Recyclarr Secrets"
-envsubst < ./clusters/lovenet/apps/media/recyclarr/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/media/recyclarr/app/secrets.yaml
-sops --encrypt --in-place ./clusters/lovenet/apps/media/recyclarr/app/secrets.yaml
-
 echo "Create EMQX (MQTT Broker) Secrets"
 envsubst < ./clusters/lovenet/apps/home/emqx/app/secrets-tmpl.yaml > ./clusters/lovenet/apps/home/emqx/app/secrets.yaml
 sops --encrypt --in-place ./clusters/lovenet/apps/home/emqx/app/secrets.yaml

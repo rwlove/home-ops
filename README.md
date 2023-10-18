@@ -43,7 +43,7 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 | worker5   | VM on beast       | 10  | 24 GB  | CentOS 9 | k8s Worker | longhorn NVMe, ceph osd |            |          |
 | worker6   | VM on beast       | 10  | 24 GB  | CentOS 9 | k8s Worker | longhorn NVMe, ceph osd | skyconnect |          |
 | worker7   | VM on beast       | 10  | 24 GB  | CentOS 9 | k8s Worker | longhorn NVMe, ceph osd |            | iot-vlan |
-| worker8   | VM on beast       | 10  | 24 GB  | CentOS 9 | k8s Worker | longhorn NVMe, ceph osd |            | iot-vlan |
+| worker8   | VM on beast       | 10  | 24 GB  | CentOS 9 | k8s Worker | ~~longhorn NVMe,~~ ceph osd |            | iot-vlan |
 | ~~worker9~~   | ~~VM on brain~~       | ~~4~~   |  ~~8 GB~~  | ~~CentOS 8~~ | ~~k8s Worker~~ | ~~longhorn NVMe~~           |            |          |
 | ~~worker3~~   | ~~Intel DG965WH~~     | ~~2~~   | ~~8  GB~~  | ~~CentOS 8~~ | ~~k8s Worker~~ | ~~longhorn NVMe~~           |            | ~~sec-vlan~~ |
 | worker4   | Intel D34010WYK   | 4   | 8 GB   | CentOS 9 | k8s Worker |                         | Coral TPU  |          |

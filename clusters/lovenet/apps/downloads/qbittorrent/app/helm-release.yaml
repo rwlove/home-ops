@@ -6,12 +6,12 @@ metadata:
   name: &app qbittorrent
   namespace: downloads
 spec:
-  interval: 15m
+  interval: 30m
   chart:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts
       chart: app-template
-      version: 1.5.1
+      version: 2.0.3
       sourceRef:
         kind: HelmRepository
         name: bjw-s-charts
@@ -33,30 +33,52 @@ spec:
     keepHistory: false
 
   values:
-    controller:
-      type: statefulset
+    controllers:
+      main:
+        type: statefulset
+        annotations:
+          reloader.stakater.com/auto: "true"
 
-    image:
-      repository: ghcr.io/onedr0p/qbittorrent
-      tag: 4.5.5@sha256:f4a1a5eece13beed61e579172d2a54b1fc2e7ff2bbdbd7ef22a4d9f6fc36e198
+        pod:
+          annotations:
+            setGateway: "true"
 
-    hostname: qbittorrent
+          securityContext:
+            fsGroup: 1001
+            fsGroupChangePolicy: "OnRootMismatch"
+            supplementalGroups:
+              - 100
 
-    podAnnotations:
-      setGateway: "true"
-      secret.reloader.stakater.com/reload: qbittorrent
+        containers:
+          main:
+            nameOverride: qbittorrent
+            image:
+              repository: ghcr.io/onedr0p/qbittorrent
+              tag: 4.5.5@sha256:f4a1a5eece13beed61e579172d2a54b1fc2e7ff2bbdbd7ef22a4d9f6fc36e198
 
-    env:
-      TZ: "${TIMEZONE}"
-      QBITTORRENT__PORT: &port 8080
-      QBITTORRENT__BT_PORT: &port-bt ${SECRET_VPN_FORWARDED_PORT_1}
-      QBITTORRENT__USE_PROFILE: "true"
+            env:
+              TZ: "${TIMEZONE}"
+              QBITTORRENT__PORT: &port 8080
+              QBITTORRENT__BT_PORT: &port-bt ${SECRET_VPN_FORWARDED_PORT_1}
+              QBITTORRENT__USE_PROFILE: "true"
+
+            resources:
+              requests:
+                cpu: 200m
+                memory: 8G
+              limits:
+                memory: 8G
+
+            securityContext:
+              runAsUser: 1000
+              runAsGroup: 1001
 
     service:
       main:
         ports:
           http:
             port: *port
+
       bittorrent:
         enabled: true
         annotations:
@@ -91,18 +113,12 @@ spec:
           - host: &host "bt.${SECRET_DOMAIN}"
             paths:
               - path: /
-                pathType: Prefix
+                service:
+                  name: main
+                  port: http
         tls:
           - hosts:
               - *host
-
-    podSecurityContext:
-      runAsUser: 1000
-      runAsGroup: 1001
-      fsGroup: 1001
-      fsGroupChangePolicy: "OnRootMismatch"
-      supplementalGroups:
-        - 100
 
     persistence:
       config:
@@ -132,10 +148,3 @@ spec:
       incomplete:
         enabled: true
         existingClaim: qbittorrent-incomplete
-
-    resources:
-      requests:
-        cpu: 203m
-        memory: 3305M
-      limits:
-        memory: 3305M

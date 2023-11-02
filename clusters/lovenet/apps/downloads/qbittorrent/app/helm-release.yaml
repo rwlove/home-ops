@@ -49,6 +49,16 @@ spec:
             supplementalGroups:
               - 100
 
+          affinity:
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchExpressions:
+                      - key: app.kubernetes.io/name
+                        operator: In
+                        values: ["sabnzbd"]
+                  topologyKey: kubernetes.io/hostname
+
         containers:
           main:
             nameOverride: qbittorrent
@@ -57,10 +67,19 @@ spec:
               tag: 4.5.5@sha256:f4a1a5eece13beed61e579172d2a54b1fc2e7ff2bbdbd7ef22a4d9f6fc36e198
 
             env:
-              TZ: "${TIMEZONE}"
+              TZ: ${TIMEZONE}
               QBITTORRENT__PORT: &port 8080
               QBITTORRENT__BT_PORT: &port-bt ${SECRET_VPN_FORWARDED_PORT_1}
-              QBITTORRENT__USE_PROFILE: "true"
+              QBT_Preferences__WebUI__AlternativeUIEnabled: false
+              QBT_Preferences__WebUI__AuthSubnetWhitelistEnabled: true
+              QBT_Preferences__WebUI__AuthSubnetWhitelist: 192.168.0.0/16
+              QBT_Preferences__WebUI__LocalHostAuth: false
+              QBT_BitTorrent__Session__Interface: eth0
+              QBT_BitTorrent__Session__InterfaceAddress:
+                valueFrom:
+                  fieldRef:
+                    fieldPath: status.podIP
+              QBT_BitTorrent__Session__InterfaceName: eth0
 
             resources:
               requests:

@@ -86,9 +86,6 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 * https://github.com/nicolaka/netshoot
 * https://www.redhat.com/sysadmin/using-nfsstat-nfsiostat
 
-## Useful References
-* https://developer.skao.int/en/latest/tools/containers/docker-proxy-cache.html
-
 ## Github Webhook
 `kubectl -n flux-system get receivers.notification.toolkit.fluxcd.io` generates token URL to be put into
 github.com -> Settings -> Webhooks -> Payload URL
@@ -98,12 +95,12 @@ github.com -> Settings -> Webhooks -> Payload URL
 * SSL: Enable SSL verification
 * Which events would you like to trigger this webhook?: Just the push event.
 * Active: <checked>
- 
+
  ## Notes
  To get metrics-server to work with kubeadm, you need to do the following if it isn't setup with the clusterconfig provided to kubeadm
  https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/kubeadm-certs/#kubelet-serving-certs
  * Need to pull the kubeadm configuration into this repository
- 
+
  ### Resources: Limits and Requests Philosophy
  In short, do set CPU requests, but don't set CPU limits and set the Memory limit to be the same as the Memory requests.
  * [CPU Guidance](https://home.robusta.dev/blog/stop-using-cpu-limits)

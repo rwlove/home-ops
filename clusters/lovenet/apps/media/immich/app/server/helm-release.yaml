@@ -11,7 +11,7 @@ spec:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts
       chart: app-template
-      version: 1.5.1
+      version: 2.4.0
       sourceRef:
         kind: HelmRepository
         name: bjw-s-charts
@@ -33,27 +33,52 @@ spec:
     - name: immich-typesense
       namespace: media
   values:
-    initContainers:
-      01-init-db:
-        image: ghcr.io/onedr0p/postgres-init:16.1
-        imagePullPolicy: IfNotPresent
-        envFrom: &envFrom
-          - configMapRef:
-              name: &configMap immich-configmap
-          - secretRef:
-              name: &secret immich
-    controller:
-      replicas: 2
-      strategy: RollingUpdate
-      annotations:
-        reloader.stakater.com/auto: "true"
+    defaultPodOptions:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: *app
 
-    image:
-      repository: ghcr.io/immich-app/immich-server
-      tag: v1.90.2
-    args: ["start-server.sh"]
+    controllers:
+      main:
+        replicas: 2
+        strategy: RollingUpdate
+        annotations:
+          reloader.stakater.com/auto: "true"
+          configmap.reloader.stakater.com/reload: &configMap immich-configmap
+          secret.reloader.stakater.com/reload: &secret immich
 
-    envFrom: *envFrom
+        initContainers:
+          01-init-db:
+            image:
+              repository: ghcr.io/onedr0p/postgres-init
+              tag: 16.1
+              imagePullPolicy: IfNotPresent
+
+            envFrom: &envFrom
+              - configMapRef:
+                  name: *configMap
+              - secretRef:
+                  name: *secret
+
+        containers:
+          main:
+            image:
+              repository: ghcr.io/immich-app/immich-server
+              tag: v1.90.2@sha256:3e68be128c705f4e1c565a38f0a70c7008504f0acaaf122dc13cc6716a69a067
+            args: ["start-server.sh"]
+
+            envFrom: *envFrom
+
+            resources:
+              requests:
+                cpu: 100m
+                memory: 250Mi
+              limits:
+                memory: 250Mi
 
     service:
       main:
@@ -62,6 +87,12 @@ spec:
             port: 3001
 
     persistence:
+      config:
+        enabled: true
+        type: configMap
+        name: *configMap
+        globalMounts:
+          - path: /config
       library:
         enabled: true
         existingClaim: immich-upload-pvc
@@ -74,18 +105,3 @@ spec:
         enabled: true
         type: emptyDir
         mountPath: /usr/src/app/.transformers_cache
-
-    topologySpreadConstraints:
-      - maxSkew: 1
-        topologyKey: kubernetes.io/hostname
-        whenUnsatisfiable: DoNotSchedule
-        labelSelector:
-          matchLabels:
-            app.kubernetes.io/name: *app
-
-    resources:
-      requests:
-        cpu: 100m
-        memory: 250Mi
-      limits:
-        memory: 250Mi

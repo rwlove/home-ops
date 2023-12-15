@@ -11,7 +11,7 @@ spec:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts
       chart: app-template
-      version: 1.5.1
+      version: 2.4.0
       sourceRef:
         kind: HelmRepository
         name: bjw-s-charts
@@ -37,20 +37,42 @@ spec:
 
   values:
     controller:
-      replicas: 2
-      strategy: RollingUpdate
-      annotations:
-        reloader.stakater.com/auto: "true"
+      main:
+        replicas: 2
+        strategy: RollingUpdate
+        annotations:
+          reloader.stakater.com/auto: "true"
+          configmap.reloader.stakater.com/reload: &configMap immich-configmap
+          secret.reloader.stakater.com/reload: &secret immich
 
-    image:
-      repository: ghcr.io/immich-app/immich-machine-learning
-      tag: v1.90.2
+        containers:
+          main:
+            image:
+              repository: ghcr.io/immich-app/immich-machine-learning
+              tag: v1.90.2@sha256:db29ac9e6c1205912df176b81c5c605a98ee18220e438b17151e84c5c5becfa1
 
-    envFrom:
-      - secretRef:
-          name: immich
-      - configMapRef:
-          name: immich-configmap
+            envFrom:
+              - secretRef:
+                  name: *secret
+              - configMapRef:
+                  name: *configMap
+
+            resources:
+              requests:
+                cpu: 100m
+                memory: 6000Mi
+              limits:
+                memory: 6000Mi
+
+        pod:
+          enableServiceLinks: false
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: DoNotSchedule
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: *app
 
     service:
       main:
@@ -75,18 +97,3 @@ spec:
         enabled: true
         type: emptyDir
         mountPath: /usr/src/app/.transformers_cache
-
-    topologySpreadConstraints:
-      - maxSkew: 1
-        topologyKey: kubernetes.io/hostname
-        whenUnsatisfiable: DoNotSchedule
-        labelSelector:
-          matchLabels:
-            app.kubernetes.io/name: *app
-
-    resources:
-      requests:
-        cpu: 100m
-        memory: 6000Mi
-      limits:
-        memory: 6000Mi

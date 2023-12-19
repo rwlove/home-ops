@@ -6,12 +6,12 @@ metadata:
   name: jellyfin
   namespace: media
 spec:
-  interval: 15m
+  interval: 30m
   chart:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts
       chart: app-template
-      version: 1.5.1
+      version: 2.4.0
       sourceRef:
         kind: HelmRepository
         name: bjw-s-charts
@@ -33,23 +33,62 @@ spec:
     keepHistory: false
 
   values:
-    controller:
-      type: statefulset
+    controllers:
+      main:
+        type: statefulset
 
-    image:
-      repository: ghcr.io/onedr0p/jellyfin
-      tag: 10.8.11@sha256:926e2a9f6677a0c7b12feba29f36c954154869318d6a52df72f72ff9c74cf494
+        annotations:
+          reloader.stakater.com/auto: "true"
 
-    podSecurityContext:
-      runAsUser: 1000
-      runAsGroup: 1001
-      fsGroup: 1001
-      fsGroupChangePolicy: "OnRootMismatch"
-      supplementalGroups:
-        - 1001
+        pod:
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: intel.feature.node.kubernetes.io/gpu
+                        operator: In
+                        values:
+                          - "true"
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchExpressions:
+                      - key: app.kubernetes.io/name
+                        operator: In
+                        values: ["frigate", "local-ai"]
+                  topologyKey: kubernetes.io/hostname
 
-    env:
-      TZ: "${TIMEZONE}"
+          enableServiceLinks: false
+
+          nodeSelector:
+            intel.feature.node.kubernetes.io/gpu: "true"
+
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1001
+            fsGroup: 1001
+            fsGroupChangePolicy: "OnRootMismatch"
+            supplementalGroups:
+              - 1001
+
+        containers:
+          main:
+            image:
+              repository: ghcr.io/onedr0p/jellyfin
+              tag: 10.8.11@sha256:926e2a9f6677a0c7b12feba29f36c954154869318d6a52df72f72ff9c74cf494
+
+            env:
+              TZ: "${TIMEZONE}"
+
+            resources:
+              requests:
+                cpu: 100m
+                gpu.intel.com/i915: 1
+                memory: 9248M
+              limits:
+                gpu.intel.com/i915: 1
+                memory: 9248M
 
     service:
       main:
@@ -72,44 +111,12 @@ spec:
           - host: &host "{{ .Release.Name }}.${SECRET_DOMAIN}"
             paths:
               - path: /
-                pathType: Prefix
+                service:
+                  name: main
+                  port: http
         tls:
           - hosts:
               - *host
-
-    probes:
-      liveness: &probes
-        enabled: true
-        custom: true
-        spec:
-          httpGet:
-            path: /health
-            port: *port
-          initialDelaySeconds: 20
-          periodSeconds: 20
-          timeoutSeconds: 1
-          failureThreshold: 5
-      readiness: *probes
-      startup:
-        enabled: false
-
-    affinity:
-      nodeAffinity:
-        requiredDuringSchedulingIgnoredDuringExecution:
-          nodeSelectorTerms:
-            - matchExpressions:
-                - key: intel.feature.node.kubernetes.io/gpu
-                  operator: In
-                  values:
-                    - "true"
-      podAntiAffinity:
-        requiredDuringSchedulingIgnoredDuringExecution:
-          - labelSelector:
-              matchExpressions:
-                - key: app.kubernetes.io/name
-                  operator: In
-                  values: ["frigate", "local-ai"]
-            topologyKey: kubernetes.io/hostname
 
     persistence:
       config:
@@ -127,12 +134,3 @@ spec:
       transcode:
         enabled: true
         type: emptyDir
-
-    resources:
-      requests:
-        cpu: 920m
-        gpu.intel.com/i915: 1
-        memory: 5000M
-      limits:
-        gpu.intel.com/i915: 1
-        memory: 5000M

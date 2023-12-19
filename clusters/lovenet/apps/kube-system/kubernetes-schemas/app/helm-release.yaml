@@ -6,17 +6,17 @@ metadata:
   name: &app kubernetes-schemas
   namespace: kube-system
 spec:
-  interval: 15m
+  interval: 30m
   chart:
     spec:
       chart: app-template
-      version: 1.5.1
+      version: 2.4.0
       sourceRef:
         kind: HelmRepository
         name: bjw-s-charts
         namespace: flux-system
 
-  maxHistory: 3
+  maxHistory: 2
 
   install:
     createNamespace: true
@@ -32,13 +32,37 @@ spec:
     keepHistory: false
 
   values:
-    controller:
-      replicas: 2
-      strategy: RollingUpdate
+    controllers:
+      main:
+        replicas: 2
+        strategy: RollingUpdate
 
-    image:
-      repository: ghcr.io/onedr0p/kubernetes-schemas
-      tag: latest@sha256:0c8925146673e20f2b09aa33c7340608cac3f1b770880657f4c4110dbb852c2b
+        containers:
+          image:
+            repository: ghcr.io/onedr0p/kubernetes-schemas
+            tag: latest@sha256:68608131012624d668220768d567199739035133cb98ff4d3068ad3300635cae
+          securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: { drop: ["ALL"] }
+            resources:
+              requests:
+                cpu: 5m
+                memory: 64M
+              limits:
+                memory: 64M
+        pod:
+          securityContext:
+            runAsUser: 568
+            runAsGroup: 568
+            runAsNonRoot: true
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: DoNotSchedule
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: *app
 
     service:
       main:
@@ -57,22 +81,13 @@ spec:
           - host: &host "{{ .Release.Name }}.${SECRET_DOMAIN}"
             paths:
               - path: /
-                pathType: Prefix
+                service:
+                  name: main
+                  port: http
         tls:
           - hosts:
               - *host
 
-    topologySpreadConstraints:
-      - maxSkew: 1
-        topologyKey: kubernetes.io/hostname
-        whenUnsatisfiable: DoNotSchedule
-        labelSelector:
-          matchLabels:
-            app.kubernetes.io/name: *app
-
-    resources:
-      requests:
-        cpu: 10m
-        memory: 100Mi
-      limits:
-        memory: 100Mi
+    persistence:
+      tmp:
+        type: emptyDir

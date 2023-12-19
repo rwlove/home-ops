@@ -6,18 +6,18 @@ metadata:
   name: &app chatgpt
   namespace: ai
 spec:
-  interval: 15m
+  interval: 30m
   chart:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts
       chart: app-template
-      version: 1.5.1
+      version: 2.4.0
       sourceRef:
         kind: HelmRepository
         name: bjw-s-charts
         namespace: flux-system
 
-  maxHistory: 3
+  maxHistory: 2
 
   install:
     createNamespace: true
@@ -33,12 +33,29 @@ spec:
     keepHistory: false
 
   values:
-    controller:
-      type: statefulset
+    controllers:
+      main:
+        type: statefulset
 
-    image:
-      repository: ghcr.io/cogentapps/chat-with-gpt
-      tag: release
+        annotations:
+          reloader.stakater.com/auto: "true"
+          configmap.reloader.stakater.com/reload: *app
+          secret.reloader.stakater.com/reload: *app
+
+        containers:
+          main:
+            image:
+              repository: ghcr.io/cogentapps/chat-with-gpt
+              tag: release
+
+            envFrom: *app
+
+            resources:
+              requests:
+                cpu: 20m
+                memory: 4000M
+              limits:
+                memory: 4000M
 
     service:
       main:
@@ -60,7 +77,9 @@ spec:
           - host: &host "{{ .Release.Name }}.${SECRET_DOMAIN}"
             paths:
               - path: /
-                pathType: Prefix
+                service:
+                  name: main
+                  port: http
         tls:
           - hosts:
               - *host
@@ -73,16 +92,3 @@ spec:
         subPath: config.yaml
         mountPath: /data/config.yaml
         readOnly: true
-
-    resources:
-      requests:
-        cpu: 20m
-        memory: 4000M
-      limits:
-        memory: 4000M
-
-    podAnnotations:
-      configmap.reloader.stakater.com/reload: *app
-      secret.reloader.stakater.com/reload: *app
-
-    envFrom: *app

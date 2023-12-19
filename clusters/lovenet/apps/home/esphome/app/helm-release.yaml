@@ -6,12 +6,12 @@ metadata:
   name: esphome
   namespace: home
 spec:
-  interval: 15m
+  interval: 30m
   chart:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts
       chart: app-template
-      version: 1.5.1
+      version: 2.4.0
       sourceRef:
         kind: HelmRepository
         name: bjw-s-charts
@@ -32,30 +32,65 @@ spec:
     keepHistory: false
 
   values:
-    controller:
-      type: statefulset
+    controllers:
+      main:
+        type: statefulset
 
-    image:
-      repository: esphome/esphome
-      tag: 2023.11.6
+        annotations:
+          reloader.stakater.com/auto: "true"
 
-    env:
-      TZ: "${TIMEZONE}"
-      ESPHOME_DASHBOARD_USE_PING: true
-      ESPHOME__INSTANCE_NAME: ESPHome
-      ESPHOME__PORT: &port 6052
-      ESPHOME__APPLICATION_URL: &host "{{ .Release.Name }}.${SECRET_DOMAIN}"
-      ESPHOME__LOG_LEVEL: info
+        pod:
+          annotations:
+            k8s.v1.cni.cncf.io/networks: esphome-iot-static
 
-    # App needs to run as root because of this: https://github.com/esphome/issues/issues/2752
-    securityContext:
-      runAsNonRoot: false
-      readOnlyRootFilesystem: false
-      privileged: true
-      capabilities:
-        add:
-          - NET_ADMIN
-          - NET_RAW
+          # IOT VLAN (20) is only configured on worker9
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: node.network/vlan
+                        operator: In
+                        values:
+                          - "iot"
+
+        containers:
+          main:
+            image:
+              repository: esphome/esphome
+              tag: 2023.11.6
+
+            probes:
+              liveness:
+                enabled: false
+              readiness:
+                enabled: false
+              startup:
+                enabled: false
+
+            resources:
+              requests:
+                cpu: 20m
+                memory: 2048M
+              limits:
+                memory: 2048M
+
+            securityContext:
+              runAsNonRoot: false
+              readOnlyRootFilesystem: false
+              privileged: true
+              capabilities:
+                add:
+                  - NET_ADMIN
+                  - NET_RAW
+
+            env:
+              TZ: "${TIMEZONE}"
+              ESPHOME_DASHBOARD_USE_PING: true
+              ESPHOME__INSTANCE_NAME: ESPHome
+              ESPHOME__PORT: &port 6052
+              ESPHOME__APPLICATION_URL: &host "{{ .Release.Name }}.${SECRET_DOMAIN}"
+              ESPHOME__LOG_LEVEL: info
 
     service:
       main:
@@ -80,13 +115,12 @@ spec:
           - host: *host
             paths:
               - path: /
-                pathType: Prefix
+                service:
+                  name: main
+                  port: http
         tls:
           - hosts:
               - *host
-
-    podAnnotations:
-      k8s.v1.cni.cncf.io/networks: esphome-iot-static
 
     persistence:
       config:
@@ -94,21 +128,3 @@ spec:
         existingClaim: esphome-config
         accessMode: ReadWriteOnce
         size: 1Gi
-
-    # IOT VLAN (20) is only configured on worker9
-    affinity:
-      nodeAffinity:
-        requiredDuringSchedulingIgnoredDuringExecution:
-          nodeSelectorTerms:
-            - matchExpressions:
-                - key: node.network/vlan
-                  operator: In
-                  values:
-                    - "iot"
-
-    resources:
-      requests:
-        cpu: 20m
-        memory: 400M
-      limits:
-        memory: 4000M

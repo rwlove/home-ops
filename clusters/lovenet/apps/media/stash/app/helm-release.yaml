@@ -3,15 +3,15 @@
 apiVersion: helm.toolkit.fluxcd.io/v2beta2
 kind: HelmRelease
 metadata:
-  name: stash
+  name: &app stash
   namespace: media
 spec:
-  interval: 15m
+  interval: 30m
   chart:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts/
       chart: app-template
-      version: 1.5.1
+      version: 2.4.0
       sourceRef:
         kind: HelmRepository
         name: bjw-s-charts
@@ -33,19 +33,24 @@ spec:
     keepHistory: false
 
   values:
-    controller:
-      type: statefulset
+    controllers:
+      main:
+        type: statefulset
 
-    image:
-      repository: stashapp/stash
-      tag: v0.23.1@sha256:96d4e778a9fb7199da28983413c9767617bafc69db781bf7d00cd2667344b76d
+        annotations:
+          reloader.stakater.com/auto: "true"
 
-    env:
-      TZ: "${TIMEZONE}"
-      STASH_STASH: /media/
-      STASH_GENERATED: /generated/
-      STASH_METADATA: /metadata/
-      STASH_CACHE: /cache/
+        containers:
+          image:
+            repository: stashapp/stash
+            tag: v0.23.1@sha256:96d4e778a9fb7199da28983413c9767617bafc69db781bf7d00cd2667344b76d
+
+          env:
+            TZ: "${TIMEZONE}"
+            STASH_STASH: /media/
+            STASH_GENERATED: /generated/
+            STASH_METADATA: /metadata/
+            STASH_CACHE: /cache/
 
     service:
       main:
@@ -67,7 +72,9 @@ spec:
           - host: &host stash.${SECRET_DOMAIN}
             paths:
               - path: /
-                pathType: Prefix
+                service:
+                  name: main
+                  port: http
         tls:
           - hosts:
               - *host

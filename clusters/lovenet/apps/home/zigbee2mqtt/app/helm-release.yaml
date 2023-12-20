@@ -6,12 +6,12 @@ metadata:
   name: &app zigbee2mqtt
   namespace: home
 spec:
-  interval: 15m
+  interval: 30m
   chart:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts
       chart: app-template
-      version: 1.5.1
+      version: 2.4.0
       sourceRef:
         kind: HelmRepository
         name: bjw-s-charts
@@ -33,18 +33,49 @@ spec:
     keepHistory: false
 
   values:
-    controller:
-      type: statefulset
-      annotations:
-        reloader.stakater.com/auto: "true"
+    controllers:
+      main:
+        annotations:
+          reloader.stakater.com/auto: "true"
 
-    image:
-      repository: docker.io/koenkk/zigbee2mqtt
-      tag: 1.34.0
+        pod:
+          securityContext:
+            privileged: true
 
-    env:
-      TZ: "${TIMEZONE}"
-      ZIGBEE2MQTT_DATA: /data
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: homeassistant.feature.node.kubernetes.io/skyconnect
+                        operator: In
+                        values:
+                          - "true"
+
+        containers:
+          main:
+            image:
+              repository: docker.io/koenkk/zigbee2mqtt
+              tag: 1.34.0
+
+            env:
+              TZ: "${TIMEZONE}"
+              ZIGBEE2MQTT_DATA: /data
+
+            probes:
+              liveness:
+                enabled: false
+              readiness:
+                enabled: false
+              startup:
+                enabled: false
+
+            resources:
+              requests:
+                cpu: 23m
+                memory: 300M
+              limits:
+                memory: 300M
 
     service:
       main:
@@ -65,13 +96,6 @@ spec:
             interval: 1m
             scrapeTimeout: 10s
 
-    probes:
-      liveness:
-        enabled: false
-      readiness:
-        enabled: false
-      startup:
-        enabled: false
 
     ingress:
       main:
@@ -87,13 +111,12 @@ spec:
           - host: &host "{{ .Release.Name }}.${SECRET_DOMAIN}"
             paths:
               - path: /
-                pathType: Prefix
+                service:
+                  name: main
+                  port: http
         tls:
           - hosts:
               - *host
-
-    securityContext:
-      privileged: true
 
     persistence:
       config:
@@ -106,20 +129,3 @@ spec:
         mountPath: /dev/skyconnect
         hostPath: /dev/skyconnect
         hostPathType: CharDevice
-
-    affinity:
-      nodeAffinity:
-        requiredDuringSchedulingIgnoredDuringExecution:
-          nodeSelectorTerms:
-            - matchExpressions:
-                - key: homeassistant.feature.node.kubernetes.io/skyconnect
-                  operator: In
-                  values:
-                    - "true"
-
-    resources:
-      requests:
-        cpu: 23m
-        memory: 300M
-      limits:
-        memory: 300M

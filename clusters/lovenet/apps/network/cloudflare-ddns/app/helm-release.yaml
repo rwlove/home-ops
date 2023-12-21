@@ -3,7 +3,7 @@
 apiVersion: helm.toolkit.fluxcd.io/v2beta2
 kind: HelmRelease
 metadata:
-  name: cloudflare-ddns
+  name: &app cloudflare-ddns
   namespace: network
 spec:
   interval: 30m
@@ -11,7 +11,7 @@ spec:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts
       chart: app-template
-      version: 1.5.1
+      version: 2.4.0
       sourceRef:
         kind: HelmRepository
         name: bjw-s-charts
@@ -33,17 +33,20 @@ spec:
     keepHistory: false
 
   values:
+    command:
+      - "/bin/bash"
+      - &scriptPath "/app/cloudflare-ddns.sh"
     controller:
-      type: cronjob
       cronjob:
         concurrencyPolicy: Forbid
         schedule: "@hourly"
+      type: cronjob
+
     restartPolicy: OnFailure
 
     image:
       repository: ghcr.io/onedr0p/kubernetes-kubectl
       tag: 1.29.0@sha256:e7705753c1a0b8c47e50a045f6aef50415949771be110adcfb137b33609c2921
-    command: ["/bin/bash", "/app/cloudflare-ddns.sh"]
 
     envFrom:
       - secretRef:
@@ -59,6 +62,6 @@ spec:
         type: configMap
         name: cloudflare-ddns
         subPath: cloudflare-ddns.sh
-        mountPath: /app/cloudflare-ddns.sh
+        mountPath: *scriptPath
         defaultMode: 0775
         readOnly: true

@@ -11,7 +11,7 @@ spec:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts
       chart: app-template
-      version: 1.5.1
+      version: 2.4.0
       sourceRef:
         kind: HelmRepository
         name: bjw-s-charts
@@ -32,52 +32,94 @@ spec:
     keepHistory: false
 
   values:
-    controller:
-      type: statefulset
-      annotations:
-        reloader.stakater.com/auto: "true"
+    controllers:
+      main:
+        type: statefulset
 
-    image:
-      repository: ghcr.io/blakeblackshear/frigate
-      tag: 0.12.0-beta8
+        annotations:
+          reloader.stakater.com/auto: "true"
 
-    env:
-      TZ: ${TIMEZONE}
-      LIBVA_DRIVER_NAME: i965
+        containers:
+          main:
+            image:
+              repository: ghcr.io/blakeblackshear/frigate
+              tag: 0.13.0-beta7@sha256:c94995428b22a8eda07f92d7e47df5b9405240afbd5754def32e807183d88359
 
-    envFrom:
-      - secretRef:
-          name: frigate
+            env:
+              TZ: ${TIMEZONE}
+              LIBVA_DRIVER_NAME: i965
+
+            envFrom:
+              - secretRef:
+                  name: frigate
+
+            probes:
+              liveness: &probes
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /api/version
+                    port: &port 5000
+                  initialDelaySeconds: 0
+                  periodSeconds: 10
+                  timeoutSeconds: 1
+                  failureThreshold: 3
+              readiness: *probes
+              startup:
+                enabled: false
+
+            securityContext:
+              privileged: true
+              capabilities:
+                add:
+                  - NET_ADMIN
+                  - NET_RAW
+
+            resources:
+              requests:
+                gpu.intel.com/i915: "1"
+                cpu: 1600m
+                memory: 6Gi
+              limits:
+                gpu.intel.com/i915: "1"
+                memory: 6Gi
+
+        pod:
+          podAntiAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              - labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/name
+                      operator: In
+                      values: ["jellyfin", "local-ai"]
+                topologyKey: kubernetes.io/hostname
+
+          nodeSelector:
+            google.feature.node.kubernetes.io/coral-usb: "true"
+            intel.feature.node.kubernetes.io/gpu: "true"
+
+        volumeClaimTemplates:
+          - name: config
+            accessMode: ReadWriteOnce
+            size: 5Gi
+            storageClass: ceph-block
+            globalMounts:
+              - path: /data
 
     service:
       main:
         ports:
           http:
-            port: &port 5000
+            port: *port
           rtsp:
             enabled: true
             port: 8554
 
-    probes:
-      liveness: &probes
-        enabled: true
-        custom: true
-        spec:
-          httpGet:
-            path: /api/version
-            port: *port
-          initialDelaySeconds: 0
-          periodSeconds: 10
-          timeoutSeconds: 1
-          failureThreshold: 3
-      readiness: *probes
-      startup:
-        enabled: false
-
     ingress:
       main:
         enabled: true
-        ingressClassName: nginx
+        className: nginx
         annotations:
           hajimari.io/enable: "true"
           hajimari.io/appName: "Security Cameras"
@@ -88,38 +130,12 @@ spec:
           - host: &host "{{ .Release.Name }}.${SECRET_DOMAIN}"
             paths:
               - path: /
-                pathType: Prefix
+                service:
+                  name: main
+                  port: http
         tls:
           - hosts:
               - *host
-
-    securityContext:
-      privileged: true
-      capabilities:
-        add:
-          - NET_ADMIN
-          - NET_RAW
-
-    nodeSelector:
-      google.feature.node.kubernetes.io/coral-usb: "true"
-      intel.feature.node.kubernetes.io/gpu: "true"
-
-    affinity:
-      podAntiAffinity:
-        requiredDuringSchedulingIgnoredDuringExecution:
-          - labelSelector:
-              matchExpressions:
-                - key: app.kubernetes.io/name
-                  operator: In
-                  values: ["jellyfin", "local-ai"]
-            topologyKey: kubernetes.io/hostname
-
-    volumeClaimTemplates:
-      - name: config
-        mountPath: /data
-        accessMode: ReadWriteOnce
-        size: 5Gi
-        storageClass: ceph-block
 
     persistence:
       config-file:
@@ -146,13 +162,7 @@ spec:
         type: hostPath
         hostPath: /dev/bus/usb
         hostPathType: Directory
-        mountPath: /dev/bus/usb
-
-    resources:
-      requests:
-        cpu: 1600m
-        gpu.intel.com/i915: 1
-        memory: 6000M
-      limits:
-        gpu.intel.com/i915: 1
-        memory: 6000M
+        advancedMounts:
+          main:
+            main:
+              - path: /dev/bus/usb

@@ -11,7 +11,7 @@ spec:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts
       chart: app-template
-      version: 1.5.1
+      version: 2.4.0
       sourceRef:
         kind: HelmRepository
         name: bjw-s-charts
@@ -33,17 +33,20 @@ spec:
     keepHistory: false
 
   values:
-    controller:
-      type: statefulset
+    controllers:
+      main:
+        type: statefulset
 
-    image:
-      repository: tzahi12345/youtubedl-material
-      tag: 4.3.2@sha256:2f943d584711cb07c3535b518939fabb2ab90fdd7452d9a9938cd05378468ed9
+        containers:
+          main:
+            image:
+              repository: tzahi12345/youtubedl-material
+              tag: 4.3.2@sha256:2f943d584711cb07c3535b518939fabb2ab90fdd7452d9a9938cd05378468ed9
 
-    env:
-      TZ: "${TIMEZONE}"
-      UID: 1000
-      GID: 1001
+            env:
+              TZ: ${TIMEZONE}
+              UID: 1000
+              GID: 1001
 
     service:
       main:
@@ -54,7 +57,7 @@ spec:
     ingress:
       main:
         enabled: true
-        ingressClassName: nginx
+        className: nginx
         annotations:
           hajimari.io/enable: "true"
           hajimari.io/appName: "Youtube Downloader"
@@ -66,7 +69,9 @@ spec:
           - host: &host youtubedl.${SECRET_DOMAIN}
             paths:
               - path: /
-                pathType: Prefix
+                service:
+                  name: main
+                  port: http
         tls:
           - hosts:
               - *host
@@ -76,6 +81,7 @@ spec:
         enabled: true
         existingClaim: youtubedl-config-pvc
         size: 2Gi
+
       video:
         enabled: true
         storageClass: youtube-dl-storage-class

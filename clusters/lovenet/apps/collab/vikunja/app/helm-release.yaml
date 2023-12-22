@@ -6,12 +6,12 @@ metadata:
   name: &app vikunja
   namespace: collab
 spec:
-  interval: 15m
+  interval: 30m
   chart:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts
       chart: app-template
-      version: 1.5.1
+      version: 2.4.0
       sourceRef:
         kind: HelmRepository
         name: bjw-s-charts
@@ -32,30 +32,63 @@ spec:
     keepHistory: false
 
   values:
-    initContainers:
-      01-init-db:
-        image: ghcr.io/onedr0p/postgres-init:16.1
-        imagePullPolicy: IfNotPresent
-        envFrom: &envFrom
-          - secretRef:
-              name: &secret vikunja
+    controllers:
+      main:
+        type: statefulset
 
-    controller:
-      annotations:
-        reloader.stakater.com/auto: "true"
-      strategy: Recreate
+        annotations:
+          reloader.stakater.com/auto: "true"
+        
+        initContainers:
+          init-db:
+            image:
+              repository: ghcr.io/onedr0p/postgres-init
+              tag: 16
 
-    image:
-      repository: caddy
-      tag: 2.7.6-alpine
+            envFrom: &envFrom
+              - secretRef:
+                  name: &secret vikunja
 
-    envFrom: *envFrom
+        containers:
+          main:
+            image:
+              repository:
+                image: vikunja/api
+                tag: 0.22.0@sha256:91609ef6c7887f9dbf03542da675dc784807f9861907bdcdb775d4a127605646
 
-    env:
-      VIKUNJA_MAILER_HOST: smtp-relay.default.svc.cluster.local.
-      VIKUNJA_MAILER_PORT: "2525"
-      VIKUNJA_MAILER_FROMEMAIL: Vikunja <vikunja@${SECRET_DOMAIN}>
+            envFrom: *envFrom
 
+            env:
+              VIKUNJA_MAILER_HOST: smtp-relay.home.svc.cluster.local.
+              VIKUNJA_MAILER_PORT: "2525"
+              VIKUNJA_MAILER_FROMEMAIL: Vikunja <vikunja@${SECRET_DOMAIN}>
+
+            resources:
+              requests:
+                cpu: 15m
+                memory: 100M
+              limits:
+                memory: 100M
+
+          frontend:
+            image:
+              name: vikunja/frontend
+              tag: 0.22.0@sha256:f603ef35acfe030d34752bc3d84e45a234152110345edf8cf2939db986e900b1
+
+          proxy:
+            image:
+              repository: caddy
+              tag: 2.7.6-alpine
+    
+        statefulset:
+          volumeClaimTemplates:
+            - name: config
+              accessMode: ReadWriteOnce
+              size: 1Gi
+              storageClass: rook-ceph-block
+              globalMounts:
+                - path: /app/vikunja/files
+            
     service:
       main:
         ports:
@@ -65,7 +98,7 @@ spec:
     ingress:
       main:
         enabled: true
-        ingressClassName: nginx
+        className: nginx
         annotations:
           hajimari.io/enable: "true"
           hajimari.io/appName: "Tasks"
@@ -75,53 +108,24 @@ spec:
           - host: &host "tasks.${SECRET_DOMAIN}"
             paths:
               - path: /
-                pathType: Prefix
+                service:
+                  name: main
+                  port: http
         tls:
           - hosts:
               - *host
 
     persistence:
-      files:
-        enabled: true
-        existingClaim: vikunja-files-pvc
-        mountpath: /app/vikunja/files
-
       caddy-config:
-        enabled: "true"
-        mountPath: /etc/caddy/Caddyfile
-        subPath: Caddyfile
-        type: "custom"
-        volumeSpec:
-          configMap:
-            name: vikunja
+        type: configMap
+        name: vikunja-configmap
+        globalMounts:
+          - path: /etc/caddy/Caddyfile
+            subPath: Caddyfile
 
       vikunja-config:
-        enabled: true
-        type: custom
-        readOnly: true
-        mountPath: "-"
-        volumeSpec:
-          configMap:
-            name: vikunja
-
-    resources:
-      requests:
-        cpu: 15m
-        memory: 100M
-      limits:
-        memory: 100M
-
-    additionalContainers:
-      api:
-        name: api
-        image: vikunja/api:0.22.0
-        imagePullPolicy: IfNotPresent
-        envFrom: *envFrom
-        volumeMounts:
-          - name: vikunja-config
-            mountPath: /etc/vikunja/config.yml
+        type: configMap
+        name: *app
+        globalMounts:
+          - path: /etc/vikunja/config.yml
             subPath: Vikunja.yaml
-
-      frontend:
-        name: frontend
-        image: vikunja/frontend:0.22.0

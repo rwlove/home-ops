@@ -11,28 +11,39 @@ spec:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts
       chart: app-template
-      version: 1.5.1
+      version: 2.4.0
       sourceRef:
         kind: HelmRepository
         name: bjw-s-charts
         namespace: flux-system
 
   values:
-    controller:
-      type: statefulset
-      annotations:
-        reloader.stakater.com/auto: "true"
+    controllers:
+      main:
+        type: statefulset
 
-    image:
-      repository: jakowenko/double-take
-      tag: 1.13.1
+        annotations:
+          reloader.stakater.com/auto: "true"
 
-    env:
-      TZ: ${TIMEZONE}
+        containers:
+          main:
+            image:
+              repository: jakowenko/double-take
+              tag: 1.13.1
 
-    envFrom:
-      - secretRef:
-          name: *app
+            env:
+              TZ: ${TIMEZONE}
+
+            envFrom:
+              - secretRef:
+                  name: *app
+
+            resources:
+              requests:
+                cpu: 30m
+                memory: 200M
+              limits:
+                memory: 200M
 
     service:
       main:
@@ -43,7 +54,7 @@ spec:
     ingress:
       main:
         enabled: true
-        ingressClassName: nginx
+        className: nginx
         annotations:
           hajimari.io/enale: "true"
           hajimari.io/appName: "Facial Recognition"
@@ -54,7 +65,9 @@ spec:
           - host: &host dt.${SECRET_DOMAIN}
             paths:
               - path: /
-                pathType: Prefix
+                service:
+                  name: main
+                  port: http
         tls:
           - hosts:
               - *host
@@ -66,6 +79,7 @@ spec:
         accessMode: ReadWriteOnce
         size: 10Gi
         mountPath: /.storage
+
       config-file:
         enabled: true
         type: configMap
@@ -86,12 +100,15 @@ spec:
             frigate:
               url: http://frigate.home.svc.cluster.local:5000
               cameras:
+                - amcrest-backyard
                 - amcrest-frontyard
                 - amcrest-pool
                 - amcrest-turret
                 - amcrest-office
 
               zones:
+                - camera: amcrest-backyard
+                  zone: outside
                 - camera: amcrest-frontyard
                   zone: outside
                 - camera: amcrest-pool
@@ -120,13 +137,3 @@ spec:
               timezone: America/New_York
 
             notify:
-
-    resources:
-      requests:
-        cpu: 30m
-        memory: 200M
-      limits:
-        memory: 200M
-
-    podAnnotations:
-      configmap.reloader.stakater.com/reload: *config

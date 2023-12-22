@@ -1,0 +1,92 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.thesteamedcrab.com/helmrelease_v2beta1.json
+apiVersion: helm.toolkit.fluxcd.io/v2beta2
+kind: HelmRelease
+metadata:
+  name: &app mealie
+  namespace: home
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: app-template
+      version: 2.4.0
+      sourceRef:
+        kind: HelmRepository
+        name: bjw-s-charts
+        namespace: flux-system
+
+  maxHistory: 3
+
+  install:
+    remediation:
+      retries: 3
+
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+
+  uninstall:
+    keepHistory: false
+
+  values:
+    controllers:
+      main:
+        containers:
+          main:
+            image:
+              repository: ghcr.io/mealie-recipes/mealie
+              tag: v1.0.0-RC1.1
+
+            env:
+              BASE_URL: https://mealie.${SECRET_DOMAIN}
+              ALLOW_SIGNUP: false
+              API_DOCS: false
+              SMTP_HOST: ${ROUTER_IP}
+              SMTP_PORT: 25
+              SMTP_AUTH_STRATEGY: NONE
+              SMTP_FROM_EMAIL: mealie@${SECRET_DOMAIN}
+
+            resources:
+              requests:
+                cpu: 100m
+                memory: 800Mi
+              limits:
+                memory: 800Mi
+
+    service:
+      main:
+        ports:
+          http:
+            port: 9000
+
+    ingress:
+      main:
+        enabled: true
+        className: nginx
+        annotations:
+          external-dns.alpha.kubernetes.io/target: "ipv4.${SECRET_DOMAIN}"
+          external-dns/is-public: "true"
+          hajimari.io/enable: "true"
+          hajimari.io/appName: "Mealie"
+          hajimari.io/icon: mdi:food
+          hajimari.io/group: "home"
+          hajimari.io/instance: "user,admin"
+        hosts:
+          - host: &host mealie.${SECRET_DOMAIN}
+            paths:
+              - path: /
+                service:
+                  name: main
+                  port: http
+        tls:
+          - hosts:
+              - *host
+
+    persistence:
+      config:
+        enabled: true
+        existingClaim: mealie-config-pvc
+        globalMounts:
+          - path: /app/data

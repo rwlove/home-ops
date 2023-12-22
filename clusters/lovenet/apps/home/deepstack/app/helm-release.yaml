@@ -6,72 +6,75 @@ metadata:
   name: deepstack
   namespace: home
 spec:
-  interval: 15m
+  interval: 30m
   chart:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts
       chart: app-template
-      version: 1.5.1
+      version: 2.4.0
       sourceRef:
         kind: HelmRepository
         name: bjw-s-charts
         namespace: flux-system
 
   values:
-    image:
-      repository: docker.io/deepquestai/deepstack
-      tag: cpu@sha256:4320be73987468b3040b2ca63daf2d3935c4d469b53aa40efb6176858488b500
-      pullPolicy: IfNotPresent
+    controllers:
+      main:
+        type: statefulset
 
-    controller:
-      type: statefulset
+        containers:
+          main:
+            image:
+              repository: docker.io/deepquestai/deepstack
+              tag: cpu@sha256:4320be73987468b3040b2ca63daf2d3935c4d469b53aa40efb6176858488b500
 
-    env:
-      TZ: "${TIMEZONE}"
+            env:
+              TZ: ${TIMEZONE}
 
-      # -- Enable scene recognition
-      # VISION-SCENE: "True"
-      # -- Enable face detection
-      VISION-FACE: "True"
-      # -- Enable object detection
-      VISION-DETECTION: "True"
-      # -- Protect detection and recognition APIs with a key
-      # API-KEY: set in secrets
-      # -- Protect admin APIs (such as managing models) with a key
-      # ADMIN-KEY: set in secrets
+              # -- Enable scene recognition
+              # VISION-SCENE: "True"
+              # -- Enable face detection
+              VISION-FACE: "True"
+              # -- Enable object detection
+              VISION-DETECTION: "True"
+              # -- Protect detection and recognition APIs with a key
+              # API-KEY: set in secrets
+              # -- Protect admin APIs (such as managing models) with a key
+              # ADMIN-KEY: set in secrets
 
-      MODE: HIGH
+              MODE: HIGH
+              
+            resources:
+              requests:
+                cpu: 900m
+                memory: 800M
+              limits:
+                memory: 800M
 
-    additionalContainers:
-      ui:
-        image: docker.io/robmarkcole/deepstack-ui:latest@sha256:41027572645947141c217e530e102297d4be4a0cfbfb870d3f3fcecd09c72e85
-        imagePullPolicy: IfNotPresent
-        env:
-          # -- the IP address of your deepstack instance
-          - name: DEEPSTACK_IP
-            value: localhost
-          # -- the port of your deepstack instance
-          - name: DEEPSTACK_PORT
-            value: "5000"
-            # - name: DEEPSTACK_API_KEY
-            #   value : '{{ index .Values.env "API-KEY" }}'
-            # - name: DEEPSTACK_TIMEOUT
-            #   value: the timeout to wait for deepstack, default 30 seconds
-            # - name: DEEPSTACK_CUSTOM_MODEL
-            #   value: the name of a custom model, if you wish to use one
-            # - name: DEEPSTACK_UI_DEBUG_MODE
-            #   value: options `True` or `False` (default). Lowers the minimum confidence threshold to 1%
-        ports:
-          - name: ui
-            containerPort: 8501
-            protocol: TCP
+          ui:
+            image:
+              repository: docker.io/robmarkcole/deepstack-ui
+              tag: latest@sha256:41027572645947141c217e530e102297d4be4a0cfbfb870d3f3fcecd09c72e85
+
+            env:
+              # -- the IP address of your deepstack instance
+              DEEPSTACK_IP: localhost
+              # -- the port of your deepstack instance
+              DEEPSTACK_PORT: 5000
+              # - name: DEEPSTACK_API_KEY
+              #   value : '{{ index .Values.env "API-KEY" }}'
+              # - name: DEEPSTACK_TIMEOUT
+              #   value: the timeout to wait for deepstack, default 30 seconds
+              # - name: DEEPSTACK_CUSTOM_MODEL
+              #   value: the name of a custom model, if you wish to use one
+              # - name: DEEPSTACK_UI_DEBUG_MODE
+              #   value: options `True` or `False` (default). Lowers the minimum confidence threshold to 1%
 
     service:
       main:
         enabled: true
         ports:
           ui:
-            enabled: true
             port: 8501
           http:
             port: 5000
@@ -79,6 +82,7 @@ spec:
     ingress:
       main:
         enabled: true
+        className: ingress-nginx
         annotations:
           hajimari.io/enable: "true"
           hajimari.io/icon: cctv
@@ -89,9 +93,9 @@ spec:
           - host: &host "{{ .Release.Name }}.${SECRET_DOMAIN}"
             paths:
               - path: /
-                pathType: Prefix
                 service:
-                  port: 8501
+                  name: main
+                  port: ui
         tls:
           - hosts:
               - *host
@@ -103,10 +107,3 @@ spec:
         accessMode: ReadWriteOnce
         size: 2Gi
         mountPath: /datastore
-
-    resources:
-      requests:
-        cpu: 900m
-        memory: 800M
-      limits:
-        memory: 800M

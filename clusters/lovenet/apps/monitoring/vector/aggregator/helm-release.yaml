@@ -6,52 +6,60 @@ metadata:
   labels:
     app.kubernetes.io/instance: vector-aggregator
     app.kubernetes.io/name: vector-aggregator
-  name: vector-aggregator
+  name: &app vector-aggregator
   namespace: monitoring
 spec:
-  interval: 15m
+  interval: 30m
   chart:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts/
       chart: app-template
-      version: 1.5.1
+      version: 2.4.0
       sourceRef:
         kind: HelmRepository
         name: bjw-s-charts
         namespace: flux-system
 
   values:
-    controller:
-      replicas: 1
-      strategy: Recreate
-      annotations:
-        reloader.stakater.com/auto: "true"
+    controllers:
+      main:
+        replicas: 2
 
-    initContainers:
-      01-init-geoip:
-        image: ghcr.io/maxmind/geoipupdate:v6.0.0@sha256:e0d5c1dee7379d360e0f355557542d9672c616215dfdd5aaf917382de84cb84c
-        imagePullPolicy: IfNotPresent
-        env:
-          - name: GEOIPUPDATE_EDITION_IDS
-            value: GeoLite2-City
-          - name: GEOIPUPDATE_FREQUENCY
-            value: "0"
-          - name: GEOIPUPDATE_VERBOSE
-            value: "true"
-        envFrom:
-          - secretRef:
-              name: vector-geoipupdate
-        volumeMounts:
-          - name: geoip
-            mountPath: /usr/share/GeoIP
+        strategy: RollingUpdate
 
-    image:
-      repository: ghcr.io/onedr0p/vector
-      tag: 0.34.1-debian@sha256:329ceb648d40a26fca9f72c851e9abbacef74cc50b7956d9cf7eb1929d57f35c
+        annotations:
+          reloader.stakater.com/auto: "true"
 
-    args:
-      - "--config"
-      - "/etc/vector/vector.yaml"
+        initContainers:
+          init-geoip:
+            image:
+              repository: ghcr.io/maxmind/geoipupdate
+              tag: v6.0.0@sha256:e0d5c1dee7379d360e0f355557542d9672c616215dfdd5aaf917382de84cb84c
+
+            env:
+              GEOIPUPDATE_EDITION_IDS: GeoLite2-City
+              GEOIPUPDATE_FREQUENCY: "0"
+              GEOIPUPDATE_VERBOSE: "true"
+
+            envFrom:
+              - secretRef:
+                  name: vector-geoipupdate
+
+        containers:
+          main:
+            image:
+              repository: docker.io/timberio/vector
+              tag: 0.34.1-debian@sha256:a2e406c8917ed62d24381e600ad8bd96fe82fcdb406ecfb4ab4a6fad21b19047
+            args: ["--config", "/etc/vector/vector.yaml"]
+
+        pod:
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: DoNotSchedule
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: *app
 
     service:
       main:
@@ -62,13 +70,10 @@ spec:
           http:
             port: 8686
           kubernetes-logs:
-            enabled: true
             port: 6000
           vyos-syslog:
-            enabled: true
             port: 6001
           journald-logs:
-            enabled: true
             port: 6002
 
     persistence:
@@ -76,29 +81,17 @@ spec:
         enabled: true
         type: configMap
         name: vector-aggregator-configmap
-        subPath: vector.yaml
-        mountPath: /etc/vector/vector.yaml
-        readOnly: true
+        globalMounts:
+          - path: /etc/vector/vector.yaml
+            subPath: vector.yaml
+            readOnly: true
+
       data:
-        enabled: true
         type: emptyDir
-        mountPath: /vector-data-dir
+        globalMounts:
+          - path: /vector-data-dir
+
       geoip:
-        enabled: true
         type: emptyDir
-        mountPath: /usr/share/GeoIP
-
-    # resources:
-    #   requests:
-    #     cpu: 35m
-    #     memory: 381M
-    #   limits:
-    #     memory: 726M
-
-    topologySpreadConstraints:
-      - maxSkew: 1
-        topologyKey: kubernetes.io/hostname
-        whenUnsatisfiable: DoNotSchedule
-        labelSelector:
-          matchLabels:
-            app.kubernetes.io/name: vector-aggregator
+        globalMounts:
+          - path: /usr/share/GeoIP

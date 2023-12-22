@@ -6,12 +6,12 @@ metadata:
   name: speedtest-prometheus
   namespace: monitoring
 spec:
-  interval: 15m
+  interval: 30m
   chart:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts/
       chart: app-template
-      version: 1.5.1
+      version: 2.4.0
       sourceRef:
         kind: HelmRepository
         name: bjw-s-charts
@@ -28,16 +28,43 @@ spec:
     cleanupOnFail: true
 
   values:
-    image:
-      repository: ghcr.io/miguelndecarvalho/speedtest-exporter
-      tag: v3.5.4
-    env:
-      SPEEDTEST_SERVER: "39677"
+    controllers:
+      main:
+        containers:
+          main:
+            image:
+              repository: ghcr.io/miguelndecarvalho/speedtest-exporter
+              tag: v3.5.4@sha256:f1064d49124c7fc45faabb87c6c876a2fd04e92b3dc14d4b871301217ba30fed
+
+            env:
+              SPEEDTEST_PORT: &port 9798
+
+            resources:
+              requests:
+                cpu: 15m
+                memory: 128M
+              limits:
+                memory: 128M
+
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+
+        pod:
+          securityContext:
+            runAsUser: 568
+            runAsGroup: 568
+            runAsNonRoot: true
+
     service:
       main:
         ports:
           http:
-            port: 9798
+            port: *port
+
     serviceMonitor:
       main:
         enabled: true
@@ -45,11 +72,12 @@ spec:
           - port: http
             scheme: http
             path: /metrics
-            interval: 30m
-            scrapeTimeout: 3m
-    resources:
-      requests:
-        cpu: 15m
-        memory: 100M
-      limits:
-        memory: 100M
+            interval: 60m
+            scrapeTimeout: 5m
+
+    persistence:
+      config:
+        enabled: true
+        type: emptyDir
+        globalMounts:
+          - path: /.config

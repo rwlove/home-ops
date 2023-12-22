@@ -11,7 +11,7 @@ spec:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts
       chart: app-template
-      version: 1.5.1
+      version: 2.4.0
       sourceRef:
         kind: HelmRepository
         name: bjw-s-charts
@@ -33,31 +33,58 @@ spec:
     keepHistory: false
 
   values:
-    controller:
-      replicas: 3
-      strategy: RollingUpdate
+    controllers:
+      main:
+        replicas: 3
+        strategy: RollingUpdate
 
-    image:
-      repository: ghcr.io/foxcpp/maddy
-      tag: 0.7.0
+        annotations:
+          reloader.stakater.com/auto: "true"
 
-    env:
-      DEBUG: "true"
-      SMTP_DOMAIN: "${SECRET_DOMAIN}"
-      SMTP_SERVER: "smtp.migadu.com"
-      SMTP_USERNAME: "admin@${SECRET_DOMAIN}"
-      SMTP_PORT: "465"
+        containers:
+          main:
+            image:
+              repository: ghcr.io/foxcpp/maddy
+              tag: 0.7.0@sha256:fdcc500eac9b35e2eab5597921be3407075892831f24c01c009e83591dc3b020
 
-    envFrom:
-      - secretRef:
-          name: *app
+            env:
+              DEBUG: "true"
+              SMTP_DOMAIN: "${SECRET_DOMAIN}"
+              SMTP_SERVER: "smtp.migadu.com"
+              SMTP_USERNAME: "admin@${SECRET_DOMAIN}"
+              SMTP_PORT: "465"
+              SMTP_RELAY_SMTP_PORT: &port 25
+              SMTP_RELAY_METRICS_PORT: &metricsPort 8080
 
-    securityContext:
-      privileged: true
-      capabilities:
-        add:
-          - NET_ADMIN
-          - NET_BIND_SERVICE
+            envFrom:
+              - secretRef:
+                  name: *app
+
+            resources:
+              requests:
+                cpu: 15m
+                memory: 256M
+              limits:
+                memory: 256M
+
+            pod:
+              securityContext:
+                runAsUser: 568
+                runAsGroup: 568
+                fsGroup: 568
+                fsGroupChangePolicy: OnRootMismatch
+                capabilities:
+                  add:
+                    - NET_ADMIN
+                    - NET_BIND_SERVICE
+
+              topologySpreadConstraints:
+                - maxSkew: 1
+                  topologyKey: kubernetes.io/hostname
+                  whenUnsatisfiable: DoNotSchedule
+                  labelSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: *app
 
     service:
       main:
@@ -67,41 +94,28 @@ spec:
         externalTrafficPolicy: Cluster
         ports:
           http:
-            port: 2525
-          metrics:
-            enabled: true
-            port: 9749
+            port: *metricsPort
+          smtp:
+            port: *port
+
+    serviceMonitor:
+      main:
+        enabled: true
 
     persistence:
       config:
         enabled: true
         type: configMap
         name: *app
-        subPath: maddy.conf
-        mountPath: /data/maddy.conf
-        readOnly: true
+        globalMounts:
+          - path: /data/maddy.conf
+            subPath: maddy.conf
+            readOnly: true
+
       data:
         enabled: true
         type: emptyDir
         medium: Memory
         sizeLimit: 1Gi
-        mountPath: /dev/shm
-
-    podAnnotations:
-      configmap.reloader.stakater.com/reload: *app
-      secret.reloader.stakater.com/reload: *app
-
-    topologySpreadConstraints:
-      - maxSkew: 1
-        topologyKey: kubernetes.io/hostname
-        whenUnsatisfiable: DoNotSchedule
-        labelSelector:
-          matchLabels:
-            app.kubernetes.io/name: *app
-
-    resources:
-      requests:
-        cpu: 15m
-        memory: 64M
-      limits:
-        memory: 64M
+        globalMounts:
+          - path: /dev/shm

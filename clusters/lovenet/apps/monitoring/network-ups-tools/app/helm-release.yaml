@@ -6,12 +6,12 @@ metadata:
   name: &app network-ups-tools
   namespace: monitoring
 spec:
-  interval: 15m
+  interval: 30m
   chart:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts
       chart: app-template
-      version: 1.5.1
+      version: 2.4.0
       sourceRef:
         kind: HelmRepository
         name: bjw-s-charts
@@ -32,19 +32,43 @@ spec:
     keepHistory: false
 
   values:
-    image:
-      repository: ghcr.io/jr0dd/network-ups-tools
-      tag: v2.8.1@sha256:7999ff0ed6f4e31d64f8a6afc66dce26e147608c9d595f4f4fb7b4a6e442ae00
-    controller:
-      strategy: RollingUpdate
+    controllers:
+      main:
+        pod:
+          annotations:
+            configmap.reloader.stakater.com/reload: &config network-ups-tools-config
 
-    env:
-      TZ: "${TIMEZONE}"
+        containers:
+          main:
+            image:
+              repository: ghcr.io/jr0dd/network-ups-tools
+              tag: v2.8.1@sha256:7999ff0ed6f4e31d64f8a6afc66dce26e147608c9d595f4f4fb7b4a6e442ae00
+
+            env:
+              TZ: ${TIMEZONE}
+
+            resources:
+              requests:
+                cpu: 25m
+                memory: 128Mi
+              limits:
+                memory: 128Mi
+
+            securityContext:
+              privileged: true
+
+          exporter:
+            image:
+              repository: ghcr.io/druggeri/nut_exporter
+              tag: 3.1.1
+            args:
+              # export all variables
+              - --nut.vars_enable=
 
     service:
       main:
         type: LoadBalancer
-        externalTrafficPolicy: Cluster
+        externalTrafficPolicy: Local
         annotations:
           io.cilium/lb-ipam-ips: ${SVC_NUT_ADDR}
         ports:
@@ -53,21 +77,19 @@ spec:
             protocol: TCP
 
       metrics:
-        enabled: false
+        enabled: true
+        controller: main
         ports:
           metrics:
             enabled: true
             port: 9199
             protocol: TCP
 
-    securityContext:
-      privileged: true
-
     persistence:
       config:
         enabled: true
         type: configMap
-        name: &config network-ups-tools-config
+        name: *config
         mountPath: /etc/nut
         defaultMode: 256
 
@@ -95,6 +117,3 @@ spec:
               actions = SET
               instcmds = ALL
               upsmon primary
-
-    podAnnotations:
-      configmap.reloader.stakater.com/reload: *config

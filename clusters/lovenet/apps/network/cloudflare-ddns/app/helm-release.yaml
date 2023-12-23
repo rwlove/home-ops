@@ -33,35 +33,40 @@ spec:
     keepHistory: false
 
   values:
-    command:
-      - "/bin/bash"
-      - &scriptPath "/app/cloudflare-ddns.sh"
+    controllers:
+      main:
+        type: cronjob
 
-    controller:
-      cronjob:
-        concurrencyPolicy: Forbid
-        schedule: "@hourly"
-      type: cronjob
+        cronjob:
+          concurrencyPolicy: Forbid
+          schedule: "@hourly"
 
-    envFrom:
-      - secretRef:
-          name: *app
+        pod:
+          restartPolicy: OnFailure
 
-    image:
-      repository: ghcr.io/onedr0p/kubernetes-kubectl
-      tag: 1.29.0@sha256:e7705753c1a0b8c47e50a045f6aef50415949771be110adcfb137b33609c2921
+        containers:
+          main:
+            image:
+              repository: ghcr.io/onedr0p/kubernetes-kubectl
+              tag: 1.29.0@sha256:e7705753c1a0b8c47e50a045f6aef50415949771be110adcfb137b33609c2921
+      
+            command:
+              - "/bin/bash"
+              - "/app/cloudflare-ddns.sh"
+
+            envFrom:
+              - secretRef:
+                  name: *app
 
     persistence:
       config:
-        defaultMode: 0775
-        enabled: true
-        mountPath: *scriptPath
-        name: cloudflare-ddns
-        readOnly: true
-        subPath: cloudflare-ddns.sh
         type: configMap
-
-    restartPolicy: OnFailure
+        name: cloudflare-ddns
+        # defaultMode: 0775
+        globalMap:
+          - path: /app/cloudflare-ddns.sh
+            subPath: cloudflare-ddns.sh
+            readOnly: true
 
     service:
       main:

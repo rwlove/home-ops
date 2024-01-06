@@ -1,7 +1,6 @@
 ## Overview
 This is the configuration for my GitOps homelab Kubernetes cluster. This cluster runs home software services for my residence. It is quite complex and there are a lot of interdependencies but the declarative nature of GitOps allows me to manage this mesh of code. The software services fall into a few primary categories:
 * Home Automation ([Home Assistant](https://www.home-assistant.io/), [ESPHome](https://esphome.io/), [WLED](https://kno.wled.ge/))
-* Media Management ([Kodi](https://kodi.tv/))
 * Home Metering and Monitoring (Weather Station, Power Monitoring, Sensors)
 * Home Security ([Frigate](https://frigate.video/), [Double Take](https://github.com/jakowenko/double-take), [Konnected](https://konnected.io/))
 

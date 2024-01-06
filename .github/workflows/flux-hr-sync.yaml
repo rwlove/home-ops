@@ -13,7 +13,7 @@ on:
         required: true
   pull_request:
     branches: ["main"]
-    paths: ["clusters/lovenet/**/helmrelease.yaml"]
+    paths: ["clusters/lovenet/**/helm-release.yaml"]
 
 jobs:
   sync:
@@ -27,24 +27,16 @@ jobs:
           app-id: "${{ secrets.BOT_APP_ID }}"
           private-key: "${{ secrets.BOT_APP_PRIVATE_KEY }}"
 
-      - name: Checkout Default Branch
+      - name: Setup Path
+        run: echo "/home/linuxbrew/.linuxbrew/bin" >> $GITHUB_PATH
+
+      - name: Setup Workflow Tools
+        run: brew update && brew install fluxcd/tap/flux yq
+
+      - name: Checkout
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
         with:
           token: "${{ steps.app-token.outputs.token }}"
-
-      - name: Setup System Tools
-        shell: bash
-        run: sudo apt-get -qq update && sudo apt-get -qq install --no-install-recommends -y curl git
-
-      - name: Setup Workflow Tools
-        uses: jdx/rtx-action@61c1bfbed63c70a82ff0ce3301bde41875b17844 # v1
-        with:
-          install: true
-          cache: true
-          rtx_toml: |
-            [tools]
-            flux2 = "latest"
-            yq = "latest"
 
       - name: Write kubeconfig
         id: kubeconfig
@@ -58,7 +50,7 @@ jobs:
         id: changed-files
         uses: tj-actions/changed-files@716b1e13042866565e00e85fd4ec490e186c4a2f # v41.0.1
         with:
-          files: kubernetes/**/helmrelease.yaml
+          files: clusters/lovenet/**/helm-release.yaml
           safe_output: false
 
       - if: ${{ github.event.inputs.helmRepoNamespace == '' && github.event.inputs.helmRepoName == '' }}

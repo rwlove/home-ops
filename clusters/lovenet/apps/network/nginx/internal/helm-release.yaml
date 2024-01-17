@@ -32,6 +32,7 @@ spec:
     keepHistory: true
 
   values:
+    fullnameOverride: nginx-internal
     controller:
       securityContext:
         privileged: true
@@ -55,14 +56,22 @@ spec:
       service:
         type: LoadBalancer
         externalTrafficPolicy: Local
-        loadBalancerIP: ${SVC_NGINX_ADDR}
+        loadBalancerIP: ${SVC_NGINX_INTERNAL_ADDR}
         annotations:
-          external-dns.alpha.kubernetes.io/hostname: "ipv4.${SECRET_DOMAIN}"
+          external-dns.alpha.kubernetes.io/hostname: "internal.${SECRET_DOMAIN}"
           hajimari.io/enable: "true"
           hajimari.io/icon: "router-network"
           hajimari.io/group: "networking"
       ingressClassResource:
+        name: internal
         default: true
+        controllerValue: k8s.io/internal
+      admissionWebhooks:
+        objectSelector:
+          matchExpressions:
+            - key: ingress-class
+              operator: In
+              values: ["internal"]
       allowSnippetAnnotations: true
       config:
         client-body-buffer-size: "100M"
@@ -92,7 +101,6 @@ spec:
         enabled: true
         serviceMonitor:
           enabled: true
-          namespace: network
           namespaceSelector:
             any: true
       extraArgs:
@@ -105,13 +113,12 @@ spec:
           labelSelector:
             matchLabels:
               app.kubernetes.io/name: ingress-nginx
+              app.kubernetes.io/instance: nginx-internal
               app.kubernetes.io/component: controller
 
-      podAnnotations:
-        configmap.reloader.stakater.com/reload: "ingress-nginx-controller"
       resources:
         requests:
-          cpu: 50m
+          cpu: 100m
           memory: 620M
         limits:
           memory: 620M

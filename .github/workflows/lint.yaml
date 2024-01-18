@@ -1,7 +1,8 @@
 ---
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
 name: Lint
 
-on: # yamllint disable-line rule:truthy
+on:
   workflow_dispatch:
   pull_request:
     branches:
@@ -17,21 +18,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Generate Token
-        uses: tibdex/github-app-token@3beb63f4bd073e61482598c45c71c1019b59b73a # v2
-        id: generate-token
+        uses: actions/create-github-app-token@v1
+        if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+        id: app-token
         with:
-          app_id: ${{ secrets.BOT_APP_ID }}
-          private_key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
 
       - name: MegaLinter
-        uses: oxsecurity/megalinter@7e042c726c68415475b05a65a686c612120a1232 # v7.7.0
+        uses: oxsecurity/megalinter@v7.7.0
         env:
-          GITHUB_TOKEN: "${{ steps.generate-token.outputs.token }}"
+          GITHUB_TOKEN: "${{ steps.app-token.outputs.token }}"
           PRINT_ALPACA: false
           VALIDATE_ALL_CODEBASE: ${{ github.event_name == 'workflow_dispatch' }}
           ENABLE_LINTERS: |-
@@ -56,12 +58,13 @@ jobs:
                 ','
               )
             }}
-          COPYPASTE_JSCPD_CONFIG_FILE: .github/linters/.jscpd.json
-          KUBERNETES_DIRECTORY: clusters/lovenet
+          COPYPASTE_JSCPD_CONFIG_FILE: .ci/jscpd/jscpd.json
+          KUBERNETES_DIRECTORY: k8s
           KUBERNETES_KUBEVAL_ARGUMENTS: --ignore-missing-schemas
           KUBERNETES_KUBEVAL_FILTER_REGEX_INCLUDE: "(kubernetes)"
-          MARKDOWN_MARKDOWNLINT_CONFIG_FILE: .github/linters/.markdownlint.yaml
+          MARKDOWN_MARKDOWNLINT_CONFIG_FILE: .github/linters/markdownlint.config.yaml
           MARKDOWN_MARKDOWNLINT_RULES_PATH: .github/
           PYTHON_FLAKE8_CONFIG_FILE: .github/linters/.flake8
-          YAML_YAMLLINT_CONFIG_FILE: .github/linters/.yamllint.yaml
-          YAML_PRETTIER_CONFIG_FILE: .github/linters/.prettierrc.yaml
+          YAML_YAMLLINT_CONFIG_FILE: .ci/yamllint/.yamllint.yaml
+          YAML_PRETTIER_CONFIG_FILE: .ci/prettier/.prettierrc.yaml
+          YAML_PRETTIER_ARGUMENTS: --ignore-path .ci/prettier/.prettierignore

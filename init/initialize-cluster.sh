@@ -4,23 +4,23 @@
 . .cluster-secrets.env
 
 envsubst < "./tmpl/cluster-settings.yaml" \
-         > "./clusters/lovenet/base/cluster-settings.yaml"
+         > "./kubernetes/main/base/cluster-settings.yaml"
 
 envsubst < "./tmpl/gotk-sync.yaml" \
-         > "./clusters/lovenet/base/flux-system/gotk-sync.yaml"
+         > "./kubernetes/main/base/flux-system/gotk-sync.yaml"
 
 envsubst < "./tmpl/kube-vip-daemonset.yaml" \
-         > "./clusters/lovenet/apps/kube-system/kube-vip/daemon-set.yaml"
+         > "./kubernetes/main/apps/kube-system/kube-vip/daemon-set.yaml"
 
 envsubst < "./tmpl/cluster-secrets.yaml" \
-         > "./clusters/lovenet/base/cluster-secrets.yaml"
+         > "./kubernetes/main/base/cluster-secrets.yaml"
 
-sops --encrypt --in-place "./clusters/lovenet/base/cluster-secrets.yaml"
+sops --encrypt --in-place "./kubernetes/main/base/cluster-secrets.yaml"
 
 envsubst < "./tmpl/cert-manager-secrets.yaml" \
-         > "./clusters/lovenet/apps/cert-manager/issuers/secrets.yaml"
+         > "./kubernetes/main/apps/cert-manager/issuers/secrets.yaml"
 
-sops --encrypt --in-place "./clusters/lovenet/apps/cert-manager/issuers/secrets.yaml"
+sops --encrypt --in-place "./kubernetes/main/apps/cert-manager/issuers/secrets.yaml"
 
 echo "######"
 echo "# Create namespace"
@@ -34,11 +34,11 @@ cat ~/.config/sops/age/keys.txt |
 
 echo "######"
 echo "# 1st Application"
-kubectl apply --kustomize=./clusters/lovenet/base/flux-system
+kubectl apply --kustomize=./kubernetes/main/base/flux-system
 
 echo "######"
 echo "# 2nd Application"
-kubectl apply --kustomize=./clusters/lovenet/base/flux-system
+kubectl apply --kustomize=./kubernetes/main/base/flux-system
 
 
 echo "######"

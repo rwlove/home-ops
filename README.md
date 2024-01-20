@@ -88,6 +88,19 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 | Kubernetes Services Subnet (Cilium)            | `10.43.0.0/16`             | N/A  |       |
 | Kubernetes LB Range (CiliumLoadBalancerIPPool) | `10.45.0.1/24`             | N/A  |       |
 
+## ☁️ Cloud Dependencies
+
+| Service                                         | Use                                                               | Cost             |
+|-------------------------------------------------|-------------------------------------------------------------------|------------------|
+| [1Password](https://1password.com/)             | Secrets with [External Secrets](https://external-secrets.io/)     | ~$65/yr          |
+| [Cloudflare](https://www.cloudflare.com/)       | Domain                                                            | Free             |
+| [GitHub](https://github.com/)                   | Hosting this repository and continuous integration/deployments    | Free             |
+| [Mailgun](https://www.mailgun.com/)             | Email hosting                                                     | Free (Flex Plan) |
+| [Pushover](https://pushover.net/)               | Kubernetes Alerts and application notifications                   | $10 (One Time)   |
+|                                                 |                                                                   | Total: ~$5.50/mo |
+
+---
+
 ## Initialization
 ```./init/create-cluster.sh``` (on master)
 

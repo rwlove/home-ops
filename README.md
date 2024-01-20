@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://github.com/rwlove/rwlove/blob/main/_assets/images/Cosmo.jpg?raw=true" width="144px" height="144px"/>
+<img src="https://github.com/rwlove/fleet-infra/blob/f97f5100dbaa22d9cb1c1510f4530f9d0c7390c4/docs/assets/Cosmo.jpg?raw=true" width="144px" height="144px"/>
 
 ## My Home Operations repository
 

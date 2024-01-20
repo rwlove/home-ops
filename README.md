@@ -55,7 +55,7 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 
 | Hostname  | Device            | CPU | RAM    | OS       |Role        | Storage                 | IOT        | Network  |
 | --------- | ----------------- | --- | ------ | -------- | ---------- | ----------------------- | ---------- | -------- |
-| <sub><sup>master1</sub></sup>   | Intel NUC7PJYH    | 4   | 8  GB  | CentOS 9 | k8s Master |                         |            |          |
+| master1   | Intel NUC7PJYH    | 4   | 8  GB  | CentOS 9 | k8s Master |                         |            |          |
 | master2   | VM on beast       | 3   | 8  GB  | CentOS 9 | k8s Master |                         |            |          |
 | master3   | VM on beast       | 3   | 8  GB  | CentOS 9 | k8s Master |                         |            |          |
 | worker1   | ThinkCentre M910x | 8   | 32 GB  | CentOS 9 | k8s Worker | longhorn NVMe           | Coral USB  |          |

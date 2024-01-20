@@ -40,13 +40,13 @@ spec:
         containers:
           main:
             image:
-              repository: ghcr.io/druggeri/nut_exporter
-              tag: 3.1.1@sha256:dfcf2d4da4cc94413fff75d6e34a0cc6a9a608fdcc9a19f652a214ed07182914
-            args:
-              # the first time I set this, the first and last entries were ignored, so I have doubled them.
-              - --nut.vars_enable="battery.charge,battery.charge,battery.runtime,battery.voltage,battery.voltage.nominal,input.voltage,input.voltage.nominal,output.voltage,output.voltage.nominal,ups.realpower,ups.load,ups.status,ups.status"
+              repository: docker.io/hon95/prometheus-nut-exporter
+              tag: 1.2.1
+
             env:
               TZ: ${TIMEZONE}
+              HTTP_PATH: &metrics /metrics
+              RUST_LOG: debug
 
             resources:
               requests:
@@ -54,13 +54,22 @@ spec:
                 memory: 100Mi
               limits:
                 memory: 100Mi
-
     service:
       main:
         ports:
           http:
-            enabled: false
-          metrics:
-            enabled: true
-            protocol: TCP
-            port: 9199
+            port: 9995
+
+    serviceMonitor:
+      main:
+        enabled: true
+        endpoints:
+          - port: http
+            scheme: http
+            path: *metrics
+            scrapeTimeout: 10s
+            params:
+              target: ["network-ups-tools.monitoring:3493"]
+            relabelings:
+              - sourceLabels: [__param_target]
+                targetLabel: target

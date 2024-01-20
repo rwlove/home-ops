@@ -6,7 +6,7 @@
 
 _... managed by Flux, Renovate and GitHub Actions_ :robot:
 
-[![Renovate](https://img.shields.io/github/actions/workflow/status/rwlove/github/renovate.yaml?branch=main&label=&logo=renovatebot&style=for-the-badge&color=blue)](https://github.com/rwlove/fleet-infra/actions/workflows/renovate.yaml)
+[![Renovate](https://img.shields.io/github/actions/workflow/status/rwlove/fleet-infra/renovate.yaml?branch=main&label=&logo=renovatebot&style=for-the-badge&color=blue)](https://github.com/rwlove/fleet-infra/actions/workflows/renovate.yaml)
 
 Main k8s cluster stats:
 

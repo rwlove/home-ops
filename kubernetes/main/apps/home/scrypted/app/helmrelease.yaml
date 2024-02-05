@@ -1,0 +1,116 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2beta2.json
+apiVersion: helm.toolkit.fluxcd.io/v2beta2
+kind: HelmRelease
+metadata:
+  name: scrypted
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: app-template
+      version: 2.5.0
+      interval: 30m
+      sourceRef:
+        kind: HelmRepository
+        name: bjw-s-charts
+        namespace: flux-system
+
+  values:
+    #defaultPodOptions:
+      #annotations:
+      #  # k8s.v1.cni.cncf.io/networks: hass-iot-static,hass-iot-dhcp
+      #  k8s.v1.cni.cncf.io/networks: scrypted-security-static
+
+      # Security VLAN (30)
+      #affinity:
+      #  nodeAffinity:
+      #    requiredDuringSchedulingIgnoredDuringExecution:
+      #      nodeSelectorTerms:
+      #        - matchExpressions:
+      #            - key: node.network/vlan
+      #              operator: In
+      #              values:
+      #                - "security"
+
+    controllers:
+      main:
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        pod:
+          nodeSelector:
+            # google.feature.node.kubernetes.io/coral: "true"
+            intel.feature.node.kubernetes.io/gpu: "true"
+          #securityContext:
+          #  supplementalGroups:
+          #    - 65542 # gladius:external-services
+
+        containers:
+          main:
+            image:
+              repository: ghcr.io/koush/scrypted
+              tag: 18-jammy-full-v0.93.0
+            resources:
+              requests:
+                gpu.intel.com/i915: 1
+                cpu: 136m
+                memory: 1024Mi
+              limits:
+                gpu.intel.com/i915: 1
+                memory: 8192Mi
+            securityContext:
+              privileged: true
+
+    service:
+      main:
+        ports:
+          http:
+            port: 11080
+          rebroadcast:
+            port: 34135
+
+    ingress:
+      main:
+        enabled: true
+        className: internal
+        hosts:
+          - host: &host scrypted.${SECRET_DOMAIN}
+            paths:
+              - path: /
+                service:
+                  name: main
+                  port: http
+        tls:
+          - hosts:
+              - *host
+
+    persistence:
+      config:
+        enabled: true
+        existingClaim: scrypted-config-pvc
+        advancedMounts:
+          main:
+            main:
+              - path: /server/volume
+      cache:
+        type: emptyDir
+        globalMounts:
+          - path: /.cache
+      cache-npm:
+        type: emptyDir
+        globalMounts:
+          - path: /.npm
+      #dev-bus-usb:
+      #  type: hostPath
+      #  hostPath: /dev/bus/usb
+      #  hostPathType: Directory
+      #sys-bus-usb:
+      #  type: hostPath
+      #  hostPath: /sys/bus/usb
+      #  hostPathType: Directory
+      recs:
+        enabled: true
+        existingClaim: scrypted-recs-pvc
+        globalMounts:
+          - path: /recs

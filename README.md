@@ -59,11 +59,12 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 | master3   | VM on beast       | 3   | 8  GB  | CentOS 9 | k8s Master |                         |            |          |
 | worker1   | ThinkCentre M910x | 8   | 32 GB  | CentOS 9 | k8s Worker | longhorn NVMe           | Coral USB  |          |
 | worker2   | ThinkCentre M910x | 8   | 32 GB  | CentOS 9 | k8s Worker | longhorn NVMe           | zstick-7   |          |
-| worker4   | ThinkCentre M910x | 8   | 32 GB  | CentOS 9 | k8s Worker | longhorn NVMe           |            |          |
+| worker3   | ThinkCentre M910x | 8   | 32 GB  | CentOS 9 | k8s Worker | longhorn NVMe, ceph osd |            | sec-vlan |
+| worker4   | ThinkCentre M910x | 8   | 32 GB  | CentOS 9 | k8s Worker | longhorn NVMe           |            | sec-vlan |
 | worker5   | VM on beast       | 10  | 24 GB  | CentOS 9 | k8s Worker | longhorn NVMe, ceph osd |            |          |
 | worker6   | VM on beast       | 10  | 24 GB  | CentOS 9 | k8s Worker | longhorn NVMe, ceph osd | skyconnect |          |
 | worker7   | VM on beast       | 10  | 24 GB  | CentOS 9 | k8s Worker | longhorn NVMe, ceph osd |            | iot-vlan |
-| worker8   | VM on beast       | 10  | 24 GB  | CentOS 9 | k8s Worker | ~~longhorn NVMe,~~ ceph osd |            | iot-vlan |
+| worker8   | VM on beast       | 10  | 24 GB  | CentOS 9 | k8s Worker | longhorn NVMe, ceph osd |            | iot-vlan |
 
 ## Network
 <details>

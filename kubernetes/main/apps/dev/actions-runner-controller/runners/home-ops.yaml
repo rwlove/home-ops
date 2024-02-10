@@ -8,13 +8,28 @@ spec:
   interval: 30m
   chart:
     spec:
-      chart: actions-runner-controller-charts/gha-runner-scale-set
+      chart: gha-runner-scale-set
       version: 0.8.2
       sourceRef:
         kind: HelmRepository
         name: actions-runner-controller
         namespace: flux-system
       interval: 30m
+
+  maxHistory: 2
+
+  install:
+    createNamespace: true
+    remediation:
+      retries: 3
+
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+
+  uninstall:
+    keepHistory: false
 
   values:
     runnerScaleSetName: arc-runner-set-home-ops
@@ -27,26 +42,7 @@ spec:
     containerMode:
       type: "dind"
 
-    controllerServiceAccount:
-      name: actions-runner-controller-gha-rs-controller
-      namespace: dev
-
-    listenerTemplate:
-      metadata:
-        labels:
-          app.kubernetes.io/name: arc-home-ops-listener
-          egress.home.arpa/world: allow
-          egress.home.arpa/apiserver: allow
-          egress.home.arpa/kubedns: allow # FIXME: Remove when clusterNetworkPolicy is in place
-      spec:
-        containers: []
-
     template:
-      metadata:
-        labels:
-          app.kubernetes.io/name: arc-home-ops-runner
-          egress.home.arpa/world: allow
-          egress.home.arpa/kubedns: allow # FIXME: Remove when clusterNetworkPolicy is in place
       spec:
         containers:
           - name: runner

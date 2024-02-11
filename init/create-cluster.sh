@@ -76,7 +76,3 @@ ssh root@worker7.thesteamedcrab.com rm -rf /var/lib/longhorn/*
 kubectl label nodes worker7.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
 ssh root@worker8.thesteamedcrab.com rm -rf /var/lib/longhorn/*
 kubectl label nodes worker8.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
-
-kubectl label nodes worker7.thesteamedcrab.com "node.network/vlan=iot"
-kubectl label nodes worker8.thesteamedcrab.com "node.network/vlan=iot"
-#kubectl label nodes worker3.thesteamedcrab.com "node.network/vlan=security"

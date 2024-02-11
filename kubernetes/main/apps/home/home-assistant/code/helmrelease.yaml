@@ -1,0 +1,106 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/helm.toolkit.fluxcd.io/helmrelease_v2beta2.json
+apiVersion: helm.toolkit.fluxcd.io/v2beta2
+kind: HelmRelease
+metadata:
+  name: home-assistant-code
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: app-template
+      version: 2.5.0
+      sourceRef:
+        kind: HelmRepository
+        name: bjw-s-charts
+        namespace: flux-system
+
+  install:
+    remediation:
+      retries: 3
+
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+
+  uninstall:
+    keepHistory: false
+
+  dependsOn:
+    - name: home-assistant
+      namespace: home
+
+  values:
+    controllers:
+      main:
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        containers:
+          main:
+            image:
+              repository: ghcr.io/coder/code-server
+              tag: 4.21.1
+
+            env:
+              TZ: America/New_York
+              HASS_SERVER: http://home-assistant:8123
+
+            args:
+              - --auth
+              - "none"
+              - --user-data-dir
+              - "/config/.vscode"
+              - --extensions-dir
+              - "/config/.vscode"
+              - "--port"
+              - "8080"
+              - /config
+
+            resources:
+              requests:
+                cpu: 10m
+                memory: 512Mi
+              limits:
+                memory: 512Mi
+
+        pod:
+          securityContext:
+            runAsUser: 568
+            runAsGroup: 568
+            fsGroup: 568
+            fsGroupChangePolicy: OnRootMismatch
+
+    service:
+      main:
+        ports:
+          http:
+            port: 8080
+
+    ingress:
+      main:
+        enabled: true
+        className: internal
+        annotations:
+          hajimari.io/enable: "true"
+          hajimari.io/icon: cib:visual-studio-code
+          hajimari.io/group: "home automation"
+          hajimari.io/appName: "Home Assistant Configuration"
+        hosts:
+          - host: &host "hass-code.${SECRET_DOMAIN}"
+            paths:
+              - path: /
+                service:
+                  name: main
+                  port: codeserver
+        tls:
+          - hosts:
+              - *host
+
+    persistence:
+      config:
+        enabled: true
+        existingClaim: home-assistant-config-pvc
+        globalMounts:
+          - path: /config

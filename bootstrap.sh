@@ -6,4 +6,4 @@
 echo "GITHUB_USER: ${GITHUB_USER}"
 echo "GITHUB_TOKEN: ${GITHUB_TOKEN}"
 
-flux bootstrap github --verbose --owner=$GITHUB_USER --repository=fleet-infra --branch=main --path=./kubernetes/main/base --personal --log-level debug
+flux bootstrap github --verbose --owner=$GITHUB_USER --repository=home-ops --branch=main --path=./kubernetes/main/base --personal --log-level debug

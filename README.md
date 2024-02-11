@@ -1,12 +1,12 @@
 <div align="center">
 
-<img src="https://github.com/rwlove/fleet-infra/blob/870b6ed06e5700d2c0766d712f134da86de39b2e/docs/assets/Cosmo.jpg?raw=true" width="144px" height="144px"/>
+<img src="https://github.com/rwlove/home-ops/blob/870b6ed06e5700d2c0766d712f134da86de39b2e/docs/assets/Cosmo.jpg?raw=true" width="144px" height="144px"/>
 
 ## My Home Operations repository
 
 _... managed by Flux, Renovate and GitHub Actions_ :robot:
 
-[![Renovate](https://img.shields.io/github/actions/workflow/status/rwlove/fleet-infra/renovate.yaml?branch=main&label=&logo=renovatebot&style=for-the-badge&color=blue)](https://github.com/rwlove/fleet-infra/actions/workflows/renovate.yaml)
+[![Renovate](https://img.shields.io/github/actions/workflow/status/rwlove/home-ops/renovate.yaml?branch=main&label=&logo=renovatebot&style=for-the-badge&color=blue)](https://github.com/rwlove/home-ops/actions/workflows/renovate.yaml)
 
 Main k8s cluster stats:
 
@@ -70,7 +70,7 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 <details>
   <summary>Click to see a high level physical network diagram</summary>
 
-  <img src="https://github.com/rwlove/fleet-infra/blob/5d052422d64299f22c499d7bd2768f1ac58e71f6/docs/assets/physical-network-diagram.jpg" align="center" width="600px" alt="dns"/>
+  <img src="https://github.com/rwlove/home-ops/blob/5d052422d64299f22c499d7bd2768f1ac58e71f6/docs/assets/physical-network-diagram.jpg" align="center" width="600px" alt="dns"/>
 </details>
 
 | Name                                           | CIDR                       | VLAN | Notes |

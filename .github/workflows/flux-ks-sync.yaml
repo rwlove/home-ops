@@ -3,37 +3,40 @@
 name: "Flux Kustomization Sync"
 
 on:
-  workflow_dispatch:
   push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/flux-ks-sync.yaml
-      - kubernetes/main/**
-
-concurrency:
-  group: ${{ github.ref }}-${{ github.workflow }}
-  cancel-in-progress: true
+    branches: ["main"]
+    paths: ["kubernetes/storage/**"]
 
 jobs:
   sync:
     name: Flux Kustomization Sync
-    runs-on:
-      - arc-runner-set-home-ops
-    environment: production
+    runs-on: ["arc-runner-set-home-ops"]
     strategy:
       matrix:
-        cluster:
-          - main
+        cluster: ["storage"]
     steps:
-      - name: Install Flux
-        uses: fluxcd/flux2/action@main
+      - name: Generate Token
+        uses: actions/create-github-app-token@v1
+        id: app-token
         with:
-          version: "latest"
+          app-id: "${{ secrets.BOT_APP_ID }}"
+          private-key: "${{ secrets.BOT_APP_PRIVATE_KEY }}"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: "${{ steps.app-token.outputs.token }}"
+
+      - name: Setup Homebrew
+        uses: Homebrew/actions/setup-homebrew@master
+
+      - name: Setup Workflow Tools
+        shell: bash
+        run: brew install fluxcd/tap/flux
 
       - name: Write kubeconfig
         id: kubeconfig
-        uses: timheuer/base64-to-file@adaa40c0c581f276132199d4cf60afa07ce60eac # v1
+        uses: timheuer/base64-to-file@v1
         with:
           encodedString: "${{ secrets.KUBECONFIG }}"
           fileName: kubeconfig
@@ -44,7 +47,7 @@ jobs:
         shell: bash
         run: |
           flux \
-            --context "${{ matrix.cluster }}" \
-            --namespace flux-system \
-            reconcile ks cluster \
-            --with-source
+              --context "${{ matrix.cluster }}" \
+              --namespace flux-system \
+              reconcile ks cluster \
+              --with-source

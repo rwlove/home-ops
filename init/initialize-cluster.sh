@@ -55,3 +55,12 @@ echo "# Create Secrets Patch and Push"
 stg new -m update-secrets
 ./create-secrets.sh
 stg refresh --no-verify ; stg pop -a ; git pull ; stg push -a ; stg commit -a ; stg clean ; git push
+
+echo "Create Cluster Settings Configmap"
+kubectl apply -k ./kubernetes/main/flux/vars/cluster-settings.yaml
+
+echo "Create Cluster Secrets"
+sops --decrypt ./kubernetes/main/flux/vars/cluster-secrets.sops.yaml | kubectl apply -f -
+
+echo "Create Cluster"
+kubectl apply --server-side --kustomize ./kubernetes/main/flux/config

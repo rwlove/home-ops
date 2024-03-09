@@ -62,5 +62,8 @@ kubectl apply -f ./kubernetes/main/flux/vars/cluster-settings.yaml
 echo "Create Cluster Secrets"
 sops --decrypt ./kubernetes/main/flux/vars/cluster-secrets.yaml | kubectl apply -f -
 
+echo "Bootstrap CRDs"
+kubectl apply -k ./kubernetes/main/bootstrap/crds
+
 echo "Create Cluster"
 kubectl apply --server-side --kustomize ./kubernetes/main/flux/config

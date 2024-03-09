@@ -12,7 +12,7 @@ modprobe br_netfilter
 echo '1' > /proc/sys/net/ipv4/ip_forward
 
 echo "#### Initialize the K8S Cluster ####"
-kubeadm init super-admin --skip-phases=addon/kube-proxy --config ./init/clusterconfiguration.yaml
+kubeadm init --skip-phases=addon/kube-proxy --config ./init/clusterconfiguration.yaml
 [ $? -ne 0 ] && exit 1
 
 echo "#### Copy K8S config ####"

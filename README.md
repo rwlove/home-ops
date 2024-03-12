@@ -21,9 +21,10 @@ Kubernetes Cluster Information:
 
 ## Overview
 This is the configuration for my GitOps homelab Kubernetes cluster. This cluster runs home software services for my residence. It is quite complex and there are a lot of interdependencies but the declarative nature of GitOps allows me to manage this mesh of code. The software services fall into a few primary categories:
-* Home Automation ([Home Assistant](https://www.home-assistant.io/), [ESPHome](https://esphome.io/), [WLED](https://kno.wled.ge/))
+* Home Automation ([Home Assistant](https://www.home-assistant.io/), [ESPHome](https://esphome.io/), [Node-Red](https://github.com/node-red/node-red), [EMQX](https://github.com/emqx/emqx), [ZWave JS UI](https://github.com/zwave-js/zwave-js-ui), [Zigbee2MQTT](https://www.zigbee2mqtt.io/)
 * Home Metering and Monitoring (Weather Station, Power Monitoring, Sensors)
-* Home Security ([Frigate](https://frigate.video/), [Double Take](https://github.com/jakowenko/double-take), [Konnected](https://konnected.io/))
+* Home Security ([Frigate](https://frigate.video/), [Double Take](https://github.com/jakowenko/double-take))
+* IOT Devices [WLED](https://kno.wled.ge/)
 
 ## Core Components
 ### Infrastructure
@@ -31,10 +32,11 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 - [crun](https://github.com/containers/crun): Container Runtime implemented in C.
 
 ### Networking
-- [cilium](https://cilium.io/): Kubernetes Container Network Interface (CNI).
-- [cert-manager](https://cert-manager.io/docs/): Creates SSL certificates for services in my Kubernetes cluster.
+- [cilium](https://cilium.io): Kubernetes Container Network Interface (CNI).
+- [cert-manager](https://cert-manager.io/docs): Creates SSL certificates for services in my Kubernetes cluster.
 - [external-dns](https://github.com/kubernetes-sigs/external-dns): Automatically manages DNS records from my cluster in a cloud DNS provider.
-- [ingress-nginx](https://github.com/kubernetes/ingress-nginx/): Ingress controller to expose HTTP traffic to pods over DNS.
+- [ingress-nginx](https://github.com/kubernetes/ingress-nginx): Ingress controller to expose HTTP traffic to pods over DNS.
+- [Cloudflared](https://github.com/cloudflare/cloudflared): Cloudflare tunnel client.
 
 ### Storage
 - [Rook-Ceph](https://github.com/rook/rook): Distributed block storage for peristent storage..

@@ -2,7 +2,7 @@
 
 <img src="https://github.com/rwlove/home-ops/blob/870b6ed06e5700d2c0766d712f134da86de39b2e/docs/assets/Cosmo.jpg?raw=true" width="144px" height="144px"/>
 
-## Lovenet Operations Repository
+## Lovenet Home Operations Repository
 
 _Managed by Flux, Renovate and GitHub Actions_ :robot:
 

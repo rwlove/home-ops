@@ -8,7 +8,7 @@ _... managed by Flux, Renovate and GitHub Actions_ :robot:
 
 [![Renovate](https://img.shields.io/github/actions/workflow/status/rwlove/home-ops/renovate.yaml?branch=main&label=&logo=renovatebot&style=for-the-badge&color=blue)](https://github.com/rwlove/home-ops/actions/workflows/renovate.yaml)
 
-Main k8s cluster stats:
+Main Kubernetes cluster stats:
 
 [![Age-Days](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thesteamedcrab.com%2Fquery%3Fformat%3Dendpoint%26metric%3Dmain_cluster_age_days&style=flat-square&label=Age)](https://github.com/kashalls/kromgo/)&nbsp;
 [![Node-Count](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thesteamedcrab.com%2Fquery%3Fformat%3Dendpoint%26metric%3Dmain_cluster_node_count&style=flat-square&label=Nodes)](https://github.com/kashalls/kromgo/)&nbsp;

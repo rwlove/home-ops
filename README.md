@@ -21,10 +21,10 @@ Kubernetes Cluster Information:
 
 ## Overview
 This is the configuration for my GitOps homelab Kubernetes cluster. This cluster runs home software services for my residence. It is quite complex and there are a lot of interdependencies but the declarative nature of GitOps allows me to manage this mesh of code. The software services fall into a few primary categories:
-* Home Automation ([Home Assistant](https://www.home-assistant.io/), [ESPHome](https://esphome.io/), [Node-Red](https://github.com/node-red/node-red), [EMQX](https://github.com/emqx/emqx), [ZWave JS UI](https://github.com/zwave-js/zwave-js-ui), [Zigbee2MQTT](https://www.zigbee2mqtt.io/)
+* Home Automation ([Home Assistant](https://www.home-assistant.io/), [ESPHome](https://esphome.io/), [Node-Red](https://github.com/node-red/node-red), [EMQX](https://github.com/emqx/emqx), [ZWave JS UI](https://github.com/zwave-js/zwave-js-ui), [Zigbee2MQTT](https://www.zigbee2mqtt.io/))
 * Home Metering and Monitoring (Weather Station, Power Monitoring, Sensors)
 * Home Security ([Frigate](https://frigate.video/), [Double Take](https://github.com/jakowenko/double-take))
-* IOT Devices [WLED](https://kno.wled.ge/), [Ratgdo](https://github.com/PaulWieland/ratgdo)
+* IOT Devices ([WLED](https://kno.wled.ge/), [Ratgdo](https://github.com/PaulWieland/ratgdo))
 
 ## Core Components
 ### Infrastructure

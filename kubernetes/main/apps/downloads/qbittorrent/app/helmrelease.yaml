@@ -11,7 +11,7 @@ spec:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts
       chart: app-template
-      version: 2.6.0
+      version: 3.0.4
       sourceRef:
         kind: HelmRepository
         name: bjw-s-charts
@@ -68,7 +68,7 @@ spec:
 
             env:
               TZ: ${TIMEZONE}
-              QBITTORRENT__PORT: &port 8080
+              QBITTORRENT__PORT: &httpPort 8080
               QBITTORRENT__BT_PORT: &port-bt ${SECRET_VPN_FORWARDED_PORT_1}
               QBT_Preferences__WebUI__AlternativeUIEnabled: false
               QBT_Preferences__WebUI__AuthSubnetWhitelistEnabled: true
@@ -94,6 +94,8 @@ spec:
 
     service:
       main:
+        controller: main
+
         annotations:
           io.cilium/lb-ipam-ips: ${SVC_QBITTORRENT_ADDR}
         type: LoadBalancer
@@ -101,7 +103,7 @@ spec:
 
         ports:
           http:
-            port: *port
+            port: *httpPort
 
           bittorrent:
             port: *port-bt
@@ -131,36 +133,32 @@ spec:
               - path: /
                 service:
                   name: main
-                  port: http
+                  port: *httpPort
         tls:
           - hosts:
               - *host
 
     persistence:
       config:
-        enabled: true
-        mountPath: /config/qBittorrent/config
         existingClaim: qbittorrent-config-pvc
-        size: 1Gi
+        globalMounts:
+          - path: /config/qBittorrent/config
 
       cache:
-        enabled: true
         type: emptyDir
-        mountPath: /config/qBittorrent/cache
+        globalMounts:
+          - path: /config/qBittorrent/cache
 
       downloads:
-        enabled: true
         existingClaim: qbittorrent-downloads
 
       data:
-        enabled: true
         existingClaim: qbittorrent-data-pvc
-        mountPath: /config/qBittorrent/data
+        globalMounts:
+          - path: /config/qBittorrent/data
 
       media:
-        enabled: true
         existingClaim: qbittorrent-media
 
       incomplete:
-        enabled: true
         existingClaim: qbittorrent-incomplete

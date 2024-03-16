@@ -10,21 +10,26 @@ spec:
   chart:
     spec:
       chart: app-template
-      version: 2.6.0
+      version: 3.0.4
       sourceRef:
         kind: HelmRepository
         name: bjw-s-charts
         namespace: flux-system
+
   maxHistory: 2
+
   install:
     remediation:
       retries: 3
+
   upgrade:
     cleanupOnFail: true
     remediation:
       retries: 3
+
   uninstall:
     keepHistory: false
+
   values:
     controllers:
       main:
@@ -33,31 +38,31 @@ spec:
             image:
               repository: mbentley/omada-controller
               tag: 5.13@sha256:538ec216054f51558c15a649d9e12de13d95a7a01542fbb8fe7d1e12dc6e3164
+
             env:
               TZ: ${TIMEZONE}
               MANAGE_HTTP_PORT: "8088"
-              MANAGE_HTTPS_PORT: "8043"
+              MANAGE_HTTPS_PORT: &httpPort 8043
               PORTAL_HTTP_PORT: "8888"
               PORTAL_HTTPS_PORT: "8843"
               SHOW_SERVER_LOGS: "true"
               SHOW_MONGODB_LOGS: "true"
+
             resources:
               requests:
                 cpu: 1
                 memory: 1200Mi
               limits:
                 memory: 2000Mi
+
     service:
       main:
-        enabled: true
+        controller: main
         ports:
           http:
-            enabled: true
-            port: 8043
-            targetPort: 8043
-            protocol: TCP
+            port: *httpPort
+
       controller:
-        enabled: true
         type: LoadBalancer
         externalIPs:
           - ${SVC_OMADA_ADDR}
@@ -138,6 +143,7 @@ spec:
             port: 27217
             protocol: TCP
             targetPort: 27217
+
     ingress:
       main:
         enabled: true
@@ -154,27 +160,32 @@ spec:
             paths:
               - path: /
                 service:
-                  name: main
+                  identifier: main
+                  port: *httpPort
         tls:
           - hosts:
               - *host
+
     persistence:
       data:
         existingClaim: omada-data-pvc
         globalMounts:
           - path: /opt/tplink/EAPController/data
+
       work:
         type: persistentVolumeClaim
         accessMode: ReadWriteOnce
         size: 10Gi
         globalMounts:
           - path: /opt/tplink/EAPController/work
+
       logs:
         type: persistentVolumeClaim
         accessMode: ReadWriteOnce
         size: 10Gi
         globalMounts:
           - path: /opt/tplink/EAPController/logs
+
       backup:
         existingClaim: omada-backup-pvc
         globalMounts:

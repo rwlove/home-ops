@@ -11,7 +11,7 @@ spec:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts
       chart: app-template
-      version: 2.6.0
+      version: 3.0.4
       sourceRef:
         kind: HelmRepository
         name: bjw-s-charts
@@ -57,7 +57,7 @@ spec:
             env:
               TZ: ${TIMEZONE}
               HAS_IPV6: "false"
-              SABNZBD__PORT: &port 80
+              SABNZBD__PORT: &httpPort 80
               SABNZBD__HOST_WHITELIST_ENTRIES: >-
                 sabnzbd,
                 sabnzbd.downloads,
@@ -91,7 +91,7 @@ spec:
                 spec:
                   httpGet:
                     path: /api?mode=version
-                    port: *port
+                    port: *httpPort
                   initialDelaySeconds: 0
                   periodSeconds: 10
                   timeoutSeconds: 1
@@ -102,9 +102,10 @@ spec:
 
     service:
       main:
+        controller: main
         ports:
           http:
-            port: *port
+            port: *httpPort
 
     ingress:
       main:
@@ -127,25 +128,21 @@ spec:
             paths:
               - path: /
                 service:
-                  name: main
-                  port: http
+                  identifier: main
+                  port: *httpPort
         tls:
           - hosts:
               - *host
 
     persistence:
       config:
-        enabled: true
         existingClaim: sabnzbd-config-pvc
 
       complete:
-        enabled: true
         existingClaim: sabnzbd-complete-pvc
 
       incomplete:
-        enabled: true
         existingClaim: sabnzbd-incomplete-pvc
 
       downloads:
-        enabled: true
         existingClaim: sabnzbd-downloads-pvc

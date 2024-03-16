@@ -11,7 +11,7 @@ spec:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts
       chart: app-template
-      version: 2.6.0
+      version: 3.0.4
       sourceRef:
         kind: HelmRepository
         name: bjw-s-charts
@@ -33,31 +33,6 @@ spec:
     keepHistory: false
 
   values:
-    defaultPodOptions:
-      securityContext:
-        runAsUser: 568
-        runAsGroup: 568
-        fsGroup: 568
-        fsGroupChangePolicy: OnRootMismatch
-        supplementalGroups:
-          - 100
-          - 1010
-
-      annotations:
-        # k8s.v1.cni.cncf.io/networks: hass-iot-static,hass-iot-dhcp
-        k8s.v1.cni.cncf.io/networks: hass-iot-static
-
-      # IOT VLAN (20) is only configured on worker9
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: node.network/vlan
-                    operator: In
-                    values:
-                      - "iot"
-
     controllers:
       main:
         type: statefulset
@@ -102,20 +77,44 @@ spec:
                 memory: 800M
               limits:
                 memory: 800M
+        pod:
+          securityContext:
+            runAsUser: 568
+            runAsGroup: 568
+            fsGroup: 568
+            fsGroupChangePolicy: OnRootMismatch
+            supplementalGroups:
+              - 100
+              - 1010
+
+          annotations:
+            # k8s.v1.cni.cncf.io/networks: hass-iot-static,hass-iot-dhcp
+            k8s.v1.cni.cncf.io/networks: hass-iot-static
+
+          # IOT VLAN (20) is only configured on worker9
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: node.network/vlan
+                        operator: In
+                        values:
+                          - "iot"
 
     service:
       main:
+        controller: main
         type: LoadBalancer
         annotations:
           io.cilium/lb-ipam-ips: ${SVC_HOME_ASSISTANT_ADDR}
         externalTrafficPolicy: Cluster
         ports:
           http:
-            port: 8123
+            port: &httpPort 8123
 
     ingress:
       main:
-        enabled: true
         className: external
         annotations:
           external-dns.alpha.kubernetes.io/target: "external.${SECRET_DOMAIN}"
@@ -129,15 +128,14 @@ spec:
             paths:
               - path: /
                 service:
-                  name: main
-                  port: http
+                  identifier: main
+                  port: *httpPort
         tls:
           - hosts:
               - *host
 
     persistence:
       config:
-        enabled: true
         existingClaim: home-assistant-config-pvc
         globalMounts:
           - path: /config

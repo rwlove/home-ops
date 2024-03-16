@@ -6,12 +6,12 @@ metadata:
   name: frigate
   namespace: home
 spec:
-  interval: 15m
+  interval: 30m
   chart:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts
       chart: app-template
-      version: 2.6.0
+      version: 3.0.4
       sourceRef:
         kind: HelmRepository
         name: bjw-s-charts
@@ -32,31 +32,6 @@ spec:
     keepHistory: false
 
   values:
-    defaultPodOptions:
-      # Security VLAN (40)
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: node.network/vlan
-                    operator: In
-                    values:
-                      - "security"
-
-      podAntiAffinity:
-        requiredDuringSchedulingIgnoredDuringExecution:
-          - labelSelector:
-              matchExpressions:
-                - key: app.kubernetes.io/name
-                  operator: In
-                  values: ["jellyfin", "ollama"]
-            topologyKey: kubernetes.io/hostname
-
-      nodeSelector:
-        google.feature.node.kubernetes.io/coral-usb: "true"
-        intel.feature.node.kubernetes.io/gpu: "true"
-
     controllers:
       main:
         type: statefulset
@@ -67,6 +42,30 @@ spec:
         pod:
           annotations:
             k8s.v1.cni.cncf.io/networks: frigate-security-static
+
+          # Security VLAN (40)
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: node.network/vlan
+                        operator: In
+                        values:
+                          - "security"
+
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchExpressions:
+                      - key: app.kubernetes.io/name
+                        operator: In
+                        values: ["jellyfin", "ollama"]
+                  topologyKey: kubernetes.io/hostname
+
+            nodeSelector:
+              google.feature.node.kubernetes.io/coral-usb: "true"
+              intel.feature.node.kubernetes.io/gpu: "true"
 
         containers:
           main:
@@ -89,7 +88,7 @@ spec:
                 spec:
                   httpGet:
                     path: /api/version
-                    port: &port 5000
+                    port: &httpPort 5000
                   initialDelaySeconds: 0
                   periodSeconds: 10
                   timeoutSeconds: 1
@@ -125,15 +124,15 @@ spec:
 
     service:
       main:
+        controller: main
         ports:
           http:
-            port: *port
+            port: *httpPort
           rtsp:
             port: 8554
 
     ingress:
       main:
-        enabled: true
         className: internal
         annotations:
           hajimari.io/enable: "true"
@@ -146,8 +145,8 @@ spec:
             paths:
               - path: /
                 service:
-                  name: main
-                  port: http
+                  identifier: main
+                  port: *httpPort
         tls:
           - hosts:
               - *host
@@ -173,7 +172,6 @@ spec:
           - path: /dev/shm
 
       usb:
-        enabled: true
         type: hostPath
         hostPath: /dev/bus/usb
         hostPathType: Directory

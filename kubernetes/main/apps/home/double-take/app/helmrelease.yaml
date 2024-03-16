@@ -11,7 +11,7 @@ spec:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts
       chart: app-template
-      version: 2.6.0
+      version: 3.0.4
       sourceRef:
         kind: HelmRepository
         name: bjw-s-charts
@@ -47,13 +47,13 @@ spec:
 
     service:
       main:
+        controller: main
         ports:
           http:
-            port: 3000
+            port: &httpPort 3000
 
     ingress:
       main:
-        enabled: true
         className: internal
         annotations:
           hajimari.io/enale: "true"
@@ -66,26 +66,28 @@ spec:
             paths:
               - path: /
                 service:
-                  name: main
-                  port: http
+                  identifier: main
+                  port: *httpPort
         tls:
           - hosts:
               - *host
 
     persistence:
       config:
-        enabled: true
         existingClaim: double-take-config
-        accessMode: ReadWriteOnce
-        size: 10Gi
-        mountPath: /.storage
+        advancedMounts:
+          main:
+            main:
+              - path: /.storage
 
       config-file:
-        enabled: true
         type: configMap
         name: &config double-take-config
-        mountPath: "/.storage/config/config.yml"
-        subPath: "config.yml"
+        advancedMounts:
+          main:
+            main:
+              - path: /.storage/config/config.yml
+                subPath: config.yml
 
     configMaps:
       config:

@@ -10,7 +10,7 @@ spec:
   chart:
     spec:
       chart: app-template
-      version: 2.6.0
+      version: 3.0.4
       interval: 30m
       sourceRef:
         kind: HelmRepository
@@ -18,18 +18,6 @@ spec:
         namespace: flux-system
 
   values:
-    defaultPodOptions:
-      # Security VLAN (40)
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: node.network/vlan
-                    operator: In
-                    values:
-                      - "security"
-
     controllers:
       main:
         type: statefulset
@@ -40,6 +28,17 @@ spec:
         pod:
           annotations:
             k8s.v1.cni.cncf.io/networks: scrypted-security-static
+
+          # Security VLAN (40)
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: node.network/vlan
+                        operator: In
+                        values:
+                          - "security"
 
           nodeSelector:
             # google.feature.node.kubernetes.io/coral: "true"
@@ -69,19 +68,19 @@ spec:
 
     service:
       main:
+        controller: main
         type: LoadBalancer
         annotations:
           io.cilium/lb-ipam-ips: ${SVC_SCRYPTED_ADDR}
         externalTrafficPolicy: Local
         ports:
           http:
-            port: 11080
+            port: &httpPort 11080
           rebroadcast:
             port: 34135
 
     ingress:
       main:
-        enabled: true
         className: internal
         annotations:
           hajimari.io/enable: "true"
@@ -94,28 +93,30 @@ spec:
             paths:
               - path: /
                 service:
-                  name: main
-                  port: http
+                  identifier: main
+                  port: *httpPort
         tls:
           - hosts:
               - *host
 
     persistence:
       config:
-        enabled: true
         existingClaim: scrypted-config-pvc
         advancedMounts:
           main:
             main:
               - path: /server/volume
+
       cache:
         type: emptyDir
         globalMounts:
           - path: /.cache
+
       cache-npm:
         type: emptyDir
         globalMounts:
           - path: /.npm
+
       #dev-bus-usb:
       #  type: hostPath
       #  hostPath: /dev/bus/usb
@@ -124,8 +125,8 @@ spec:
       #  type: hostPath
       #  hostPath: /sys/bus/usb
       #  hostPathType: Directory
+
       recs:
-        enabled: true
         existingClaim: scrypted-recs-pvc
         globalMounts:
           - path: /recs

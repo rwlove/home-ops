@@ -3,10 +3,10 @@
 apiVersion: helm.toolkit.fluxcd.io/v2beta2
 kind: HelmRelease
 metadata:
-  name: snmp-exporter-dell-idrac
+  name: &app snmp-exporter-dell-idrac
   namespace: monitoring
 spec:
-  interval: 15m
+  interval: 30m
   chart:
     spec:
       chart: prometheus-snmp-exporter
@@ -18,20 +18,35 @@ spec:
 
   install:
     createNamespace: true
+    remediation:
+      retries: 3
+
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      strategy: rollback
+      retries: 3
+
+  dependsOn:
+    - name: kube-prometheus-stack
+      namespace: monitoring
 
   values:
-    fullnameOverride: snmp-exporter-dell-idrac
+    fullnameOverride: *app
+
     image:
       repository: quay.io/prometheus/snmp-exporter
     extraArgs:
       - "--config.file=/config/snmp.yaml"
+
     extraConfigmapMounts:
-      - name: snmp-exporter-dell-idrac
+      - name: *app
         mountPath: /config/snmp.yaml
         subPath: snmp.yaml
-        configMap: snmp-exporter-dell-idrac
+        configMap: *app
         readOnly: true
         defaultMode: 420
+
     serviceMonitor:
       enabled: true
       namespace: monitoring
@@ -40,6 +55,7 @@ spec:
           module:
             - dell
           target: 192.168.1.22
+          auth: ["public_v2"]
       path: /snmp
       scrapeTimeout: 10s
       relabelings:

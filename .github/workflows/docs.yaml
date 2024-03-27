@@ -3,12 +3,17 @@
 name: "Publish Docs to Github Pages"
 
 on:
+  workflow_dispatch:
   push:
-    branches: ["main"]
-    paths: ["docs/**", "**/*.md"]
+    branches: main
+    paths:
+      - docs/**
+      - **/*.md
+      - .github/workflows/docs-publish.yaml
   pull_request:
-    branches: ["main"]
-    paths: ["docs/**", "**/*.md"]
+      - docs/**
+      - **/*.md
+      - .github/workflows/docs-publish.yaml
 
 jobs:
   publish:
@@ -18,7 +23,7 @@ jobs:
     steps:
       - name: Generate Token
         uses: tibdex/github-app-token@3beb63f4bd073e61482598c45c71c1019b59b73a # v2.1.0
-        id: generate-token
+        id: app-token
         with:
           app_id: "${{ secrets.BOT_APP_ID }}"
           private_key: "${{ secrets.BOT_APP_PRIVATE_KEY }}"
@@ -26,18 +31,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
         with:
-          token: "${{ steps.generate-token.outputs.token }}"
+          token: "${{ steps.app-token.outputs.token }}"
 
       - name: Build docs
         uses: docker://ghcr.io/bjw-s/mdbook:0.4.37@sha256:590bdc11f693375d3a0e38f8c141b21a6d1896dabf3f8f9ce3883d2117c1b4dc
         with:
-          args: mdbook build docs
+          args: bash -c "cd docs && mdbook build"
 
       - name: Deploy
         uses: peaceiris/actions-gh-pages@373f7f263a76c20808c831209c920827a82a2847 # v3.9.3
         if: ${{ github.ref == 'refs/heads/main' }}
         with:
-          github_token: "${{ steps.generate-token.outputs.token }}"
-          publish_dir: ./docs/book
+          github_token: "${{ steps.app-token.outputs.token }}"
+          publish_dir: ./docs/book/html
           user_name: "rosey-the-renovator-bot[bot]"
           user_email: "rosey-the-renovator-bot <98764075+rosey-the-renovator-bot[bot]@users.noreply.github.com>"

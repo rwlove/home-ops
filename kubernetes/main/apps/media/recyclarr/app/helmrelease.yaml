@@ -34,19 +34,26 @@ spec:
 
   values:
     controllers:
-      main:
-        type: statefulset
+      recyclarr:
+        type: cronjob
+
+        cronjob:
+          schedule: "@daily"
 
         annotations:
           reloader.stakater.com/auto: "true"
 
         containers:
-          main:
+          app:
             image:
               repository: ghcr.io/recyclarr/recyclarr
               tag: 6.0.2@sha256:02add40feae0569401b5020528e06419b47046723d0bb4bef1e82325e9eefdad
+            args:
+              - sync
+
             env:
               TZ: ${TIMEZONE}
+              COMPlus_EnableDiagnostics: "0"
 
             envFrom:
               - secretRef:
@@ -59,23 +66,31 @@ spec:
               limits:
                 memory: 128M
 
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+
         pod:
           securityContext:
             runAsUser: 1000
             runAsGroup: 1001
             fsGroup: 1001
+            runAsNonRoot: true
             fsGroupChangePolicy: OnRootMismatch
 
-        statefulset:
-          volumeClaimTemplates:
-            - name: config
-              accessMode: ReadWriteOnce
-              size: 1Gi
-              storageClass: ceph-block
-              globalMounts:
-                - path: /config
-
     persistence:
+      config:
+        accessMode: ReadWriteOnce
+        size: 1Gi
+        storageClass: ceph-block
+        advancedMounts:
+          recyclarr:
+            app:
+              - path: /config
+
       config-file:
         type: configMap
         name: recyclarr

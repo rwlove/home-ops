@@ -43,6 +43,7 @@ spec:
       requests:
         cpu: 200m
         memory: 12G
+        gpu.intel.com/i915: 1
       limits:
         memory: 12G
 
@@ -64,18 +65,22 @@ spec:
         - url: "https://huggingface.co/TheBloke/Llama-2-7B-Chat-GGML/resolve/main/llama-2-7b-chat.ggmlv3.q4_0.bin"
         # basicAuth: base64EncodedCredentials
 
-      persistence:
-        hostPath:
-          enabled: false
-          path: /models
+    persistence:
+      models:
+        enabled: true
+        annotations: {}
+        storageClass: ceph-block
+        accessModes: ReadWriteMany
+        size: 10Gi
+        globalMount: /models
 
-        pvc:
-          accessModes:
-            - ReadWriteOnce
-          annotations: {}
-          enabled: true
-          size: 20Gi
-          #storageClass: null
+      output:
+        enabled: true
+        annotations: {}
+        storageClass: ceph-block
+        accessModes: ReadWriteMany
+        size: 5Gi
+        globalMount: /tmp/generated
 
     service:
       annotations:
@@ -113,3 +118,15 @@ spec:
                   operator: In
                   values: ["jellyfin", "frigate"]
             topologyKey: kubernetes.io/hostname
+
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: intel.feature.node.kubernetes.io/gpu
+                  operator: In
+                  values:
+                    - "true"
+
+    nodeSelector:
+      intel.feature.node.kubernetes.io/gpu: "true"

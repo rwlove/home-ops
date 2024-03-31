@@ -10,11 +10,11 @@ spec:
   chart:
     spec:
       # renovate: registryUrl=https://bjw-s.github.io/helm-charts
-      chart: snapserver
-      version: 0.1.6
+      chart: app-template
+      version: 3.0.4
       sourceRef:
         kind: HelmRepository
-        name: buvis
+        name: bjw-s-charts
         namespace: flux-system
 
   maxHistory: 3
@@ -32,43 +32,82 @@ spec:
     keepHistory: false
 
   values:
+    controllers:
+      main:
+        type: statefulset
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        containers:
+          main:
+            image:
+              repository: docker.io/saiyato/snapserver
+              tag: v0.26.0
+
+            resources:
+              requests:
+                cpu: 15m
+                memory: 200M
+              limits:
+                memory: 200M
+
+    serviceAccount:
+      create: true
+      name: *app
+
     service:
       main:
-        enabled: true
+        controller: main
+        annotations:
+          io.cilium/lb-ipam-ips: ${SVC_SNAPSERVER_ADDR}
         type: LoadBalancer
-        externalIPs:
-        - ${SVC_SNAPSERVER_ADDR}
         externalTrafficPolicy: Local
         ports:
           http:
-            port: 80
-
-      audio:
-        enabled: true
-        type: LoadBalancer
-        externalIPs:
-        - ${SVC_SNAPSERVER_ADDR}
-        externalTrafficPolicy: Local
-        ports:
+            enabled: true
+            port: &httpPort 80
+            targetPort: 1780
           audio:
+            enabled: true
             port: 1704
-
-      control:
-        enabled: true
-        type: LoadBalancer
-        externalIPs:
-        - ${SVC_SNAPSERVER_ADDR}
-        externalTrafficPolicy: Local
-        ports:
+            protocol: TCP
+            targetPort: 1704
           control:
+            enabled: true
             port: 1705
-
-      stream1:
-        enabled: true
-        type: LoadBalancer
-        externalIPs:
-        - ${SVC_IP_SNAPSERVER}
-        externalTrafficPolicy: Local
-        ports:
+            protocol: TCP
+            targetPort: 1705
           stream1:
+            enabled: true
             port: 4955
+            protocol: TCP
+            targetPort: 4955
+
+    ingress:
+      main:
+        className: internal
+        annotations:
+          hajimari.io/enable: "true"
+          hajimari.io/appName: "Speaker Selection"
+          hajimari.io/icon: mdi:radio
+          hajimari.io/group: Radio
+          hajimari.io/instance: "user,admin"
+        hosts:
+          - host: &host "{{ .Release.Name }}.${SECRET_DOMAIN}"
+            paths:
+              - path: /
+                service:
+                  identifier: main
+                  port: *httpPort
+        tls:
+          - hosts:
+              - *host
+
+    persistence:
+      config:
+        type: configMap
+        name: *app
+        globalMounts:
+          - path: /etc/snapserver.conf
+            subPath: snapserver.conf
+            readOnly: true

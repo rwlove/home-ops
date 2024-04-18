@@ -9,7 +9,7 @@ spec:
   chart:
     spec:
       chart: loki
-      version: 5.47.2
+      version: 6.2.1
       sourceRef:
         kind: HelmRepository
         name: grafana-charts
@@ -30,93 +30,99 @@ spec:
     keepHistory: false
 
   values:
+    deploymentMode: SimpleScalable
+
     loki:
-      readinessProbe:
-        initialDelaySeconds: 120
+      podAnnotations:
+        configmap.reloader.stakater.com/reload: loki-chunks-bucket-v1
 
-      structuredConfig:
-        auth_enabled: false
+      auth_enabled: false
 
-        server:
-          log_level: debug
-          http_listen_port: 3100
-          grpc_listen_port: 9095
+      analytics:
+        reporting_enabled: false
 
-        memberlist:
-          join_members: ["loki-memberlist"]
+      compactor:
+        working_directory: /var/loki/compactor/retention
+        delete_request_store: s3
+        retention_enabled: true
 
-        limits_config:
-          retention_period: 14d
-          enforce_metric_name: false
-          reject_old_samples: true
-          reject_old_samples_max_age: 168h
-          max_cache_freshness_per_query: 10m
-          split_queries_by_interval: 15m
-          ingestion_rate_mb: 16
-          ingestion_burst_size_mb: 32
-          shard_streams:
-            enabled: true
+      frontend:
+        max_outstanding_per_tenant: 4096
 
-        schema_config:
-          configs:
-            - from: "2021-08-01"
-              store: boltdb-shipper
-              object_store: s3
-              schema: v11
-              index:
-                prefix: loki_index_
-                period: 24h
+      ingester:
+        chunk_encoding: snappy
 
-        common:
-          path_prefix: /var/loki
-          replication_factor: 1
-          storage:
-            s3:
-              s3: null
-              insecure: true
-              s3forcepathstyle: true
-          ring:
-            kvstore:
-              store: inmemory
+      limits_config:
+        ingestion_burst_size_mb: 128
+        ingestion_rate_mb: 64
+        max_query_parallelism: 100
+        per_stream_rate_limit: 64M
+        per_stream_rate_limit_burst: 128M
+        reject_old_samples: true
+        reject_old_samples_max_age: 168h
+        retention_period: 30d
+        shard_streams:
+          enabled: true
+        split_queries_by_interval: 1h
 
-        ruler:
-          enable_api: true
-          enable_alertmanager_v2: true
-          alertmanager_url: http://prometheus-alertmanager.monitoring.svc.cluster.local:9093
-          storage:
-            type: local
-            local:
-              directory: /rules
-          rule_path: /tmp/scratch
-          ring:
-            kvstore:
-              store: inmemory
+      query_scheduler:
+        max_outstanding_requests_per_tenant: 4096
 
-        distributor:
-          ring:
-            kvstore:
-              store: inmemory
+      rulerConfig:
+        enable_api: true
+        enable_alertmanager_v2: true
+        alertmanager_url: http://alertmanager.monitoring.svc.cluster.local:9093
+        storage:
+          type: local
+          local:
+            directory: /rules
+        rule_path: /rules/fake
 
-        compactor:
-          working_directory: /var/loki/boltdb-shipper-compactor
-          shared_store: s3
-          compaction_interval: 10m
-          retention_enabled: true
-          retention_delete_delay: 2h
-          retention_delete_worker_count: 150
+      schemaConfig:
+        configs:
+          - from: "2024-04-01"
+            store: tsdb
+            object_store: s3
+            schema: v13
+            index:
+              prefix: loki_index_
+              period: 24h
 
-        ingester:
-          max_chunk_age: 1h
-          lifecycler:
-            ring:
-              kvstore:
-                store: inmemory
+      server:
+        log_level: info
+        grpc_server_max_recv_msg_size: 8388608
+        grpc_server_max_send_msg_size: 8388608
 
-        analytics:
-          reporting_enabled: false
+      storage:
+        type: s3
+        bucketNames:
+          chunks: loki-chunks
+          ruler: loki-ruler
+          admin: loki-admin
+        s3:
+          s3ForcePathStyle: true
+          insecure: true
 
     gateway:
-      replicas: 1
+      replicas: 3
+      enabled: true
+      image:
+        registry: ghcr.io
+        repository: nginxinc/nginx-unprivileged
+        tag: 1.25-alpine@sha256:5b49ce26ad8555b649a5a5ea8ccdfabc742a284ab58cb7b7d7a56f178c5dd351
+      deploymentStrategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxUnavailable: 50%
+          maxSurge: 50%
+      topologySpreadConstraints:
+        - maxSkew: 2
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: loki
+              app.kubernetes.io/component: gateway
       ingress:
         enabled: true
         ingressClassName: internal
@@ -135,51 +141,32 @@ spec:
           cpu: 50m
           memory: 64Mi
 
-    read:
-      replicas: 1
-      persistence:
-        storageClass: ceph-block
-      extraVolumeMounts:
-        - name: rules
-          mountPath: /rules
-      extraVolumes:
-        - name: rules
-          emptyDir: {}
-      resources:
-        requests:
-          cpu: 100m
-          memory: 500M
-
     write:
-      replicas: 1
+      replicas: 3
       persistence:
         storageClass: ceph-block
-      resources:
-        requests:
-          cpu: 100m
-          memory: 500M
+        size: 20Gi
+
+    read:
+      replicas: 3
 
     backend:
-      replicas: 1
+      replicas: 3
       persistence:
         storageClass: ceph-block
-      extraVolumeMounts:
-        - name: rules
-          mountPath: /rules/fake
-        - name: scratch
-          mountPath: /tmp/scratch
-      extraVolumes:
-        - name: rules
-          configMap:
-            name: loki-alerting-rules
-        - name: scratch
-          emptyDir: {}
+        size: 20Gi
+
       resources:
         requests:
           cpu: 100m
           memory: 500M
 
     monitoring:
+      dashboards:
+        annotations:
+          grafana_folder: Loki
+      rules:
+        enabled: false
       serviceMonitor:
         enabled: false
         metricsInstance:
@@ -188,8 +175,16 @@ spec:
         enabled: false
         grafanaAgent:
           installOperator: false
-      lokiCanary:
-        enabled: false
+
+    sidecar:
+      image:
+        repository: ghcr.io/kiwigrid/k8s-sidecar
+      rules:
+        searchNamespace: ALL
+        folder: /rules/fake
+
+    lokiCanary:
+      enabled: false
 
     test:
       enabled: false

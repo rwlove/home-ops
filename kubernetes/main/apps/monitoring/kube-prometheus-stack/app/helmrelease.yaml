@@ -41,92 +41,7 @@ spec:
     fullnameOverride: prometheus
 
     alertmanager:
-      config:
-        receivers:
-          - name: "null"
-          - name: "nodered"
-            webhook_configs:
-              - url: "http://node-red.home:1880/power-outage"
-                send_resolved: true
-          - name: pushover
-            pushover_configs:
-              - url_title: View in Alertmanager
-                token: "${SECRET_ALERTMANAGER_PUSHOVER_TOKEN}"
-                user_key: "${SECRET_ALERTMANAGER_PUSHOVER_USER_KEY}"
-                send_resolved: true
-                html: true
-                sound: gamelan
-                priority: |-
-                  {{ if eq .Status "firing" }}1{{ else }}0{{ end }}
-                title: |-
-                  {{ .CommonLabels.alertname }} [{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}]
-                message: |-
-                  {{- range .Alerts }}
-                    {{- if ne .Annotations.description "" }}
-                      {{ .Annotations.description }}
-                    {{- else if ne .Annotations.summary "" }}
-                      {{ .Annotations.summary }}
-                    {{- else if ne .Annotations.message "" }}
-                      {{ .Annotations.message }}
-                    {{- else }}
-                      Alert description not available
-                    {{- end }}
-                    {{- if gt (len .Labels.SortedPairs) 0 }}
-                      <small>
-                      {{- range .Labels.SortedPairs }}
-                        <b>{{ .Name }}:</b> {{ .Value }}
-                      {{- end }}
-                      </small>
-                    {{- end }}
-                  {{- end }}
-        route:
-          group_by: ["alertname", "job"]
-          group_wait: 1m
-          group_interval: 10m
-          repeat_interval: 12h
-          receiver: pushover
-          routes:
-            - receiver: "null" # quote
-              matchers:
-                - alertname =~ "InfoInhibitor"
-                - alertname =~ "Watchdog"
-            - receiver: pushover
-              matchers:
-                - severity = "critical"
-              continue: true
-        inhibit_rules:
-          - source_matchers:
-              - severity = "critical"
-            target_matchers:
-              - severity = "warning"
-            equal: ["alertname", "namespace"]
-      ingress:
-        enabled: true
-        pathType: Prefix
-        ingressClassName: internal
-        annotations:
-          hajimari.io/enable: "true"
-          hajimari.io/appName: "Alert Manager"
-          hajimari.io/icon: mdi:alarm-light-outline
-          hajimari.io/group: "monitoring"
-          hajimari.io/instance: "admin"
-        hosts:
-          - &host alert-manager.${SECRET_DOMAIN}
-        tls:
-          - hosts:
-              - *host
-
-      alertmanagerSpec:
-        replicas: 3
-        env:
-          TZ: "${TIMEZONE}"
-        storage:
-          volumeClaimTemplate:
-            spec:
-              storageClassName: ceph-block
-              resources:
-                requests:
-                  storage: 1Gi
+      enabled: false
 
     nodeExporter:
       enabled: false
@@ -252,7 +167,7 @@ spec:
         replicas: 3
         alertingEndpoints:
           - namespace: monitoring
-            name: alertmanager-operated
+            name: alertmanager
             port: 9093
             apiVersion: v2
         replicaExternalLabelName: __replica__ # must match with thanos value `.query.replicaLabel[0]`

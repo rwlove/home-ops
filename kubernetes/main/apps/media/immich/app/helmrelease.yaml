@@ -1,0 +1,113 @@
+apiVersion: helm.toolkit.fluxcd.io/v2beta2
+kind: HelmRelease
+metadata:
+  name: immich
+  namespace: media
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: immich
+      version: 0.6.0
+      sourceRef:
+        kind: HelmRepository
+        name: immich-charts
+        namespace: flux-system
+
+  values:
+    env:
+      DB_DATABASE_NAME: immich
+      DISABLE_REVERSE_GEOCODING: "false"
+      REVERSE_GEOCODING_PRECISION: "2"
+      # ENABLE_MAPBOX: "false"
+      LOG_LEVEL: verbose
+      # NODE_ENV: "production"
+      # REDIS_HOSTNAME: immich-redis.selfhosted.svc.cluster.local
+      # REDIS_PORT: "6379"
+      # REDIS_DBINDEX: "0"
+      # TYPESENSE_HOST: immich-typesense.selfhosted.svc.cluster.local
+      # TYPESENSE_DATA_DIR: /config
+      # IMMICH_WEB_URL: http://immich-web.selfhosted.svc.cluster.local:3000
+      # IMMICH_SERVER_URL: http://immich-server.selfhosted.svc.cluster.local:3001
+      # IMMICH_MACHINE_LEARNING_URL: http://immich-machine-learning.selfhosted.svc.cluster.local:3003
+      OAUTH_ENABLED: "false"
+      # OAUTH_ISSUER_URL: "https://auth.${SECRET_DOMAIN}/.well-known/openid-configuration"
+      # OAUTH_CLIENT_ID: immich
+      # OAUTH_CLIENT_SECRET: "${SECRET_IMMICH_OAUTH_CLIENT_SECRET}"
+      # OAUTH_AUTO_REGISTER: "true"
+      # OAUTH_BUTTON_TEXT: "Login with Authelia"
+
+    postgres:
+      enabled: true
+
+    immich:
+      persistence:
+        library:
+          existingClaim: immich-upload-pvc
+
+    image:
+      # renovate: datasource=github-releases depName=immich-app/immich
+      tag: "v1.102.0"
+
+    server:
+      resources:
+        requests:
+          cpu: 15m
+          memory: 512M
+        limits:
+          memory: 512M
+
+      ingress:
+        main:
+          enabled: true
+          ingressClassName: external
+          annotations:
+            external-dns.alpha.kubernetes.io/target: external.${SECRET_DOMAIN}
+            nignx.ingress.kubernetes.io/force-ssl-redirect: "true"
+            nginx.ingress.kubernetes.io/proxy-body-size: "0"
+            hajimari.io/appName: Photos
+            hajimari.io/icon: heroicons:photo
+            hajimari.io/instance: "admin"
+
+          hosts:
+            - host: &host "photos.${SECRET_DOMAIN}"
+              paths:
+                - path: /
+                  pathType: Prefix
+          tls:
+            - hosts:
+                - *host
+              secretName: *host
+
+    microservices:
+      controller:
+        replicas: 2
+
+      resources:
+        requests:
+          cpu: 100m
+          memory: 250M
+        limits:
+          memory: 250M
+
+    machine-learning:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 2048M
+        limits:
+          memory: 2048M
+
+      probes:
+        liveness:
+          enabled: false
+          spec:
+            initialDelaySeconds: 90
+        readiness:
+          enabled: false
+          spec:
+            initialDelaySeconds: 90
+        startup:
+          enabled: false
+          spec:
+            initialDelaySeconds: 90

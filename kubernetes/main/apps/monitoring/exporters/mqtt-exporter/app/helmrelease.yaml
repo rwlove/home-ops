@@ -1,0 +1,84 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta2
+kind: HelmRelease
+metadata:
+  name: &app mqtt-exporter
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: app-template
+      version: 3.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: bjw-s-charts
+        namespace: flux-system
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      strategy: rollback
+      retries: 3
+  values:
+    controllers:
+      mqtt-exporter:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        containers:
+          app:
+            image:
+              repository: ghcr.io/kpetremann/mqtt-exporter
+              tag: 1.4.2@sha256:f590a1b0364ec76af94472621543c79839b11bce59a6683145efe2cb923c8376
+            env:
+              MQTT_ADDRESS: emqx-headless.home.svc.cluster.local
+              #MQTT_TOPIC: zigbee2mqtt/#
+              MQTT_V5_PROTOCOL: true
+              PROMETHEUS_PORT: &port 3321
+              TZ: ${TIMEZONE}
+              #ZIGBEE2MQTT_AVAILABILITY: true
+            envFrom:
+              - secretRef:
+                  name: mqtt-exporter-secret
+            probes:
+              liveness:
+                enabled: true
+              readiness:
+                enabled: true
+            resources:
+              requests:
+                cpu: 10m
+                memory: 128Mi
+              limits:
+                memory: 128Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+    defaultPodOptions:
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 568
+        runAsGroup: 568
+    service:
+      app:
+        controller: *app
+        ports:
+          http:
+            port: *port
+    serviceMonitor:
+      app:
+        serviceName: *app
+        endpoints:
+          - port: http
+            scheme: http
+            path: /metrics
+            interval: 1m
+            scrapeTimeout: 10s

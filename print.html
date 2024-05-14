@@ -85,7 +85,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded affix "><li class="part-title">Welcome</li><li class="chapter-item expanded "><a href="introduction.html">👋 Introduction</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded affix "><li class="part-title">Welcome</li><li class="chapter-item expanded "><a href="introduction.html">👋 Introduction</a></li><li class="chapter-item expanded "><a href="coral.html">Coral</a></li><li class="chapter-item expanded "><a href="../../kubernetes/main/apps/kube-system/nvidia-gpu-operator/index.html">nVidia Tesla P40</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -291,6 +291,81 @@ https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/kubeadm-certs/#kubel
 <li><a href="https://home.robusta.dev/blog/kubernetes-memory-limit">Limits Guidance</a></li>
 </ul>
 <p><a href="https://github.com/whazor">@whazor</a> created <a href="https://nanne.dev/k8s-at-home-search/">this website</a> as a creative way to search Helm Releases across GitHub. You may use it as a means to get ideas on how to configure an applications' Helm values.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="coral-edge-tpu"><a class="header" href="#coral-edge-tpu">Coral Edge TPU</a></h1>
+<p>Add some instructions on:</p>
+<ul>
+<li>How to use the copr repository on CentOS Stream 9</li>
+<li>How to do the VM passthrough of the device (i.e. udev rules)</li>
+<li>NFD rules</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="nvidia-gpu-operator-setup-on-debian-12-cluster"><a class="header" href="#nvidia-gpu-operator-setup-on-debian-12-cluster">Nvidia GPU Operator Setup on Debian 12 Cluster</a></h1>
+<p>This guide will walk you through the process of setting up the Nvidia GPU Operator on a Debian 12 (Bookworm) cluster. Specifically, we're going to install Nvidia drivers, reboot the node, test it, and modify the GPU Operator manifest file.</p>
+<p>Remember, if you're working with a Tesla GPU, ensure you install the Tesla drivers.</p>
+<h2 id="add-debian-bookworm"><a class="header" href="#add-debian-bookworm">Add Debian Bookworm</a></h2>
+<p>Start by adding the Debian Bookworm package repository to your system.</p>
+<pre><code class="language-shell">echo "deb http://deb.debian.org/debian/ bookworm main contrib non-free non-free-firmware" | sudo tee -a /etc/apt/sources.list
+</code></pre>
+<h2 id="install-gpu-drivers"><a class="header" href="#install-gpu-drivers">Install GPU Drivers</a></h2>
+<p>Next, you'll want to update your package lists for the new repositories. After that, install the Nvidia-Tesla drivers along with the firmware-misc-nonfree package.</p>
+<pre><code>sudo apt update
+sudo apt install nvidia-driver-535
+sudo apt install nvidia-tesla-driver firmware-misc-nonfree
+</code></pre>
+<h2 id="reboot-node"><a class="header" href="#reboot-node">Reboot Node</a></h2>
+<p>Reboot your node to ensure the changes take effect.</p>
+<pre><code>sudo systemctl reboot
+</code></pre>
+<h1 id="test-gpu-functionality"><a class="header" href="#test-gpu-functionality">Test GPU Functionality</a></h1>
+<p>After your node restarts, you can confirm the Nvidia drivers are working properly with the following command:</p>
+<pre><code>nvidia-smi
+</code></pre>
+<h1 id="fix-missing-ldconfigreal"><a class="header" href="#fix-missing-ldconfigreal">Fix missing ldconfig.real</a></h1>
+<pre><code>sudo ln -s /sbin/ldconfig /sbin/ldconfig.real
+</code></pre>
+<p>This command is necessary to ensure that the Nvidia GPU Operator works correctly on Debian 12.</p>
+<h2 id="modify-gpu-operator-manifest"><a class="header" href="#modify-gpu-operator-manifest">Modify GPU-Operator Manifest</a></h2>
+<p>Since the latest Nvidia GPU Operator toolkit does not support Debian, we need to manually specify that we're using installed drivers and operating on K3s.</p>
+<p>Modify your GPU-Operator Helm Chart values to reflect the following:</p>
+<pre><code>values:
+  nfd:
+    enabled: true
+  driver:
+    enabled: false
+  toolkit:
+    enabled: true
+    version: v1.12.1
+    env:
+      - name: CONTAINERD_CONFIG
+        value: /var/lib/rancher/k3s/agent/etc/containerd/config.toml
+      - name: CONTAINERD_SOCKET
+        value: /run/k3s/containerd/containerd.sock
+      - name: CONTAINERD_RUNTIME_CLASS
+        value: nvidia
+      - name: CONTAINERD_SET_AS_DEFAULT
+        value: "true"
+</code></pre>
+<h2 id="troubleshooting"><a class="header" href="#troubleshooting">Troubleshooting</a></h2>
+<p>If you get the following error:</p>
+<pre><code>NVIDIA_DRIVER_ROOT=/
+CONTAINER_DRIVER_ROOT=/host
+Starting nvidia-device-plugin
+I1215 20:51:29.945244     152 main.go:154] Starting FS watcher.
+E1215 20:51:29.945357     152 main.go:123] failed to create FS watcher: too many open files
+</code></pre>
+<p>You have to change inodes values on sysctl:</p>
+<pre><code>sysctl -w fs.inotify.max_user_watches=100000 
+sysctl -w fs.inotify.max_user_instances=100000
+</code></pre>
+<p>Or in a file:</p>
+<pre><code>cat &lt;&lt; 'EOF' | sudo tee /etc/sysctl.d/99-kubernetes-cri.conf
+fs.inotify.max_user_instances = 8192
+fs.inotify.max_user_watches = 524288
+EOF
+</code></pre>
+<h2 id="references"><a class="header" href="#references">References</a></h2>
+<ul>
+<li><a href="https://github.com/NVIDIA/gpu-operator/issues/441">https://github.com/NVIDIA/gpu-operator/issues/441</a></li>
+</ul>
 
                     </main>
 

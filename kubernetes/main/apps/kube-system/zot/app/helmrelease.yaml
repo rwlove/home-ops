@@ -4,17 +4,32 @@ apiVersion: helm.toolkit.fluxcd.io/v2beta2
 kind: HelmRelease
 metadata:
   name: zot
+  namespeace: kube-system
 spec:
   interval: 30m
   chart:
     spec:
       chart: app-template
-      version: 3.0.4
-      interval: 30m
+      version: 3.1.0
       sourceRef:
         kind: HelmRepository
         name: bjw-s-charts
         namespace: flux-system
+
+  maxHistory: 3
+
+  install:
+    createNamespace: true
+    remediation:
+      retries: 3
+
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+
+  uninstall:
+    keepHistory: false
 
   values:
     controllers:
@@ -51,9 +66,10 @@ spec:
 
     service:
       main:
+        controller: main
         ports:
           http:
-            port: 5000
+            port: &httpPort 5000
 
     ingress:
       main:
@@ -68,11 +84,8 @@ spec:
             paths:
               - path: /
                 service:
-                  name: main
-                  port: http
-        tls:
-          - hosts:
-              - *host
+                  identifier: main
+                  port: *httpPort
 
     persistence:
       config-file:
@@ -82,6 +95,7 @@ spec:
           - path: /etc/zot/config.json
             subPath: config.json
             readOnly: true
+
       registry:
         type: hostPath
         hostPath: /mnt/backup/k8s/zot

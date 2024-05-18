@@ -3,7 +3,7 @@
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
-  name: ocis
+  name: &app ocis
 spec:
   interval: 30m
   chart:
@@ -30,6 +30,13 @@ spec:
             fsGroupChangePolicy: OnRootMismatch
             supplementalGroups:
               - 65542 # gladius:external-services
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: DoNotSchedule
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: *app
 
         initContainers:
           init-config:
@@ -51,6 +58,7 @@ spec:
               repository: docker.io/owncloud/ocis
               tag: 5.0.4
             env:
+              TZ: ${TIMEZONE}
               DEMO_USERS: false
               OCIS_LOG_COLOR: true
               OCIS_LOG_LEVEL: info

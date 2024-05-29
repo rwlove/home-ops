@@ -55,7 +55,7 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 ## :gear:&nbsp; Configuration
 - [Home Assistant](https://github.com/rwlove/home-assistant-config)
 - [Node Red](https://github.com/rwlove/node-red-hass-flows)
-- [ESPHome](TODO)
+- ESPHome - TODO
 
 ---
 

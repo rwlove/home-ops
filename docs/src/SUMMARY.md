@@ -6,4 +6,3 @@
 
 - [Coral](coral.md)
 - [nVidia Tesla P40](p40.md)
-- [Victoria Metrics](victoria-metrics.md)

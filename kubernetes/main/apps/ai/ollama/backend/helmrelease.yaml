@@ -14,20 +14,25 @@ spec:
         kind: HelmRepository
         name: bjw-s-charts
         namespace: flux-system
+
   maxHistory: 2
+
   install:
     remediation:
       retries: 3
+
   upgrade:
     cleanupOnFail: true
     remediation:
       retries: 3
+
   uninstall:
     keepHistory: false
+
   values:
     controllers:
       main:
-        type: deployment
+        type: statefulset
         annotations:
           reloader.stakater.com/auto: "true"
         containers:
@@ -37,17 +42,16 @@ spec:
               tag: 0.1.43
             env:
               TZ: ${TIMEZONE}
-              LIBVA_DRIVER_NAME: i965
-              OLLAMA_HOST: 0.0.0.0
-              OLLAMA_ORIGINS: "*"
+              NVIDIA_VISIBLE_DEVICES: all
+              NVIDIA_DRIVER_CAPABILITIES: all
             resources:
               requests:
                 cpu: 200m
-                memory: 16Gi
-                gpu.intel.com/i915: "1"
+                memory: 2Gi
+                nvidia.com/gpu: 1
               limits:
-                memory: 16Gi
-                gpu.intel.com/i915: "1"
+                memory: 2Gi
+                nvidia.com/gpu: 1
 
         pod:
           affinity:
@@ -55,21 +59,13 @@ spec:
               requiredDuringSchedulingIgnoredDuringExecution:
                 nodeSelectorTerms:
                   - matchExpressions:
-                      - key: intel.feature.node.kubernetes.io/gpu
+                      - key: nvidia.com/gpu.present
                         operator: In
                         values:
                           - "true"
-            #podAntiAffinity:
-            #  requiredDuringSchedulingIgnoredDuringExecution:
-            #    - labelSelector:
-            #        matchExpressions:
-            #          - key: app.kubernetes.io/name
-            #            operator: In
-            #            values: ["jellyfin", "frigate", "localai"]
-            #      topologyKey: kubernetes.io/hostname
 
           nodeSelector:
-            intel.feature.node.kubernetes.io/gpu: "true"
+            nvidia.com/gpu.present: "true"
 
     service:
       main:
@@ -77,3 +73,14 @@ spec:
         ports:
           http:
             port: &port 11434
+
+    ingress:
+      main:
+        className: internal
+        hosts:
+          - host: &host ollama.${SECRET_DOMAIN}
+            paths:
+              - path: /
+                service:
+                  name: main
+                  port: http

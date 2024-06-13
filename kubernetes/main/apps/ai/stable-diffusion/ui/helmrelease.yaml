@@ -30,14 +30,6 @@ spec:
     keepHistory: false
 
   values:
-    defaultPodOptions:
-      # runtimeClassName: nvidia
-      securityContext:
-        runAsUser: 1000
-        runAsGroup: 1000
-        fsGroup: 1000
-        fsGroupChangePolicy: OnRootMismatch
-
     controllers:
       main:
         type: statefulset
@@ -45,6 +37,11 @@ spec:
           reloader.stakater.com/auto: "true"
 
         pod:
+          runtimeClassName: nvidia
+          terminationGracePeriodSeconds: 1
+          securityContext:
+            fsGroup: 1000
+
           affinity:
             nodeAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:
@@ -65,7 +62,7 @@ spec:
               tag: 1.9.4
               pullPolicy: IfNotPresent
             args:
-            - --medvram
+              - --medvram-sdxl
             - --xformers
             env:
               IIB_ACCESS_CONTROL_ALLOWED_PATHS: /app/outputs
@@ -81,6 +78,17 @@ spec:
               limits:
                 memory: 8Gi
                 nvidia.com/gpu: 1
+
+            probes:
+              startup:
+                enabled: true
+                spec:
+                  failureThreshold: 90
+                  periodSeconds: 5
+              liveness:
+                enabled: true
+              readiness:
+                enabled: true
 
     service:
       main:

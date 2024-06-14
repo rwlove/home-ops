@@ -8,11 +8,10 @@ spec:
   interval: 30m
   chart:
     spec:
-      chart: app-template
-      version: 3.2.1
+      chart: ollama
       sourceRef:
         kind: HelmRepository
-        name: bjw-s-charts
+        name: ollama
         namespace: flux-system
 
   maxHistory: 2
@@ -30,52 +29,39 @@ spec:
     keepHistory: false
 
   values:
-    controllers:
-      main:
-        type: statefulset
-        annotations:
-          reloader.stakater.com/auto: "true"
-        containers:
-          main:
-            image:
-              repository: docker.io/ollama/ollama
-              tag: 0.1.44
-            env:
-              TZ: ${TIMEZONE}
-              NVIDIA_VISIBLE_DEVICES: all
-              NVIDIA_DRIVER_CAPABILITIES: all
-            resources:
-              requests:
-                cpu: 200m
-                memory: 2Gi
-                nvidia.com/gpu: 1
-              limits:
-                memory: 2Gi
-                nvidia.com/gpu: 1
+    replicaCount: 1
+    image:
+      repository: docker.io/ollama/ollama
+      tag: "0.1.34"  # Leave it empty to use the chart's default version
+    ollama:
+      gpu:
+          # Enable GPU integration
+          enabled: true
+          # Specify the number of GPU
+          number: 1
+        # Default model to serve, if not set, no model will be served at container startup
+      defaultModel: "codellama"
 
-        pod:
-          affinity:
-            nodeAffinity:
-              requiredDuringSchedulingIgnoredDuringExecution:
-                nodeSelectorTerms:
-                  - matchExpressions:
-                      - key: nvidia.com/gpu.present
-                        operator: In
-                        values:
-                          - "true"
+      serviceAccount:
+        # Specifies whether a service account should be created
+        create: true
+        # Automatically mount a ServiceAccount's API credentials?
+        automount: true
+        # The name of the service account to use.
+        # If not set and create is true, a name is generated using the fullname template
+        name: ""
 
-          nodeSelector:
-            nvidia.com/gpu.present: "true"
+      runtimeClassName: nvidia
 
     service:
       main:
-        controller: main
         ports:
           http:
-            port: &port 11434
+            port: 11434
 
     ingress:
       main:
+        enabled: true
         className: internal
         hosts:
           - host: &host ollama.${SECRET_DOMAIN}
@@ -84,3 +70,50 @@ spec:
                 service:
                   name: main
                   port: http
+
+    resources:
+      requests:
+        memory: 4096Mi
+        cpu: 2000m
+        nvidia.com/gpu: 1
+      limits:
+        memory: 24Gi
+        cpu: 4000m
+        nvidia.com/gpu: 1
+
+    livenessProbe:
+      enabled: true
+      path: /
+      initialDelaySeconds: 60
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
+      successThreshold: 1
+    readinessProbe:
+      enabled: true
+      path: /
+      initialDelaySeconds: 30
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 6
+      successThreshold: 1
+
+    persistentVolume:
+      enabled: true
+      size: 40Gi
+      storageClass: ceph-block
+      accessModes:
+        - ReadWriteOnce
+
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: nvidia.com/gpu.present
+                  operator: In
+                  values:
+                    - "true"
+
+    nodeSelector:
+      nvidia.com/gpu.present: "true"

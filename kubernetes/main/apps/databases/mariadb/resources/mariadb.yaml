@@ -1,0 +1,100 @@
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: MariaDB
+metadata:
+  name: mariadb-galera
+spec:
+  rootPasswordSecretKeyRef:
+    name: mariadb-secret
+    key: password
+    generate: false
+
+  storage:
+    size: 5Gi
+    storageClassName: ceph-block
+
+  replicas: 2
+  image: "mariadb:11.3.2"
+  imagePullPolicy: IfNotPresent
+
+  maxScale:
+    enabled: true
+
+    auth:
+      adminUsername: root
+      adminPasswordSecretKeyRef:
+        name: mariadb-secret
+        key: maxscale_password
+      deleteDefaultAdmin: true
+
+    kubernetesService:
+      type: LoadBalancer
+      metadata:
+        annotations:
+          io.cilium/lb-ipam-ips: 10.96.69.240
+
+    guiKubernetesService:
+      type: LoadBalancer
+      metadata:
+        annotations:
+          io.cilium/lb-ipam-ips: 10.96.69.241
+
+    connection:
+      secretName: mxs-galera-conn
+      port: 3306
+
+
+  galera:
+    enabled: true
+
+  service:
+    type: LoadBalancer
+    metadata:
+      annotations:
+        io.cilium/lb-ipam-ips: 10.96.69.150
+
+  primaryService:
+    type: LoadBalancer
+    metadata:
+      annotations:
+        io.cilium/lb-ipam-ips: 10.96.69.160
+
+  secondaryService:
+    type: LoadBalancer
+    metadata:
+      annotations:
+        io.cilium/lb-ipam-ips: 10.96.69.161
+
+  myCnf: |
+    [mariadb]
+    bind-address=*
+    default_storage_engine=InnoDB
+    binlog_format=row
+    innodb_autoinc_lock_mode=2
+    max_allowed_packet=256M
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 2Gi
+
+  podSecurityContext:
+    runAsUser: 568
+    runAsGroup: 568
+    fsGroup: 568
+    fsGroupChangePolicy: OnRootMismatch
+
+
+  #  livenessProbe:
+#    initialDelaySeconds: 20
+#    periodSeconds: 10
+#    timeoutSeconds: 10
+#
+#  readinessProbe:
+#    initialDelaySeconds: 20
+#    periodSeconds: 10
+#    timeoutSeconds: 10
+
+  metrics:
+    enabled: true

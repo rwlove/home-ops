@@ -1,0 +1,93 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.thesteamedcrab.com/helmrelease_v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app hortusfox-web
+  namespace: home
+spec:
+  interval: 30m
+  chart:
+    spec:
+      # renovate: registryUrl=https://bjw-s.github.io/helm-charts
+      chart: app-template
+      version: 3.2.1
+      sourceRef:
+        kind: HelmRepository
+        name: bjw-s-charts
+        namespace: flux-system
+
+  maxHistory: 3
+
+  install:
+    remediation:
+      retries: 3
+
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+
+  uninstall:
+    keepHistory: false
+
+  values:
+    controllers:
+      main:
+        type: statefulset
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        containers:
+          main:
+            image:
+              repository: ghcr.io/danielbrendel/hortusfox-web
+              tag: v3.2@sha256:bd56ad18579ed214ecdad6786c5ea88a9bc85378f3cecbdceb74e3b4f88a393c
+
+            env:
+              APP_ADMIN_EMAIL: "admin@example.com"
+              APP_ADMIN_PASSWORD: "hortusfox"
+              DB_HOST: db
+              DB_PORT: 3306
+              DB_DATABASE: hortusfox
+              DB_USERNAME: hortusfox
+              DB_PASSWORD: hortusfox
+              DB_CHARSET: "utf8mb4"
+              TZ: ${TIMEZONE}
+
+            #resources:
+            #  requests:
+            #    cpu: 15m
+            #    memory: 64M
+            #  limits:
+            #    memory: 64M
+
+    service:
+      main:
+        controller: main
+        ports:
+          http:
+            port: &httpPort 80
+
+    ingress:
+      main:
+        className: internal
+        annotations:
+          hajimari.io/enable: "true"
+          hajimari.io/appName: "Hortusfox"
+          hajimari.io/icon: mdi:flower
+          hajimari.io/group: "home automation"
+          hajimari.io/instance: "admin"
+        hosts:
+          - host: &host "{{ .Release.Name }}.${SECRET_DOMAIN}"
+            paths:
+              - path: /
+                service:
+                  identifier: main
+                  port: *httpPort
+
+    #persistence:
+    #  config:
+    #    existingClaim: exercisediary-data-pvc
+    #    globalMounts:
+    #      - path: /data/ExerciseDiary

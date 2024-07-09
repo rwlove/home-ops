@@ -97,12 +97,13 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 
 | Service                                         | Use                                                               | Cost             |
 |-------------------------------------------------|-------------------------------------------------------------------|------------------|
-| [1Password](https://1password.com/)             | Secrets with [External Secrets](https://external-secrets.io/)     | ~$65/yr          |
+| [1Password](https://1password.com/)             | Secrets with [External Secrets](https://external-secrets.io/)     | ~$65 (1 Year)    |
 | [Cloudflare](https://www.cloudflare.com/)       | Domain                                                            | Free             |
 | [GitHub](https://github.com/)                   | Hosting this repository and continuous integration/deployments    | Free             |
 | [Mailgun](https://www.mailgun.com/)             | Email hosting                                                     | Free (Flex Plan) |
 | [Pushover](https://pushover.net/)               | Kubernetes Alerts and application notifications                   | $10 (One Time)   |
-|                                                 |                                                                   | Total: ~$5.50/mo |
+| [Frigate Plus](https://plus.frigate.video/)     | Model training services for Frigate NVR                           | $50 (1 Year)     |
+|                                                 |                                                                   | Total: ~$9.60/mo
 
 ---
 

@@ -83,7 +83,7 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 <details>
   <summary>Click to see a high level physical network diagram</summary>
 
-  <img src="https://github.com/rwlove/home-ops/blob/5d052422d64299f22c499d7bd2768f1ac58e71f6/docs/assets/physical-network-diagram.jpg" align="center" width="600px" alt="dns"/>
+  <img src="https://github.com/rwlove/home-ops/blob/main/docs/assets/physical-network-diagram.jpg" align="center" width="600px" alt="dns"/>
 </details>
 
 | Name                                           | CIDR                       | VLAN | Notes |

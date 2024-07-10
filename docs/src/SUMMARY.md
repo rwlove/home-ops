@@ -6,3 +6,4 @@
 
 - [Coral](coral.md)
 - [nVidia Tesla P40](p40.md)
+- [Debugging](debugging.md)

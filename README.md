@@ -8,7 +8,7 @@ _Managed by Flux, Renovate and GitHub Actions_ :robot:
 
 [![Kubernetes](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thesteamedcrab.com%2Fquery%3Fformat%3Dendpoint%26metric%3Dkubernetes_version&style=for-the-badge&logo=kubernetes&logoColor=white&color=blue&label=%20)](https://github.com/kashalls/kromgo/)&nbsp;&nbsp;
 [![Renovate](https://img.shields.io/github/actions/workflow/status/rwlove/home-ops/renovate.yaml?branch=main&label=&logo=renovatebot&style=for-the-badge&color=blue)](https://github.com/rwlove/home-ops/actions/workflows/renovate.yaml)
-[![Docs](https://img.shields.io/static/v1.svg?color=009688&labelColor=555555&logoColor=ffffff&style=for-the-badge&label=Cluster&message=Docs)](https://rwlove.github.io/home-ops/ "Documentation for this repository.")
+[![Docs](https://img.shields.io/static/v1.svg?color=009688&labelColor=555555&logoColor=ffffff&style=for-the-badge&message=Documentation)](https://rwlove.github.io/home-ops/ "Documentation for this repository.")
 
 Kubernetes Cluster Information:
 

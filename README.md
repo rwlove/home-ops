@@ -33,6 +33,7 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 ### Infrastructure
 - [CentOS 9 Stream](https://www.centos.org/centos-stream/): Kubernetes Node Operating System.
 - [crun](https://github.com/containers/crun): Container Runtime implemented in C.
+- [nVIDIA Container Toolkit](https://github.com/NVIDIA/nvidia-container-toolkit): Container Runtime for nVIDIA GPUs.
 
 ### Networking
 - [cilium](https://cilium.io): Kubernetes Container Network Interface (CNI).

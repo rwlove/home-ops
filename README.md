@@ -111,17 +111,9 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 
 ---
 
-## Initialization
-```./init/create-cluster.sh``` (on master)
+## Initialization and Teardown
 
-```./init/prepare-cluster.sh``` (on laptop)
-
-```./init/initialize-cluster.sh``` (on laptop)
-
-```ssh root@master1 rm /etc/kubernetes/manifests/kube-vip.yaml``` (on laptop)
-
-## Teardown
-```./init/destroy-cluster.sh``` (on laptop)
+[Initialization and Teardown](https://rwlove.github.io/home-ops/init_teardown.html)
 
 ## Debugging
 

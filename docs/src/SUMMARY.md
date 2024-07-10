@@ -6,4 +6,5 @@
 
 - [Coral](coral.md)
 - [nVidia Tesla P40](p40.md)
+- [Initialization and Teardown](init_teardown.md)
 - [Debugging](debugging.md)

@@ -113,10 +113,10 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 
 ### Noteworthy Documentation
 
-[Initialization and Teardown](https://rwlove.github.io/home-ops/init_teardown.html)
-[Github Webhook](https://rwlove.github.io/home-ops/github_webhook.html)
-[Limits and Requests Philosophy](https://rwlove.github.io/home-ops/limits.html)
-[Debugging](https://rwlove.github.io/home-ops/debugging.html)
+[Initialization and Teardown](https://rwlove.github.io/home-ops/init_teardown.html)&nbsp;&nbsp;
+[Github Webhook](https://rwlove.github.io/home-ops/github_webhook.html)&nbsp;&nbsp;
+[Limits and Requests Philosophy](https://rwlove.github.io/home-ops/limits.html)&nbsp;&nbsp;
+[Debugging](https://rwlove.github.io/home-ops/debugging.html)&nbsp;&nbsp;
 
 ### Home-Ops Search
 

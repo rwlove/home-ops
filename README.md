@@ -123,12 +123,7 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 
 [Github Webhook](https://rwlove.github.io/home-ops/github_webhook.html)
 
- ## Notes
- To get metrics-server to work with kubeadm, you need to do the following if it isn't setup with the clusterconfig provided to kubeadm
- https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/kubeadm-certs/#kubelet-serving-certs
- * Need to pull the kubeadm configuration into this repository
-
- ### Resources: Limits and Requests Philosophy
+### Resources: Limits and Requests Philosophy
 
 [Limits and Requests Philosophy](https://rwlove.github.io/home-ops/limits.html)
 

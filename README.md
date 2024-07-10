@@ -111,20 +111,13 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 
 ---
 
-## Initialization and Teardown
+### Noteworthy Documentation
 
 [Initialization and Teardown](https://rwlove.github.io/home-ops/init_teardown.html)
-
-## Debugging
-
+[Github Webhook](https://rwlove.github.io/home-ops/github_webhook.html)
+[Limits and Requests Philosophy](https://rwlove.github.io/home-ops/limits.html)
 [Debugging](https://rwlove.github.io/home-ops/debugging.html)
 
-## Github Webhook
+### Home-Ops Search
 
-[Github Webhook](https://rwlove.github.io/home-ops/github_webhook.html)
-
-### Resources: Limits and Requests Philosophy
-
-[Limits and Requests Philosophy](https://rwlove.github.io/home-ops/limits.html)
-
- [@whazor](https://github.com/whazor) created [this website](https://nanne.dev/k8s-at-home-search/) as a creative way to search Helm Releases across GitHub. You may use it as a means to get ideas on how to configure an applications' Helm values.
+[@whazor](https://github.com/whazor) created [this website](https://nanne.dev/k8s-at-home-search/) as a creative way to search Helm Releases across GitHub. You may use it as a means to get ideas on how to configure an applications' Helm values.

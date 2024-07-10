@@ -119,16 +119,9 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 
 [Debugging](https://rwlove.github.io/home-ops/debugging.html)
 
-
 ## Github Webhook
-`kubectl -n flux-system get receivers.notification.toolkit.fluxcd.io` generates token URL to be put into
-github.com -> Settings -> Webhooks -> Payload URL
 
-* Content Type: application/json
-* Secret: <token from kubectl -n flux-system describe secrets github-webhook-token>
-* SSL: Enable SSL verification
-* Which events would you like to trigger this webhook?: Just the push event.
-* Active: <checked>
+[Github Webhook](https://rwlove.github.io/home-ops/github_webhook.html)
 
  ## Notes
  To get metrics-server to work with kubeadm, you need to do the following if it isn't setup with the clusterconfig provided to kubeadm

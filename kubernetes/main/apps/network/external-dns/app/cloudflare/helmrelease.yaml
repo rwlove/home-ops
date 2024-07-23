@@ -8,104 +8,59 @@ spec:
   interval: 30m
   chart:
     spec:
-      chart: app-template
-      version: 3.2.1
+      chart: external-dns-charts
+      version: 1.14.5
       sourceRef:
         kind: HelmRepository
-        name: bjw-s-charts
+        name: external-dns
         namespace: flux-system
 
   install:
+    crds: CreateReplace
     remediation:
       retries: 3
 
   upgrade:
     cleanupOnFail: true
+    crds: CreateReplace
     remediation:
+      strategy: rollback
       retries: 3
 
-  uninstall:
-    keepHistory: false
-
   values:
-    controllers:
-      main:
-        strategy: Recreate
-        annotations:
-          reloader.stakater.com/auto: "true"
-        containers:
-          main:
-            image:
-              repository: registry.k8s.io/external-dns/external-dns
-              tag: v0.14.2@sha256:3fcad62c4a9a8a72cb2db5ce7adeb121be66cac5f7f5ddad43684c2b20c72aa5
-            envFrom:
-              - secretRef:
-                  name: external-dns-cloudflare-secret
-            args:
-              - --cloudflare-proxied
-              - --crd-source-apiversion=externaldns.k8s.io/v1alpha1
-              - --crd-source-kind=DNSEndpoint
-              - --domain-filter=thesteamedcrab.com
-              - --ingress-class=external
-              - --interval=1m
-              - --log-format=text
-              - --log-level=info
-              - --metrics-address=:7979
-              - --policy=sync
-              - --provider=cloudflare
-              - --registry=txt
-              - --source=crd
-              - --source=ingress
-              - --txt-owner-id=default
-              - --txt-prefix=k8s.
-            probes:
-              liveness: &probes
-                enabled: true
-                custom: true
-                spec:
-                  httpGet:
-                    path: /healthz
-                    port: &port 7979
-                  initialDelaySeconds: 0
-                  periodSeconds: 10
-                  timeoutSeconds: 1
-                  failureThreshold: 3
-              readiness: *probes
-              startup:
-                enabled: false
-            securityContext:
-              allowPrivilegeEscalation: false
-              readOnlyRootFilesystem: true
-              capabilities: { drop: ["ALL"] }
-            resources:
-              requests:
-                cpu: 10m
-                memory: 120M
-              limits:
-                memory: 120M
-        pod:
-          securityContext:
-            runAsUser: 568
-            runAsGroup: 568
-            runAsNonRoot: true
+    fullnameOverride: *app
 
-    serviceAccount:
-      create: true
-      name: *app
+    provider:
+      name: cloudflare
 
-    service:
-      main:
-        controller: main
-        ports:
-          http:
-            port: *port
+    env:
+      - name: &name CF_API_EMAIL
+        valueFrom:
+          secretKeyRef:
+            name: &secret external-dns-cloudflare-secret
+            key: *name
+      - name: &name CF_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: *secret
+            key: *name
 
+    extraArgs:
+      - --cloudflare-dns-records-per-page=1000
+      - --cloudflare-proxied
+      - --crd-source-apiversion=externaldns.k8s.io/v1alpha1
+      - --crd-source-kind=DNSEndpoint
+      - --events
+      - --ignore-ingress-tls-spec
+      - --ingress-class=external
+
+    policy: sync
+    sources: ["crd", "ingress"]
+    txtOwnerId: default
+    txtPrefix: k8s.
+    domainFilters: ["thesteamedcrab.com"]
     serviceMonitor:
-      main:
-        serviceName: *app
-        endpoints:
-          - port: http
-            scheme: http
-            path: /metrics
-            interval: 1m
-            scrapeTimeout: 10s
+      enabled: true
+
+    podAnnotations:
+      secret.reloader.stakater.com/reload: *secret

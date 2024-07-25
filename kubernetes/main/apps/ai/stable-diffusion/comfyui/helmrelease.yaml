@@ -1,0 +1,108 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2beta2.schema.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app comfyui
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: app-template
+      version: 3.2.1
+      sourceRef:
+        kind: HelmRepository
+        name: bjw-s-charts
+        namespace: flux-system
+
+  install:
+    remediation:
+      retries: 3
+
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+      strategy: rollback
+
+  values:
+    controllers:
+      comfyui:
+        type: statefulset
+
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        pod:
+          runtimeClassName: nvidia
+
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: nvidia.com/gpu.present
+                        operator: In
+                        values:
+                          - "true"
+
+          nodeSelector:
+            nvidia.com/gpu.present: "true"
+
+        containers:
+          app:
+            image:
+              repository: docker.io/jahanson/comfyui
+              tag: v0.0.1
+            resources:
+              requests:
+                nvidia.com/gpu: 1 # requesting 1 GPU
+                cpu: 500m
+                memory: 6Gi
+              limits:
+                memory: 6Gi
+                nvidia.com/gpu: 1 # requesting 1 GPU
+
+    service:
+      app:
+        controller: comfyui
+        ports:
+          http:
+            port: 7860
+
+    ingress:
+      app:
+        enabled: true
+        className: internal
+        annotations:
+          hajimari.io/enable: "true"
+          hajimari.io/appName: "ComfyUI"
+          hajimari.io/icon: mdi:draw
+          hajimari.io/group: "AI"
+          hajimari.io/instance: "admin"
+        hosts:
+          - host: &host "{{ .Release.Name }}.${SECRET_DOMAIN}"
+            paths:
+              - path: /
+                service:
+                  identifier: app
+                  port: http
+
+    persistence:
+      models:
+        enabled: true
+        existingClaim: comfyui-models-pvc
+        globalMounts:
+          - path: /data/models
+
+      config:
+        enabled: true
+        existingClaim: comfyui-config-pvc
+        globalMounts:
+          - path: /data/config
+
+      output:
+        enabled: true
+        existingClaim: comfyui-output-pvc
+        globalMounts:
+          - path: /output

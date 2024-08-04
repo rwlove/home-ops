@@ -1,0 +1,94 @@
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: egress-home-assistant
+spec:
+  endpointSelector:
+    matchLabels:
+      policy.lovenet/egress-home-assistant: "true"
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            #io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: home-assistant
+      toPorts:
+        - ports:
+            - port: "8123"
+
+---
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: ingress-home-assistant
+spec:
+  endpointSelector:
+    matchLabels:
+      policy.lovenet/ingress-home-assistant: "true"
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            #io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: home-assistant
+
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: home-assistant
+  namespace: home
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: home-assistant
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            policy.lovenet/ingress-home-assistant: "true"
+          #matchExpressions:
+          #  - key: io.kubernetes.pod.namespace
+          #    operator: Exists
+    - toCIDRSet:
+        - cidr: 10.10.20.0/24 # IOT VLAN
+        - cidr: 10.10.40.0/24 # Security VLAN
+    - toCIDR:
+        - 192.168.1.1/32 # brain glances
+        - 192.168.1.27/32 # beast glances
+      toPorts:
+        - ports:
+            - protocol: TCP
+              port: "61209"
+    - toCIDR:
+        - 192.168.1.5.29 # Brother printer
+      toPorts:
+        - ports:
+            - protocol: TCP
+              port: "631"
+    - toCIDR:
+        - 192.168.1.0/24
+      toPorts:
+        - ports:
+            - protocol: TCP
+              port: "9090" # Kodi
+
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            policy.lovenet/egress-home-assistant: "true"
+          #matchExpressions:
+          #  - key: io.kubernetes.pod.namespace
+          #    operator: Exists
+        - matchLabels:
+            #io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: hajimari
+        - matchLabels:
+            #io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: ingress-nginx
+        - matchLabels:
+            #io.kubernetes.pod.namespace: databases
+            cnpg.io/cluster: postgres
+        - matchLabels:
+            #io.kubernetes.pod.namespace: monitoring
+            app.kubernetes.io/name: prometheus
+        - matchLabels:
+            #io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: ollama

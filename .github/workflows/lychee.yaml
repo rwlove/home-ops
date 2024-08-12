@@ -11,8 +11,7 @@ on:
     - cron: "0 0 * * *" # Every day at midnight
 
 env:
-  WORKFLOW_ISSUE_TITLE: "Link Checker Dashboard"
-  #WORKFLOW_ISSUE_TITLE: "Link Checker Dashboard 🔗"
+  WORKFLOW_ISSUE_TITLE: "Link Checker Dashboard 🔗"
 
 jobs:
   lychee:
@@ -26,62 +25,32 @@ jobs:
           app-id: "${{ secrets.BOT_APP_ID }}"
           private-key: "${{ secrets.BOT_APP_PRIVATE_KEY }}"
 
-      - name: Checkout Default Branch
+      - name: Checkout
         uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4
         with:
           token: "${{ steps.app-token.outputs.token }}"
 
+      - name: Setup Homebrew
+        uses: Homebrew/actions/setup-homebrew@master
+
+      - name: Setup Workflow Tools
+        shell: bash
+        run: brew install lychee
+
       - name: Scan For Broken Links
-        uses: lycheeverse/lychee-action@2b973e86fc7b1f6b36a93795fe2c9c6ae1118621 # v1
+        shell: bash
         env:
           GITHUB_TOKEN: "${{ steps.app-token.outputs.token }}"
-        with:
-          args: --verbose --no-progress --exclude-mail './**/*.md' --accept 403
-          output: /tmp/results.md
-
-      - name: Print raw issue unfiltered
-        id: raw-issue-un
-        shell: bash
-        env:
-          GH_TOKEN: "${{ steps.app-token.outputs.token }}"
         run: |
-          raw_un_temp=$( \
-              gh issue list \
-                  --state open \
-                  --json number \
-          )
-          echo "${raw_un_temp}"
+          lychee --verbose --no-progress \
+              --format markdown \
+              --output results.md \
+              --exclude-all-private \
+              --exclude-mail \
+              ./**/*.md || true
 
-      - name: Print raw issue
-        id: raw-issue
-        shell: bash
-        env:
-          GH_TOKEN: "${{ steps.app-token.outputs.token }}"
-        run: |
-          raw_temp=$( \
-              gh issue list \
-                  --search "Link in:title" \
-                  --state open \
-                  --json number \
-          )
-          echo "${{ env.WORKFLOW_ISSUE_TITLE }}"
-          echo "${raw_temp}"
-
-      - name: TEST
-        id: test-issue
-        shell: bash
-        env:
-          GH_TOKEN: "${{ steps.app-token.outputs.token }}"
-        run: |
-          test_temp=$( \
-              gh issue list \
-                  --search "Link in:title" \
-                  --state open \
-                  --json number \
-                  -q '.[0].number' \
-          )
-          echo "${{ env.WORKFLOW_ISSUE_TITLE }}"
-          echo "${test_temp}"
+      - name: Print Output
+        run: cat results.md
 
       - name: Find Link Checker Issue
         id: find-issue
@@ -105,4 +74,4 @@ jobs:
           token: "${{ steps.app-token.outputs.token }}"
           title: "${{ env.WORKFLOW_ISSUE_TITLE }}"
           issue-number: "${{ steps.find-issue.outputs.issue-number || '' }}"
-          content-filepath: /tmp/results.md
+          content-filepath: results.md

@@ -1,5 +1,5 @@
 ---
-# yaml-language-server: $schema=https://kubernetes-schemas.thesteamedcrab.com/helmrelease_v2.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2beta2.json
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -15,6 +15,7 @@ spec:
         kind: HelmRepository
         name: stevehipwell
         namespace: flux-system
+      interval: 30m
 
   maxHistory: 3
 
@@ -31,157 +32,116 @@ spec:
     keepHistory: false
 
   values:
-    image:
-      registry: quay.io
-      repository: thanos/thanos
-      tag: v0.37.0
-
     objstoreConfig:
-      type: s3
-      config:
-        insecure: true
-
-    queryFrontend:
-      enabled: false
-
+      value:
+        type: s3
+        config:
+          insecure: false
+    additionalEndpoints:
+      - dnssrv+_grpc._tcp.prometheus-thanos-discovery.monitoring.svc.cluster.local
+    additionalReplicaLabels: ["__replica__"]
+    serviceMonitor:
+      enabled: true
+    compact:
+      enabled: true
+      extraArgs:
+        - --compact.concurrency=4
+        - --delete-delay=30m
+        - --retention.resolution-raw=14d
+        - --retention.resolution-5m=30d
+        - --retention.resolution-1h=60d
+      persistence:
+        enabled: true
+        storageClass: ceph-block
+        size: 15Gi
     query:
+      replicas: 2
+      additionalStores:
+        - thanos-storegateway.monitoring:10901
+      extraArgs:
+        - --alert.query-url=http://thanos-query.monitoring:10901
+    queryFrontend:
       enabled: true
-      replicaCount: 3
-      podAntiAffinityPreset: hard
-      replicaLabel: ["__replica__"] # must match with kube-prometheus-stack value `.prometheus.prometheusSpec.replicaExternalLabelName`
-      dnsDiscovery:
-        sidecarsService: prometheus-thanos-discovery
-        sidecarsNamespace: monitoring
-      stores: ["thanos-storegateway.monitoring:10901"]
+      replicas: 2
+      extraEnv:
+        - name: THANOS_CACHE_CONFIG
+          valueFrom:
+            configMapKeyRef:
+              name: thanos-cache-configmap
+              key: cache.yaml
+      extraArgs:
+        - --query-range.response-cache-config=$(THANOS_CACHE_CONFIG)
+      podAnnotations:
+        configmap.reloader.stakater.com/reload: thanos-cache-configmap
       ingress:
         enabled: true
-        ingressClassName: internal
-        annotations:
-          hajimari.io/enable: "false"
-        hostname: &host thanos-query.${SECRET_DOMAIN}
+        ingressClassName: internal-nginx
+        hosts:
+          - &queryFrontendhost thanos.bjw-s.dev
         tls:
           - hosts:
-              - *host
-
-    bucketweb:
+              - *queryFrontendhost
+    rule:
       enabled: true
-      replicaCount: 3
-      podAntiAffinityPreset: hard
-      ingress:
-        enabled: true
-        ingressClassName: internal
-        annotations:
-          hajimari.io/enable: "false"
-        hostname: &host thanos-bucketweb.${SECRET_DOMAIN}
-        tls:
-          - hosts:
-              - *host
-
-    compactor:
-      enabled: true
-      extraFlags: ["--compact.concurrency", "4"]
-      retentionResolutionRaw: 7d
-      retentionResolution5m: 14d
-      retentionResolution1h: 30d
-      ingress:
-        enabled: true
-        ingressClassName: internal
-        annotations:
-          hajimari.io/enable: "false"
-        hostname: &host thanos-compactor.${SECRET_DOMAIN}
-        tls:
-          - hosts:
-              - *host
-
-      resources:
-        requests:
-          cpu: 100m
-          memory: 298M
-        limits:
-          memory: 298M
-
+      replicas: 2
+      extraArgs: ["--web.prefix-header=X-Forwarded-Prefix"]
+      alertmanagersConfig:
+        value: |-
+          alertmanagers:
+            - api_version: v2
+              static_configs:
+                - dnssrv+_http-web._tcp.alertmanager.monitoring.svc.cluster.local
+      rules:
+        value: |-
+          groups:
+            - name: PrometheusWatcher
+              rules:
+                - alert: PrometheusDown
+                  annotations:
+                    summary: A Prometheus has disappeared from Prometheus target discovery
+                  expr: absent(up{job="kube-prometheus-stack-prometheus"})
+                  for: 5m
+                  labels:
+                    severity: critical
       persistence:
         enabled: true
         storageClass: ceph-block
-        size: 40Gi
-
-    storegateway:
-      enabled: true
-      replicaCount: 3
-      podAntiAffinityPreset: hard
-      ingress:
-        enabled: true
-        ingressClassName: internal
-        annotations:
-          hajimari.io/enable: "false"
-        hostname: &host thanos-storegateway.${SECRET_DOMAIN}
-        tls:
-          - hosts:
-              - *host
-
+        size: 15Gi
+    storeGateway:
+      replicas: 2
+      extraEnv:
+        - name: THANOS_CACHE_CONFIG
+          valueFrom:
+            configMapKeyRef:
+              name: &configMap thanos-cache-configmap
+              key: cache.yaml
+      extraArgs:
+        - --index-cache.config=$(THANOS_CACHE_CONFIG)
+      podAnnotations:
+        configmap.reloader.stakater.com/reload: thanos-cache-configmap
       persistence:
         enabled: true
         storageClass: ceph-block
-        size: 20Gi
-
-    ruler:
-      enabled: true
-      replicaCount: 3
-      replicaLabel: __replica__
-      alertmanagers:
-        ["http://prometheus-alertmanager.monitoring:9093"]
-      extraFlags: ["--web.prefix-header=X-Forwarded-Prefix"]
-      config: |-
-        groups:
-          - name: PrometheusWatcher
-            rules:
-              - alert: PrometheusDown
-                annotations:
-                  summary: A Prometheus has disappeared from Prometheus target discovery
-                expr: absent(up{job="prometheus"})
-                for: 5m
-                labels:
-                  severity: critical
-
-      ingress:
-        enabled: true
-        ingressClassName: internal
-        annotations:
-          hajimari.io/enable: "false"
-        hostname: &host thanos-ruler.${SECRET_DOMAIN}
-        tls: true
-        extraTls:
-          - hosts:
-              - *host
-
-      persistence:
-        enabled: true
-        storageClass: ceph-block
-        size: 20Gi
-
-    metrics:
-      enabled: true
-      serviceMonitor:
-        enabled: true
+        size: 15Gi
 
   valuesFrom:
-    - targetPath: objstoreConfig.config.bucket
-      kind: ConfigMap
-      name: thanos-bucket-v1
-      valuesKey: BUCKET_NAME
-    - targetPath: objstoreConfig.config.endpoint
-      kind: ConfigMap
-      name: thanos-bucket-v1
-      valuesKey: BUCKET_HOST
-    - targetPath: objstoreConfig.config.region
-      kind: ConfigMap
-      name: thanos-bucket-v1
-      valuesKey: BUCKET_REGION
-    - targetPath: objstoreConfig.config.access_key
+    - targetPath: objstoreConfig.value.config.bucket
       kind: Secret
-      name: thanos-bucket-v1
-      valuesKey: AWS_ACCESS_KEY_ID
-    - targetPath: objstoreConfig.config.secret_key
+      name: thanos-secret
+      valuesKey: S3_BUCKET
+    - targetPath: objstoreConfig.value.config.endpoint
       kind: Secret
-      name: thanos-bucket-v1
-      valuesKey: AWS_SECRET_ACCESS_KEY
+      name: thanos-secret
+      valuesKey: S3_HOST
+    - targetPath: objstoreConfig.value.config.region
+      kind: Secret
+      name: thanos-secret
+      valuesKey: S3_REGION
+    - targetPath: objstoreConfig.value.config.access_key
+      kind: Secret
+      name: thanos-secret
+      valuesKey: S3_ACCESS_KEY
+    - targetPath: objstoreConfig.value.config.secret_key
+      kind: Secret
+      name: thanos-secret
+      valuesKey: S3_SECRET_KEY

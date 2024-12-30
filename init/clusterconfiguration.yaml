@@ -1,4 +1,4 @@
-apiVersion: kubeadm.k8s.io/v1beta3
+apiVersion: kubeadm.k8s.io/v1beta4
 bootstrapTokens:
 - groups:
   - system:bootstrappers:kubeadm:default-node-token
@@ -14,43 +14,49 @@ localAPIEndpoint:
 nodeRegistration:
   criSocket: unix:///var/run/crio/crio.sock
   imagePullPolicy: IfNotPresent
+  imagePullSerial: true
   name: master1.thesteamedcrab.com
   taints:
   - effect: NoSchedule
     key: node-role.kubernetes.io/control-plane
 skipPhases:
-  - addon/kube-proxy
+- addon/kube-proxy
+timeouts:
+  controlPlaneComponentHealthCheck: 4m0s
+  discovery: 5m0s
+  etcdAPICall: 2m0s
+  kubeletHealthCheck: 4m0s
+  kubernetesAPICall: 1m0s
+  tlsBootstrap: 5m0s
+  upgradeManifests: 5m0s
 ---
-apiServer:
-  extraArgs:
-    feature-gates: ReadWriteOncePod=true
-  timeoutForControlPlane: 4m0s
-apiVersion: kubeadm.k8s.io/v1beta3
+apiVersion: kubeadm.k8s.io/v1beta4
+caCertificateValidityPeriod: 87600h0m0s
+certificateValidityPeriod: 8760h0m0s
 certificatesDir: /etc/kubernetes/pki
 clusterName: kubernetes
 controlPlaneEndpoint: 192.168.6.1:6443
 controllerManager:
   extraArgs:
-    feature-gates: ReadWriteOncePod=true
-    bind-address: "0.0.0.0"
+  - name: bind-address
+    value: 0.0.0.0
 dns: {}
+encryptionAlgorithm: RSA-2048
 etcd:
   local:
     dataDir: /var/lib/etcd
-    extraArgs:                                                                                                                    
-      listen-metrics-urls: http://0.0.0.0:2381
+    extraArgs:
+    - name: listen-metrics-urls
+      value: http://0.0.0.0:2381
 imageRepository: registry.k8s.io
 kind: ClusterConfiguration
-kubernetesVersion: v1.29.2
+kubernetesVersion: v1.31.4
 networking:
   dnsDomain: cluster.local
   podSubnet: 10.42.0.0/16
   serviceSubnet: 10.43.0.0/16
+proxy: {}
 scheduler:
   extraArgs:
-    feature-gates: ReadWriteOncePod=true
-    bind-address: "0.0.0.0"
----
-apiVersion: kubelet.config.k8s.io/v1beta1
-kind: KubeletConfiguration
-serverTLSBootstrap: true
+  - name: bind-address
+    value: 0.0.0.0

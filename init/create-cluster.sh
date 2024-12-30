@@ -38,6 +38,7 @@ for control_plane in master2.thesteamedcrab.com master3.thesteamedcrab.com ; do
     ssh "$control_plane" "mkdir /etc/kubernetes/manifests"
 done
 
+exit 1
 
 for worker in worker1.thesteamedcrab.com \
 		  worker2.thesteamedcrab.com \

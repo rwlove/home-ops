@@ -69,8 +69,8 @@ ssh root@worker4.thesteamedcrab.com rm -rf /var/lib/longhorn/*
 kubectl label nodes worker4.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
 ssh root@worker5.thesteamedcrab.com rm -rf /var/lib/longhorn/*
 kubectl label nodes worker5.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
-ssh root@worker6.thesteamedcrab.com rm -rf /var/lib/longhorn/*
-kubectl label nodes worker6.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
+#ssh root@worker6.thesteamedcrab.com rm -rf /var/lib/longhorn/*
+#kubectl label nodes worker6.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
 ssh root@worker7.thesteamedcrab.com rm -rf /var/lib/longhorn/*
 kubectl label nodes worker7.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
 ssh root@worker8.thesteamedcrab.com rm -rf /var/lib/longhorn/*

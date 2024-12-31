@@ -113,10 +113,12 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 
 ### Noteworthy Documentation
 
+[Cluster Rebuild Actions](cluster_rebuild.md)&nbsp;&nbsp;
 [Initialization and Teardown](https://rwlove.github.io/home-ops/init_teardown.html)&nbsp;&nbsp;
 [Github Webhook](https://rwlove.github.io/home-ops/github_webhook.html)&nbsp;&nbsp;
 [Limits and Requests Philosophy](https://rwlove.github.io/home-ops/limits.html)&nbsp;&nbsp;
 [Debugging](https://rwlove.github.io/home-ops/debugging.html)&nbsp;&nbsp;
+[Immich restore to new CNPG database](immich_cnpg.md)&nbsp;&nbsp;
 [nVIDIA P40 GPU](https://rwlove.github.io/home-ops/p40.html)&nbsp;&nbsp;
 
 ### Home-Ops Search

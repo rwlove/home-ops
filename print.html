@@ -85,7 +85,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded affix "><li class="part-title">Welcome</li><li class="chapter-item expanded "><a href="introduction.html">👋 Introduction</a></li><li class="chapter-item expanded "><a href="coral.html">Coral</a></li><li class="chapter-item expanded "><a href="p40.html">nVidia Tesla P40</a></li><li class="chapter-item expanded "><a href="init_teardown.html">Initialization and Teardown</a></li><li class="chapter-item expanded "><a href="github_webhook.html">Github Webhook</a></li><li class="chapter-item expanded "><a href="limits.html">Resources: Limits and Requests Philosophy</a></li><li class="chapter-item expanded "><a href="debugging.html">Debugging</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded affix "><li class="part-title">Welcome</li><li class="chapter-item expanded "><a href="introduction.html">👋 Introduction</a></li><li class="chapter-item expanded "><a href="coral.html">Coral</a></li><li class="chapter-item expanded "><a href="p40.html">nVidia Tesla P40</a></li><li class="chapter-item expanded "><a href="init_teardown.html">Initialization and Teardown</a></li><li class="chapter-item expanded "><a href="immich_cnpg.html">Immich restore to new CNPG database</a></li><li class="chapter-item expanded "><a href="github_webhook.html">Github Webhook</a></li><li class="chapter-item expanded "><a href="limits.html">Resources: Limits and Requests Philosophy</a></li><li class="chapter-item expanded "><a href="debugging.html">Debugging</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -354,6 +354,27 @@ powerful power supply would make a difference.</p>
 <p><code>ssh root@master1 rm /etc/kubernetes/manifests/kube-vip.yaml</code> (on laptop)</p>
 <h2 id="teardown"><a class="header" href="#teardown">Teardown</a></h2>
 <p><code>./init/destroy-cluster.sh</code> (on laptop)</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="importing-an-immich-db-backup-into-a-new-cnpg-database"><a class="header" href="#importing-an-immich-db-backup-into-a-new-cnpg-database">Importing an Immich DB backup into a new CNPG database</a></h1>
+<ol>
+<li>Create the new Immich database</li>
+</ol>
+<p><code>kubectl cnpg -n databases psql postgres-16 -- -c 'CREATE DATABASE immich;'</code></p>
+<ol start="2">
+<li>Ensure that you're woring with the primary CNPG instance</li>
+</ol>
+<p><code>kubectl cnpg -n databases status postgres-16 | grep "Primary instance:"</code></p>
+<ol start="3">
+<li>Copy the database backup into the container's persistent storage (where there is likely enough room for it)</li>
+</ol>
+<p><code>kubectl -n databases cp ./immich-db-backup.sql.gz postgres-16-2:/var/lib/postgresql/data/</code></p>
+<ol start="4">
+<li>Exec into the postgres container</li>
+</ol>
+<p><code>kubectl -n databases exec -it postgres-16-2 -- bash</code></p>
+<ol start="5">
+<li>Run the <a href="https://immich.app/docs/administration/backup-and-restore">Immich restore command</a></li>
+</ol>
+<p><code>gunzip &lt; "/path/to/backup/dump.sql.gz" | sed "s/SELECT pg_catalog.set_config('search_path', '', false);/SELECT pg_catalog.set_config('search_path', 'public, pg_catalog', true);/g" | psql --username=postgres</code></p>
 <div style="break-before: page; page-break-before: always;"></div><h2 id="github-webhook"><a class="header" href="#github-webhook">Github Webhook</a></h2>
 <p><code>kubectl -n flux-system get receivers.notification.toolkit.fluxcd.io</code> generates token URL to be put into
 github.com -&gt; Settings -&gt; Webhooks -&gt; Payload URL</p>

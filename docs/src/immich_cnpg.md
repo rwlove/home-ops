@@ -18,4 +18,4 @@
 
 5. Run the [Immich restore command](https://immich.app/docs/administration/backup-and-restore)
 
-`gunzip < "/path/to/backup/dump.sql.gz" | sed "s/SELECT pg_catalog.set_config('search_path', '', false);/SELECT pg_catalog.set_config('search_path', 'public, pg_catalog', true);/g" | psql --username=postgres`
+`gunzip < "immich-db-backup-1735455600013.sql.gz"| sed "s/SELECT pg_catalog.set_config('search_path', '', false);/SELECT pg_catalog.set_config('search_path', 'public, pg_catalog', true);/g" | kubectl cnpg -n databases psql postgres-14 --`

@@ -10,7 +10,7 @@ spec:
   chart:
     spec:
       chart: ingress-nginx
-      version: 4.11.3
+      version: 4.12.0
       sourceRef:
         kind: HelmRepository
         name: ingress-nginx-charts
@@ -33,8 +33,18 @@ spec:
 
   values:
     fullnameOverride: nginx-internal
+
     controller:
+      replicaCount: 3
+
+      updateStrategy:
+        type: RollingUpdate
+
+      allowSnippetAnnotations: true
+      enableAnnotationValidations: true
+
       priorityClassName: system-cluster-critical
+
       securityContext:
         privileged: true
         capabilities:
@@ -43,42 +53,48 @@ spec:
             - NET_RAW
             - NET_BIND_SERVICE
 
-      replicaCount: 3
-
       ## Enables debugging for NGINX. Uses the nginx-debug binary. Requires error-log-level: debug in ConfigMap via `controller.config.entries`.
       # nginxDebug: true
 
       ## The log level of the Ingress Controller.
       logLevel: 3
 
-      extraEnvs:
-        - name: TZ
-          value: "${TIMEZONE}"
       service:
+        enabled: true
+        type: LoadBalancer
         annotations:
-          external-dns.alpha.kubernetes.io/hostname: "internal.${SECRET_DOMAIN}"
+          external-dns.alpha.kubernetes.io/hostname: &hostname "internal.${SECRET_DOMAIN}"
           io.cilium/lb-ipam-ips: ${SVC_NGINX_INTERNAL_ADDR}
+
+      publishService:
+        enabled: false
+
       ingressClassResource:
         name: internal
         default: true
-        controllerValue: k8s.io/internal
+        controllerValue: k8s.io/ingress-nginx-internal
+
       admissionWebhooks:
         objectSelector:
           matchExpressions:
             - key: ingress-class
               operator: In
               values: ["internal"]
-      allowSnippetAnnotations: true
+
       config:
-        client-body-buffer-size: 100M
+        annotations-risk-level: Critical
+        block-user-agents: "AdsBot-Google,Amazonbot,anthropic-ai,Applebot-Extended,Bytespider,CCBot,ChatGPT-User,ClaudeBot,Claude-Web,cohere-ai,Diffbot,FacebookBot,FriendlyCrawler,Google-Extended,GoogleOther,GPTBot,img2dataset,omgili,omgilibot,peer39_crawler,peer39_crawler/1.0,PerplexityBot,YouBot," # taken from https://github.com/ai-robots-txt/ai.robots.txt
+        client-body-buffer-size: "100M"
         client-body-timeout: 120
         client-header-timeout: 120
         enable-brotli: "true"
+        enable-ocsp: "true"
         enable-real-ip: "true"
-        forwarded-for-header: "CF-Connecting-IP"
-        hsts-max-age: "31449600"
-        keep-alive-requests: 10000
+        force-ssl-redirect: "true"
+        hide-headers: Server,X-Powered-By
+        hsts-max-age: 31449600
         keep-alive: 120
+        keep-alive-requests: 10000
         log-format-escape-json: "true"
         log-format-upstream: >
           {"time": "$time_iso8601", "remote_addr": "$proxy_protocol_addr",
@@ -97,11 +113,15 @@ spec:
         enabled: true
         serviceMonitor:
           enabled: true
+          namespace: network
           namespaceSelector:
             any: true
+
       extraArgs:
         default-ssl-certificate: |-
           network/${SECRET_DOMAIN/./-}-tls
+        publish-status-address: *hostname
+
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
@@ -118,5 +138,6 @@ spec:
           memory: 620M
         limits:
           memory: 620M
+
     defaultBackend:
       enabled: false

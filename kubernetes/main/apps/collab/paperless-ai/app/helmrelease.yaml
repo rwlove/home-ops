@@ -1,0 +1,73 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2beta2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: paperless-ai
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: app-template
+      version: 3.3.2
+      interval: 30m
+      sourceRef:
+        kind: HelmRepository
+        name: bjw-s-charts
+        namespace: flux-system
+
+  values:
+    controllers:
+      main:
+        type: statefulset
+
+        initContainers:
+          init-db:
+            image:
+              repository: clusterzx/paperless-ai
+              tag: 1.4.6@sha256:ed24b8aa1392cae598f376f1cc13074e58fa9913fd8594e45a640713f11c24c4
+
+        containers:
+          main:
+            image:
+              repository: ghcr.io/paperless-ngx/paperless-ngx
+              tag: 2.11.6
+
+            resources:
+              requests:
+                cpu: 11m
+                memory: 2048Mi
+              limits:
+                memory: 2048Mi
+
+    service:
+      main:
+        controller: main
+        ports:
+          http:
+            port: &httpPort 8000
+
+    ingress:
+      main:
+        className: internal
+        annotations:
+          hajimari.io/enable: "true"
+          hajimari.io/appName: "Paperless"
+          hajimari.io/icon: arcticons:paperless
+          hajimari.io/group: "collab"
+          hajimari.io/instance: "admin"
+        hosts:
+          - host: &host paperless.${SECRET_DOMAIN}
+            paths:
+              - path: /
+                service:
+                  identifier: main
+                  port: *httpPort
+
+    persistence:
+      library:
+        existingClaim: paperless-data-pvc
+        advancedMounts:
+          main:
+            main:
+              - path: /app/data

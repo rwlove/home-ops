@@ -1,0 +1,99 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2beta2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: paperless
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: app-template
+      version: 3.3.2
+      interval: 30m
+      sourceRef:
+        kind: HelmRepository
+        name: bjw-s-charts
+        namespace: flux-system
+
+  values:
+    controllers:
+      main:
+        type: statefulset
+
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        initContainers:
+          init-db:
+            image:
+              repository: ghcr.io/onedr0p/postgres-init
+              tag: 16
+            envFrom: &envFrom
+              - secretRef:
+                  name: paperless-secret
+
+        containers:
+          main:
+            image:
+              repository: ghcr.io/paperless-ngx/paperless-ngx
+              tag: 2.11.6
+            env:
+              # Configure application
+              PAPERLESS_URL: https://paperless.${SECRET_DOMAIN}
+              PAPERLESS_PORT: "8000"
+              PAPERLESS_TIME_ZONE: ${TIMEZONE}
+              PAPERLESS_WEBSERVER_WORKERS: "2"
+              PAPERLESS_TASK_WORKERS: "2"
+              # Configure folders
+              PAPERLESS_CONSUMPTION_DIR: /library/consume
+              PAPERLESS_DATA_DIR: /library/data
+              PAPERLESS_EXPORT_DIR: /library/export
+              PAPERLESS_MEDIA_ROOT: /library/media
+              # Configure folder importer
+              PAPERLESS_CONSUMER_POLLING: "60"
+              PAPERLESS_CONSUMER_RECURSIVE: "true"
+              PAPERLESS_CONSUMER_SUBDIRS_AS_TAGS: "true"
+              # Configure OCR
+              PAPERLESS_OCR_LANGUAGE: eng
+              # Configure redis integration
+              PAPERLESS_REDIS: redis://dragonfly.databases.svc.cluster.local:6379/0
+              # DB
+              PAPERLESS_DBNAME: paperless
+
+            envFrom: *envFrom
+
+            resources:
+              requests:
+                cpu: 11m
+                memory: 2048Mi
+              limits:
+                memory: 2048Mi
+
+    service:
+      main:
+        controller: main
+        ports:
+          http:
+            port: &httpPort 8000
+
+    ingress:
+      main:
+        className: internal
+        annotations:
+          hajimari.io/enable: "true"
+          hajimari.io/appName: "Paperless"
+          hajimari.io/icon: arcticons:paperless
+          hajimari.io/group: "collab"
+          hajimari.io/instance: "admin"
+        hosts:
+          - host: &host paperless.${SECRET_DOMAIN}
+            paths:
+              - path: /
+                service:
+                  identifier: main
+                  port: *httpPort
+
+    persistence:
+      library:
+        existingClaim: paperless-library-pvc

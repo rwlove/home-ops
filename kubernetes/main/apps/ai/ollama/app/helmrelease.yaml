@@ -3,17 +3,17 @@
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
-  name: &app ollama
+  name: ollama
   namespace: ai
 spec:
   interval: 30m
   chart:
     spec:
-      chart: ollama
-      version: 1.1.2
+      chart: app-template
+      version: 3.6.0
       sourceRef:
         kind: HelmRepository
-        name: ollama
+        name: bjw-s-charts
         namespace: flux-system
 
   maxHistory: 2
@@ -31,104 +31,84 @@ spec:
     keepHistory: false
 
   values:
-    updateStrategy:
-      type: "Recreate"
+    controllers:
+      backend:
+        type: statefulset
 
-    replicaCount: 1
+        annotations:
+          reloader.stakater.com/auto: "true"
 
-    ollama:
-      models:
-        pull:
-          - llama3.1:8b
-          #- llama2-uncensored:7b
-          - llava-llama3:8b
-          - fixt/home-3b-v3:Q5_K_M
+        containers:
+          main:
+            image:
+              repository: docker.io/ollama/ollama
+              tag: 0.5.4@sha256:18bfb1d605604fd53dcad20d0556df4c781e560ebebcd923454d627c994a0e37
 
-        run:
-          - llama3.1:8b               # ??       - Paperless / K8SGPT / OTerm / General
-          #- llama2-uncensored:7b      # 8BG      - OTerm
-          - llava-llama3:8b           # ??       - Frigate
-          - fixt/home-3b-v3:Q5_K_M    # 4.57 GB  - Home Assistant
+            env:
+              #LIBVA_DRIVER_NAME: i965
+              OLLAMA_HOST: 0.0.0.0
+              OLLAMA_ORIGINS: "*"
+              #OLLAMA_MODELS: &pvc /models
 
-      gpu:
-        # Enable GPU integration
-        enabled: true
-        # Specify the number of GPU
-        number: 1
-        # Default model to serve, if not set, no model will be served at container startup
-      defaultModel: "llava-llama3:8b"
+            resources:
+              requests:
+                memory: 8G
+                cpu: 2000m
+                nvidia.com/gpu: 1
+              limits:
+                memory: 8G
+                nvidia.com/gpu: 1
 
-      serviceAccount:
-        # Specifies whether a service account should be created
-        create: true
-        # Automatically mount a ServiceAccount's API credentials?
-        automount: true
-        # The name of the service account to use.
-        # If not set and create is true, a name is generated using the fullname template
-        name: ""
+        pod:
+          runtimeClassName: nvidia
 
-    runtimeClassName: nvidia
+          priorityClassName: ai-gpu-critical
 
-    priorityClassName: ai-gpu-critical
+          securityContext:
+            privileged: true
 
-    securityContext:
-      privileged: true
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: nvidia.com/gpu.present
+                        operator: In
+                        values:
+                          - "true"
+
+          nodeSelector:
+            nvidia.com/gpu.present: "true"
 
     service:
-      main:
+      backend:
+        controller: backend
         ports:
           http:
-            port: 11434
+            port: &port 11434
 
     ingress:
-      enabled: true
-      className: internal
-      hosts:
-        - host: &host ollama.${SECRET_DOMAIN}
-          paths:
-            - path: /
-              pathType: Prefix
+      backend:
+        className: internal
+        hosts:
+          - host: &host ollama.${SECRET_DOMAIN}
+            paths:
+              - path: /
+                service:
+                  identifier: backend
+                  port: *port
 
-    resources:
-      requests:
-        memory: 8G
-        cpu: 2000m
-        nvidia.com/gpu: 1
-      limits:
-        memory: 8G
-        nvidia.com/gpu: 1
+    persistence:
+      data:
+        existingClaim: ollama-data-pvc
+        advancedMounts:
+          backend:
+            main:
+              - path: /.ollama
 
-    livenessProbe:
-      enabled: true
-      path: /
-      initialDelaySeconds: 600
-      periodSeconds: 10
-      timeoutSeconds: 5
-      failureThreshold: 6
-      successThreshold: 1
-
-    readinessProbe:
-      enabled: true
-      path: /
-      initialDelaySeconds: 30
-      periodSeconds: 5
-      timeoutSeconds: 3
-      failureThreshold: 6
-      successThreshold: 1
-
-    persistentVolume:
-      enabled: true
-      existingClaim: ollama-data-pvc
-
-    affinity:
-      nodeAffinity:
-        requiredDuringSchedulingIgnoredDuringExecution:
-          nodeSelectorTerms:
-            - matchExpressions:
-                - key: nvidia.com/gpu.present
-                  operator: In
-                  values:
-                    - "true"
-
-    nodeSelector:
-      nvidia.com/gpu.present: "true"
+      tmp:
+        enabled: true
+        type: emptyDir
+        medium: Memory
+        globalMounts:
+          - path: /tmp

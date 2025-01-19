@@ -1,0 +1,108 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app comfyui-launcher
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: app-template
+      version: 3.6.1
+      sourceRef:
+        kind: HelmRepository
+        name: bjw-s-charts
+        namespace: flux-system
+
+  install:
+    remediation:
+      retries: 3
+
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+      strategy: rollback
+
+  values:
+    controllers:
+      comfyui:
+        type: statefulset
+
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        pod:
+          runtimeClassName: nvidia
+
+          priorityClassName: ai-gpu-critical
+
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: nvidia.com/gpu.present
+                        operator: In
+                        values:
+                          - "true"
+
+          nodeSelector:
+            nvidia.com/gpu.present: "true"
+
+        containers:
+          app:
+            image:
+              repository: thecooltechguy/comfyui_launcher
+              tag: latest@sha256:627de23b91c11fc087e49d32287f0969211474393b1c746c55bf2d6ef86698ff
+
+            securityContext:
+              privileged: true
+
+            resources:
+              requests:
+                nvidia.com/gpu: 1 # requesting 1 GPU
+                cpu: 500m
+                memory: 4Gi
+              limits:
+                memory: 44Gi
+                nvidia.com/gpu: 1 # requesting 1 GPU
+
+    service:
+      app:
+        controller: comfyui
+        ports:
+          http:
+            port: 4000
+
+    ingress:
+      app:
+        enabled: true
+        className: internal
+        annotations:
+          hajimari.io/enable: "true"
+          hajimari.io/appName: "ComfyUI"
+          hajimari.io/icon: mdi:draw
+          hajimari.io/group: "AI"
+          hajimari.io/instance: "admin"
+        hosts:
+          - host: &host "comfyui-launcher.${SECRET_DOMAIN}"
+            paths:
+              - path: /
+                service:
+                  identifier: app
+                  port: http
+
+    persistence:
+      workspace:
+        enabled: true
+        existingClaim: comfyui-models-pvc
+        globalMounts:
+          - path: /app/server/models
+
+      output:
+        enabled: true
+        existingClaim: comfyui-projects-pvc
+        globalMounts:
+          - path: /app/server/projects

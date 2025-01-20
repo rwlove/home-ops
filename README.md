@@ -59,13 +59,13 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 - [Rennovate](https://github.com/renovatebot/renovate): Automated Cluster Management.
 
 ---
-
-## :gear:&nbsp; Configuration
-- [Home Assistant](https://github.com/rwlove/home-assistant-config)
-- [Node Red](https://github.com/rwlove/node-red-hass-flows)
-- [ESPHome](https://github.com/rwlove/esphome_config)
-
----
+#
+### :gear:&nbsp; Configuration
+#- [Home Assistant](https://github.com/rwlove/home-assistant-config)
+#- [Node Red](https://github.com/rwlove/node-red-hass-flows)
+#- [ESPHome](https://github.com/rwlove/esphome_config)
+#
+#---
 
 ## :gear:&nbsp; Hardware
 
@@ -117,12 +117,12 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 
 ### Noteworthy Documentation
 
-[Cluster Rebuild Actions](cluster_rebuild.md)&nbsp;&nbsp;
+[Cluster Rebuild Actions](https://rwlove.github.io/home-ops/cluster_rebuild.html)&nbsp;&nbsp;
 [Initialization and Teardown](https://rwlove.github.io/home-ops/init_teardown.html)&nbsp;&nbsp;
 [Github Webhook](https://rwlove.github.io/home-ops/github_webhook.html)&nbsp;&nbsp;
 [Limits and Requests Philosophy](https://rwlove.github.io/home-ops/limits.html)&nbsp;&nbsp;
 [Debugging](https://rwlove.github.io/home-ops/debugging.html)&nbsp;&nbsp;
-[Immich restore to new CNPG database](immich_cnpg.md)&nbsp;&nbsp;
+[Immich restore to new CNPG database](https://rwlove.github.io/home-ops/immich_cnpg.html)&nbsp;&nbsp;
 [nVIDIA P40 GPU](https://rwlove.github.io/home-ops/p40.html)&nbsp;&nbsp;
 
 ### Home-Ops Search

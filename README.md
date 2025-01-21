@@ -59,13 +59,6 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 - [Rennovate](https://github.com/renovatebot/renovate): Automated Cluster Management.
 
 ---
-#
-### :gear:&nbsp; Configuration
-#- [Home Assistant](https://github.com/rwlove/home-assistant-config)
-#- [Node Red](https://github.com/rwlove/node-red-hass-flows)
-#- [ESPHome](https://github.com/rwlove/esphome_config)
-#
-#---
 
 ## :gear:&nbsp; Hardware
 

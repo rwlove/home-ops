@@ -7,6 +7,10 @@ curl https://ollama.thesteamedcrab.com/api/pull -d '{
   "name": "llava-llama3:8b"
 }'
 
+curl https://ollama.thesteamedcrab.com/api/pull -d '{
+  "name": "llama3.1"
+}'
+
 #curl https://ollama.thesteamedcrab.com/api/pull -d '{
 #  "name": "llama2-uncensored:latest"
 #}'
@@ -46,7 +50,7 @@ curl https://ollama.thesteamedcrab.com/api/pull -d '{
 #  "name": "playground_with_gpt-4-vision-preview"
 #}'
 
-curl https://ollama.thesteamedcrab.com/api/tags
+curl https://ollama.thesteamedcrab.com/api/tags | jq
 
 #curl https://ollama.thesteamedcrab.com/api/generate -d '{
 #  "model": "llama2",

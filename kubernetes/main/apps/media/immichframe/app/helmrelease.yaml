@@ -1,0 +1,125 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: immichframe
+  namespace: media
+spec:
+  interval: 30m
+  chart:
+    spec:
+      # renovate: registryUrl=https://bjw-s.github.io/helm-charts
+      chart: app-template
+      version: 3.7.1
+      sourceRef:
+        kind: HelmRepository
+        name: bjw-s-charts
+        namespace: flux-system
+
+  maxHistory: 3
+
+  install:
+    createNamespace: true
+    remediation:
+      retries: 3
+
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+
+  uninstall:
+    keepHistory: false
+
+  values:
+    controllers:
+      main:
+        type: statefulset
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        pod:
+          securityContext:
+            supplementalGroups:
+              - 1001
+
+        containers:
+          main:
+            image:
+              repository: ghcr.io/immichframe/immichframe
+              tag: v1.0.22.0@sha256:38d2804a97d65c86278835458aa43b76f6de6dc688776aebd7e7168356c23244
+
+            env:
+              # Required
+              ImmichServerUrl: "immich-server.media:2283"
+              ApiKey: "dSyKHqGmpgrqisf7sNXJKMzYTec6sLprMrHpyyk9Y"
+              #Security
+              AuthenticationSecret: "password"
+              # Image
+              ImageZoom: "true"  
+              Interval: "10"
+              TransitionDuration: "2"
+              # Filters (comma separated list)
+              Albums: "ImmichFrame"
+              #ExcludedAlbums: "ALBUM3,ALBUM4"
+              #People: "PERSON1,PERSON2"
+              ShowMemories: "false"
+              ShowFavorites: "false"
+              ImagesFromDays: ""
+              ImagesFromDate: ""
+              ImagesUntilDate: ""
+              # Clock
+              ShowClock: "true"
+              ClockFormat: "HH:mm"
+              # Weather
+              #WeatherApiKey: "API-KEY"
+              #UnitSystem: "imperial"
+              #Language: "en"
+              #ShowWeatherDescription: "true"
+              #WeatherLatLong: "40.730610, -73.935242"
+              # Metadata
+              ShowImageDesc: "true"
+              ShowImageLocation: "true"
+              ShowPhotoDate: "true"
+              PhotoDateFormat: "yyyy-MM-dd"
+              # Caching
+              RenewImagesDuration: "30"
+              DownloadImages: "false"
+              RefreshAlbumPeopleInterval: "12"
+              # UI
+              PrimaryColor: "#FF5733"
+              BaseFontSize: "17px"
+              # Misc
+              #ImmichFrameAlbumName: ""
+
+            resources:
+              requests:
+                cpu: 15m
+                memory: 50M
+              limits:
+                memory: 50M
+
+    service:
+      main:
+        controller: main
+        ports:
+          http:
+            port: &httpPort 8080
+
+    ingress:
+      main:
+        className: internal
+        annotations:
+          external-dns.alpha.kubernetes.io/target: "internal.${SECRET_DOMAIN}"
+          hajimari.io/appName: "ImmichFrame Server"
+          hajimari.io/icon: mdi:photo
+          hajimari.io/group: "media"
+          hajimari.io/instance: "admin"
+        hosts:
+          - host: &host "immichframe.${SECRET_DOMAIN}"
+            paths:
+              - path: /
+                service:
+                  identifier: main
+                  port: *httpPort

@@ -1,0 +1,147 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: immichkiosk
+  namespace: media
+spec:
+  interval: 30m
+  chart:
+    spec:
+      # renovate: registryUrl=https://bjw-s.github.io/helm-charts
+      chart: app-template
+      version: 3.7.1
+      sourceRef:
+        kind: HelmRepository
+        name: bjw-s-charts
+        namespace: flux-system
+
+  maxHistory: 3
+
+  install:
+    createNamespace: true
+    remediation:
+      retries: 3
+
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+
+  uninstall:
+    keepHistory: false
+
+  values:
+    controllers:
+      main:
+        type: statefulset
+
+        containers:
+          main:
+            image:
+              repository: damongolding/immich-kiosk
+              tag: 0.16.2@sha256:873160136f5451836720cf0916efc8898be0ca7b09555468400d88348156b9ec
+
+            env:
+              #Security
+              AuthenticationSecret: "password"
+              # Required settings
+              KIOSK_IMMICH_API_KEY: "dSyKHqGmpgrqisf7sNXJKMzYTec6sLprMrHpyyk9Y"
+              KIOSK_IMMICH_URL: "https://photos.thesteamedcrab.com"
+
+              # Clock
+              KIOSK_SHOW_TIME: false
+              KIOSK_TIME_FORMAT: 24
+              KIOSK_SHOW_DATE: false
+              KIOSK_DATE_FORMAT: YYYY/MM/DD
+              # Kiosk behaviour
+              KIOSK_REFRESH: 60
+              KIOSK_DISABLE_SCREENSAVER: false
+              KIOSK_OPTIMIZE_IMAGES: false
+              KIOSK_USE_GPU: true
+              # Asset sources
+              KIOSK_SHOW_ARCHIVED: false
+              KIOSK_ALBUM: "ad782b0e-9e90-453c-98e7-086455300ef1"
+              KIOSK_ALBUM_ORDER: random
+              #KIOSK_EXCLUDED_ALBUMS: "ALBUM_ID,ALBUM_ID,ALBUM_ID"
+              #KIOSK_PERSON: "PERSON_ID,PERSON_ID,PERSON_ID"
+              #KIOSK_DATE: "DATE_RANGE,DATE_RANGE,DATE_RANGE"
+              KIOSK_MEMORIES: false
+              #KIOSK_BLACKLIST: "ASSET_ID,ASSET_ID,ASSET_ID"
+              # FILTER
+              KIOSK_DATE_FILTER: ""
+              # UI
+              KIOSK_DISABLE_NAVIGATION: false
+              KIOSK_DISABLE_UI: false
+              KIOSK_FRAMELESS: false
+              KIOSK_HIDE_CURSOR: false
+              KIOSK_FONT_SIZE: 100
+              KIOSK_BACKGROUND_BLUR: true
+              KIOSK_THEME: fade
+              KIOSK_LAYOUT: single
+              # Sleep mode
+              # KIOSK_SLEEP_START: 22
+              # KIOSK_SLEEP_END: 7
+              # Transistion options
+              KIOSK_TRANSITION: none
+              KIOSK_FADE_TRANSITION_DURATION: 1
+              KIOSK_CROSS_FADE_TRANSITION_DURATION: 1
+              # Image display settings
+              KIOSK_SHOW_PROGRESS: false
+              KIOSK_IMAGE_FIT: contain
+              KIOSK_IMAGE_EFFECT: smart-zoom
+              KIOSK_IMAGE_EFFECT_AMOUNT: 120
+              KIOSK_USE_ORIGINAL_IMAGE: false
+              # Image metadata
+              KIOSK_SHOW_ALBUM_NAME: false
+              KIOSK_SHOW_PERSON_NAME: false
+              KIOSK_SHOW_IMAGE_TIME: false
+              KIOSK_IMAGE_TIME_FORMAT: 24
+              KIOSK_SHOW_IMAGE_DATE: false
+              KIOSK_IMAGE_DATE_FORMAT: YYYY-MM-DD
+              KIOSK_SHOW_IMAGE_DESCRIPTION: false
+              KIOSK_SHOW_IMAGE_EXIF: false
+              KIOSK_SHOW_IMAGE_LOCATION: false
+              KIOSK_HIDE_COUNTRIES: "HIDDEN_COUNTRY,HIDDEN_COUNTRY"
+              KIOSK_SHOW_IMAGE_ID: false
+              KIOSK_SHOW_MORE_INFO: true
+              KIOSK_SHOW_MORE_INFO_IMAGE_LINK: true
+              KIOSK_SHOW_MORE_INFO_QR_CODE: true
+              # Kiosk settings
+              KIOSK_WATCH_CONFIG: false
+              KIOSK_FETCHED_ASSETS_SIZE: 1000
+              KIOSK_HTTP_TIMEOUT: 20
+              KIOSK_PASSWORD: ""
+              KIOSK_CACHE: true
+              KIOSK_PREFETCH: true
+              KIOSK_ASSET_WEIGHTING: true
+              KIOSK_PORT: 3000
+              KIOSK_SHOW_USER: false
+
+            resources:
+              requests:
+                cpu: 15m
+                memory: 120M
+              limits:
+                memory: 120M
+
+    service:
+      main:
+        controller: main
+        ports:
+          http:
+            port: &httpPort 3000
+
+    ingress:
+      main:
+        className: internal
+        annotations:
+          external-dns.alpha.kubernetes.io/target: "internal.${SECRET_DOMAIN}"
+        hosts:
+          - host: &host "immichkiosk.${SECRET_DOMAIN}"
+            paths:
+              - path: /
+                service:
+                  identifier: main
+                  port: *httpPort

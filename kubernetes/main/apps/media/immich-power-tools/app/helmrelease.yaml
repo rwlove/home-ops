@@ -1,0 +1,78 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app immich-power-tools
+  namespace: media
+spec:
+  interval: 30m
+  chart:
+    spec:
+      # renovate: registryUrl=https://bjw-s.github.io/helm-charts
+      chart: app-template
+      version: 3.7.1
+      sourceRef:
+        kind: HelmRepository
+        name: bjw-s-charts
+        namespace: flux-system
+
+  maxHistory: 3
+
+  install:
+    createNamespace: true
+    remediation:
+      retries: 3
+
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+
+  uninstall:
+    keepHistory: false
+
+  values:
+    controllers:
+      main:
+        type: statefulset
+
+        containers:
+          main:
+            image:
+              repository: ghcr.io/varun-raj/immich-power-tools
+              tag: 0.14.0@sha256:9f5be1bbe9e73eb54b126f4390c3e90ac6513f25021a76338411d0554f8273ed
+
+            envFrom:
+              - secretRef:
+                  name: *app
+
+            resources:
+              requests:
+                cpu: 15m
+                memory: 100M
+              limits:
+                memory: 100M
+
+    service:
+      main:
+        controller: main
+        ports:
+          http:
+            port: &httpPort 3000
+
+    ingress:
+      main:
+        className: internal
+        annotations:
+          external-dns.alpha.kubernetes.io/target: "internal.${SECRET_DOMAIN}"
+          hajimari.io/appName: Photo Power Tools
+          hajimari.io/icon: heroicons:photo
+          hajimari.io/instance: "admin"
+        hosts:
+          - host: &host "immich-power-tools.${SECRET_DOMAIN}"
+            paths:
+              - path: /
+                service:
+                  identifier: main
+                  port: *httpPort

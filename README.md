@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://github.com/rwlove/home-ops/blob/870b6ed06e5700d2c0766d712f134da86de39b2e/docs/assets/Cosmo.png?raw=true" width="144px" height="144px"/>
+<img src="https://github.com/rwlove/home-ops/blob/870b6ed06e5700d2c0766d712f134da86de39b2e/docs/assets/Cosmo.jpg?raw=true" width="144px" height="144px"/>
 
 ## Lovenet Home Operations Repository
 

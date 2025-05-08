@@ -70,7 +70,7 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 | master3   | VM on beast       | 3   | 8  GB  | CentOS 9 | k8s Master |                         |            |              |
 | worker1   | ThinkCentre M910x | 8   | 32 GB  | CentOS 9 | k8s Worker | longhorn NVMe           | Z-Stick 7  | iot/sec-vlan |
 | worker2   | ThinkCentre M910x | 8   | 32 GB  | CentOS 9 | k8s Worker | longhorn NVMe           |            | iot/sec-vlan |
-| worker3   | ThinkCentre M910x | 8   | 32 GB  | CentOS 9 | k8s Worker | longhorn NVMe, ceph osd | Sonoff     | iot/sec-vlan |
+| worker3   | ThinkCentre M910x | 8   | 64 GB  | CentOS 9 | k8s Worker | longhorn NVMe, ceph osd | Sonoff     | iot/sec-vlan |
 | worker4   | ThinkCentre M910x | 8   | 32 GB  | CentOS 9 | k8s Worker | longhorn NVMe           | Coral USB  | iot/sec-vlan |
 | worker5   | VM on beast       | 10  | 24 GB  | CentOS 9 | k8s Worker | longhorn NVMe, ceph osd |            | iot/sec-vlan |
 | worker6   | VM on beast       | 10  | 24 GB  | CentOS 9 | k8s Worker | longhorn NVMe, ceph osd | skyconnect | iot/sec-vlan |

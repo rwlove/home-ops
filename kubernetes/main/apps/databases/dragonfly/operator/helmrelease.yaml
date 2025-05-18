@@ -1,107 +1,41 @@
 ---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/refs/heads/main/ocirepository-source-v1beta2.json
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: OCIRepository
+metadata:
+  name: dragonfly-operator
+spec:
+  interval: 1h
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+  ref:
+    tag: v1.1.11
+  url: oci://ghcr.io/dragonflydb/dragonfly-operator/helm/dragonfly-operator
+---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: dragonfly-operator
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
-    name: app-template
-    namespace: flux-system
-
+    name: dragonfly-operator
+  install:
+    crds: CreateReplace
+  interval: 30m
+  maxHistory: 3
+  upgrade:
+    crds: CreateReplace
+  uninstall:
+    keepHistory: false
   values:
-    serviceAccount:
-      dragonfly-operator: {}
-
-    controllers:
-      dragonfly-operator:
-        serviceAccount:
-          identifier: dragonfly-operator
-
-        pod:
-          topologySpreadConstraints:
-            - maxSkew: 1
-              topologyKey: kubernetes.io/hostname
-              whenUnsatisfiable: DoNotSchedule
-              labelSelector:
-                matchLabels:
-                  app.kubernetes.io/name: dragonfly-operator
-        containers:
-          rbac-proxy:
-            image:
-              repository: gcr.io/kubebuilder/kube-rbac-proxy
-              tag: v0.16.0
-            args:
-              - "--secure-listen-address=0.0.0.0:8443"
-              - "--upstream=http://127.0.0.1:8080/"
-              - "--logtostderr=true"
-              - "--v=0"
-            securityContext:
-              allowPrivilegeEscalation: false
-              readOnlyRootFilesystem: true
-              capabilities:
-                drop:
-                  - ALL
-            resources:
-              requests:
-                cpu: 5m
-                memory: 128Mi
-              limits:
-                memory: 128Mi
-          app:
-            image:
-              repository: docker.dragonflydb.io/dragonflydb/operator
-              tag: v1.1.11
-            args:
-              - "--health-probe-bind-address=:8081"
-              - "--metrics-bind-address=127.0.0.1:8080"
-              - "--leader-elect"
-            command:
-              - "/manager"
-            securityContext:
-              allowPrivilegeEscalation: false
-              readOnlyRootFilesystem: true
-              capabilities:
-                drop:
-                  - ALL
-            probes:
-              liveness:
-                enabled: true
-                custom: true
-                spec:
-                  httpGet:
-                    path: /healthz
-                    port: &port 8081
-                  initialDelaySeconds: 15
-                  periodSeconds: 20
-                  timeoutSeconds: 1
-                  failureThreshold: 3
-              readiness:
-                enabled: true
-                custom: true
-                spec:
-                  httpGet:
-                    path: /readyz
-                    port: *port
-                  initialDelaySeconds: 5
-                  periodSeconds: 10
-                  timeoutSeconds: 1
-                  failureThreshold: 3
-              startup:
-                enabled: false
-            resources:
-              requests:
-                cpu: 10m
-                memory: 128Mi
-              limits:
-                memory: 128Mi
-        annotations:
-          reloader.stakater.com/auto: "true"
-    service:
-      app:
-        controller: dragonfly-operator
-        ports:
-          http:
-            port: *port
+    serviceMonitor:
+      enabled: false
+    grafanaDashboard:
+      enabled: true
+      folder: Storage
+      # -- Grafana dashboard configmap annotations.
+      annotations:
+        name: grafana_folder

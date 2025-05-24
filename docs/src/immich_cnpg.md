@@ -2,20 +2,12 @@
 
 1. Create the new Immich database
 
-`kubectl cnpg -n databases psql postgres-16 -- -c 'CREATE DATABASE immich;'`
+`kubectl cnpg -n databases psql <db name> -- -c 'CREATE DATABASE immich;'`
 
 2. Ensure that you're woring with the primary CNPG instance
 
-`kubectl cnpg -n databases status postgres-16 | grep "Primary instance:"`
+`kubectl cnpg -n databases status <db name> | grep "Primary instance:"`
 
-3. Copy the database backup into the container's persistent storage (where there is likely enough room for it)
+3. Run the [Immich restore command](https://immich.app/docs/administration/backup-and-restore)
 
-`kubectl -n databases cp ./immich-db-backup.sql.gz postgres-16-2:/var/lib/postgresql/data/`
-
-4. Exec into the postgres container
-
-`kubectl -n databases exec -it postgres-16-2 -- bash`
-
-5. Run the [Immich restore command](https://immich.app/docs/administration/backup-and-restore)
-
-`gunzip < "immich-db-backup-1735455600013.sql.gz"| sed "s/SELECT pg_catalog.set_config('search_path', '', false);/SELECT pg_catalog.set_config('search_path', 'public, pg_catalog', true);/g" | kubectl cnpg -n databases psql postgres-14 --`
+`gunzip < "immich-db-backup-1735455600013.sql.gz"| sed "s/SELECT pg_catalog.set_config('search_path', '', false);/SELECT pg_catalog.set_config('search_path', 'public, pg_catalog', true);/g" | kubectl cnpg -n databases psql <db name> --`

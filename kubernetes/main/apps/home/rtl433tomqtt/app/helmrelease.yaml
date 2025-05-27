@@ -1,0 +1,68 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app rtlamr2mqtt
+  namespace: home
+spec:
+  interval: 1h
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  install:
+    remediation:
+      retries: -1
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+  dependsOn:
+    - name: emqx
+      namespace: home
+  values:
+    controllers:
+      rtl433to2mqtt:
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        containers:
+          app:
+            image:
+              repository: bademux/rtl_433tomqtt
+              tag: latest
+
+            env:
+              RTL_OPTS: "-f 345M -g25 -d /dev/rtl -F mqtt://emqx.home:1883,retain=0,devices=sensors/rtl_433/P[protocol:255]/C[channel:0] -M newmodel -M protocol -M time:iso"
+
+            securityContext:
+              privileged: true
+
+            resources:
+              requests:
+                cpu: 10m
+                memory: 256Mi
+              limits:
+                memory: 256Mi
+
+    defaultPodOptions:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: feature.node.kubernetes.io/usb-ff_0bda_2838.present
+                    operator: In
+                    values:
+                      - "true"
+
+          nodeSelector:
+            feature.node.kubernetes.io/usb-ff_0bda_2838.present: "true"
+
+    persistence:
+      usb:
+        type: hostPath
+        hostPath: /dev/rtl
+        hostPathType: CharDevice
+        globalMounts:
+          - path: /dev/rtl

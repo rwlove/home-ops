@@ -30,6 +30,9 @@ spec:
         annotations:
           reloader.stakater.com/auto: "true"
 
+        serviceAccount:
+          identifier: *app
+
         containers:
           main:
             image:
@@ -58,6 +61,25 @@ spec:
               - --source=service
               - --txt-owner-id=homelab
               - --txt-prefix=k8s.
+            probes:
+              liveness: &probes
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /healthz
+                    port: &port 7979
+                  initialDelaySeconds: 0
+                  periodSeconds: 10
+                  timeoutSeconds: 1
+                  failureThreshold: 3
+              readiness: *probes
+              startup:
+                enabled: false
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: { drop: ["ALL"] }
             resources:
               requests:
                 cpu: 10m
@@ -66,6 +88,14 @@ spec:
                 memory: 140M
         pod:
           priorityClassName: system-cluster-critical
+
+          securityContext:
+            runAsUser: 568
+            runAsGroup: 568
+            runAsNonRoot: true
+
+    serviceAccount:
+      *app: {}
 
     service:
       main:

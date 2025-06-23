@@ -4,6 +4,7 @@
 
 - [👋 Introduction](introduction.md)
 
+- [Power Outage Recovery](power-outage.md)
 - [Coral](coral.md)
 - [nVidia Tesla P40](p40.md)
 - [Cluster Rebuild Actions](cluster_rebuild.md)

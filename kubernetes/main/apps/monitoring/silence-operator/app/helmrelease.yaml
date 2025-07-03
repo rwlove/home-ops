@@ -5,59 +5,21 @@ kind: HelmRelease
 metadata:
   name: silence-operator
 spec:
-  interval: 30m
+  interval: 1h
   chartRef:
     kind: OCIRepository
     name: app-template
     namespace: flux-system
+  install:
+    remediation:
+      retries: -1
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
   values:
-    controllers:
-      silence-operator:
-        serviceAccount:
-          identifier: silence-operator
-
-        pod:
-          securityContext:
-            runAsUser: 65534
-            runAsNonRoot: true
-
-        containers:
-          silence-operator:
-            image:
-              repository: quay.io/giantswarm/silence-operator
-              tag: 0.17.0
-            args:
-              - --leader-elect
-              - --metrics-bind-address=:8080
-              - --alertmanager-address=http://alertmanager.monitoring.svc.cluster.local:9093
-            probes:
-              liveness:
-                enabled: true
-                custom: true
-                spec:
-                  httpGet:
-                    path: /healthz
-                    port: 8081
-                  initialDelaySeconds: 15
-                  periodSeconds: 20
-                  timeoutSeconds: 1
-                  failureThreshold: 3
-              readiness:
-                enabled: false
-              startup:
-                enabled: false
-            resources:
-              requests:
-                cpu: 10m
-                memory: 50Mi
-              limits:
-                memory: 128Mi
-            securityContext:
-              allowPrivilegeEscalation: false
-              readOnlyRootFilesystem: true
-              capabilities:
-                drop:
-                  - ALL
-
-    serviceAccount:
-      silence-operator: {}
+    alertmanagerAddress: http://alertmanager.monitoring.svc.cluster.local:9093
+    image:
+      registry: quay.io
+    networkPolicy:
+      enabled: false

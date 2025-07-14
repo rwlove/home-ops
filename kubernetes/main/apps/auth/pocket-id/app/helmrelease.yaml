@@ -1,0 +1,123 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app pocket-id
+spec:
+  interval: 1h
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  values:
+    controllers:
+      pocket-id:
+        labels:
+          postgres: "true"
+        annotations:
+          reloader.stakater.com/auto: "true"
+        initContainers:
+          init-db:
+            image:
+              repository: ghcr.io/home-operations/postgres-init
+              tag: 17.5.0@sha256:e0c87ce7df39d06b93f27cf2cc6a056611f13faaa88cc07ab4dc8bf7a85d0b11
+            envFrom: &envFrom
+              - secretRef:
+                  name: pocket-id-secret
+        containers:
+          app:
+            image:
+              repository: ghcr.io/pocket-id/pocket-id
+              tag: v1.6.2@sha256:6a9d886bb2603924cca720659a0fc3748287e07cb960b20f78a7d569f7557673
+            env:
+              TZ: ${TIMEZONE}
+              ANALYTICS_DISABLED: true
+              APP_URL: https://id.${SECRET_DOMAIN}
+              DB_PROVIDER: postgres
+              EMAILS_VERIFIED: true
+              KEYS_STORAGE: database
+              UI_CONFIG_DISABLED: true
+              LDAP_ENABLED: true
+              LDAP_URL: ldaps://ldap.auth.svc.cluster.local
+              LDAP_SKIP_CERT_VERIFY: true
+              LDAP_USER_GROUP_SEARCH_FILTER: (&(objectClass=group)(cn=ID*))
+              LDAP_ATTRIBUTE_USER_UNIQUE_IDENTIFIER: objectGUID
+              LDAP_ATTRIBUTE_GROUP_UNIQUE_IDENTIFIER: objectGUID
+              LDAP_ATTRIBUTE_USER_FIRST_NAME: givenName
+              LDAP_ATTRIBUTE_USER_LAST_NAME: sn
+              LDAP_ATTRIBUTE_USER_USERNAME: sAMAccountName
+              LDAP_ATTRIBUTE_USER_EMAIL: mail
+              LDAP_ATTRIBUTE_GROUP_MEMBER: member
+              LDAP_ATTRIBUTE_GROUP_NAME: cn
+              LDAP_ATTRIBUTE_ADMIN_GROUP: ID-Admin
+              SMTP_FROM: pocket-id@${SECRET_DOMAIN}
+              SMTP_HOST: smtp-relay.home.svc.cluster.local
+              SMTP_PORT: 2525
+              SESSION_DURATION: 43800
+              TRUST_PROXY: true
+              UPLOAD_PATH: /app/data/uploads
+              GEOLITE_DB_PATH: /app/data/GeoLite2-City.mmdb
+            envFrom: *envFrom
+            probes:
+              liveness: &probes
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /healthz
+                    port: &port 1411
+                  initialDelaySeconds: 0
+                  periodSeconds: 10
+                  timeoutSeconds: 1
+                  failureThreshold: 3
+              readiness: *probes
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: { drop: ["ALL"] }
+            resources:
+              requests:
+                cpu: 10m
+                memory: 32Mi
+              limits:
+                memory: 256Mi
+    defaultPodOptions:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: Always
+    service:
+      app:
+        ports:
+          http:
+            port: *port
+    ingress:
+      app:
+        className: external
+        annotations:
+          external-dns.alpha.kubernetes.io/target: "external.${SECRET_DOMAIN}"
+        hosts:
+          - host: &host "id.${SECRET_DOMAIN}"
+            paths:
+              - path: /
+                service:
+                  identifier: app
+                  port: http
+        tls:
+          - hosts:
+              - *host
+            secretName: "${SECRET_DOMAIN/./-}-tls"
+    persistence:
+      data:
+        existingClaim: pocket-id-data-pvc
+        globalMounts:
+          - path: /app/data
+      tmpfs:
+        type: emptyDir
+        advancedMounts:
+          pocket-id:
+            app:
+              - path: /tmp
+                subPath: tmp

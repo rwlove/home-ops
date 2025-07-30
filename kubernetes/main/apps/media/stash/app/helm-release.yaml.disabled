@@ -1,0 +1,100 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.thesteamedcrab.com/helmrelease_v2beta1.json
+apiVersion: helm.toolkit.fluxcd.io/v2beta2
+kind: HelmRelease
+metadata:
+  name: &app stash
+  namespace: media
+spec:
+  interval: 30m
+  chart:
+    spec:
+      # renovate: registryUrl=https://bjw-s.github.io/helm-charts/
+      chart: app-template
+      version: 2.4.0
+      sourceRef:
+        kind: HelmRepository
+        name: bjw-s-charts
+        namespace: flux-system
+
+  maxHistory: 3
+
+  install:
+    createNamespace: true
+    remediation:
+      retries: 3
+
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+
+  uninstall:
+    keepHistory: false
+
+  values:
+    controllers:
+      main:
+        type: statefulset
+
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        containers:
+          main:
+            image:
+              repository: stashapp/stash
+              tag: v0.23.1@sha256:96d4e778a9fb7199da28983413c9767617bafc69db781bf7d00cd2667344b76d
+
+            env:
+              TZ: "${TIMEZONE}"
+              STASH_STASH: /media/
+              STASH_GENERATED: /generated/
+              STASH_METADATA: /metadata/
+              STASH_CACHE: /cache/
+
+    service:
+      main:
+        ports:
+          http:
+            port: 9999
+
+    ingress:
+      main:
+        enabled: true
+        className: internal
+        annotations:
+          hajimari.io/enable: "true"
+          hajimari.io/appName: "Private"
+          hajimari.io/icon: mdi:box
+          hajimari.io/group: "media"
+          hajimari.io/instance: "admin"
+        hosts:
+          - host: &host stash.${SECRET_DOMAIN}
+            paths:
+              - path: /
+                service:
+                  name: main
+                  port: http
+        tls:
+          - hosts:
+              - *host
+
+    persistence:
+      config:
+        enabled: true
+        existingClaim: stash-config-pvc
+        globalMounts:
+          - path: /root/.stash
+      media:
+        enabled: true
+        existingClaim: stash-media-pvc
+      generated:
+        enabled: true
+        existingClaim: stash-generated-pvc
+      metadata:
+        enabled: true
+        existingClaim: stash-metadata-pvc
+      cache:
+        enabled: true
+        existingClaim: stash-cache-pvc

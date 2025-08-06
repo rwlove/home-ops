@@ -12,10 +12,6 @@ kubectl apply --server-side --kustomize ./kubernetes/main/bootstrap/flux
 #envsubst < "./tmpl/gotk-sync.yaml" \
 #         > "./kubernetes/main/base/flux-system/gotk-sync.yaml"
 
-echo "Create kube-vip Daemonset"
-envsubst < "./tmpl/kube-vip-daemonset.yaml" \
-         > "./kubernetes/main/apps/kube-system/kube-vip/daemon-set.yaml"
-
 #echo "Create cluster-secrets"
 #envsubst < "./tmpl/cluster-secrets.yaml" \
 #         > "./kubernetes/main/flux/vars/cluster-secrets.yaml"

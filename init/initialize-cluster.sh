@@ -1,6 +1,5 @@
 #!/bin/bash
 
-. .config.env
 . .cluster-secrets.env
 
 echo "Deploy Flux"

@@ -5,20 +5,6 @@
 echo "Deploy Flux"
 kubectl apply --server-side --kustomize ./kubernetes/main/bootstrap/flux
 
-#echo "Create cluster-settings"
-#envsubst < "./tmpl/cluster-settings.yaml" \
-#         > "./kubernetes/main/flux/vars/cluster-settings.yaml"
-
-#envsubst < "./tmpl/gotk-sync.yaml" \
-#         > "./kubernetes/main/base/flux-system/gotk-sync.yaml"
-
-#echo "Create cluster-secrets"
-#envsubst < "./tmpl/cluster-secrets.yaml" \
-#         > "./kubernetes/main/flux/vars/cluster-secrets.yaml"
-
-#echo "Encrypt cluster-secrets"
-#sops --encrypt --in-place "./kubernetes/main/flux/vars/cluster-secrets.yaml"
-
 echo "Create cert-manager issuer secrets"
 envsubst < "./tmpl/cert-manager-secrets.yaml" \
          > "./kubernetes/main/apps/cert-manager/issuers/secrets.yaml"

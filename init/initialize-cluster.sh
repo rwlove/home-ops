@@ -1,41 +1,10 @@
 #!/bin/bash
 
-. .cluster-secrets.env
-
-scp root@master1:~/.kube/config ~/.kube/config && \
-./init/approve-csrs.sh
-
-echo "Create cert-manager issuer secrets"
-envsubst < "./tmpl/cert-manager-secrets.yaml" \
-         > "./kubernetes/main/apps/cert-manager/issuers/secrets.yaml"
-
-echo "Encrypt cert-manager issuer secrets"
-sops --encrypt --in-place "./kubernetes/main/apps/cert-manager/issuers/secrets.yaml"
-
-## TODO: Where does this get done in the new flow? Remove if working.
-#echo "######"
-#echo "# Create namespace"
-#kubectl create namespace flux-system --dry-run=client -o yaml | kubectl apply -f -
-
-#echo "######"
-echo "# Create sops-age Secret"
-cat ~/.config/sops/age/keys.txt |
-    kubectl -n flux-system create secret generic sops-age \
-    --from-file=age.agekey=/dev/stdin
-
-#echo "######"
-#echo "# 1st Application"
-#kubectl apply --kustomize=./kubernetes/main/base/flux-system
-
-#echo "######"
-#echo "# 2nd Application"
-#kubectl apply --kustomize=./kubernetes/main/base/flux-system
+scp root@master1:~/.kube/config ~/.kube/config
 
 #echo "######"
 echo "# Create Secrets Patch and Push"
-stg new -m update-secrets
 ./create-secrets.sh
-stg refresh --no-verify ; stg pop -a ; git pull ; stg push -a ; stg commit -a ; stg clean ; git push
 
 echo "Create Cluster Settings Configmap"
 kubectl apply -f ./kubernetes/main/flux/vars/cluster-settings.yaml

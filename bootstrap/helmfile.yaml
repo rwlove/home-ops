@@ -1,0 +1,55 @@
+---
+# yaml-language-server: $schema=https://json.schemastore.org/helmfile
+
+helmDefaults:
+  cleanupOnFail: true
+  wait: true
+  waitForJobs: true
+
+releases:
+  - name: cilium
+    namespace: kube-system
+    chart: oci://ghcr.io/home-operations/charts-mirror/cilium
+    version: 1.18.0
+    values: ['../kubernetes/main/apps/kube-system/cilium/app/values.yaml']
+
+  - name: cert-manager
+    namespace: cert-manager
+    chart: oci://quay.io/jetstack/charts/cert-manager
+    version: v1.18.2
+    values: ['../kubernetes/main/apps/cert-manager/app/values.yaml']
+    needs: ['kube-system/cilium']
+
+  - name: external-secrets
+    namespace: external-secrets
+    chart: oci://ghcr.io/external-secrets/charts/external-secrets
+    version: 0.19.0
+    values: ['../kubernetes/main/apps/kube-system/external-secrets/app/values.yaml']
+    hooks:
+      - # Apply cluster secret store
+        events: ['postsync']
+        command: kubectl
+        args:
+          - apply
+          - --namespace=external-secrets
+          - --server-side
+          - --field-manager=kustomize-controller
+          - --filename
+          - ../kubernetes/main/apps/kube-system/external-secrets/stores/clustersecretstore.yaml
+          - --wait=true
+        showlogs: true
+    needs: ['cert-manager/cert-manager']
+
+  #- name: flux-operator
+  #  namespace: flux-system
+  #  chart: oci://ghcr.io/controlplaneio-fluxcd/charts/flux-operator
+  #  version: 0.26.0
+  #  values: ['../kubernetes/apps/flux-system/flux-operator/app/helm/values.yaml']
+  #  needs: ['external-secrets/external-secrets']
+
+  #- name: flux-instance
+  #  namespace: flux-system
+  #  chart: oci://ghcr.io/controlplaneio-fluxcd/charts/flux-instance
+  #  version: 0.26.0
+  #  values: ['../kubernetes/apps/flux-system/flux-instance/app/helm/values.yaml']
+  #  needs: ['flux-system/flux-operator']

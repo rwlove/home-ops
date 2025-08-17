@@ -28,6 +28,23 @@ spec:
         annotations:
           reloader.stakater.com/auto: "true"
 
+        pod:
+          priorityClassName: home-cluster-critical
+
+          annotations:
+            k8s.v1.cni.cncf.io/networks: matter-server-iot-static
+
+          # IOT VLAN (20)
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: node.network/vlan-iot
+                        operator: In
+                        values:
+                          - "true"
+
         containers:
           app:
             image:
@@ -40,10 +57,10 @@ spec:
               MATTER_SERVER__LOG_LEVEL: info
             args:
               - --storage-path=/data
+              - --primary-interface=net1
               - --log-level=debug
               - --log-level-sdk=info
 
-            #               - --primary-interface=net1
             resources:
               requests:
                 cpu: 50m
@@ -52,13 +69,6 @@ spec:
                 memory: 100Mi
 
     defaultPodOptions:
-      #annotations:
-      #  k8s.v1.cni.cncf.io/networks: |
-      #    [{
-      #      "name": "multus-iot",
-      #      "namespace": "network",
-      #      "ips": ["192.168.10.122/24"]
-      #    }]
       hostUsers: false
       securityContext:
         runAsNonRoot: false # Must be run as root user

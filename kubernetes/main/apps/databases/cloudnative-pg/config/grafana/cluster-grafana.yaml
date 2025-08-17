@@ -1,0 +1,67 @@
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres-grafana
+  namespace: databases
+spec:
+  instances: 5
+
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.5
+
+  primaryUpdateStrategy: unsupervised
+
+  postgresql:
+    parameters:
+      pg_stat_statements.max: "10000"
+      pg_stat_statements.track: all
+      timezone: ${TIMEZONE}
+
+  storage:
+    size: 10Gi
+    storageClass: ceph-block
+
+  enableSuperuserAccess: true
+  superuserSecret:
+    name: cloudnative-pg
+
+  monitoring:
+    enablePodMonitor: true
+
+  bootstrap:
+    initdb:
+      import:
+        type: microservice
+        databases:
+        - grafana
+        source:
+          externalCluster: postgres-server-2
+        pgDumpExtraOptions:
+        - '--jobs=2'
+        pgRestoreExtraOptions:
+        - '--jobs=2'
+
+  backup:
+    retentionPolicy: 30d
+    barmanObjectStore:
+      wal:
+        compression: bzip2
+        maxParallel: 8
+      destinationPath: s3://postgresql/
+      endpointURL: http://minio.storage.svc.cluster.local:9000
+      serverName: postgres-grafana-backup
+      s3Credentials:
+        accessKeyId:
+          name: cloudnative-pg
+          key: MINIO_ACCESS_KEY
+        secretAccessKey:
+          name: cloudnative-pg
+          key: MINIO_SECRET_KEY
+
+  externalClusters:
+    - name: postgres-server-2
+      connectionParameters:
+        host: postgres-rw.databases.svc
+        user: postgres
+        password: postgres
+        dbname: grafana

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-DBS="postgres postgres-immich postgres-home-assistant postgres-pocket-id postgres-lldap postgres-paperless postgres-atuin"
+DBS="postgres postgres-immich postgres-home-assistant postgres-pocket-id postgres-lldap postgres-paperless postgres-atuin postgres-grafana"
 
 for db in $DBS ; do
 

@@ -1,0 +1,85 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app wger
+  namespace: collab
+spec:
+  interval: 30m
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+    namespace: flux-system
+
+  maxHistory: 3
+
+  install:
+    remediation:
+      retries: 3
+
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+
+  uninstall:
+    keepHistory: false
+
+  values:
+    controllers:
+      main:
+        type: statefulset
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        containers:
+          main:
+            image:
+              repository: wger/server
+              tag: 2.3
+
+            #env:
+            #  FOO: XXX
+
+            resources:
+              requests:
+                cpu: 100m
+                memory: 512Mi
+              limits:
+                memory: 512Mi
+
+    service:
+      main:
+        controller: main
+        ports:
+          http:
+            port: &httpPort 8000
+
+    ingress:
+      main:
+        className: internal
+        annotations:
+          hajimari.io/enable: "true"
+          hajimari.io/appName: "wger"
+          hajimari.io/icon: mdi:weight
+          hajimari.io/group: "collab"
+          hajimari.io/instance: "admin"
+        hosts:
+          - host: &host "{{ .Release.Name }}.${SECRET_DOMAIN}"
+            paths:
+              - path: /
+                service:
+                  identifier: main
+                  port: *httpPort
+
+    persistence:
+      static:
+        existingClaim: wger-static-pvc
+        globalMounts:
+          - path: /home/wger/static
+
+      media:
+        existingClaim: wger-media-pvc
+        globalMounts:
+          - path: /home/wger/media

@@ -3,14 +3,18 @@
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
-  name: &app wger
+  name: wger
   namespace: collab
 spec:
   interval: 30m
-  chartRef:
-    kind: OCIRepository
-    name: app-template
-    namespace: flux-system
+  chart:
+    spec:
+      chart: wger
+      version: 0.2.4
+      sourceRef:
+        kind: HelmRepository
+        name: wger
+        namespace: flux-system
 
   maxHistory: 3
 
@@ -27,59 +31,88 @@ spec:
     keepHistory: false
 
   values:
-    controllers:
-      main:
-        type: statefulset
-        annotations:
-          reloader.stakater.com/auto: "true"
+    # App settings
+    app:
+      timezone: ${TIMEZONE}
+      global:
+        replicas: 1
 
-        containers:
-          main:
-            image:
-              repository: wger/server
-              tag: 2.4-dev@sha256:5366d0ccacbfe15c853efc6fbe60d6f5bef9fe0304b25550b14d572ad53c06ac
+      mail:
+        enabled: false
+        server: mail.example.com
+        user: wger@example.com
+        from_email: "wger@example.com"
+        secret:
+          password: XXXXXXXXXXXXXXXXXXXXXXX
+      nginx:
+        enabled: true
+      axes:
+        enabled: true
+        failureLimit: 10
+        # in minutes
+        cooloffTime: 30
+        # number of reverse proxies involved
+        ipwareProxyCount: 1
+        # order of magnitude from last proxy for the real ip
+        ipwareMetaPrecedenceOrder: "X_FORWARDED_FOR,REMOTE_ADDR"
+      persistence:
+        enabled: true
+        existingClaim:
+          enabled: true
+          media: wger-media-pvc
+          static: wger-static-pvc
+          celeryBeat: wger-celery-beat-pvc
+      environment:
+        - name: GUNICORN_CMD_ARGS
+          value: "--timeout 240 --workers 2 --worker-class gthread --threads 3 --forwarded-allow-ips * --proxy-protocol True --access-logformat='%(h)s %(l)s %({client-ip}i)s %(l)s %({x-real-ip}i)s %(l)s %({x-forwarded-for}i)s %(l)s %(t)s \"%(r)s\" %(s)s %(b)s \"%(f)s\" \"%(a)s\"' --access-logfile - --error-logfile -"
 
-            #env:
-            #  FOO: XXX
-
-            resources:
-              requests:
-                cpu: 100m
-                memory: 512Mi
-              limits:
-                memory: 512Mi
-
-    service:
-      main:
-        controller: main
-        ports:
-          http:
-            port: &httpPort 8000
+    celery:
+      enabled: true
 
     ingress:
-      main:
-        className: internal
-        annotations:
-          hajimari.io/enable: "true"
-          hajimari.io/appName: "wger"
-          hajimari.io/icon: mdi:weight
-          hajimari.io/group: "collab"
-          hajimari.io/instance: "admin"
-        hosts:
-          - host: &host "{{ .Release.Name }}.${SECRET_DOMAIN}"
-            paths:
-              - path: /
-                service:
-                  identifier: main
-                  port: *httpPort
+      enabled: true
+      url: gym.${SECRET_DOMAIN}
+      tls: true
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt-prod
+        kubernetes.io/ingress.class: internal
 
-    persistence:
-      static:
-        existingClaim: wger-static-pvc
-        globalMounts:
-          - path: /home/wger/static
+    postgres:
+      enabled: true
+      settings:
+        superuser:
+          value: postgres
+        superuserPassword:
+          value: postgres
+      userDatabase:
+        name:
+          value: wger
+        user:
+          value: wger
+        password:
+          value: wger
+      service:
+        port: 5432
+      storage:
+        persistentVolumeClaimName: wger-db-pvc
+        #className: "csi-cephfs-sc"
 
-      media:
-        existingClaim: wger-media-pvc
-        globalMounts:
-          - path: /home/wger/media
+    redis:
+      enabled: false
+      auth:
+        enabled: true
+      # Additional environment variables (Redis server and Sentinel)
+      env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis
+              key: redis-password
+      # Arguments for the container entrypoint process (Redis server)
+      args:
+        - "--requirepass $(REDIS_PASSWORD)"
+      storage:
+        persistentVolumeClaimName: wger-redis-pvc
+        #className: "csi-cephfs-sc"
+      service:
+        serverPort: 6379

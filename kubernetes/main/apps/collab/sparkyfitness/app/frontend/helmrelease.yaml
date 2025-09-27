@@ -1,0 +1,74 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app sparkyfitness-frontend
+spec:
+  interval: 30m
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+    namespace: flux-system
+
+  maxHistory: 3
+
+  install:
+    remediation:
+      retries: 3
+
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+
+  uninstall:
+    keepHistory: false
+
+  values:
+    controllers:
+      main:
+        type: statefulset
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        containers:
+          main:
+            image:
+              repository: ghcr.io/codewithcj/sparkyfitness-frontend
+              tag: v0.15.3.1@sha256:d5768aa0c90485cdc9dd8b5ffa15ba5b9e73a500105b7cb0fc725abf5c0e23c3
+
+            env:
+              SPARKY_FITNESS_SERVER_HOST: sparkyfitness-server.collab
+              SPARKY_FITNESS_SERVER_PORT: 3010
+
+            resources:
+              requests:
+                cpu: 15m
+                memory: 64M
+              limits:
+                memory: 64M
+
+    service:
+      main:
+        controller: main
+        ports:
+          http:
+            port: &httpPort 8080
+
+    ingress:
+      main:
+        className: internal
+        annotations:
+          hajimari.io/enable: "true"
+          hajimari.io/appName: "Sparky Fitness"
+          hajimari.io/icon: mdi:dumbell
+          hajimari.io/group: "collab"
+          hajimari.io/instance: "admin"
+        hosts:
+          - host: &host "fitness.${SECRET_DOMAIN}"
+            paths:
+              - path: /
+                service:
+                  identifier: main
+                  port: *httpPort

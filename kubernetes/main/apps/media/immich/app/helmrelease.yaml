@@ -75,15 +75,13 @@ spec:
 
     server:
       controller:
-        replicas: 1
-        strategy: RollingUpdate
-
-      resources:
-        requests:
-          cpu: 15m
-          memory: 2Gi
-        limits:
-          memory: 2Gi
+        main:
+          resources:
+            requests:
+              cpu: 15m
+              memory: 2Gi
+            limits:
+              memory: 2Gi
 
       ingress:
         main:
@@ -99,9 +97,9 @@ spec:
 
           hosts:
             - host: &host "photos.${SECRET_DOMAIN}"
-              paths:
-                - path: /
-                  pathType: Prefix
+                paths:
+                  - path: /
+                    pathType: Prefix
 
       persistence:
         external:
@@ -110,53 +108,67 @@ spec:
           #readOnly: true
 
     machine-learning:
-      runtimeClassName: nvidia
+      controllers:
+        main:
+          replicas: 1
+          strategy: Recreate
 
-      priorityClassName: ai-gpu-critical
+        containers:
+          main:
+            image:
+              repository: ghcr.io/immich-app/immich-machine-learning
+              tag: v2.0.1-cuda
 
-      securityContext:
-        privileged: true
 
-      image:
-        repository: ghcr.io/immich-app/immich-machine-learning
-        tag: v2.0.1-cuda
+            securityContext:
+              privileged: true
 
-      controller:
-        replicas: 1
-        strategy: Recreate
+            env:
+              # Nvidia
+              NVIDIA_VISIBLE_DEVICES: "all"
+              NVIDIA_DRIVER_CAPABILITIES: "all"
+              MACHINE_LEARNING_PRELOAD__CLIP: "ViT-L-16-SigLIP-256__webli"
 
-      env:
-        # Nvidia
-        NVIDIA_VISIBLE_DEVICES: "all"
-        NVIDIA_DRIVER_CAPABILITIES: "all"
-        MACHINE_LEARNING_PRELOAD__CLIP: "ViT-L-16-SigLIP-256__webli"
+            resources:
+              requests:
+                cpu: 100m
+                memory: 5G
+                nvidia.com/gpu: 1
+              limits:
+                memory: 5G
+                nvidia.com/gpu: 1
 
-      resources:
-        requests:
-          cpu: 100m
-          memory: 5G
-          nvidia.com/gpu: 1
-        limits:
-          memory: 5G
-          nvidia.com/gpu: 1
+        pod:
+          runtimeClassName: nvidia
 
-      pod:
-        nodeSelector:
-          nvidia.com/gpu.present: "true"
+          priorityClassName: ai-gpu-critical
 
-      probes:
-        liveness:
-          enabled: false
-          spec:
-            initialDelaySeconds: 90
-        readiness:
-          enabled: false
-          spec:
-            initialDelaySeconds: 90
-        startup:
-          enabled: false
-          spec:
-            initialDelaySeconds: 90
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: nvidia.com/gpu.present
+                        operator: In
+                        values:
+                          - "true"
+
+          nodeSelector:
+            nvidia.com/gpu.present: "true"
+
+          probes:
+            liveness:
+              enabled: false
+              spec:
+                initialDelaySeconds: 90
+            readiness:
+              enabled: false
+              spec:
+                initialDelaySeconds: 90
+            startup:
+              enabled: false
+              spec:
+                initialDelaySeconds: 90
 
       persistence:
         cache:

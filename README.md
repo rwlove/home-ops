@@ -68,7 +68,7 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 | master1   | Intel NUC7PJYH    | 4   | 8  GB  | CentOS 9 | k8s Master |                         |            |                |
 | master2   | VM on beast       | 3   | 8  GB  | CentOS 9 | k8s Master |                         |            |                |
 | master3   | VM on beast       | 3   | 8  GB  | CentOS 9 | k8s Master |                         |            |                |
-| worker1   | ThinkCentre M910x | 8   | 32 GB  | CentOS 9 | k8s Worker | longhorn NVMe, ceph osd | Z-Stick 7  | iot, sec       |
+| worker1   | ThinkCentre M910x | 8   | 32 GB  | CentOS 9 | k8s Worker | longhorn NVMe, ceph osd | ZWA-2      | iot, sec       |
 | worker2   | ThinkCentre M910x | 8   | 32 GB  | CentOS 9 | k8s Worker | longhorn NVMe, ceph osd |            | iot, sec       |
 | worker3   | ThinkCentre M910x | 8   | 64 GB  | CentOS 9 | k8s Worker | longhorn NVMe, ceph osd | Sonoff     | iot, sec       |
 | worker4   | ThinkCentre M910x | 8   | 32 GB  | CentOS 9 | k8s Worker | longhorn NVMe, ceph osd | Coral USB  | iot, sec       |

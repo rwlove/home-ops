@@ -67,7 +67,7 @@ spec:
               ZIGBEE2MQTT_CONFIG_AVAILABILITY_PASSIVE_TIMEOUT: 2000
               ZIGBEE2MQTT_CONFIG_DEVICE_OPTIONS_RETAIN: "true"
               ZIGBEE2MQTT_CONFIG_EXPERIMENTAL_NEW_API: true
-              ZIGBEE2MQTT_CONFIG_FRONTEND_PORT: &port 8080
+              ZIGBEE2MQTT_CONFIG_FRONTEND_PORT: &httpPort 8080
               ZIGBEE2MQTT_CONFIG_HOMEASSISTANT_DISCOVERY_TOPIC: homeassistant
               ZIGBEE2MQTT_CONFIG_HOMEASSISTANT_STATUS_TOPIC: homeassistant/status
               ZIGBEE2MQTT_CONFIG_MQTT_INCLUDE_DEVICE_INFORMATION: "true"
@@ -112,7 +112,7 @@ spec:
         ports:
           http:
             primary: true
-            port: *port
+            port: *httpPort
           websocket:
             enabled: true
             port: 9000
@@ -128,23 +128,24 @@ spec:
             interval: 1m
             scrapeTimeout: 10s
 
-    ingress:
+    route:
       main:
-        enabled: true
-        className: internal
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: kube-system
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: main
+                port: *httpPort
         annotations:
           hajimari.io/enable: "true"
           hajimari.io/appName: "Zigbee 2 MQTT"
           hajimari.io/icon: mdi:zigbee
           hajimari.io/group: "home automation"
           hajimari.io/instance: "admin"
-        hosts:
-          - host: &host "{{ .Release.Name }}.${SECRET_DOMAIN}"
-            paths:
-              - path: /
-                service:
-                  identifier: main
-                  port: *port
 
     persistence:
       config:

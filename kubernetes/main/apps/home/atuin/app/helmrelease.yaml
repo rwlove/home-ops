@@ -97,21 +97,6 @@ spec:
                 matchLabels:
                   app.kubernetes.io/name: *app
 
-    ingress:
-      main:
-        className: internal
-        annotations:
-          hajimari.io/enable: "false"
-        hosts:
-          - host: &host "{{ .Release.Name }}.${SECRET_DOMAIN}"
-            paths: &paths
-              - path: /
-                service:
-                  identifier: main
-                  port: *httpPort
-          - host: &customHost sh.${SECRET_DOMAIN}
-            paths: *paths
-
     persistence:
       config:
         enabled: true
@@ -125,6 +110,19 @@ spec:
             port: *httpPort
           metrics:
             port: *metricsPort
+
+    route:
+      main:
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: kube-system
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: main
+                port: *httpPort
 
     serviceMonitor:
       main:

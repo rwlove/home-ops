@@ -36,7 +36,7 @@ spec:
             env:
               DOTNET_BUNDLE_EXTRACT_BASE_DIR: /tmp/.net
               SLSKD_APP_DIR: /config
-              SLSKD_HTTP_PORT: &port 80
+              SLSKD_HTTP_PORT: &httpPort 80
               SLSKD_NO_AUTH: true
               SLSKD_NO_HTTPS: true
               SLSKD_SLSK_LISTEN_PORT: &soulseekPort 50300
@@ -52,7 +52,7 @@ spec:
                 spec:
                   httpGet:
                     path: /health
-                    port: *port
+                    port: *httpPort
                   initialDelaySeconds: 0
                   periodSeconds: 10
                   timeoutSeconds: 1
@@ -92,7 +92,7 @@ spec:
           lbipam.cilium.io/ips: ${SVC_SLSKD_ADDR}
         ports:
           http:
-            port: *port
+            port: *httpPort
           soulseek:
             enabled: true
             port: *soulseekPort
@@ -108,22 +108,24 @@ spec:
             interval: 1m
             scrapeTimeout: 10s
 
-    ingress:
-      app:
-        className: internal
+    route:
+      main:
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: kube-system
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: main
+                port: *httpPort
         annotations:
           hajimari.io/enable: "true"
           hajimari.io/appName: "Soulseek"
           hajimari.io/icon: mdi:download
           hajimari.io/group: Downloads
           hajimari.io/instance: "admin"
-        hosts:
-          - host: "soulseek.${SECRET_DOMAIN}"
-            paths:
-              - path: /
-                service:
-                  identifier: app
-                  port: http
 
     persistence:
       config:

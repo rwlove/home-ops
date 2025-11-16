@@ -67,7 +67,7 @@ spec:
                 spec:
                   httpGet:
                     path: /healthz
-                    port: &port 1411
+                    port: &httpPort 1411
                   initialDelaySeconds: 0
                   periodSeconds: 10
                   timeoutSeconds: 1
@@ -94,23 +94,19 @@ spec:
       app:
         ports:
           http:
-            port: *port
-    ingress:
-      app:
-        className: external
-        annotations:
-          external-dns.alpha.kubernetes.io/target: "external.${SECRET_DOMAIN}"
-        hosts:
-          - host: &host "id.${SECRET_DOMAIN}"
-            paths:
-              - path: /
-                service:
-                  identifier: app
-                  port: http
-        tls:
-          - hosts:
-              - *host
-            secretName: "${SECRET_DOMAIN/./-}-tls"
+            port: *httpPort
+    route:
+      main:
+        hostnames:
+          - "id.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: kube-system
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: *httpPort
     persistence:
       data:
         existingClaim: pocket-id-data-pvc

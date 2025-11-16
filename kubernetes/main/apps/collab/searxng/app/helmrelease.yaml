@@ -34,7 +34,7 @@ spec:
             env:
               SEARXNG_BASE_URL: https://search.${SECRET_DOMAIN}
               SEARXNG_URL: https://search.${SECRET_DOMAIN}
-              SEARXNG_PORT: &port 8080
+              SEARXNG_PORT: &httpPort 8080
             probes:
               liveness: &probes
                 enabled: true
@@ -42,7 +42,7 @@ spec:
                 spec:
                   httpGet:
                     path: /stats
-                    port: *port
+                    port: *httpPort
                   initialDelaySeconds: 0
                   periodSeconds: 10
                   timeoutSeconds: 1
@@ -72,27 +72,26 @@ spec:
         controller: searxng
         ports:
           http:
-            port: *port
-    ingress:
+            port: *httpPort
+    route:
       app:
-        enabled: true
-        className: internal
+        hostnames:
+          - "search.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: kube-system
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: main
+                port: *httpPort
         annotations:
           hajimari.io/enable: "true"
           hajimari.io/appName: "SearXNG"
           hajimari.io/icon: arcticons:searxng #TODO
           hajimari.io/group: "collab"
           hajimari.io/instance: "admin"
-        hosts:
-          - host: &host "search.${SECRET_DOMAIN}"
-            paths:
-              - path: /
-                service:
-                  identifier: app
-                  port: http
-        tls:
-          - hosts:
-              - *host
+
     persistence:
       config:
         type: configMap

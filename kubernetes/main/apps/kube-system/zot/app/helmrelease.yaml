@@ -55,7 +55,7 @@ spec:
                 spec:
                   httpGet:
                     path: /v2/
-                    port: 5000
+                    port: &httpPort 5000
                   initialDelaySeconds: 5
               readiness: *probe
               startup:
@@ -66,28 +66,26 @@ spec:
         controller: main
         ports:
           http:
-            port: 5000
+            port: *httpPort
 
-    ingress:
+    route:
       main:
-        enabled: true
-        className: internal
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: kube-system
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: main
+                port: *httpPort
         annotations:
           hajimari.io/enable: "true"
           hajimari.io/appName: "Zot"
           hajimari.io/instance: "admin"
           hajimari.io/group: "networking"
           hajimari.io/icon: "svg:container-registry"
-          nginx.ingress.kubernetes.io/proxy-body-size: "0"
-          nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
-          nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
-        hosts:
-          - host: &host zot.${SECRET_DOMAIN}
-            paths:
-              - path: /
-                service:
-                  identifier: main
-                  port: http
 
     persistence:
       config-file:

@@ -39,7 +39,7 @@ spec:
 
             ports:
               - name: http
-                containerPort: 9093
+                containerPort: &httpPort 9093
 
             probes:
               liveness:
@@ -64,24 +64,26 @@ spec:
         controller: alertmanager
         ports:
           http:
-            port: 9093
+            port: *httpPort
 
-    ingress:
-      app:
-        className: internal
+    route:
+      main:
+        hostnames:
+          - "alert-manager.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: kube-system
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: *httpPort
         annotations:
           hajimari.io/enable: "true"
           hajimari.io/appName: "Alert Manager"
           hajimari.io/icon: mdi:alarm-light-outline
           hajimari.io/group: "monitoring"
           hajimari.io/instance: "admin"
-        hosts:
-          - host: &host alert-manager.${SECRET_DOMAIN}
-            paths:
-              - path: /
-                service:
-                  identifier: app
-                  port: http
 
     persistence:
       config:

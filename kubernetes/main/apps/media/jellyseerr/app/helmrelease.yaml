@@ -30,7 +30,7 @@ spec:
               tag: 2.7.3@sha256:9cc9e9ee6cd5cf5a23feb45c37742ba34cfd6314d81d259cddb373a97ac92cdd
             env:
               LOG_LEVEL: "debug"
-              PORT: &port 5055
+              PORT: &httpPort 5055
             #envFrom:
             #  - secretRef:
             #      name: jellyseerr-secret
@@ -41,7 +41,7 @@ spec:
                 spec:
                   httpGet:
                     path: /api/v1/status
-                    port: *port
+                    port: *httpPort
                   initialDelaySeconds: 0
                   periodSeconds: 10
                   timeoutSeconds: 1
@@ -68,24 +68,26 @@ spec:
         controller: jellyseerr
         ports:
           http:
-            port: *port
+            port: *httpPort
 
-    ingress:
-      main:
-        className: internal
+    route:
+      app:
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: kube-system
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: main
+                port: *httpPort
         annotations:
           hajimari.io/enable: "true"
           hajimari.io/appName: "Media"
           hajimari.io/icon: simple-icons:jellyfin
           hajimari.io/group: "media"
           hajimari.io/instance: "admin,user"
-        hosts:
-          - host: &host "jellyseerr.${SECRET_DOMAIN}"
-            paths:
-              - path: /
-                service:
-                  identifier: app
-                  port: *port
 
     persistence:
       config:

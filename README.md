@@ -44,7 +44,6 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 - [cilium](https://cilium.io): Kubernetes Container Network Interface (CNI).
 - [cert-manager](https://cert-manager.io/docs): Creates SSL certificates for services in my Kubernetes cluster.
 - [external-dns](https://github.com/kubernetes-sigs/external-dns): Automatically manages DNS records from my cluster in a cloud DNS provider.
-- [ingress-nginx](https://github.com/kubernetes/ingress-nginx): Ingress controller to expose HTTP traffic to pods over DNS.
 - [Cloudflared](https://github.com/cloudflare/cloudflared): Cloudflare tunnel client.
 
 ### Storage

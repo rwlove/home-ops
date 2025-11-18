@@ -1,5 +1,5 @@
 ---
-applyTo: "kubernetes/apps/**/helmrelease.yaml"
+applyTo: "kubernetes/main/apps/**/helmrelease.yaml"
 ---
 
 # Instructions for HelmRelease files

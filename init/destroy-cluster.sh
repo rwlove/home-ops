@@ -19,8 +19,7 @@ kubectl -n rook-ceph wait --for=delete cephcluster rook-ceph
 kubectl -n rook-ceph delete hr rook-ceph-cluster
 kubectl -n rook-ceph delete hr rook-ceph-operator
 
-for node in worker1.thesteamedcrab.com \
-	worker2.thesteamedcrab.com \
+for node in worker2.thesteamedcrab.com \
 	worker3.thesteamedcrab.com \
         worker4.thesteamedcrab.com \
         worker5.thesteamedcrab.com \
@@ -38,8 +37,7 @@ for node in worker1.thesteamedcrab.com \
     kubectl delete node $node
 done
 
-for node in worker1.thesteamedcrab.com \
-	  worker2.thesteamedcrab.com \
+for node in worker2.thesteamedcrab.com \
 	  worker3.thesteamedcrab.com \
           worker4.thesteamedcrab.com \
           worker5.thesteamedcrab.com \
@@ -82,7 +80,7 @@ if [ -d ${HOME}/.kube ] ; then
     rm -rf ${HOME}/.kube/*
 fi
 
-for worker in worker3 worker5 worker6 worker7 worker8 ; do
+for worker in worker1 worker2 worker3 worker4 worker5 worker6 worker7 worker8 ; do
     echo "cleaning up ${worker}"
     echo "- run /root/ceph-cleanup.sh"
     ssh root@${worker} /root/ceph-cleanup.sh

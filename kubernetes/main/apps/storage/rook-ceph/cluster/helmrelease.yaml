@@ -1,0 +1,209 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: rook-ceph-cluster
+  namespace: rook-ceph
+spec:
+  interval: 1h
+  timeout: 15m
+  chartRef:
+    kind: OCIRepository
+    name: rook-ceph-cluster
+  values:
+    monitoring:
+      enabled: true
+      createPrometheusRules: true
+
+    route:
+      dashboard:
+        annotations:
+          hajimari.io/enable: "true"
+          hajimari.io/appName: "Rook"
+          hajimari.io/group: "storage"
+          hajimari.io/icon: mdi:chess-rook
+          hajimari.io/instance: "admin"
+        host:
+          name: "rook.${SECRET_DOMAIN}"
+          path: /
+          pathType: PathPrefix
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+
+    configOverride: |
+      [global]
+      bdev_enable_discard = true
+      bdev_async_discard = true
+      osd_pool_default_min_size = 3
+
+    cephClusterSpec:
+      dataDirHostPath: /var/lib/rook
+
+      crashCollector:
+        disable: false
+
+      dashboard:
+        enabled: true
+        urlPrefix: /
+        ssl: false
+        prometheusEndpoint: http://kube-prometheus-stack-prometheus.observability.svc.cluster.local:9090
+
+      mgr:
+        modules:
+          - name: rook
+            enabled: true
+
+      storage:
+        useAllNodes: false
+        useAllDevices: false
+        config:
+          osdsPerDevice: "1"
+        nodes:
+          - name: "master1.${SECRET_DOMAIN}"
+            devices:
+              - name: "/dev/nvme1n1p2"
+          - name: "worker2.${SECRET_DOMAIN}"
+            devices:
+              - name: "/dev/nvme1n1p2"
+          - name: "worker3.${SECRET_DOMAIN}"
+            devices:
+              - name: "/dev/disk/by-id/nvme-eui.e8238fa6bf530001001b448b4cec4fe7"
+          - name: "worker4.${SECRET_DOMAIN}"
+            devices:
+              - name: "/dev/nvme0n1p2"
+          - name: "worker5.${SECRET_DOMAIN}"
+            devices:
+              - name: "/dev/vdb"
+          - name: "worker6.${SECRET_DOMAIN}"
+            devices:
+              - name: "/dev/vdb"
+          - name: "worker7.${SECRET_DOMAIN}"
+            devices:
+              - name: "/dev/vdb"
+          - name: "worker8.${SECRET_DOMAIN}"
+            devices:
+              - name: "/dev/vdb"
+
+      resources:
+        mgr:
+          requests:
+            cpu: 100m
+            memory: 900Mi
+          limits:
+            memory: 900Mi
+        mon:
+          requests:
+            cpu: 50m
+            memory: 800Mi
+          limits:
+            memory: 800Mi
+        osd:
+          requests:
+            cpu: 100m
+            memory: 4Gi
+          limits:
+            memory: 4Gi
+        mgr-sidecar:
+          requests:
+            cpu: 50m
+            memory: 256Mi
+          limits:
+            memory: 256Mi
+
+    cephBlockPools:
+      - name: ceph-blockpool
+        spec:
+          failureDomain: host
+          replicated:
+            size: 3
+
+        storageClass:
+          enabled: true
+          name: ceph-block
+          isDefault: true
+          reclaimPolicy: Delete
+          allowVolumeExpansion: true
+          parameters:
+            imageFormat: "2"
+            imageFeatures: layering
+            csi.storage.k8s.io/provisioner-secret-name: rook-csi-rbd-provisioner
+            csi.storage.k8s.io/provisioner-secret-namespace: rook-ceph
+            csi.storage.k8s.io/controller-expand-secret-name: rook-csi-rbd-provisioner
+            csi.storage.k8s.io/controller-expand-secret-namespace: rook-ceph
+            csi.storage.k8s.io/node-stage-secret-name: rook-csi-rbd-node
+            csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph
+            csi.storage.k8s.io/fstype: ext4
+
+    cephFileSystems:
+      - name: ceph-filesystem
+        spec:
+          metadataPool:
+            replicated:
+              size: 3
+          dataPools:
+            - failureDomain: host
+              replicated:
+                size: 3
+              name: data0
+          metadataServer:
+            activeCount: 1
+            activeStandby: true
+            priorityClassName: system-cluster-critical
+            resources:
+              requests:
+                cpu: 1000m
+                memory: 120Mi
+              limits:
+                memory: 120Mi
+
+        storageClass:
+          enabled: true
+          isDefault: false
+          name: ceph-filesystem
+          pool: data0
+          reclaimPolicy: Delete
+          allowVolumeExpansion: true
+          parameters:
+            csi.storage.k8s.io/provisioner-secret-name: rook-csi-cephfs-provisioner
+            csi.storage.k8s.io/provisioner-secret-namespace: rook-ceph
+            csi.storage.k8s.io/controller-expand-secret-name: rook-csi-cephfs-provisioner
+            csi.storage.k8s.io/controller-expand-secret-namespace: rook-ceph
+            csi.storage.k8s.io/node-stage-secret-name: rook-csi-cephfs-node
+            csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph
+            csi.storage.k8s.io/fstype: ext4
+
+    cephObjectStores:
+      - name: ceph-objectstore
+        spec:
+          metadataPool:
+            failureDomain: host
+            replicated:
+              size: 3
+          dataPool:
+            failureDomain: host
+            erasureCoded:
+              dataChunks: 2
+              codingChunks: 1
+          preservePoolsOnDelete: true
+          gateway:
+            port: 80
+            resources:
+              requests:
+                cpu: 50m
+                memory: 800Mi
+              limits:
+                memory: 800Mi
+            instances: 2
+            priorityClassName: system-cluster-critical
+          healthCheck:
+            bucket:
+              interval: 60s
+        storageClass:
+          enabled: true
+          name: ceph-bucket
+          reclaimPolicy: Delete
+          parameters:
+            region: us-east-1

@@ -1,0 +1,63 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app snmp-exporter-dell-idrac
+  namespace: observability
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: prometheus-snmp-exporter
+      version: 9.8.2
+      sourceRef:
+        kind: HelmRepository
+        name: prometheus-community-charts
+        namespace: flux-system
+
+  install:
+    createNamespace: true
+    remediation:
+      retries: 3
+
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      strategy: rollback
+      retries: 3
+
+  dependsOn:
+    - name: kube-prometheus-stack
+      namespace: observability
+
+  values:
+    fullnameOverride: *app
+
+    image:
+      repository: quay.io/prometheus/snmp-exporter
+    extraArgs:
+      - "--config.file=/config/snmp.yaml"
+
+    extraConfigmapMounts:
+      - name: *app
+        mountPath: /config/snmp.yaml
+        subPath: snmp.yaml
+        configMap: *app
+        readOnly: true
+        defaultMode: 420
+
+    serviceMonitor:
+      enabled: true
+      namespace: observability
+      params:
+        - name: dell-idrac-0
+          module:
+            - dell
+          target: 192.168.1.22
+          auth: ["public_v2"]
+      path: /snmp
+      scrapeTimeout: 10s
+      relabelings:
+        - sourceLabels: [__param_target]
+          targetLabel: instance

@@ -1,0 +1,64 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app smartctl-exporter
+  namespace: observability
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: prometheus-smartctl-exporter
+      version: 0.16.0
+      sourceRef:
+        kind: HelmRepository
+        name: prometheus-community-charts
+        namespace: flux-system
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+  uninstall:
+    keepHistory: false
+  values:
+    fullnameOverride: *app
+    image:
+      repository: ghcr.io/joryirving/smartctl_exporter
+      tag: 0.14.0@sha256:7cb7ef67ff212bbc9e6a2eb60d3893eeb7b0b7fc3ca6cf5940ea1a808ec7c4a4
+    config:
+      devices:
+      - /dev/sda
+      - /dev/sdb
+      - /dev/sdc
+      - /dev/sdd
+      - /dev/sde
+      - /dev/sdf
+      - /dev/sdg
+      - /dev/nvme0n1
+      - /dev/nvme1n1
+      - /dev/nvme2n1
+    serviceMonitor:
+      enabled: true
+      relabelings:
+      - action: labeldrop
+        regex: (pod)
+      - action: replace
+        regex: (.*)
+        replacement: $1.${CLUSTER_NAME}.${SECRET_DOMAIN}
+        sourceLabels:
+        - __meta_kubernetes_endpoint_node_name
+        targetLabel: instance
+      # - action: replace
+      #   separator: ':'
+      #   # regex: \b((?:sd[a-z]+|nvme\d+n\d+))\b|\b((?:cp\d+|work\d+|n\d{3}-\d{2}))\b
+      #   # replacement: "$1: $2"
+      #   sourceLabels:
+      #   - device
+      #   - __meta_kubernetes_endpoint_node_name
+      #   targetLabel: device
+    prometheusRules:
+      enabled: false

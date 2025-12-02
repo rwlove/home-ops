@@ -1,0 +1,99 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: alertmanager
+spec:
+  interval: 30m
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+    namespace: flux-system
+
+  dependsOn:
+    - name: rook-ceph-cluster
+      namespace: rook-ceph
+
+  values:
+    controllers:
+      alertmanager:
+        type: statefulset
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        statefulset:
+          volumeClaimTemplates:
+            - name: storage
+              accessMode: ReadWriteOnce
+              size: 2Gi
+              storageClass: ceph-block
+              globalMounts:
+                - path: /alertmanager
+
+        containers:
+          app:
+            image:
+              repository: quay.io/prometheus/alertmanager
+              tag: v0.29.0
+
+            ports:
+              - name: http
+                containerPort: &httpPort 9093
+
+            probes:
+              liveness:
+                enabled: true
+              readiness:
+                enabled: true
+              startup:
+                enabled: true
+                spec:
+                  failureThreshold: 30
+                  periodSeconds: 5
+
+            resources:
+              requests:
+                cpu: 11m
+                memory: 100M
+              limits:
+                memory: 100M
+
+    service:
+      app:
+        controller: alertmanager
+        ports:
+          http:
+            port: *httpPort
+
+    route:
+      main:
+        hostnames:
+          - "alert-manager.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: *httpPort
+        annotations:
+          hajimari.io/enable: "true"
+          hajimari.io/appName: "Alert Manager"
+          hajimari.io/icon: mdi:alarm-light-outline
+          hajimari.io/group: "observability"
+          hajimari.io/instance: "admin"
+
+    persistence:
+      config:
+        type: configMap
+        name: alertmanager-configmap
+        globalMounts:
+          - path: /etc/alertmanager
+
+      secrets:
+        type: secret
+        name: alertmanager
+        globalMounts:
+          - path: /etc/secrets

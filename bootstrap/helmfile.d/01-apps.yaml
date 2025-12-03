@@ -76,6 +76,14 @@ releases:
     needs:
       - kube-system/external-secrets
     hooks:
+      - # Wait for ExternalSecrets CRDs to be available
+        command: bash
+        args:
+          - -c
+          - until kubectl get crd clustersecretstores.external-secrets.io &>/dev/null; do sleep 5; done
+        events:
+          - postsync
+        showlogs: true
       - # Apply Secrets
         command: kubectl
         args:
@@ -91,6 +99,7 @@ releases:
         args:
           - apply
           - --server-side
+          - --field-manager=kustomize-controller
           - -f
           - ../../kubernetes/main/apps/kube-system/external-secrets/stores/clustersecretstore.yaml
         events:

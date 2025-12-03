@@ -1,3 +1,3 @@
 #!/bin/bash
 
-flux --namespace flux-system reconcile kustomization flux-instance --with-source
+flux --namespace flux-system reconcile kustomization cluster-apps --with-source

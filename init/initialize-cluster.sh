@@ -8,23 +8,10 @@ scp root@master1:~/.kube/config ~/.kube/config
 echo "# Create Secrets Patch and Push"
 ./create-secrets.sh
 
-#kubectl get ns flux-system > /dev/null
-#ERR=$?
-#if [[ "${ERR}" -eq "1" ]] ; then
-    echo "Create flux-system namespace"
-    kubectl apply -f ./kubernetes/main/apps/namespaces/flux-system.yaml
-#else
-#    echo "flux-system namespace already exists"
-#fi
-
-#kubectl get ns observability > /dev/null
-#ERR=$?
-#if [[ "${ERR}" -eq "1" ]] ; then
-#    echo "Create observability namespace"
-    kubectl apply -f ./kubernetes/main/apps/namespaces/observability.yaml
-#else
-#    echo "observability namespace already exists"
-#fi
+echo "Create flux-system namespace"
+kubectl apply -f ./kubernetes/main/apps/namespaces/flux-system.yaml
+echo "Create observability namespace"
+kubectl apply -f ./kubernetes/main/apps/namespaces/observability.yaml
 
 echo "Create Cluster Settings Configmap"
 kubectl apply -f ./kubernetes/main/flux/vars/cluster-settings.yaml
@@ -35,8 +22,8 @@ sops --decrypt ./kubernetes/main/flux/vars/cluster-secrets.yaml | kubectl apply 
 echo "Apply CRDS"
 helmfile -f "bootstrap/helmfile.d/00-crds.yaml" template -q | kubectl apply --server-side -f -
 
-#echo "Apply Helmfile"
-#helmfile -f "bootstrap/helmfile.yaml" sync --hide-notes
+echo "Apply Helmfile"
+helmfile -f "bootstrap/helmfile.yaml" sync --hide-notes
 
 #echo "Apply Apps"
 #helmfile -f "bootstrap/helmfile.d/01-apps.yaml" sync --hide-notes

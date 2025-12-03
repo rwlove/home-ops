@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -euc -o pipefail
+set -eu -o pipefail
 
 scp root@master1:~/.kube/config ~/.kube/config
 

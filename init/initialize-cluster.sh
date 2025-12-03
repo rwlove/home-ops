@@ -12,6 +12,8 @@ echo "Create flux-system namespace"
 kubectl apply -f ./kubernetes/main/apps/namespaces/flux-system.yaml
 echo "Create observability namespace"
 kubectl apply -f ./kubernetes/main/apps/namespaces/observability.yaml
+echo "Create network namespace"
+kubectl apply -f ./kubernetes/main/apps/namespaces/network.yaml
 
 echo "Create Cluster Settings Configmap"
 kubectl apply -f ./kubernetes/main/flux/vars/cluster-settings.yaml

@@ -74,3 +74,6 @@ ssh root@worker7.thesteamedcrab.com rm -rf /var/lib/longhorn/*
 kubectl label nodes worker7.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
 #ssh root@worker8.thesteamedcrab.com rm -rf /var/lib/longhorn/*
 #kubectl label nodes worker8.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
+
+echo "Make master1 schedulable"
+kubectl taint nodes master1.thesteamedcrab.com node.kubernetes.io/unschedulable-

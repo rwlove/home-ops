@@ -10,7 +10,6 @@ echo "# Create Secrets Patch and Push"
 
 kubectl get ns flux-system > /dev/null
 ERR=$?
-echo "err is $ERR"
 if [[ "${ERR}" -eq "1" ]] ; then
     echo "Create flux-system namespace"
     kubectl create namespace flux-system
@@ -25,7 +24,7 @@ echo "Create Cluster Secrets"
 sops --decrypt ./kubernetes/main/flux/vars/cluster-secrets.yaml | kubectl apply -f -
 
 echo "Apply CRDS"
-helmfile -f "bootstrap/helmfile.d/00-crds.yaml" template -q | kubectl apply --server-side -f
+helmfile -f "bootstrap/helmfile.d/00-crds.yaml" template -q | kubectl apply --server-side -f -
 
 #echo "Apply Helmfile"
 #helmfile -f "bootstrap/helmfile.yaml" sync --hide-notes

@@ -59,8 +59,8 @@ done
 
 # Configure Longhorn Disks (NVMe Drives) -- see README hardware section
 echo " Label workers 1, 2, 3, 4, 5, 6, 7 and 8 for longhorn since they have NVMe drives"
-ssh root@worker1.thesteamedcrab.com rm -rf /var/lib/longhorn/*
-kubectl label nodes worker1.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
+ssh root@master1.thesteamedcrab.com rm -rf /var/lib/longhorn/*
+kubectl label nodes master1.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
 ssh root@worker2.thesteamedcrab.com rm -rf /var/lib/longhorn/*
 kubectl label nodes worker2.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
 ssh root@worker3.thesteamedcrab.com rm -rf /var/lib/longhorn/*
@@ -73,5 +73,5 @@ ssh root@worker6.thesteamedcrab.com rm -rf /var/lib/longhorn/*
 kubectl label nodes worker6.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
 ssh root@worker7.thesteamedcrab.com rm -rf /var/lib/longhorn/*
 kubectl label nodes worker7.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
-ssh root@worker8.thesteamedcrab.com rm -rf /var/lib/longhorn/*
+#ssh root@worker8.thesteamedcrab.com rm -rf /var/lib/longhorn/*
 #kubectl label nodes worker8.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"

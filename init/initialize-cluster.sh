@@ -8,7 +8,8 @@ scp root@master1:~/.kube/config ~/.kube/config
 echo "# Create Secrets Patch and Push"
 ./create-secrets.sh
 
-ERR=`kubectl get ns flux-system`
+kubectl get ns flux-system > /dev/null
+ERR=$?
 if [["$ERR" -eq "1"]]; then
     echo "Create flux-system namespace"
     kubectl create namespace flux-system

@@ -15,9 +15,13 @@ kubectl apply -f ./kubernetes/main/flux/vars/cluster-settings.yaml
 echo "Create Cluster Secrets"
 sops --decrypt ./kubernetes/main/flux/vars/cluster-secrets.yaml | kubectl apply -f -
 
-echo "Apply Helmfile" # TODO: How do I wait until this is all done?
+echo "Apply CRDS"
 helmfile -f "bootstrap/helmfile.d/00-crds.yaml" sync --hide-notes
-#kubectl apply --server-side --filename -- helmfile --file ./bootstrap/helmfile.yaml apply --skip-diff-on-install --suppress-diff --debug
+
+echo "Apply Apps"
+helmfile -f "bootstrap/helmfile.d/01-apps.yaml" sync --hide-notes
+
+exit 1
 
 ready=0
 all_nodes_ready() {

@@ -80,7 +80,7 @@ if [ -d ${HOME}/.kube ] ; then
     rm -rf ${HOME}/.kube/*
 fi
 
-for worker in worker1 worker2 worker3 worker4 worker5 worker6 worker7 worker8 ; do
+for worker in master1 worker2 worker3 worker4 worker5 worker6 worker7 worker8 ; do
     echo "cleaning up ${worker}"
     echo "- run /root/ceph-cleanup.sh"
     ssh root@${worker} /root/ceph-cleanup.sh

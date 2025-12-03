@@ -15,11 +15,11 @@ kubectl apply -f ./kubernetes/main/flux/vars/cluster-settings.yaml
 echo "Create Cluster Secrets"
 sops --decrypt ./kubernetes/main/flux/vars/cluster-secrets.yaml | kubectl apply -f -
 
+echo "Apply CRDS"
+helmfile -f "bootstrap/helmfile.d/00-crds.yaml" sync --hide-notes
+
 echo "Apply Helmfile"
 helmfile -f "bootstrap/helmfile.yaml" sync --hide-notes
-
-#echo "Apply CRDS"
-#helmfile -f "bootstrap/helmfile.d/00-crds.yaml" sync --hide-notes
 
 #echo "Apply Apps"
 #helmfile -f "bootstrap/helmfile.d/01-apps.yaml" sync --hide-notes

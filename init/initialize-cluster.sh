@@ -24,27 +24,5 @@ sops --decrypt ./kubernetes/main/flux/vars/cluster-secrets.yaml | kubectl apply 
 echo "Apply CRDS"
 helmfile -f "bootstrap/helmfile.d/00-crds.yaml" template -q | kubectl apply --server-side --field-manager bootstrap --force-conflicts -f -
 
-echo "Apply Helmfile"
-helmfile -f "bootstrap/helmfile.yaml" sync --hide-notes
-
-#echo "Apply Apps"
-#helmfile -f "bootstrap/helmfile.d/01-apps.yaml" sync --hide-notes
-
-exit 1
-
-ready=0
-all_nodes_ready() {
-    if [ `kubectl get nodes | grep -c "NotReady"` -eq 0 ] ; then
-	ready=1
-    else
-	ready=0
-    fi
-}
-
-while [ ${ready} -ne 1 ] ; do
-    sleep 1
-    all_nodes_ready
-done
-
-echo "Create Cluster"
-kubectl apply --server-side --kustomize ./kubernetes/main/flux/config
+echo "Apply Apps"
+helmfile -f "bootstrap/helmfile.d/01-apps.yaml" sync --hide-notes

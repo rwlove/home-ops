@@ -16,7 +16,7 @@ echo "Create Cluster Secrets"
 sops --decrypt ./kubernetes/main/flux/vars/cluster-secrets.yaml | kubectl apply -f -
 
 echo "Apply CRDS"
-helmfile -f "bootstrap/helmfile.d/00-crds.yaml" template -q | kubectl apply --server-side -f
+helmfile -f "../bootstrap/helmfile.d/00-crds.yaml" template -q | kubectl apply --server-side -f
 
 #echo "Apply Helmfile"
 #helmfile -f "bootstrap/helmfile.yaml" sync --hide-notes

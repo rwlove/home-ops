@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -euo pipefail -c
+
 scp root@master1:~/.kube/config ~/.kube/config
 
 #echo "######"

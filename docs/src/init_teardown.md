@@ -1,3 +1,9 @@
+## Prereqe
+* 1password-cli
+* minijinja
+* yq
+* go-task (alias to task)
+
 ## Initialization
 ```./init/create-cluster.sh``` (on master)
 

@@ -18,8 +18,29 @@ releases:
     namespace: kube-system
     chart: oci://ghcr.io/home-operations/charts-mirror/cilium
     version: 1.18.4
-    values: ['../kubernetes/main/apps/kube-system/cilium/app/values.yaml']
-    #needs: ['kube-system/kubelet-csr-approver']
+    values:
+      - templates/values.yaml.gotmpl
+    hooks:
+      - # Wait for Cilium CRDs to be available
+        command: bash
+        args:
+          - -c
+          - until kubectl get crd ciliumloadbalancerippools.cilium.io ciliumbgpadvertisements.cilium.io ciliumbgppeerconfigs.cilium.io ciliumbgpclusterconfigs.cilium.io &>/dev/null; do sleep 5; done
+        events:
+          - postsync
+        showlogs: true
+      - # Apply cilium network configuration
+        command: kubectl
+        args:
+          - apply
+          - --namespace=kube-system
+          - --server-side
+          - --field-manager=kustomize-controller
+          - --kustomize
+          - ../../kubernetes/main/apps/kube-system/cilium/config/
+        events:
+          - postsync
+        showlogs: true
 
   - name: cert-manager
     namespace: cert-manager

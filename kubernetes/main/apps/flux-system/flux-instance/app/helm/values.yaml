@@ -1,7 +1,7 @@
 ---
 instance:
   distribution:
-    artifact: oci://ghcr.io/controlplaneio-fluxcd/flux-operator-manifests:v0.33.0
+    artifact: oci://ghcr.io/controlplaneio-fluxcd/flux-operator-manifests:v0.35.0
     version: 2.x
   cluster:
     networkPolicy: false
@@ -78,6 +78,14 @@ instance:
         target:
           kind: Deployment
           name: source-controller
+      - # Cache Secrets and ConfigMaps
+        patch: |-
+          - op: add
+            path: /spec/template/spec/containers/0/args/-
+            value: --feature-gates=CacheSecretsAndConfigMaps=true
+        target:
+          kind: Deployment
+          name: source-controller
       - # Flux near OOM detection for Helm
         patch: |
           - op: add
@@ -100,3 +108,27 @@ instance:
         target:
           kind: Deployment
           name: helm-controller
+      - # Controller-level SOPS decryption
+        patch: |-
+          - op: add
+            path: /spec/template/spec/containers/0/args/-
+            value: --sops-age-secret=sops-age
+        target:
+          kind: Deployment
+          name: kustomize-controller
+      - # Watch configmaps and secrets attached to HelmReleases and Kustomizations
+        patch: |-
+          - op: add
+            path: /spec/template/spec/containers/0/args/-
+            value: --watch-configs-label-selector=owner!=helm
+        target:
+          kind: Deployment
+          name: (helm-controller|kustomize-controller)
+      - # Cancel health checks on new Kustomizations revisions
+        patch: |-
+          - op: add
+            path: /spec/template/spec/containers/0/args/-
+            value: --feature-gates=CancelHealthCheckOnNewRevision=true
+        target:
+          kind: Deployment
+          name: kustomize-controller

@@ -8,23 +8,23 @@ scp root@master1:~/.kube/config ~/.kube/config
 echo "# Create Secrets Patch and Push"
 ./create-secrets.sh
 
-kubectl get ns flux-system > /dev/null
-ERR=$?
-if [[ "${ERR}" -eq "1" ]] ; then
+#kubectl get ns flux-system > /dev/null
+#ERR=$?
+#if [[ "${ERR}" -eq "1" ]] ; then
     echo "Create flux-system namespace"
     kubectl apply -f ./kubernetes/main/apps/namespaces/flux-system.yaml
-else
-    echo "flux-system namespace already exists"
-fi
+#else
+#    echo "flux-system namespace already exists"
+#fi
 
-kubectl get ns observability > /dev/null
-ERR=$?
-if [[ "${ERR}" -eq "1" ]] ; then
-    echo "Create observability namespace"
+#kubectl get ns observability > /dev/null
+#ERR=$?
+#if [[ "${ERR}" -eq "1" ]] ; then
+#    echo "Create observability namespace"
     kubectl apply -f ./kubernetes/main/apps/namespaces/observability.yaml
-else
-    echo "observability namespace already exists"
-fi
+#else
+#    echo "observability namespace already exists"
+#fi
 
 echo "Create Cluster Settings Configmap"
 kubectl apply -f ./kubernetes/main/flux/vars/cluster-settings.yaml

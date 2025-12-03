@@ -18,8 +18,8 @@ sops --decrypt ./kubernetes/main/flux/vars/cluster-secrets.yaml | kubectl apply 
 echo "Apply CRDS"
 helmfile -f "bootstrap/helmfile.d/00-crds.yaml" template -q | kubectl apply --server-side -f
 
-echo "Apply Helmfile"
-helmfile -f "bootstrap/helmfile.yaml" sync --hide-notes
+#echo "Apply Helmfile"
+#helmfile -f "bootstrap/helmfile.yaml" sync --hide-notes
 
 #echo "Apply Apps"
 #helmfile -f "bootstrap/helmfile.d/01-apps.yaml" sync --hide-notes

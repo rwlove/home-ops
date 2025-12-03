@@ -10,7 +10,8 @@ echo "# Create Secrets Patch and Push"
 
 kubectl get ns flux-system > /dev/null
 ERR=$?
-if [["$ERR" -eq "1"]]; then
+echo $ERR
+if [[ "${ERR}" -eq "1"]]; then
     echo "Create flux-system namespace"
     kubectl create namespace flux-system
 else

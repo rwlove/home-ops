@@ -8,9 +8,14 @@ scp root@master1:~/.kube/config ~/.kube/config
 echo "# Create Secrets Patch and Push"
 ./create-secrets.sh
 
-echo "Create flux-system namespace"
-kubectl create namespace flux-system
-
+ERR=`kubectl get ns flux-system`
+if [ $ERR -eq 1 ] ; then
+    echo "Create flux-system namespace"
+    kubectl create namespace flux-system
+else
+    echo "flux-system namespace already exists"
+fi
+    
 echo "Create Cluster Settings Configmap"
 kubectl apply -f ./kubernetes/main/flux/vars/cluster-settings.yaml
 

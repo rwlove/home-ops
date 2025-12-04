@@ -12,8 +12,8 @@ kubectl apply -f ./kubernetes/apps/namespaces/observability.yaml
 echo "Create network namespace"
 kubectl apply -f ./kubernetes/apps/namespaces/network.yaml
 
-echo "# Create Secrets Patch and Push"
-./create-secrets.sh
+echo "# Create Resources"
+just -f bootstrap/mod.just
 
 echo "Create Cluster Settings Configmap"
 kubectl apply -f ./kubernetes/apps/flux-system/flux-instance/app/cluster-settings.yaml

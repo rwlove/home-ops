@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# kubernetes/main/apps/home/home-assistant/app/helmrelease.yaml
+# kubernetes/apps/home/home-assistant/app/helmrelease.yaml
 
 ns=`echo $1 | awk -F'/' '{print $4}'`
 hr=`echo $1 | awk -F'/' '{print $5}'`

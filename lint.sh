@@ -1,3 +1,3 @@
 #!/bin/bash
 
-yamllint -c .github/linters/.yamllint.yaml kubernetes/main
+yamllint -c .github/linters/.yamllint.yaml kubernetes

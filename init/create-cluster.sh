@@ -76,4 +76,4 @@ kubectl label nodes worker7.thesteamedcrab.com "node.longhorn.io/create-default-
 #kubectl label nodes worker8.thesteamedcrab.com "node.longhorn.io/create-default-disk=true"
 
 echo "Make master1 schedulable"
-kubectl taint nodes master1.thesteamedcrab.com node.kubernetes.io/unschedulable-
+kubectl taint nodes master1.thesteamedcrab.com node-role.kubernetes.io/control-plane:NoSchedule-

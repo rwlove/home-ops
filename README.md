@@ -56,7 +56,6 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 ### GitOps
 - [Flux2](https://github.com/fluxcd/flux2): Declarative Cluster GitOps
 - [actions-runner-controller](https://github.com/actions/actions-runner-controller): Self-hosted Github runners.
-- [sops](https://toolkit.fluxcd.io/guides/mozilla-sops/): Managed secrets for Kubernetes which are commited to Git.
 - [Rennovate](https://github.com/renovatebot/renovate): Automated Cluster Management.
 
 ---

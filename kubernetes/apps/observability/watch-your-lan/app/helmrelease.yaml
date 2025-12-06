@@ -1,0 +1,74 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: watch-your-lan
+spec:
+  interval: 1h
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  values:
+    controllers:
+      watch-your-lan:
+        strategy: RollingUpdate
+        containers:
+          app:
+            image:
+              repository: ghcr.io/aceberg/watchyourlan
+              tag: 2.1.4@sha256:f77532ca7c3c9a4398cb094df7674013a3d7fcf4699386f1e456c24df6fef00e
+              pullPolicy: IfNotPresent
+            env:
+              #ARP_STRS_JOINED: -gNx ${internal_subnet} -I net0
+              THEME: journal
+              USE_DB: postgres
+              LOG_LEVEL: "debug"
+              PROMETHEUS_ENABLE: "true"
+              PG_CONNECT: "postgres://watch-your-lan:watch-your-lan@postgres-watch-your-lan-rw.databases.svc.cluster.local/watch-your-lan"
+            probes:
+              startup:
+                enabled: true
+                spec:
+                  failureThreshold: 30
+                  periodSeconds: 5
+              liveness:
+                enabled: true
+              readiness:
+                enabled: true
+
+    service:
+      watch-your-lan:
+        controller: watch-your-lan
+        ports:
+          http:
+            port: &httpPort 8840
+
+    route:
+      main:
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: watch-your-lan
+                port: *httpPort
+
+    persistence:
+      data:
+        enabled: true
+        type: emptyDir
+
+    serviceMonitor:
+      main:
+        enabled: true
+        serviceName: watch-your-lan
+        endpoints:
+          - port: http
+            scheme: http
+            path: /metrics
+            interval: 2m
+            scrapeTimeout: 10s

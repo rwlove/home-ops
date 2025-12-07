@@ -20,7 +20,7 @@ echo "# Create Resources"
 just -f bootstrap/mod.just
 
 echo "Create Cluster Settings Configmap"
-kubectl apply -f ./kubernetes/apps/flux-system/flux-instance/app/cluster-config.yaml
+kubectl -n flux-system apply -f ./kubernetes/apps/flux-system/flux-instance/app/cluster-config.yaml
 
 echo "Apply CRDS"
 helmfile -f "bootstrap/helmfile.d/00-crds.yaml" template -q | kubectl apply --server-side --field-manager bootstrap --force-conflicts -f -

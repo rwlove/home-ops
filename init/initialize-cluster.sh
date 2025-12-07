@@ -13,6 +13,8 @@ echo "Create network namespace"
 kubectl apply -f ./kubernetes/apps/network/namespace.yaml
 echo "Create cert-manager namespace"
 kubectl apply -f ./kubernetes/apps/cert-manager/namespace.yaml
+echo "Create external-secrets namespace"
+kubectl apply -f ./kubernetes/apps/external-secrets/namespace.yaml
 
 echo "# Create Resources"
 just -f bootstrap/mod.just

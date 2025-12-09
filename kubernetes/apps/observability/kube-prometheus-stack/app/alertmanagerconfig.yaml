@@ -8,7 +8,7 @@ spec:
   receivers:
     - name: "null"
     - name: "pushover"
-      pushover_configs:
+      pushoverConfigs:
         - html: true
           token:
             name: alertmanager-secret
@@ -17,11 +17,12 @@ spec:
             name: alertmanager-secret
             key: pushover_api_userkey
           urlTitle: View in Alertmanager
-          send_resolved: true
+          sendResolved: true
+          sound: gamelan
           url: https://alertmanager.${SECRET_DOMAIN}
           priority: |-
             {{ if eq .Status "firing" }}1{{ else }}0{{ end }}
-          url_title: View in Alert Manager
+          urlTitle: View in Alert Manager
           title: |-
             [{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .CommonLabels.alertname }}
           message: |-
@@ -49,19 +50,27 @@ spec:
             {{- end }}
 
   route:
-    group_by: ["alertname", "job"]
-    group_wait: 30s
-    group_interval: 5m
-    repeat_interval: 6h
+    groupBy: ["alertname", "job"]
+    groupWait: 30s
+    groupInterval: 5m
+    repeatInterval: 6h
     receiver: "pushover"
     routes:
       - receiver: "null"
         matchers:
-          - alertname =~ "InfoInhibitor|Watchdog"
-      - receiver: "pushover"
+          - name: alertname
+            value: Watchdog
+            matchType: =
+      - receiver: "null"
         matchers:
-          - severity = critical
-        continue: true
+          - name: alertname
+            value: InfoInhibitor
+            matchType: =
+      - receiver: pushover
+        matchers:
+          - name: severity
+            value: critical
+            matchType: =
 
   inhibitRules:
     - equal: ["alertname", "namespace"]

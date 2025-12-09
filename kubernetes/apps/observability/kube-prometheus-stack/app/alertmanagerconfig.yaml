@@ -5,48 +5,6 @@ kind: AlertmanagerConfig
 metadata:
   name: alertmanager
 spec:
-  receivers:
-    - name: "null"
-    - name: "pushover"
-      pushoverConfigs:
-        - html: true
-          token:
-            name: alertmanager-secret
-            key: pushover_api_token
-          userKey:
-            name: alertmanager-secret
-            key: pushover_api_userkey
-          urlTitle: View in Alertmanager
-          sendResolved: true
-          sound: gamelan
-          priority: |-
-            {{ if eq .Status "firing" }}1{{ else }}0{{ end }}
-          title: |-
-            [{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .CommonLabels.alertname }}
-          message: |-
-            {{- range .Alerts }}
-              {{- if ne .Labels.severity "" }}
-                <b>Severity:</b> <i>{{ .Labels.severity }}</i>
-              {{- else }}
-                <b>Severity:</b> <i>N/A</i>
-              {{- end }}
-              {{- if ne .Annotations.description "" }}
-                <b>Description:</b> <i>{{ .Annotations.description }}</i>
-              {{- else if ne .Annotations.summary "" }}
-                <b>Summary:</b> <i>{{ .Annotations.summary }}</i>
-              {{- else if ne .Annotations.message "" }}
-                <b>Message:</b> <i>{{ .Annotations.message }}</i>
-              {{- else }}
-                <b>Description:</b> <i>N/A</i>
-              {{- end }}
-              {{- if gt (len .Labels.SortedPairs) 0 }}
-                <b>Details:</b>
-                {{- range .Labels.SortedPairs }}
-                  • <b>{{ .Name }}:</b> <i>{{ .Value }}</i>
-                {{- end }}
-              {{- end }}
-            {{- end }}
-
   route:
     groupBy: ["alertname", "job"]
     groupWait: 30s
@@ -69,7 +27,6 @@ spec:
           - name: severity
             value: critical
             matchType: =
-
   inhibitRules:
     - equal: ["alertname", "namespace"]
       sourceMatch:
@@ -80,3 +37,43 @@ spec:
         - name: severity
           value: warning
           matchType: =
+  receivers:
+    - name: "null"
+    - name: "pushover"
+      pushoverConfigs:
+        - html: true
+          urlTitle: View in Alertmanager
+          message: |-
+            {{- range .Alerts }}
+              {{- if ne .Annotations.description "" }}
+                {{ .Annotations.description }}
+              {{- else if ne .Annotations.summary "" }}
+                {{ .Annotations.summary }}
+              {{- else if ne .Annotations.message "" }}
+                {{ .Annotations.message }}
+              {{- else }}
+                Alert description not available
+              {{- end }}
+              {{- if gt (len .Labels.SortedPairs) 0 }}
+                <small>
+                  {{- range .Labels.SortedPairs }}
+                    <b>{{ .Name }}:</b> {{ .Value }}
+                  {{- end }}
+                </small>
+              {{- end }}
+            {{- end }}
+          monospace: false
+          priority: |-
+            {{ if eq .Status "firing" }}1{{ else }}0{{ end }}
+          sendResolved: true
+          sound: gamelan
+          title: >-
+            [{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}]
+            {{ .CommonLabels.alertname }}
+          ttl: 86400s
+          token:
+            name: alertmanager-secret
+            key: pushover_api_token
+          userKey:
+            name: alertmanager-secret
+            key: pushover_api_userkey

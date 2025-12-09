@@ -9,19 +9,6 @@ spec:
   chartRef:
     kind: OCIRepository
     name: kube-prometheus-stack
-
-  install:
-    crds: Skip
-    remediation:
-      retries: 3
-
-  upgrade:
-    cleanupOnFail: true
-    crds: Skip
-    remediation:
-      strategy: rollback
-      retries: 3
-
   dependsOn:
     - name: rook-ceph-cluster
       namespace: rook-ceph
@@ -35,7 +22,35 @@ spec:
     ### Component values
     ###
     alertmanager:
-      enabled: false
+      route:
+        main:
+          enabled: true
+          hostnames:
+            - alertmanager.${SECRET_DOMAIN}
+          parentRefs:
+            - name: internal
+              namespace: network
+              sectionName: https
+          annotations:
+            hajimari.io/enable: "true"
+            hajimari.io/appName: "Alert Manager"
+            hajimari.io/icon: mdi:alarm-light-outline
+            hajimari.io/group: "observability"
+            hajimari.io/instance: "admin"
+
+      alertmanagerSpec:
+        alertmanagerConfiguration:
+          name: alertmanager
+          global:
+            resolveTimeout: 5m
+        externalUrl: https://alertmanager.${SECRET_DOMAIN}
+        storage:
+          volumeClaimTemplate:
+            spec:
+              storageClassName: ceph-block
+              resources:
+                requests:
+                  storage: 1Gi
 
     kubeApiServer:
       enabled: true
@@ -139,6 +154,7 @@ spec:
               sectionName: https
 
       prometheusSpec:
+        externalUrl: https://prometheus.${SECRET_DOMAIN}
         image:
           registry: docker.io
           repository: prompp/prompp

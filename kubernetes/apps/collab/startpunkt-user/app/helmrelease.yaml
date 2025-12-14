@@ -1,0 +1,92 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app startpunkt-user
+spec:
+  interval: 30m
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+
+  values:
+    controllers:
+      main:
+        type: statefulset
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        containers:
+          main:
+            image:
+              repository: ghcr.io/ullbergm/startpunkt
+              tag: 4.6.0@sha256:1df2f521c2c0d7400e28b516b581e4c87c98b205501e0e8462fe4f5958d68f34
+
+            resources:
+              requests:
+                cpu: 15m
+                memory: 64M
+              limits:
+                memory: 64M
+
+    service:
+      main:
+        controller: main
+        ports:
+          http:
+            port: &httpPort 8080
+
+    route:
+      main:
+        hostnames:
+          - "start.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: main
+                port: *httpPort
+
+    persistence:
+      config:
+        type: configMap
+        name: startpunkt-user-configmap
+        advancedMounts:
+          main:
+            main:
+              - path: /work/config/application.yaml
+                subPath: application.yaml
+                readOnly: true
+
+    serviceAccount:
+      startpunkt-user: {}
+
+    rbac:
+      roles:
+        startpunkt:
+          type: ClusterRole
+          rules:
+            - apiGroups: ["", "extensions", "networking.k8s.io", "discovery.k8s.io"]
+              verbs: ["get", "list", "watch"]
+              resources: ["ingresses", "namespaces", "endpointslices", "routes", "nodes"]
+            - apiGroups: ["hajimari.io"]
+              verbs: ["get", "list", "watch"]
+              resources: ["applications", "bookmarks"]
+            - apiGroups: ["startpunkt.ullberg.us"]
+              verbs: ["get", "list", "watch", "create", "update", "delete"]
+              resources: ["applications", "bookmarks"]
+            - apiGroups: ["gateway.networking.k8s.io"]
+              verbs: ["get", "list", "watch"]
+              resources: ["httproutes"]
+      bindings:
+        startpunkt:
+          type: ClusterRoleBinding
+          roleRef:
+            identifier: startpunkt
+          subjects:
+            - identifier: startpunkt-user
+
+          

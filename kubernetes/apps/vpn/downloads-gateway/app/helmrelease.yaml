@@ -23,61 +23,78 @@ spec:
 
     controllers:
       main:
-        image:
-          repository: ghcr.io/angelnu/pod-gateway
-          tag: v1.13.0@sha256:a5b032e15f7570493977b330a5a86dcffebb807d35685ad803e47afb62d105f2
-      vpn:
-        enabled: true
-        type: gluetun
-        image:
-          repository: ghcr.io/qdm12/gluetun
-          tag: v3.41.0@sha256:6b54856716d0de56e5bb00a77029b0adea57284cf5a466f23aad5979257d3045
+        containers:
+          main:
+            image:
+              repository: ghcr.io/angelnu/pod-gateway
+              tag: v1.13.0@sha256:a5b032e15f7570493977b330a5a86dcffebb807d35685ad803e47afb62d105f2
+          gluetun:
+            enabled: true
+            type: gluetun
+            image:
+              repository: ghcr.io/qdm12/gluetun
+              tag: v3.41.0@sha256:6b54856716d0de56e5bb00a77029b0adea57284cf5a466f23aad5979257d3045
+            env:
+              - name: VPN_SERVICE_PROVIDER
+                value: mullvad
+              - name: VPN_TYPE
+                value: wireguard
+              - name: SERVER_CITIES
+                value: New York NY
+              - name: VPN_INTERFACE
+                value: wg0
+              - name: FIREWALL
+                value: "off"
+              - name: DOT
+                value: "off"
+              - name: HEALTH_TARGET_ADDRESS
+                value: "1.1.1.1"
+              - name: HEALTH_VPN_DURATION_INITIAL
+                value: 30s
+              - name: WIREGUARD_PRIVATE_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: downloads-gateway-vpnconfig
+                    key: WIREGUARD_PRIVATE_KEY
+              - name: WIREGUARD_ADDRESSES
+                valueFrom:
+                  secretKeyRef:
+                    name: downloads-gateway-vpnconfig
+                    key: WIREGUARD_ADDRESSES
+              - name: WIREGUARD_DNS
+                valueFrom:
+                  secretKeyRef:
+                    name: downloads-gateway-vpnconfig
+                    key: WIREGUARD_DNS
 
-        env:
-          - name: VPN_SERVICE_PROVIDER
-            value: mullvad
-          - name: VPN_TYPE
-            value: wireguard
-          - name: SERVER_CITIES
-            value: New York NY
-          - name: VPN_INTERFACE
-            value: wg0
-          - name: FIREWALL
-            value: "off"
-          - name: DOT
-            value: "off"
-          - name: HEALTH_TARGET_ADDRESS
-            value: "1.1.1.1"
-          - name: HEALTH_VPN_DURATION_INITIAL
-            value: 30s
-          - name: WIREGUARD_PRIVATE_KEY
-            valueFrom:
-              secretKeyRef:
-                name: downloads-gateway-vpnconfig
-                key: WIREGUARD_PRIVATE_KEY
-          - name: WIREGUARD_ADDRESSES
-            valueFrom:
-              secretKeyRef:
-                name: downloads-gateway-vpnconfig
-                key: WIREGUARD_ADDRESSES
-          - name: WIREGUARD_DNS
-            valueFrom:
-              secretKeyRef:
-                name: downloads-gateway-vpnconfig
-                key: WIREGUARD_DNS
+            securityContext:
+              privileged: true
+              capabilities:
+                add:
+                  - NET_ADMIN
 
-        securityContext:
-          privileged: true
-          capabilities:
-            add:
-              - NET_ADMIN
+            resources:
+              requests:
+                cpu: 15m
+                memory: 256M
+              limits:
+                memory: 256M
 
-        resources:
-          requests:
-            cpu: 15m
-            memory: 256M
-          limits:
-            memory: 256M
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                type: custom
+                spec:
+                  exec:
+                    command:
+                      - sh
+                      - -c
+                      - COUNTRY=$(wget -q -O- https://ipinfo.io/country); echo $COUNTRY; if [ '$COUNTRY' == 'US' ]; then exit 0; else exit $?; fi
+                  initialDelaySeconds: 30
+                  periodSeconds: 60
+                  failureThreshold: 3
+                  timeoutSeconds: 5
 
       webhook:
         containers:
@@ -85,13 +102,6 @@ spec:
             image:
               repository: ghcr.io/angelnu/gateway-admision-controller
               tag: v3.12.0@sha256:6f6ab596afd5fef0ca4648eadfb21cd37ba86fa5afa8b85edcc072976a61fbed
-
-
-
-
-
-
-
               
     podAnnotations:
       configmap.reloader.stakater.com/reload: downloads-gateway-pod-gateway

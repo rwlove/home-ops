@@ -10,96 +10,94 @@ spec:
     spec:
       # renovate: registryUrl=https://angelnu.github.io/helm-charts
       chart: pod-gateway
-      version: 6.6.1
+      version: 7.0.5
       sourceRef:
         kind: HelmRepository
         name: angelnu
 
   values:
-    image:
-      repository: ghcr.io/angelnu/pod-gateway
-      tag: v1.13.0@sha256:a5b032e15f7570493977b330a5a86dcffebb807d35685ad803e47afb62d105f2
+    defaultPodOptions:
+      securityContext:
+        privileged: true
+        capabilities:
+          add:
+            - NET_ADMIN
+            - NET_RAW
+    controllers:
+      main:
+        containers:
+          main:
+            image:
+              repository: ghcr.io/angelnu/pod-gateway
+              tag: v1.13.0@sha256:a5b032e15f7570493977b330a5a86dcffebb807d35685ad803e47afb62d105f2
+          gluetun:
+            enabled: true
+            type: gluetun
+            gluetun:
+              image:
+                repository: docker.io/qmcgaw/gluetun
+                tag: v3.34.3@sha256:3b4d498939ef1f9ceac9049a73598acfcda25a9e58010fcd991afed32cd16eac
+            env:
+              - name: VPN_SERVICE_PROVIDER
+                value: mullvad
+              - name: VPN_TYPE
+                value: wireguard
+              - name: SERVER_CITIES
+                value: New York NY
+              - name: VPN_INTERFACE
+                value: wg0
+              - name: FIREWALL
+                value: "off"
+              - name: DOT
+                value: "off"
+              - name: HEALTH_TARGET_ADDRESS
+                value: "1.1.1.1"
+              - name: HEALTH_VPN_DURATION_INITIAL
+                value: 30s
+              - name: WIREGUARD_PRIVATE_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: downloads-gateway-vpnconfig
+                    key: WIREGUARD_PRIVATE_KEY
+              - name: WIREGUARD_ADDRESSES
+                valueFrom:
+                  secretKeyRef:
+                    name: downloads-gateway-vpnconfig
+                    key: WIREGUARD_ADDRESSES
+              - name: WIREGUARD_DNS
+                valueFrom:
+                  secretKeyRef:
+                    name: downloads-gateway-vpnconfig
+                    key: WIREGUARD_DNS
 
-    securityContext:
-      privileged: true
+      webhook:
+        containers:
+          main:
+            image:
+              repository: ghcr.io/angelnu/gateway-admision-controller
+              tag: v3.12.0@sha256:6f6ab596afd5fef0ca4648eadfb21cd37ba86fa5afa8b85edcc072976a61fbed
 
-    DNS: 172.16.1.1
-
-    addons:
-      vpn:
+    networkPolicy:
+      main:
         enabled: true
-        type: gluetun
-        image:
-          # TODO: Replace with ghcr.io/qdm12/gluetun when a versioned tag is available
-          repository: ghcr.io/qdm12/gluetun
-          tag: v3.41.0@sha256:6b54856716d0de56e5bb00a77029b0adea57284cf5a466f23aad5979257d3045
-
-        env:
-          - name: VPN_SERVICE_PROVIDER
-            value: mullvad
-          - name: VPN_TYPE
-            value: wireguard
-          - name: SERVER_CITIES
-            value: New York NY
-          - name: VPN_INTERFACE
-            value: wg0
-          - name: FIREWALL
-            value: "off"
-          - name: DOT
-            value: "off"
-          - name: HEALTH_TARGET_ADDRESS
-            value: "1.1.1.1"
-          - name: HEALTH_VPN_DURATION_INITIAL
-            value: 30s
-          - name: WIREGUARD_PRIVATE_KEY
-            valueFrom:
-              secretKeyRef:
-                name: downloads-gateway-vpnconfig
-                key: WIREGUARD_PRIVATE_KEY
-          - name: WIREGUARD_ADDRESSES
-            valueFrom:
-              secretKeyRef:
-                name: downloads-gateway-vpnconfig
-                key: WIREGUARD_ADDRESSES
-          - name: WIREGUARD_DNS
-            valueFrom:
-              secretKeyRef:
-                name: downloads-gateway-vpnconfig
-                key: WIREGUARD_DNS
-
-        securityContext:
-          privileged: true
-          capabilities:
-            add:
-              - NET_ADMIN
-
-        resources:
-          requests:
-            cpu: 15m
-            memory: 256M
-          limits:
-            memory: 256M
-
-      netshoot:
-        enabled: true
-
-        resources:
-          requests:
-            cpu: 15m
-            memory: 30M
-          limits:
-            memory: 30M
-
-    podAnnotations:
-      configmap.reloader.stakater.com/reload: downloads-gateway-pod-gateway
-      secret.reloader.stakater.com/reload: downloads-gateway-vpnconfig
-
-    resources:
-      requests:
-        cpu: 15m
-        memory: 30M
-      limits:
-        memory: 30M
+        controller: main
+        policyTypes:
+          - Egress
+        rules:
+          egress:
+            # Allow only VPN traffic to Internet
+            - to:
+                - ipBlock:
+                    cidr: 0.0.0.0/0
+              ports:
+                # VPN traffic
+                - port: &vpn_port "51820"
+                  protocol: UDP
+            # Allow any traffic within k8s
+            - to:
+                - ipBlock:
+                    # Cluster IPs (default k3s)
+                    cidr: 10.0.0.0/8
 
     routed_namespaces:
       - downloads
@@ -110,9 +108,16 @@ spec:
       VPN_INTERFACE: wg0
       VPN_LOCAL_CIDRS: 10.42.0.0/16 10.43.0.0/16 192.168.0.0/16
       DNS_LOCAL_CIDRS: "${SECRET_DOMAIN} cluster.local local"
-      VPN_TRAFFIC_PORT: "51820"
-      VXLAN_ID: 43
-      VXLAN_IP_NETWORK: 172.16.1
+      VPN_TRAFFIC_PORT: *vpn_port
+
+    publicPorts:
+      - IP: 10
+        hostname: qbittorrent
+        ports:
+          - port: 24589
+            type: udp
+          - port: 24589
+            type: tcp
 
     webhook:
       gatewayAnnotation: setGateway
@@ -121,11 +126,3 @@ spec:
       namespaceSelector:
         type: label
         label: routed-gateway
-      image:
-        repository: ghcr.io/angelnu/gateway-admision-controller
-        tag: v3.12.0@sha256:6f6ab596afd5fef0ca4648eadfb21cd37ba86fa5afa8b85edcc072976a61fbed
-
-  valuesFrom:
-    - kind: Secret
-      name: downloads-gateway-vpnconfig
-      valuesKey: secret_values

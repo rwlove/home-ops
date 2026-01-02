@@ -36,27 +36,27 @@ This is the configuration for my GitOps homelab Kubernetes cluster. This cluster
 
 ## Core Components
 ### Infrastructure
-- [CentOS 9 Stream](https://www.centos.org/centos-stream/): Kubernetes Node Operating System.
-- [crun](https://github.com/containers/crun): Container Runtime implemented in C.
-- [nVIDIA Container Toolkit](https://github.com/NVIDIA/nvidia-container-toolkit): Container Runtime for nVIDIA GPUs.
+- [CentOS 9 Stream](https://www.centos.org/centos-stream/): Kubernetes Node Operating System
+- [crun](https://github.com/containers/crun): Container Runtime implemented in C
+- [nVIDIA Container Toolkit](https://github.com/NVIDIA/nvidia-container-toolkit): Container Runtime for nVIDIA GPUs
 
 ### Networking
-- [cilium](https://cilium.io): Kubernetes Container Network Interface (CNI).
-- [cert-manager](https://cert-manager.io/docs): Creates SSL certificates for services in my Kubernetes cluster.
-- [external-dns](https://github.com/kubernetes-sigs/external-dns): Automatically manages DNS records from my cluster in a cloud DNS provider.
-- [Cloudflared](https://github.com/cloudflare/cloudflared): Cloudflare tunnel client.
-- [Envoy Gateway](https://gateway.envoyproxy.io/): Networking gateways into cluster.
+- [cilium](https://cilium.io): Kubernetes Container Network Interface (CNI)
+- [cert-manager](https://cert-manager.io/docs): Creates SSL certificates for services in my Kubernetes cluster
+- [external-dns](https://github.com/kubernetes-sigs/external-dns): Automatically manages DNS records from my cluster in a cloud DNS provider
+- [Cloudflared](https://github.com/cloudflare/cloudflared): Cloudflare tunnel client
+- [Envoy Gateway](https://gateway.envoyproxy.io/): Networking gateways into cluster
 
 ### Storage
-- [Rook-Ceph](https://github.com/rook/rook): Distributed block storage for peristent storage..
-- [Minio](https://min.io/): S3 Compatible Storage Interface.
-- [Longhorn](https://longhorn.io/): Cloud native distributed block storage for Kubernetes.
-- [NFS](https://github.com/kubernetes-sigs/nfs-subdir-external-provisioner): NFS storage.
+- [Rook-Ceph](https://github.com/rook/rook): Distributed block storage for peristent storage
+- [Minio](https://min.io/): S3 Compatible Storage Interface
+- [Longhorn](https://longhorn.io/): Cloud native distributed block storage for Kubernetes
+- [NFS](https://github.com/kubernetes-sigs/nfs-subdir-external-provisioner): NFS storage
 
 ### GitOps
 - [Flux2](https://github.com/fluxcd/flux2): Declarative Cluster GitOps
-- [actions-runner-controller](https://github.com/actions/actions-runner-controller): Self-hosted Github runners.
-- [Rennovate](https://github.com/renovatebot/renovate): Automated Cluster Management.
+- [actions-runner-controller](https://github.com/actions/actions-runner-controller): Self-hosted Github runners
+- [Rennovate](https://github.com/renovatebot/renovate): Automated Cluster Management
 
 ---
 

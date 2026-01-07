@@ -20,7 +20,14 @@ spec:
     maxRunners: 6
 
     containerMode:
-      type: kubernetes-novolume
+      type: kubernetes
+      kubernetesModeWorkVolumeClaim:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: ceph-filesystem
+        resources:
+          requests:
+            storage: 5Gi
 
     controllerServiceAccount:
       name: actions-runner-controller
@@ -33,18 +40,12 @@ spec:
             image: ghcr.io/home-operations/actions-runner:2.330.0@sha256:92a45e47f4b349f4da2307ebaaea5443cc86d1ce625d37acf2c61b3b09192e47
             command: ["/home/runner/run.sh"]
             env:
-              - name: ACTIONS_RUNNER_CONTAINER_HOOKS
-                value: /home/runner/k8s-novolume/index.js
-              - name: ACTIONS_RUNNER_POD_NAME
+              - name: NODE_IP
                 valueFrom:
                   fieldRef:
-                    fieldPath: metadata.name
-              - name: ACTIONS_RUNNER_IMAGE
-                value: ghcr.io/home-operations/actions-runner:2.330.0@sha256:92a45e47f4b349f4da2307ebaaea5443cc86d1ce625d37acf2c61b3b09192e47 # should match the runnerimage
+                    fieldPath: status.hostIP
               - name: ACTIONS_RUNNER_REQUIRE_JOB_CONTAINER
                 value: "false"
-            volumeMounts: []
-        volumes: []
   valuesFrom:
     - kind: Secret
       name: actions-runner-controller-auth

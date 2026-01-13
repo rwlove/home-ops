@@ -1,0 +1,75 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: nametag
+spec:
+  interval: 30m
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+
+  values:
+    controllers:
+      main:
+        type: statefulset
+
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        initContainers:
+          init-db:
+            image:
+              repository: ghcr.io/home-operations/postgres-init
+              tag: 18.1.0@sha256:866f15038ed5185a2b8118821f470bb7ca0df8c4231b8e277446e681ebb1ed84
+            envFrom: &envFrom
+              - secretRef:
+                  name: nametag-secret
+
+        containers:
+          main:
+            image:
+              repository: ghcr.io/mattogodoy/nametag
+              tag: 0.12.0@sha256:d28bad4143a8ad9101bbe29097dc8c9b99992c0f4e43a9a32cc70d2962565d91
+            env:
+              DATABASE_URL: postgresql://nametag:${DB_PASSWORD}@db:5432/nametag_db
+              NEXTAUTH_URL: http://localhost:3000
+              NEXT_PUBLIC_APP_URL: http://localhost:3000
+              REDIS_URL: redis://dragonfly.databases.svc.cluster.local:6379/0 #redis://:${REDIS_PASSWORD}@redis:6379
+              # DB
+
+            envFrom: *envFrom
+
+            resources:
+              requests:
+                cpu: 15m
+                memory: 100Mi
+              limits:
+                memory: 100Mi
+
+    service:
+      main:
+        controller: main
+        ports:
+          http:
+            port: &httpPort 3000
+
+    route:
+      main:
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: main
+                port: *httpPort
+        annotations:
+          startpunkt.ullberg.us/enable: "true"
+          startpunkt.ullberg.us/name: "Nametag"
+          startpunkt.ullberg.us/icon: arcticons:nametag
+          startpunkt.ullberg.us/group: "collab"
+          startpunkt.ullberg.us/instance: "admin"

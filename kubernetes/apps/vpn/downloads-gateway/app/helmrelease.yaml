@@ -17,8 +17,6 @@ spec:
   values:
     controllers:
       main:
-        serviceAccount:
-          identifier: default
         # Configure the main controller - this runs the VPN server
         containers:
           main:
@@ -34,37 +32,37 @@ spec:
                 repository: ghcr.io/qdm12/gluetun
                 tag: v3.41.0@sha256:6b54856716d0de56e5bb00a77029b0adea57284cf5a466f23aad5979257d3045
             env:
-            - name:  VPN_SERVICE_PROVIDER
-              value: mullvad
-            - name:  VPN_TYPE
-              value: wireguard
-            - name: SERVER_CITIES
-              value: New York NY
-            - name:  VPN_INTERFACE
-              value: wg0
-            - name:  FIREWALL
-              value: "off"
-            - name:  DOT
-              value: "off"
-            - name: HEALTH_TARGET_ADDRESS
-              value: "1.1.1.1"
-            - name: HEALTH_VPN_DURATION_INITIAL
-              value: 30s
-            - name: WIREGUARD_PRIVATE_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: downloads-gateway-vpnconfig
-                  key: WIREGUARD_PRIVATE_KEY
-            - name: WIREGUARD_ADDRESSES
-              valueFrom:
-                secretKeyRef:
-                  name: downloads-gateway-vpnconfig
-                  key: WIREGUARD_ADDRESSES
-            - name: WIREGUARD_DNS
-              valueFrom:
-                secretKeyRef:
-                  name: downloads-gateway-vpnconfig
-                  key: WIREGUARD_DNS
+              - name:  VPN_SERVICE_PROVIDER
+                value: mullvad
+              - name:  VPN_TYPE
+                value: wireguard
+              - name: SERVER_CITIES
+                value: New York NY
+              - name:  VPN_INTERFACE
+                value: wg0
+              - name:  FIREWALL
+                value: "off"
+              - name:  DOT
+                value: "off"
+              - name: HEALTH_TARGET_ADDRESS
+                value: "1.1.1.1"
+              - name: HEALTH_VPN_DURATION_INITIAL
+                value: 30s
+              - name: WIREGUARD_PRIVATE_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: downloads-gateway-vpnconfig
+                    key: WIREGUARD_PRIVATE_KEY
+              - name: WIREGUARD_ADDRESSES
+                valueFrom:
+                  secretKeyRef:
+                    name: downloads-gateway-vpnconfig
+                    key: WIREGUARD_ADDRESSES
+              - name: WIREGUARD_DNS
+                valueFrom:
+                  secretKeyRef:
+                    name: downloads-gateway-vpnconfig
+                    key: WIREGUARD_DNS
 
             securityContext:
               privileged: true # Required for mknod/device access
@@ -88,20 +86,9 @@ spec:
             #      failureThreshold: 3
             #      timeoutSeconds: 5
       webhook:
-        serviceAccount:
-          identifier: default
-    serviceAccount:
-      default:
-        enabled: true
-    rbac:
-      bindings:
-        default:
-          type: RoleBinding
-          roleRef:
-            name: system:openshift:scc:privileged  # For network - TBD, try with less
-            kind: ClusterRole
-          subjects:
-            - identifier: default
+        image:
+          repository: ghcr.io/angelnu/gateway-admision-controller
+          tag: v3.12.0@sha256:6f6ab596afd5fef0ca4648eadfb21cd37ba86fa5afa8b85edcc072976a61fbed
 
     networkpolicies:
       main:
@@ -125,10 +112,11 @@ spec:
 
     routed_namespaces:
       - downloads
-    
+
+    DNS: 172.16.1.1
     settings:
       # -- If using a VPN, interface name created by it
-      VPN_INTERFACE: wg0
+      VPN_INTERFACE: tun0
       # -- Prevent non VPN traffic to leave the gateway
       VPN_BLOCK_OTHER_TRAFFIC: true
       # -- If VPN_BLOCK_OTHER_TRAFFIC is true, allow VPN traffic over this port
@@ -140,6 +128,7 @@ spec:
       DNS_LOCAL_CIDRS: "${SECRET_DOMAIN} cluster.local local"
       VXLAN_ID: 43
       VXLAN_IP_NETWORK: 172.16.1
+      VPN_LOCAL_CIDRS: 172.16.1.0/24
 
     # -- settings to expose ports, usually through a VPN provider.
     # NOTE: if you change it you will need to manually restart the gateway POD

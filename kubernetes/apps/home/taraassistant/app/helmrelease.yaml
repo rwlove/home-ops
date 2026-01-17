@@ -1,0 +1,64 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: taraassistant
+spec:
+  interval: 30m
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+
+  values:
+    controllers:
+      main:
+        type: statefulset
+
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        containers:
+          main:
+            image:
+              repository: ghcr.io/tarahome/taraassistant
+              tag: 6609022@sha256:9146e0e48cc7cb3ed083a718d41e4e9d4fc851f20ccf690f9d3850cbc786294a
+
+            resources:
+              requests:
+                cpu: 15m
+                memory: 200Mi
+              limits:
+                memory: 200Mi
+
+    service:
+      main:
+        controller: main
+        ports:
+          http:
+            port: &httpPort 8000
+
+    route:
+      main:
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: main
+                port: *httpPort
+        annotations:
+          startpunkt.ullberg.us/enable: "true"
+          startpunkt.ullberg.us/name: "Tara Assistant"
+          startpunkt.ullberg.us/icon: arcticons:taraassistant
+          startpunkt.ullberg.us/group: "collab"
+          startpunkt.ullberg.us/instance: "admin"
+
+    persistence:
+      data:
+        existingClaim: taraassistant-data
+        globalMounts:
+          - path: /app/data

@@ -1,0 +1,94 @@
+---
+# yaml-language-server: $schema=https://datreeio.github.io/CRDs-catalog/helm.toolkit.fluxcd.io/helmrelease_v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: nextcloud
+spec:
+  timeout: 15m
+  interval: 1h
+  chartRef:
+    kind: OCIRepository
+    name: nextcloud
+  values:
+    image:
+      flavor: fpm-alpine
+    nginx:
+      enabled: true
+    nextcloud:
+      extraInitContainers:
+        - name: init-db
+          image: ghcr.io/haraldkoch/postgres-init:18.1@sha256:22f92e227d68774f495180d1d2715c1d41c7e75ec3aa6b73c4caa7efdd650c00
+          envFrom:
+            - secretRef:
+                name: nextcloud-secret
+      datadir: /var/www/data
+      extraEnv:
+        - name: REDIS_HOST
+          value: dragonfly.databases.svc.cluster.local.
+        - name: REDIS_HOST_PORT
+          value: "6379"
+      existingSecret:
+        enabled: true
+        secretName: nextcloud-secret
+      host: &host cloud.${SECRET_DOMAIN}
+      mail:
+        enabled: true
+        fromAddress: admin
+        domain: ${SECRET_DOMAIN}
+        smtp:
+          host: smtp.${SECRET_DOMAIN}
+          port: 25
+          authtype: NONE
+          name: ""
+          password: ""
+      securityContext:
+        runAsUser: 1022
+        runAsGroup: 1022
+        runAsNonRoot: true
+      configs:
+        proxy.config.php: |-
+          <?php
+          $CONFIG = array (
+            'trusted_proxies' => array(
+              0 => '127.0.0.1',
+              1 => '${NETWORK_K8S_POD_CIDR}',
+              2 => '${NETWORK_K8S_POD_CIDR_V6}',
+            ),
+            'forwarded_for_headers' => array('HTTP_X_FORWARDED_FOR'),
+          ); ?>
+        misc.config.php: |-
+          <?php
+          $CONFIG = array (
+            'default_phone_region' => 'CA',
+            'maintenance_window_start' => 2,
+          ); ?>
+    internalDatabase:
+      enabled: false
+    externalDatabase:
+      enabled: true
+      type: postgresql
+      host: postgres-nextcloud-rw.databases.svc.cluster.local.
+      database: nextcloud
+      existingSecret:
+        enabled: true
+        secretName: nextcloud-secret
+        usernameKey: INIT_POSTGRES_USER
+        passwordKey: INIT_POSTGRES_PASS
+    ingress:
+      enabled: false
+    persistence:
+      enabled: true
+      existingClaim: nextcloud-config-pvc
+      nextcloudData:
+        enabled: true
+        existingClaim: nextcloud-data-pvc
+        accessMode: ReadWriteMany
+    # this seems to be required for nextcloud initialization which takes a long time
+    startupProbe:
+      enabled: true
+      initialDelaySeconds: 10
+      periodSeconds: 20
+      timeoutSeconds: 5
+      failureThreshold: 30
+      successThreshold: 1

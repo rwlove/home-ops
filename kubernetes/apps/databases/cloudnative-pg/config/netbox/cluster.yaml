@@ -1,0 +1,51 @@
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres-netbox
+spec:
+  instances: 4
+
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.7
+
+  primaryUpdateStrategy: unsupervised
+
+  postgresql:
+    parameters:
+      timezone: "America/New_York"
+
+  storage:
+    size: 10Gi
+    storageClass: ceph-block
+
+  enableSuperuserAccess: true
+  superuserSecret:
+    name: cloudnative-pg
+
+  monitoring:
+    enablePodMonitor: true
+
+  plugins:
+    - enabled: true
+      isWALArchiver: true
+      name: barman-cloud.cloudnative-pg.io
+      parameters:
+        barmanObjectName: garage-netbox
+        serverName: postgres-netbox-backup
+
+  externalClusters:
+    - name: postgres-netbox-backup
+      plugin:
+        enabled: true
+        isWALArchiver: false
+        name: barman-cloud.cloudnative-pg.io
+        parameters:
+          barmanObjectName: garage-netbox
+          serverName: postgres-netbox-backup
+
+  #bootstrap:
+  #  recovery:
+  #    source: postgres-netbox-backup
+  #    recoveryTarget:
+  #      # Time base target for the recovery
+  #      targetTime: "2025-12-01 00:00:00.00000+00"

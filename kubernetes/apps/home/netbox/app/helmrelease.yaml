@@ -1,0 +1,105 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app netbox
+spec:
+  interval: 1h
+  chartRef:
+    kind: OCIRepository
+    name: netbox
+  values:
+    commonLabels:
+      postgres: "true"
+      teleport: enabled
+    commonAnnotations:
+      reloader.stakater.com/auto: "true"
+    initContainers:
+      - name: init-db
+        image: ghcr.io/home-operations/postgres-init:18
+        envFrom:
+          - secretRef:
+              name: &secret netbox-secret
+    superuser:
+      name: rwlove
+      email: server.netbox@${SECRET_DOMAIN}
+    admins:
+      - ["rwlove", "server.netbox@${SECRET_DOMAIN}"]
+    loginRequired: true
+    timeZone: ${TIMEZONE}
+    dateFormat: "j. F, Y"
+    shortDateFormat: "j.m.Y"
+    timeFormat: "G:i"
+    shortTimeFormat: "H:i:s"
+    dateTimeFormat: "j. F, Y g:i a"
+    shortDateTimeFormat: "j.m.Y H:i"
+    storages:
+      default:
+        BACKEND: "storages.backends.s3.S3Storage"
+        OPTIONS:
+          bucket_name: "netbox"
+          endpoint_url: "https://s3.${SECRET_DOMAIN}"
+          region_name: "us-east-1"
+    existingSecret: *secret
+    metricsEnabled: true
+    postgresql:
+      enabled: false
+    valkey:
+      enabled: false
+    tasksDatabase:
+      host: dragonfly.databases.svc.cluster.local
+      database: 3
+      #existingSecretName: "netbox-secret"
+      #existingSecretKey: "REDIS_PASSWORD"
+    cachingDatabase:
+      host: dragonfly.databases.svc.cluster.local
+      database: 4
+      #existingSecretName: "netbox-secret"
+      #existingSecretKey: "REDIS_PASSWORD"
+    externalDatabase:
+      host: postgres-netbox-rw.databases.svc.cluster.local
+      port: 5432
+      database: netbox
+      username: netbox
+      existingSecretName: "netbox-secret"
+      existingSecretKey: "NETBOX_PG_PASS"
+    email:
+      server: smtp-relay.home.svc.cluster.local
+      port: 2525
+      from: netbox@${SECRET_DOMAIN}
+    csrf:
+      trustedOrigins: ["https://netbox.${SECRET_DOMAIN}"]
+    persistence:
+      enabled: false
+    readinessProbe:
+      enabled: true
+      initialDelaySeconds: 60
+      timeoutSeconds: 1
+      periodSeconds: 10
+      successThreshold: 1
+    service:
+      annotations:
+        teleport.dev/name: *app
+    httpRoute:
+      enabled: true
+      hostnames:
+        - "netbox.${SECRET_DOMAIN}"
+      parentRefs:
+        - name: internal
+          namespace: network
+    extraConfig:
+      - secret:
+          secretName: *secret
+    housekeeping:
+      enabled: false
+    worker:
+      enabled: false
+  valuesFrom:
+    - targetPath: storages.default.OPTIONS.access_key
+      kind: Secret
+      name: *secret
+      valuesKey: AWS_ACCESS_KEY_ID
+    - targetPath: storages.default.OPTIONS.secret_key
+      kind: Secret
+      name: *secret
+      valuesKey: AWS_SECRET_ACCESS_KEY

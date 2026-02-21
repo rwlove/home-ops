@@ -1,0 +1,47 @@
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres-sparkyfitness
+spec:
+  instances: 4
+
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.5
+
+  primaryUpdateStrategy: unsupervised
+
+  postgresql:
+    parameters:
+      pg_stat_statements.max: "10000"
+      pg_stat_statements.track: all
+      timezone: "America/New_York"
+      max_slot_wal_keep_size: 10GB
+      shared_buffers: 512MB
+
+  storage:
+    size: 10Gi
+    storageClass: ceph-block
+
+  enableSuperuserAccess: true
+  superuserSecret:
+    name: cloudnative-pg
+
+  monitoring:
+    enablePodMonitor: true
+
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters: &params
+        barmanObjectName: garage-sparkyfitness
+        serverName: postgres-sparkyfitness-backup
+
+  bootstrap:
+    recovery:
+      source: source
+
+  externalClusters:
+    - name: source
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        parameters: *params

@@ -1,0 +1,76 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app mealie
+spec:
+  interval: 30m
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+
+  values:
+    controllers:
+      main:
+        type: statefulset
+
+        containers:
+          main:
+            image:
+              repository: ghcr.io/mealie-recipes/mealie
+              tag: v1.0.0-RC1.1
+
+            env:
+              BASE_URL: https://mealie.${SECRET_DOMAIN}
+              ALLOW_SIGNUP: false
+              API_DOCS: false
+              SMTP_HOST: smtp-relay.home
+              SMTP_PORT: 25
+              SMTP_AUTH_STRATEGY: NONE
+              SMTP_FROM_EMAIL: mealie@${SECRET_DOMAIN}
+              #LDAP_AUTH_ENABLED: true
+              #LDAP_SERVER_URL: "ldap://lldap.auth.svc.cluster.local:3890"
+              #LDAP_TLS_INSECURE: true
+              #LDAP_BIND_TEMPLATE: cn={},dc=thesteamedcrab,dc=com
+              #LDAP_BASE_DN: dc=thesteamedcrab,dc=com
+              #LDAP_ADMIN_FILTER: cn=admin,ou=people,dc=thesteamedcrab,dc=com
+
+            resources:
+              requests:
+                cpu: 100m
+                memory: 800Mi
+              limits:
+                memory: 800Mi
+
+    service:
+      main:
+        controller: main
+        ports:
+          http:
+            port: &httpPort 9000
+
+    route:
+      main:
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: main
+                port: *httpPort
+        annotations:
+          startpunkt.ullberg.us/enable: "true"
+          startpunkt.ullberg.us/name: "Mealie"
+          startpunkt.ullberg.us/icon: mdi:food
+          startpunkt.ullberg.us/group: "home automation"
+          startpunkt.ullberg.us/instance: "user,admin"
+
+    persistence:
+      config:
+        existingClaim: mealie-config-pvc
+        globalMounts:
+          - path: /app/data

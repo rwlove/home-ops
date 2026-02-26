@@ -18,6 +18,8 @@ spec:
   values:
     controllers:
       main:
+        serviceAccount:
+          identifier: default
         containers:
           main:
             image:
@@ -30,10 +32,7 @@ spec:
               image:
                 repository: ghcr.io/qdm12/gluetun
                 tag: v3.41.1@sha256:1a5bf4b4820a879cdf8d93d7ef0d2d963af56670c9ebff8981860b6804ebc8ab
-              securityContext:
-                capabilities:
-                  add:
-                    - NET_ADMIN
+
               env:
               - name: VPN_SERVICE_PROVIDER
                 value: mullvad
@@ -67,6 +66,55 @@ spec:
                     name: downloads-gateway-vpnconfig
                     key: WIREGUARD_DNS
 
+              securityContext:
+                privileged: true # Required for mknod/device access
+                capabilities:
+                  add:
+                    - NET_ADMIN
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                type: custom
+                spec:
+                  exec:
+                    command:
+                      - sh
+                      - -c
+                      - COUNTRY=$(wget -q -O- https://ipinfo.io/country); echo $COUNTRY; if [ "$COUNTRY" == "US" ]; then exit 0; else exit 255; fi
+                  initialDelaySeconds: 30
+                  periodSeconds: 60
+                  failureThreshold: 5
+                  timeoutSeconds: 5
+      webhook:
+        serviceAccount:
+          identifier: default
+        pod:
+          # The sidecar containers inserted by the webhook will use this DNS config
+          dnsConfig:
+            options:
+              - name: ndots
+                value: '1'
+        # Configure the main controller - this runs the VPN server
+        containers:
+          main:
+            image:
+              repository: ghcr.io/angelnu/gateway-admision-controller
+              # I am using dev version for testing - others should be using the default from the chart
+              pullPolicy: Always
+              tag: dev
+    serviceAccount:
+      default:
+        enabled: true
+    rbac:
+      bindings:
+        default:
+          type: RoleBinding
+          roleRef:
+            name: system:openshift:scc:privileged  # For network - TBD, try with less
+            kind: ClusterRole
+          subjects:
+            - identifier: default
     networkpolicies:
       main:
         enabled: true

@@ -1,0 +1,105 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app medikeep
+spec:
+  interval: 30m
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+
+  values:
+    controllers:
+      main:
+        type: statefulset
+
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        initContainers:
+          init-db:
+            image:
+              repository: ghcr.io/home-operations/postgres-init
+              tag: 18.3.0@sha256:6fa1f331cddd2eb0b6afa7b8d3685c864127a81ab01c3d9400bc3ff5263a51cf
+
+            envFrom: &envFrom
+              - secretRef:
+                  name: medikeep
+
+        containers:
+          main:
+            image:
+              repository: ghcr.io/medikeepsh/medikeep
+              tag: v0.57.2@sha256:e88879a7d9cd327e7eef24dfd9260aedb43ae2e958f89243c0e635db02f4ec5d
+
+            env:
+              LOG_LEVEL: "info"
+              SSO_ENABLED: "false"
+
+            envFrom: *envFrom
+
+            resources:
+              requests:
+                cpu: 15m
+                memory: 64M
+              limits:
+                memory: 64M
+
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+
+        pod:
+          securityContext:
+            runAsUser: 568
+            runAsGroup: 568
+            runAsNonRoot: true
+            fsGroup: 568
+            fsGroupChangePolicy: OnRootMismatch
+
+    persistence:
+      logs:
+        type: emptyDir
+        globalMounts:
+          - path: /app/logs
+      uploads:
+        type: emptyDir
+        globalMounts:
+          - path: /app/uploads
+
+    service:
+      main:
+        controller: main
+        ports:
+          react:
+            port: &reactPort 8000
+          fast:
+            port: &fastAPI 8005
+
+    route:
+      main:
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: main
+                port: *reactPort
+
+    serviceMonitor:
+      main:
+        serviceName: *app
+        endpoints:
+          - port: metrics
+            scheme: http
+            path: /metrics
+            interval: 1m
+            scrapeTimeout: 10s

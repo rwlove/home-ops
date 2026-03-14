@@ -1,0 +1,82 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: nametag
+spec:
+  interval: 30m
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+
+  values:
+    controllers:
+      main:
+        type: statefulset
+
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        containers:
+          main:
+            image:
+              repository: ghcr.io/m3sserstudi0s/swiparr
+              tag: v1.3.4@sha256:bbd5329b38bb0c315c45f8f98edfbe74415f2b374e3767ce4d482051894a42d5
+            env:
+              JELLYFIN_URL: "http://jellyfin.media:8096"
+              JELLYFIN_USE_WATCHLIST: false
+              USE_SECURE_COOKIES: true
+
+            resources:
+              requests:
+                cpu: 15m
+                memory: 60Mi
+              limits:
+                memory: 60Mi
+
+            probes:
+              liveness: &probes
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /api/health
+                    port: &httpPort 4321
+                  initialDelaySeconds: 10
+                  periodSeconds: 30
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              readiness: *probes
+              startup: *probes
+
+    service:
+      main:
+        controller: main
+        ports:
+          http:
+            port: *httpPort
+
+    route:
+      main:
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: main
+                port: *httpPort
+        annotations:
+          glance/name: "Swiparr"
+          glance/show: "true"
+          #glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/paperless-ngx.png"
+          glance/id: "Collaboration"
+
+    persistence:
+      data:
+        existingClaim: swiparr-data-pvc
+        globalMounts:
+          - path: /app/data

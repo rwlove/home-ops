@@ -1,0 +1,82 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app capacitarr
+spec:
+  interval: 30m
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+
+  values:
+    controllers:
+      main:
+        type: statefulset
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        pod:
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1001
+            fsGroup: 1001
+            fsGroupChangePolicy: "OnRootMismatch"
+            supplementalGroups:
+              - 100
+
+        containers:
+          main:
+            image:
+              repository: docker.io/ghentstarshadow/capacitarr
+              tag: 1.8@sha256:e8d5fc339e7689e50db341cf3cc14e96b783ff8aa6d57c684daf4449e45ca697
+
+            env:
+              PUID: 1000
+              PGID: 1001
+
+            envFrom:
+              - secretRef:
+                  name: *app
+
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: {drop: ["ALL"]}
+
+            resources:
+              requests:
+                cpu: 15m
+                memory: 100Mi
+              limits:
+                memory: 100Mi
+
+    service:
+      main:
+        controller: main
+        ports:
+          http:
+            port: &httpPort 2187
+
+    route:
+      main:
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: main
+                port: *httpPort
+        annotations:
+          glance/name: "Capacitarr"
+          glance/show: "true"
+          #glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/seerr.png"
+          glance/id: "Media"
+
+    persistence:
+      config:
+        existingClaim: capacitarr-config-pvc

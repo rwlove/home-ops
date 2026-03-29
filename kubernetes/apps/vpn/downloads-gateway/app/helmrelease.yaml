@@ -18,6 +18,8 @@ spec:
   values:
     controllers:
       main:
+        serviceAccount:
+          identifier: default
         containers:
           main:
             image:
@@ -29,7 +31,7 @@ spec:
             gluetun:
               image:
                 repository: ghcr.io/qdm12/gluetun
-                tag: v3.40.3@sha256:ef4a44819a60469682c7b5e69183e6401171891feaa60186652d292c59e41b30
+                tag: v3.41.1@sha256:1a5bf4b4820a879cdf8d93d7ef0d2d963af56670c9ebff8981860b6804ebc8ab
             env:
               - name: VPN_SERVICE_PROVIDER
                 value: mullvad
@@ -47,6 +49,10 @@ spec:
                 value: "1.1.1.1"
               - name: HEALTH_VPN_DURATION_INITIAL
                 value: 30s
+              - name: VPN_ENDPOINT_IP_VERSION
+                value: "v4"       # Forces Gluetun to pick an IPv4 address for the VPN server
+              - name: DOT_IPV6
+                value: "off"      # Disables IPv6 for the internal DNS over TLS (Unbound)
               - name: WIREGUARD_PRIVATE_KEY
                 valueFrom:
                   secretKeyRef:
@@ -62,6 +68,12 @@ spec:
                   secretKeyRef:
                     name: downloads-gateway-vpnconfig
                     key: WIREGUARD_DNS
+            securityContext:
+              privileged: true # Required for mknod/device access
+              capabilities:
+                add:
+                  - NET_ADMIN
+
             probes:
               liveness:
                 enabled: true
@@ -77,6 +89,36 @@ spec:
                   periodSeconds: 60
                   failureThreshold: 3
                   timeoutSeconds: 5
+      webhook:
+        serviceAccount:
+          identifier: default
+        pod:
+          # The sidecar containers inserted by the webhook will use this DNS config
+          dnsConfig:
+            options:
+              - name: ndots
+                value: '1'
+        # Configure the main controller - this runs the VPN server
+        containers:
+          main:
+            image:
+              repository: ghcr.io/angelnu/gateway-admision-controller
+              # I am using dev version for testing - others should be using the default from the chart
+              pullPolicy: Always
+              tag: dev
+    serviceAccount:
+      default:
+        enabled: true
+    rbac:
+      bindings:
+        default:
+          type: RoleBinding
+          roleRef:
+            name: system:openshift:scc:privileged  # For network - TBD, try with less
+            kind: ClusterRole
+          subjects:
+            - identifier: default
+
     networkpolicies:
       main:
         enabled: true
@@ -93,11 +135,16 @@ spec:
                 # VPN traffic
                 - port: &vpn_port 1637
                   protocol: UDP
-            # Allow any traffic within k8s
             - to:
                 - ipBlock:
                     # Cluster IPs
                     cidr: 10.42.0.0/16
+                - ipBlock:
+                    # Cluster Service IPs
+                    cidr: 10.43.0.0/16
+                  - ipBlock:
+                    # Local Network
+                    cidr: 192.168.0.0/16
 
     routed_namespaces:
       - downloads
@@ -110,7 +157,7 @@ spec:
       # -- If VPN_BLOCK_OTHER_TRAFFIC is true, allow VPN traffic over this port
       VPN_TRAFFIC_PORT: *vpn_port
       # -- Traffic to these IPs will be send through the K8S gateway
-      VPN_LOCAL_CIDRS: "10.42.0.0/8 192.168.0.0/16"
+      VPN_LOCAL_CIDRS: "10.0.0.0/8 192.168.0.0/16"
 
     # -- settings to expose ports, usually through a VPN provider.
     # NOTE: if you change it you will need to manually restart the gateway POD

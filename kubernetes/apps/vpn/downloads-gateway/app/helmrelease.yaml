@@ -30,8 +30,7 @@ spec:
               tag: v1.13.0@sha256:a5b032e15f7570493977b330a5a86dcffebb807d35685ad803e47afb62d105f2
 
           gluetun:
-            enabled: true # remove
-            type: gluetun # remove
+            enabled: true # necessary
             image:
               # TODO: Replace with ghcr.io/qdm12/gluetun when a versioned tag is available
               repository: ghcr.io/qdm12/gluetun
@@ -89,6 +88,14 @@ spec:
                 memory: 30M
               limits:
                 memory: 30M
+      webhook:
+        type: statefulset
+        pod:
+          # The sidecar containers inserted by the webhook will use this DNS config
+          dnsConfig:
+            options:
+              - name: ndots
+                value: '1'
 
     networkpolicies:
       main:
@@ -109,11 +116,13 @@ spec:
       VXLAN_ID: 43
       VXLAN_IP_NETWORK: 172.16.1
 
-    webhook:
-      gatewayAnnotation: setGateway
-      gatewayDefault: true
-      gatewayLabel: setGateway
-      namespaceSelector:
-        type: label
-        label: routed-gateway
-      sidecarAsInit: false # remove
+    # -- settings to expose ports, usually through a VPN provider.
+    # NOTE: if you change it you will need to manually restart the gateway POD
+    publicPorts:
+    - hostname: qbittorrent
+      IP: 10
+      ports:
+      - type: udp
+        port: 24589 #can I use a var from externalsecrets?
+      - type: tcp
+        port: 24589 #same here

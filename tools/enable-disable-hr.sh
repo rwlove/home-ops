@@ -2,8 +2,8 @@
 
 # kubernetes/apps/home/home-assistant/app/helmrelease.yaml
 
-ns=`echo $1 | awk -F'/' '{print $4}'`
-hr=`echo $1 | awk -F'/' '{print $5}'`
+ns=`echo $1 | awk -F'/' '{print $3}'`
+hr=`echo $1 | awk -F'/' '{print $4}'`
 
 stg new -m disable-${hr} ; stg mv "${1}" "${1}-disabled"
 

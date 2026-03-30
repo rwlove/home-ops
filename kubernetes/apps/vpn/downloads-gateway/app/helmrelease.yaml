@@ -10,7 +10,7 @@ spec:
     spec:
       # renovate: registryUrl=https://angelnu.github.io/helm-charts
       chart: pod-gateway
-      version: 6.6.1
+      version: 7.1.1
       sourceRef:
         kind: HelmRepository
         name: angelnu
@@ -23,68 +23,78 @@ spec:
         annotations:
           reloader.stakater.com/auto: "true"
 
-    image:
-      repository: ghcr.io/angelnu/pod-gateway
-      tag: v1.13.0@sha256:a5b032e15f7570493977b330a5a86dcffebb807d35685ad803e47afb62d105f2
+        containers:
+          main:
+            image:
+              repository: ghcr.io/angelnu/pod-gateway
+              tag: v1.13.0@sha256:a5b032e15f7570493977b330a5a86dcffebb807d35685ad803e47afb62d105f2
 
-    securityContext:
-      privileged: true
+          gluetun:
+            enabled: true # remove
+            type: gluetun # remove
+            image:
+              # TODO: Replace with ghcr.io/qdm12/gluetun when a versioned tag is available
+              repository: ghcr.io/qdm12/gluetun
+              tag: v3.41.1@sha256:1a5bf4b4820a879cdf8d93d7ef0d2d963af56670c9ebff8981860b6804ebc8ab
 
+            env:
+              - name: VPN_INTERFACE
+                value: wg0
+              - name: FIREWALL
+                value: "off"
+              - name: DOT
+                value: "off"
+              - name: HEALTH_TARGET_ADDRESS
+                value: "1.1.1.1"
+              - name: HEALTH_VPN_DURATION_INITIAL
+                value: 30s
+            envFrom:
+              - secretRef:
+                  name: downloads-gateway-vpnconfig
+
+            securityContext:
+              privileged: true
+              capabilities:
+                add:
+                  - NET_ADMIN
+
+            resources:
+              requests:
+                cpu: 15m
+                memory: 256M
+              limits:
+                memory: 256M
+
+          netshoot:
+            enabled: true
+            image:
+              repository: ghcr.io/nicolaka/netshoot
+              tag: v0.15
+
+            command:
+              - /bin/sh
+              - -c
+              - sleep infinity
+
+            securityContext:
+              privileged: true
+              capabilities:
+                add:
+                  - NET_ADMIN
+                  - NET_RAW
+
+            resources:
+              requests:
+                cpu: 15m
+                memory: 30M
+              limits:
+                memory: 30M
+
+    networkpolicies:
+      main:
+        enabled: false 
+        
     DNS: 172.16.1.1
-
-    addons:
-      vpn:
-        enabled: true
-        type: gluetun
-        image:
-          # TODO: Replace with ghcr.io/qdm12/gluetun when a versioned tag is available
-          repository: ghcr.io/qdm12/gluetun
-          tag: v3.41.1@sha256:1a5bf4b4820a879cdf8d93d7ef0d2d963af56670c9ebff8981860b6804ebc8ab
-
-        env:
-          - name: VPN_INTERFACE
-            value: wg0
-          - name: FIREWALL
-            value: "off"
-          - name: DOT
-            value: "off"
-          - name: HEALTH_TARGET_ADDRESS
-            value: "1.1.1.1"
-          - name: HEALTH_VPN_DURATION_INITIAL
-            value: 30s
-        envFrom:
-          - secretRef:
-              name: downloads-gateway-vpnconfig
-
-        securityContext:
-          privileged: true
-          capabilities:
-            add:
-              - NET_ADMIN
-
-        resources:
-          requests:
-            cpu: 15m
-            memory: 256M
-          limits:
-            memory: 256M
-
-      netshoot:
-        enabled: true
-
-        resources:
-          requests:
-            cpu: 15m
-            memory: 30M
-          limits:
-            memory: 30M
-
-    resources:
-      requests:
-        cpu: 15m
-        memory: 30M
-      limits:
-        memory: 30M
 
     routed_namespaces:
       - downloads
@@ -106,6 +116,4 @@ spec:
       namespaceSelector:
         type: label
         label: routed-gateway
-      image:
-        repository: ghcr.io/angelnu/gateway-admision-controller
-        tag: v3.12.0@sha256:6f6ab596afd5fef0ca4648eadfb21cd37ba86fa5afa8b85edcc072976a61fbed
+      sidecarAsInit: false # remove

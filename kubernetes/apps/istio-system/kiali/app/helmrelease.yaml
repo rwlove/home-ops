@@ -7,10 +7,47 @@ spec:
   chart:
     spec:
       chart: kiali-operator
-      version: 2.2.0
+      version: 2.8.0
       sourceRef:
         kind: HelmRepository
         name: kiali
   values:
   # https://artifacthub.io/packages/olm/community-operators/kiali
   # https://github.com/kiali/helm-charts/blob/master/kiali-operator/values.yaml
+    resources:
+      requests:
+        cpu: "10m"
+        memory: "64Mi"
+    replicaCount: 2
+    # For what a Kiali CR spec can look like, see:
+    # https://github.com/kiali/kiali-operator/blob/master/deploy/kiali/kiali_cr.yaml
+    cr:
+      create: true
+      name: kiali
+      namespace: istio-system
+      annotations: {}
+      spec:
+        istio_labels:
+          app_label_name: "app.kubernetes.io/name"
+          version_label_name: "app.kubernetes.io/version"
+        server:
+          web_fqdn: kiali.${SECRET_DOMAIN}
+          web_port: 443
+          web_root: /
+          web_schema: https
+        deployment:
+          replicas: 2
+          ingress:
+            enabled: false
+        auth:
+          strategy: anonymous
+        istio_namespace: istio-system
+        external_services:
+          istio:
+            root_namespace: network
+          prometheus:
+            url: kube-prometheus-stack-prometheus.observability.svc.cluster.local:9090
+          grafana:
+            enabled: true
+            in_cluster_url: http://grafana.observability.svc.cluster.local/
+            url: https://grafana.${SECRET_DOMAIN}

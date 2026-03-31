@@ -1,0 +1,93 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: mcp-gateway
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: kuadrant-mcp-gateway
+  interval: 30m
+
+  values:
+    # Default values for mcp-gateway.
+    # This is a YAML-formatted file.
+
+    # Image configuration for mcp-gateway broker-router (deployed by controller)
+    #image:
+    #  repository: ghcr.io/kuadrant/mcp-gateway
+    #  # tag defaults to Chart.appVersion if empty
+    #  tag: ""
+
+    # Image configuration for mcp-controller
+    #imageController:
+    #  repository: ghcr.io/kuadrant/mcp-controller
+    #  # tag defaults to Chart.appVersion if empty
+    #  tag: ""
+    #  pullPolicy: IfNotPresent
+
+    # Controller configuration
+    controller:
+      # Enable/disable controller deployment
+      enabled: true
+
+    # Broker configuration (applied to broker-router deployed by controller)
+    broker:
+      # How often (in seconds) the broker pings upstream MCP servers
+      pollInterval: 60
+
+    # Gateway configuration
+    gateway:
+      # publicHost set the value for --mcp-gateway-public-host flag
+      publicHost: "kuadrant-mcp.${SECRET_DOMAIN}"
+      # Create a Gateway resource
+      create: true
+      # Name of the Gateway (defaults to release fullname)
+      name: "mcp-gateway"
+      # Namespace for the Gateway (defaults to release namespace)
+      namespace: network
+      # Gateway class name (e.g., istio, openshift-default, nginx)
+      gatewayClassName: envoy
+      # Port for listeners
+      port: 8080
+      # Internal wildcard hostname pattern for MCP server routes
+      internalHostPattern: "*.mcp.local"
+      # Allowed routes configuration
+      allowedRoutes:
+        # Which namespaces can attach routes (All, Same, or Selector)
+        from: All
+    # Additional listeners to add to the Gateway
+    additionalListeners: []
+    # Example:
+    # - name: custom-listener
+    #   hostname: "custom.example.com"
+    #   port: 8080
+    #   protocol: HTTP
+    #   allowedRoutes:
+    #     namespaces:
+    #       from: All
+    # NodePort service for the Gateway (for local development/Kind clusters)
+    nodePort:
+      # Create a NodePort service for the Gateway
+      create: false
+      # NodePort for the MCP port
+      mcpPort: 30471
+      # Status port configuration (Istio health check port)
+      statusPort:
+        enabled: false
+        # NodePort for the status port (leave empty for auto-assignment)
+        nodePort: null
+
+    # MCPGatewayExtension configuration
+    mcpGatewayExtension:
+      # Create an MCPGatewayExtension resource
+      create: true
+      # Gateway reference - the Gateway this MCP Gateway instance is responsible for
+      gatewayRef:
+        # Name of the Gateway
+        name: mcp-gateway
+        # Namespace of the Gateway (if different from release namespace, a ReferenceGrant will be created)
+        namespace: ai
+      # Name of the listener on the Gateway to target (required)
+      sectionName: mcp

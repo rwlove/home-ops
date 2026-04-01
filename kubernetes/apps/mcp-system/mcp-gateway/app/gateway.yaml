@@ -1,0 +1,33 @@
+---
+# yaml-language-server: $schema=https://k8s-schemas.bjw-s.dev/gateway.networking.k8s.io/gateway_v1.json
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: mcp-gateway
+  annotations:
+    external-dns.alpha.kubernetes.io/target: &hostname mcp-gateway.${SECRET_DOMAIN}
+spec:
+  gatewayClassName: istio
+  infrastructure:
+    annotations:
+      external-dns.alpha.kubernetes.io/hostname: *hostname
+      lbipam.cilium.io/ips: "${SVC_MCPGATEWAY_ADDR}"
+      istio: ingressgateway
+      gateway.io/name: mcp-gateway
+  listeners:
+    - name: mcp
+      protocol: HTTP
+      port: 8080 # TODO? 80?
+      allowedRoutes:
+        namespaces:
+          from: All # TODO? Same like internal/external?
+    - name: mcps
+      protocol: HTTPS
+      port: 8080 # TODO? 443 like internal/external?
+      allowedRoutes:
+        namespaces:
+          from: All
+      #tls:
+      #  certificateRefs:
+      #    - kind: Secret
+      #      name: "${SECRET_DOMAIN/./-}-tls"

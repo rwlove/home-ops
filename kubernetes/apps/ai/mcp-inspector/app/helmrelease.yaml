@@ -1,0 +1,56 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: mcp-inspector
+spec:
+  interval: 30m
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+
+  values:
+    controllers:
+      main:
+        type: statefulset
+
+        containers:
+          main:
+            image:
+              repository: ghcr.io/modelcontextprotocol/inspector
+              tag: 0.21.1@sha256:b94db1dc7bc362bb9c83d13bdb640e4ca4b347ea1c389c01a157c65e289b444f
+
+            resources:
+              requests:
+                cpu: 10m
+                memory: 120Mi
+              limits:
+                memory: 120Mi
+
+    service:
+      main:
+        controller: main
+        ports:
+          http:
+            port: &httpPort 6274
+          mcpProxy:
+            port: &mcpProxy 6277
+
+    route:
+      main:
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: main
+                port: *httpPort
+        annotations:
+          glance/name: "MCP Inspector"
+          glance/show: "true"
+          glance/icon: "https://github.com/modelcontextprotocol/inspector/blob/db0827b24645f61c8b15aaaa4726bb7d21ad8282/mcp-inspector.png"
+          glance/id: "AI"

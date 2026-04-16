@@ -5,18 +5,14 @@ kind: HelmRelease
 metadata:
   name: &app prowlarr
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
+  interval: 30m
 
   values:
     controllers:
       main:
-        type: statefulset
-        annotations:
-          reloader.stakater.com/auto: "true"
-
         pod:
           securityContext:
             runAsUser: 568
@@ -24,6 +20,9 @@ spec:
             fsGroup: 568
             fsGroupChangePolicy: "OnRootMismatch"
 
+        annotations:
+          reloader.stakater.com/auto: "true"
+        type: statefulset
         containers:
           main:
             image:
@@ -39,13 +38,6 @@ spec:
               - secretRef:
                   name: *app
 
-            securityContext:
-              privileged: true
-              capabilities:
-                add:
-                  - NET_ADMIN
-                  - NET_RAW
-
             resources:
               requests:
                 cpu: 15m
@@ -53,14 +45,24 @@ spec:
               limits:
                 memory: 300M
 
-    service:
-      main:
-        ports:
-          http:
-            port: *httpPort
+            securityContext:
+              privileged: true
+              capabilities:
+                add:
+                  - NET_ADMIN
+                  - NET_RAW
+
+    persistence:
+      config:
+        existingClaim: prowlarr-config-pvc
 
     route:
       main:
+        annotations:
+          glance/name: "Prowlarr"
+          glance/show: "true"
+          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/prowlarr.png"
+          glance/id: "Downloads"
         hostnames:
           - "{{ .Release.Name }}.${SECRET_DOMAIN}"
         parentRefs:
@@ -71,12 +73,9 @@ spec:
           - backendRefs:
               - identifier: main
                 port: *httpPort
-        annotations:
-          glance/name: "Prowlarr"
-          glance/show: "true"
-          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/prowlarr.png"
-          glance/id: "Downloads"
 
-    persistence:
-      config:
-        existingClaim: prowlarr-config-pvc
+    service:
+      main:
+        ports:
+          http:
+            port: *httpPort

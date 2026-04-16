@@ -5,11 +5,10 @@ kind: HelmRelease
 metadata:
   name: &app immichkiosk
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
-
+  interval: 30m
   dependsOn:
     - name: immich
       namespace: media
@@ -24,10 +23,6 @@ spec:
             image:
               repository: ghcr.io/damongolding/immich-kiosk
               tag: 0.36.0@sha256:5a99fc53750e3cc805eaef814a2b301318e26bd4e7875563d05f2f9392110242
-
-            envFrom:
-              - secretRef:
-                  name: *app
 
             env:
               # Required settings
@@ -106,6 +101,10 @@ spec:
               KIOSK_PORT: 3000
               KIOSK_SHOW_USER: false
 
+            envFrom:
+              - secretRef:
+                  name: *app
+
             resources:
               requests:
                 cpu: 15m
@@ -113,15 +112,13 @@ spec:
               limits:
                 memory: 5G
 
-    service:
-      main:
-        controller: main
-        ports:
-          http:
-            port: &httpPort 3000
-
     route:
       main:
+        annotations:
+          glance/name: "Immich Kiosk"
+          glance/show: "true"
+          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/immich-kiosk.png"
+          glance/id: "Media"
         hostnames:
           - "immichkiosk.${SECRET_DOMAIN}"
         parentRefs:
@@ -132,8 +129,10 @@ spec:
           - backendRefs:
               - identifier: main
                 port: *httpPort
-        annotations:
-          glance/name: "Immich Kiosk"
-          glance/show: "true"
-          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/immich-kiosk.png"
-          glance/id: "Media"
+
+    service:
+      main:
+        controller: main
+        ports:
+          http:
+            port: &httpPort 3000

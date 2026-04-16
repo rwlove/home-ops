@@ -5,22 +5,22 @@ kind: HelmRelease
 metadata:
   name: gonic
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
+  interval: 30m
 
   values:
     controllers:
       main:
-        type: statefulset
-        annotations:
-          reloader.stakater.com/auto: "true"
-
         pod:
           securityContext:
             supplementalGroups:
               - 1001
+
+        annotations:
+          reloader.stakater.com/auto: "true"
+        type: statefulset
 
         containers:
           main:
@@ -42,15 +42,26 @@ spec:
               limits:
                 memory: 800M
 
-    service:
-      main:
-        controller: main
-        ports:
-          http:
-            port: &httpPort 80
+    persistence:
+      data:
+        existingClaim: gonic-data-pvc
+
+      music:
+        existingClaim: gonic-music-pvc
+
+      playlist:
+        type: emptyDir
+
+      podcasts:
+        existingClaim: gonic-podcasts-pvc
 
     route:
       main:
+        annotations:
+          glance/name: "Gonic"
+          glance/show: "true"
+          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/gonic.png"
+          glance/id: "Media"
         hostnames:
           - "{{ .Release.Name }}.${SECRET_DOMAIN}"
         parentRefs:
@@ -61,21 +72,10 @@ spec:
           - backendRefs:
               - identifier: main
                 port: *httpPort
-        annotations:
-          glance/name: "Gonic"
-          glance/show: "true"
-          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/gonic.png"
-          glance/id: "Media"
 
-    persistence:
-      data:
-        existingClaim: gonic-data-pvc
-
-      podcasts:
-        existingClaim: gonic-podcasts-pvc
-
-      music:
-        existingClaim: gonic-music-pvc
-
-      playlist:
-        type: emptyDir
+    service:
+      main:
+        controller: main
+        ports:
+          http:
+            port: &httpPort 80

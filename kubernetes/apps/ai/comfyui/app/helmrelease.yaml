@@ -5,19 +5,13 @@ kind: HelmRelease
 metadata:
   name: &app comfyui
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
-
+  interval: 30m
   values:
     controllers:
       comfyui:
-        type: statefulset
-
-        annotations:
-          reloader.stakater.com/auto: "true"
-
         pod:
           runtimeClassName: nvidia
 
@@ -36,6 +30,11 @@ spec:
           nodeSelector:
             nvidia.com/gpu.present: "true"
 
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        type: statefulset
+
         containers:
           app:
             image:
@@ -44,13 +43,13 @@ spec:
 
             env:
               AUTO_UPDATE: "false"
+              CF_QUICK_TUNNELS: "false"
               DIRECT_ADDRESS_GET_WAN: "true"
+              PROVISIONING_SCRIPT: "https://raw.githubusercontent.com/ai-dock/comfyui/main/config/provisioning/flux.sh"
+              SERVERLESS: "false"
               SERVICEPORTAL_URL: "comfyui.${SECRET_DOMAIN}"
               WEB_ENABLE_AUTH: "false"
               WORKSPACE: "/workspace"
-              CF_QUICK_TUNNELS: "false"
-              SERVERLESS: "false"
-              PROVISIONING_SCRIPT: "https://raw.githubusercontent.com/ai-dock/comfyui/main/config/provisioning/flux.sh"
 
             securityContext:
               privileged: true
@@ -73,6 +72,11 @@ spec:
 
     route:
       main:
+        annotations:
+          glance/name: "Comfy UI"
+          glance/show: "true"
+          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/comfy-ui.png"
+          glance/id: "AI"
         hostnames:
           - "{{ .Release.Name }}.${SECRET_DOMAIN}"
         parentRefs:
@@ -83,11 +87,6 @@ spec:
           - backendRefs:
               - identifier: app
                 port: *httpPort
-        annotations:
-          glance/name: "Comfy UI"
-          glance/show: "true"
-          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/comfy-ui.png"
-          glance/id: "AI"
 
     persistence:
       workspace:

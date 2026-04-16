@@ -5,11 +5,10 @@ kind: HelmRelease
 metadata:
   name: &app immich-power-tools
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
-
+  interval: 30m
   dependsOn:
     - name: immich
       namespace: media
@@ -25,10 +24,6 @@ spec:
               repository: ghcr.io/varun-raj/immich-power-tools
               tag: 0.19.1@sha256:8e7a25ed0e99c9c323012e306fde6c97a1004765742c8802ad03c95503679e77
 
-            envFrom:
-              - secretRef:
-                  name: *app
-
             env:
               IMMICH_URL: http://immich-server.media.svc.cluster.local:2283
               DB_HOST: postgres-immich-rw.databases.svc.cluster.local
@@ -37,6 +32,10 @@ spec:
               DB_PASSWORD: immich
               DB_DATABASE_NAME: immich
 
+            envFrom:
+              - secretRef:
+                  name: *app
+
             resources:
               requests:
                 cpu: 15m
@@ -44,15 +43,13 @@ spec:
               limits:
                 memory: 200M
 
-    service:
-      main:
-        controller: main
-        ports:
-          http:
-            port: &httpPort 3000
-
     route:
       main:
+        annotations:
+          glance/name: "Immich Power Tools"
+          glance/show: "true"
+          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/immich-power-tools.png"
+          glance/id: "Media"
         hostnames:
           - "{{ .Release.Name }}.${SECRET_DOMAIN}"
         parentRefs:
@@ -63,8 +60,10 @@ spec:
           - backendRefs:
               - identifier: main
                 port: *httpPort
-        annotations:
-          glance/name: "Immich Power Tools"
-          glance/show: "true"
-          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/immich-power-tools.png"
-          glance/id: "Media"
+
+    service:
+      main:
+        controller: main
+        ports:
+          http:
+            port: &httpPort 3000

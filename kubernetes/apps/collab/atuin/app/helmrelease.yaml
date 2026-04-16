@@ -5,19 +5,34 @@ kind: HelmRelease
 metadata:
   name: &app atuin
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
-
+  interval: 30m
   values:
     controllers:
       main:
-        type: statefulset
-        replicas: 2
+        pod:
+          securityContext:
+            runAsUser: 568
+            runAsGroup: 568
+            runAsNonRoot: true
+            fsGroup: 568
+            fsGroupChangePolicy: OnRootMismatch
+
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: DoNotSchedule
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: *app
 
         annotations:
           reloader.stakater.com/auto: "true"
+
+        replicas: 2
+        type: statefulset
 
         initContainers:
           init-db:
@@ -35,19 +50,19 @@ spec:
               repository: ghcr.io/atuinsh/atuin
               tag: 18.15.1@sha256:c186d172ff259d4534707bbf1ba74121a45a925653c9bd07869a5e2b898dabe7
 
+            args:
+              - start
+
             env:
               ATUIN_HOST: 0.0.0.0
-              ATUIN_PORT: &httpPort 8080
-              ATUIN_OPEN_REGISTRATION: true
               ATUIN_METRICS__ENABLE: true
               ATUIN_METRICS__HOST: 0.0.0.0
               ATUIN_METRICS__PORT: &metricsPort 8081
+              ATUIN_OPEN_REGISTRATION: true
+              ATUIN_PORT: &httpPort 8080
               RUST_LOG: debug,atuin_server=debug
 
             envFrom: *envFrom
-
-            args:
-              - start
 
             resources:
               requests:
@@ -63,35 +78,10 @@ spec:
                 drop:
                   - ALL
 
-        pod:
-          securityContext:
-            runAsUser: 568
-            runAsGroup: 568
-            runAsNonRoot: true
-            fsGroup: 568
-            fsGroupChangePolicy: OnRootMismatch
-
-          topologySpreadConstraints:
-            - maxSkew: 1
-              topologyKey: kubernetes.io/hostname
-              whenUnsatisfiable: DoNotSchedule
-              labelSelector:
-                matchLabels:
-                  app.kubernetes.io/name: *app
-
     persistence:
       config:
         enabled: true
         type: emptyDir
-
-    service:
-      main:
-        controller: main
-        ports:
-          http:
-            port: *httpPort
-          metrics:
-            port: *metricsPort
 
     route:
       main:
@@ -106,12 +96,21 @@ spec:
               - identifier: main
                 port: *httpPort
 
+    service:
+      main:
+        controller: main
+        ports:
+          http:
+            port: *httpPort
+          metrics:
+            port: *metricsPort
+
     serviceMonitor:
       main:
-        serviceName: *app
         endpoints:
           - port: metrics
             scheme: http
             path: /metrics
             interval: 1m
             scrapeTimeout: 10s
+        serviceName: *app

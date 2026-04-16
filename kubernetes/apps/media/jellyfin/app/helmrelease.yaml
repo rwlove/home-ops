@@ -5,19 +5,14 @@ kind: HelmRelease
 metadata:
   name: jellyfin
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
+  interval: 30m
 
   values:
     controllers:
       main:
-        type: statefulset
-
-        annotations:
-          reloader.stakater.com/auto: "true"
-
         pod:
           priorityClassName: media-cluster-critical
 
@@ -44,6 +39,10 @@ spec:
             supplementalGroups:
               - 1001
 
+        annotations:
+          reloader.stakater.com/auto: "true"
+        type: statefulset
+
         containers:
           main:
             image:
@@ -59,18 +58,29 @@ spec:
                 gpu.intel.com/i915: 1
                 memory: 10G
 
-    service:
-      main:
-        annotations:
-          lbipam.cilium.io/ips: 10.45.0.11 #SVC_JELLYFIN_ADDR
-        type: LoadBalancer
-        externalTrafficPolicy: Cluster
-        ports:
-          http:
-            port: &httpPort 8096
+    persistence:
+      config:
+        existingClaim: jellyfin-config-pvc
+
+      movies:
+        existingClaim: jellyfin-movies-pvc
+
+      music:
+        existingClaim: jellyfin-music-pvc
+
+      television:
+        existingClaim: jellyfin-television-pvc
+
+      transcode:
+        type: emptyDir
 
     route:
       main:
+        annotations:
+          glance/name: "Jellyfin"
+          glance/show: "true"
+          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/jellyfin.png"
+          glance/id: "Media"
         hostnames:
           - "{{ .Release.Name }}.${SECRET_DOMAIN}"
         parentRefs:
@@ -81,24 +91,13 @@ spec:
           - backendRefs:
               - identifier: main
                 port: *httpPort
+
+    service:
+      main:
+        type: LoadBalancer
         annotations:
-          glance/name: "Jellyfin"
-          glance/show: "true"
-          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/jellyfin.png"
-          glance/id: "Media"
-
-    persistence:
-      config:
-        existingClaim: jellyfin-config-pvc
-
-      music:
-        existingClaim: jellyfin-music-pvc
-
-      movies:
-        existingClaim: jellyfin-movies-pvc
-
-      television:
-        existingClaim: jellyfin-television-pvc
-
-      transcode:
-        type: emptyDir
+          lbipam.cilium.io/ips: 10.45.0.11 #SVC_JELLYFIN_ADDR
+        externalTrafficPolicy: Cluster
+        ports:
+          http:
+            port: &httpPort 8096

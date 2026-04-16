@@ -5,14 +5,27 @@ kind: HelmRelease
 metadata:
   name: &app intel-gpu-exporter
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
+  interval: 30m
 
   values:
     controllers:
       main:
+        pod:
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: intel.feature.node.kubernetes.io/gpu
+                        operator: In
+                        values:
+                          - "true"
+          nodeSelector:
+            intel.feature.node.kubernetes.io/gpu: "true"
+
         type: daemonset
 
         containers:
@@ -33,20 +46,6 @@ spec:
             securityContext:
               privileged: true
 
-        pod:
-          nodeSelector:
-            intel.feature.node.kubernetes.io/gpu: "true"
-
-          affinity:
-            nodeAffinity:
-              requiredDuringSchedulingIgnoredDuringExecution:
-                nodeSelectorTerms:
-                  - matchExpressions:
-                      - key: intel.feature.node.kubernetes.io/gpu
-                        operator: In
-                        values:
-                          - "true"
-
     service:
       main:
         controller: main
@@ -56,13 +55,13 @@ spec:
 
     serviceMonitor:
       main:
-        serviceName: *app
         endpoints:
-          - port: http
-            scheme: http
+          - interval: 1m
             path: /metrics
-            interval: 1m
-            scrapeTimeout: 10s
+            port: http
             relabelings:
               - sourceLabels: [__meta_kubernetes_pod_node_name]
                 targetLabel: node
+            scheme: http
+            scrapeTimeout: 10s
+        serviceName: *app

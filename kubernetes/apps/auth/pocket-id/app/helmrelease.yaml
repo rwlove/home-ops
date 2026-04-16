@@ -5,18 +5,25 @@ kind: HelmRelease
 metadata:
   name: &app pocket-id
 spec:
-  interval: 1h
   chartRef:
     kind: OCIRepository
     name: app-template
+  interval: 1h
   values:
+    defaultPodOptions:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: Always
     controllers:
       pocket-id:
-        type: statefulset
-        labels:
-          postgres: "true"
         annotations:
           reloader.stakater.com/auto: "true"
+        labels:
+          postgres: "true"
+        type: statefulset
         initContainers:
           init-db:
             image:
@@ -36,28 +43,28 @@ spec:
               APP_URL: https://id.${SECRET_DOMAIN}
               DB_PROVIDER: postgres
               EMAILS_VERIFIED: true
+              GEOLITE_DB_PATH: /app/data/GeoLite2-City.mmdb
               KEYS_STORAGE: database
-              UI_CONFIG_DISABLED: true
-              LDAP_ENABLED: true
-              LDAP_URL: ldap://lldap.auth.svc.cluster.local:3893
-              LDAP_SKIP_CERT_VERIFY: true
-              LDAP_USER_GROUP_SEARCH_FILTER: (&({username_attribute}={input})(objectClass=person))
-              LDAP_ATTRIBUTE_USER_UNIQUE_IDENTIFIER: uid
-              LDAP_ATTRIBUTE_GROUP_UNIQUE_IDENTIFIER: guid
-              LDAP_ATTRIBUTE_USER_FIRST_NAME: first_name
-              LDAP_ATTRIBUTE_USER_LAST_NAME: last_name
-              LDAP_ATTRIBUTE_USER_USERNAME: display_name
-              LDAP_ATTRIBUTE_USER_EMAIL: mail
+              LDAP_ATTRIBUTE_ADMIN_GROUP: lldap_admin
               LDAP_ATTRIBUTE_GROUP_MEMBER: member
               LDAP_ATTRIBUTE_GROUP_NAME: cn
-              LDAP_ATTRIBUTE_ADMIN_GROUP: lldap_admin
+              LDAP_ATTRIBUTE_GROUP_UNIQUE_IDENTIFIER: guid
+              LDAP_ATTRIBUTE_USER_EMAIL: mail
+              LDAP_ATTRIBUTE_USER_FIRST_NAME: first_name
+              LDAP_ATTRIBUTE_USER_LAST_NAME: last_name
+              LDAP_ATTRIBUTE_USER_UNIQUE_IDENTIFIER: uid
+              LDAP_ATTRIBUTE_USER_USERNAME: display_name
+              LDAP_ENABLED: true
+              LDAP_SKIP_CERT_VERIFY: true
+              LDAP_URL: ldap://lldap.auth.svc.cluster.local:3893
+              LDAP_USER_GROUP_SEARCH_FILTER: (&({username_attribute}={input})(objectClass=person))
+              SESSION_DURATION: 43800
               SMTP_FROM: pocket-id@${SECRET_DOMAIN}
               SMTP_HOST: smtp-relay.home.svc.cluster.local
               SMTP_PORT: 2525
-              SESSION_DURATION: 43800
               TRUST_PROXY: true
+              UI_CONFIG_DISABLED: true
               UPLOAD_PATH: /app/data/uploads
-              GEOLITE_DB_PATH: /app/data/GeoLite2-City.mmdb
             envFrom: *envFrom
             probes:
               liveness: &probes
@@ -72,40 +79,16 @@ spec:
                   timeoutSeconds: 1
                   failureThreshold: 3
               readiness: *probes
-            securityContext:
-              allowPrivilegeEscalation: false
-              readOnlyRootFilesystem: true
-              capabilities: {drop: ["ALL"]}
             resources:
               requests:
                 cpu: 10m
                 memory: 32Mi
               limits:
                 memory: 256Mi
-    defaultPodOptions:
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
-        fsGroup: 1000
-        fsGroupChangePolicy: Always
-    service:
-      app:
-        ports:
-          http:
-            port: *httpPort
-    route:
-      main:
-        hostnames:
-          - "id.${SECRET_DOMAIN}"
-        parentRefs:
-          - name: external
-            namespace: network
-            sectionName: https
-        rules:
-          - backendRefs:
-              - identifier: app
-                port: *httpPort
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: {drop: ["ALL"]}
     persistence:
       data:
         existingClaim: pocket-id-data-pvc
@@ -118,3 +101,20 @@ spec:
             app:
               - path: /tmp
                 subPath: tmp
+    route:
+      main:
+        hostnames:
+          - "id.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: external
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: *httpPort
+    service:
+      app:
+        ports:
+          http:
+            port: *httpPort

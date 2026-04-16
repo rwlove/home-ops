@@ -5,33 +5,24 @@ kind: HelmRelease
 metadata:
   name: descheduler
 spec:
-  interval: 1h
   chartRef:
     kind: OCIRepository
     name: descheduler
+  interval: 1h
   values:
-    kind: Deployment
-    priorityClassName: system-cluster-critical
-    deschedulerPolicyAPIVersion: descheduler/v1alpha2
-    #tolerations:
-    #  - key: node-role.kubernetes.io/control-plane
-    #    operator: Equal
-    #    value: NoSchedule
-    #    effect: NoSchedule
     deschedulerPolicy:
       metricsProviders:
         - source: KubernetesMetrics
       profiles:
         - name: Default
           pluginConfig:
-            - name: DefaultEvictor
-              args:
+            - args:
                 podProtections:
                   defaultDisabled:
                     - FailedBarePods
                     - PodsWithLocalStorage
-            - name: LowNodeUtilization
-              args:
+              name: DefaultEvictor
+            - args:
                 metricsUtilization:
                   source: KubernetesMetrics
                 thresholds:
@@ -42,23 +33,24 @@ spec:
                   cpu: 50
                   memory: 50
                   pods: 50
-            - name: RemoveFailedPods
-              args:
+              name: LowNodeUtilization
+            - args:
+                excludeOwnerKinds:
+                  - Job
+                includingInitContainers: true
+                minPodLifetimeSeconds: 1800
                 reasons:
                   - ContainerStatusUnknown
                   - NodeAffinity
                   - NodeShutdown
                   - Terminated
                   - UnexpectedAdmissionError
-                includingInitContainers: true
-                excludeOwnerKinds:
-                  - Job
-                minPodLifetimeSeconds: 1800
+              name: RemoveFailedPods
             - name: RemovePodsViolatingInterPodAntiAffinity
-            - name: RemovePodsViolatingNodeAffinity
-              args:
+            - args:
                 nodeAffinityType:
                   - requiredDuringSchedulingIgnoredDuringExecution
+              name: RemovePodsViolatingNodeAffinity
             - name: RemovePodsViolatingNodeTaints
             - name: RemovePodsViolatingTopologySpreadConstraint
           plugins:
@@ -72,9 +64,17 @@ spec:
                 - RemovePodsViolatingInterPodAntiAffinity
                 - RemovePodsViolatingNodeAffinity
                 - RemovePodsViolatingNodeTaints
+    deschedulerPolicyAPIVersion: descheduler/v1alpha2
+    #tolerations:
+    #  - key: node-role.kubernetes.io/control-plane
+    #    operator: Equal
+    #    value: NoSchedule
+    #    effect: NoSchedule
+    kind: Deployment
+    leaderElection:
+      enabled: true
+    priorityClassName: system-cluster-critical
     service:
       enabled: true
     serviceMonitor:
-      enabled: true
-    leaderElection:
       enabled: true

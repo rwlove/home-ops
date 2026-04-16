@@ -5,18 +5,35 @@ kind: HelmRelease
 metadata:
   name: ollama
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
-
+  interval: 30m
   values:
     controllers:
       backend:
-        type: statefulset
+        pod:
+          runtimeClassName: nvidia
+
+          priorityClassName: ai-gpu-critical
+
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: nvidia.com/gpu.present
+                        operator: In
+                        values:
+                          - "true"
+
+          nodeSelector:
+            nvidia.com/gpu.present: "true"
 
         annotations:
           reloader.stakater.com/auto: "true"
+
+        type: statefulset
 
         containers:
           main:
@@ -48,24 +65,6 @@ spec:
               limits:
                 memory: 6G
                 nvidia.com/gpu: 1
-
-        pod:
-          runtimeClassName: nvidia
-
-          priorityClassName: ai-gpu-critical
-
-          affinity:
-            nodeAffinity:
-              requiredDuringSchedulingIgnoredDuringExecution:
-                nodeSelectorTerms:
-                  - matchExpressions:
-                      - key: nvidia.com/gpu.present
-                        operator: In
-                        values:
-                          - "true"
-
-          nodeSelector:
-            nvidia.com/gpu.present: "true"
 
     service:
       backend:
@@ -107,8 +106,8 @@ spec:
               - path: *pvc
 
       tmp:
-        enabled: true
         type: emptyDir
+        enabled: true
         medium: Memory
         globalMounts:
           - path: /tmp

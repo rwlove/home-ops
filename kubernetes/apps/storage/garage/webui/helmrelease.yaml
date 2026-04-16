@@ -5,18 +5,18 @@ kind: HelmRelease
 metadata:
   name: &app garage-webui
 spec:
-  interval: 1h
   chartRef:
     kind: OCIRepository
     name: app-template
+  interval: 1h
   install:
     remediation:
       retries: 3
   upgrade:
     cleanupOnFail: true
     remediation:
-      strategy: rollback
       retries: 3
+      strategy: rollback
   values:
     controllers:
       garage-webui:
@@ -28,32 +28,40 @@ spec:
               repository: docker.io/khairul169/garage-webui
               tag: 1.1.0@sha256:17c793551873155065bf9a022dabcde874de808a1f26e648d4b82e168806439c
             env:
-              API_BASE_URL: http://garage.storage.svc.cluster.local:3903
-              S3_ENDPOINT_URL: http://garage.storage.svc.cluster.local:3900
               API_ADMIN_KEY:
                 valueFrom:
                   secretKeyRef:
                     name: garage-secret
                     key: GARAGE_ADMIN_TOKEN
+              API_BASE_URL: http://garage.storage.svc.cluster.local:3903
+              S3_ENDPOINT_URL: http://garage.storage.svc.cluster.local:3900
             envFrom:
               - secretRef:
                   name: garage-secret
-            securityContext:
-              allowPrivilegeEscalation: false
-              readOnlyRootFilesystem: true
-              capabilities: { drop: [ALL] }
             resources:
               requests:
                 cpu: 10m
               limits:
                 memory: 128Mi
-    service:
-      app:
-        ports:
-          http:
-            port: &port 3909
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities: { drop: [ALL] }
+              readOnlyRootFilesystem: true
+    persistence:
+      config:
+        type: configMap
+        enabled: true
+        name: garage-configmap
+        globalMounts:
+          - path: /etc/garage.toml
+            subPath: configuration.toml
     route:
       app:
+        annotations:
+          glance/name: "Garage"
+          glance/show: "true"
+          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/garage.png"
+          glance/id: "Storage"
         hostnames: ["garage.${SECRET_DOMAIN}"]
         parentRefs:
           - name: internal
@@ -63,17 +71,8 @@ spec:
           - backendRefs:
               - name: *app
                 port: *port
-        annotations:
-          glance/name: "Garage"
-          glance/show: "true"
-          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/garage.png"
-          glance/id: "Storage"
-
-    persistence:
-      config:
-        enabled: true
-        type: configMap
-        name: garage-configmap
-        globalMounts:
-          - path: /etc/garage.toml
-            subPath: configuration.toml
+    service:
+      app:
+        ports:
+          http:
+            port: &port 3909

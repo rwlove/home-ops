@@ -5,28 +5,26 @@ kind: HelmRelease
 metadata:
   name: &app sabnzbd
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
+  interval: 30m
 
   values:
     controllers:
       main:
-        type: statefulset
-
-        annotations:
-          reloader.stakater.com/auto: "true"
-
         pod:
           securityContext:
-            runAsUser: 1000
-            runAsGroup: 1001
             fsGroup: 1001
             fsGroupChangePolicy: "OnRootMismatch"
+            runAsGroup: 1001
+            runAsUser: 1000
             supplementalGroups:
               - 100
 
+        annotations:
+          reloader.stakater.com/auto: "true"
+        type: statefulset
         containers:
           main:
             image:
@@ -35,7 +33,6 @@ spec:
 
             env:
               HAS_IPV6: "false"
-              SABNZBD__PORT: &httpPort 8080
               SABNZBD__HOST_WHITELIST_ENTRIES: >-
                 sabnzbd,
                 sabnzbd.downloads,
@@ -43,24 +40,11 @@ spec:
                 sabnzbd.downloads.svc.cluster,
                 sabnzbd.downloads.svc.cluster.local,
                 sabnzbd.${SECRET_DOMAIN}
+              SABNZBD__PORT: &httpPort 8080
 
             envFrom:
               - secretRef:
                   name: *app
-
-            resources:
-              requests:
-                cpu: 15m
-                memory: 1.3G
-              limits:
-                memory: 1.3G
-
-            securityContext:
-              privileged: true # TODO: how do I get rid of this?
-              #allowPrivilegeEscalation: true
-              #readOnlyRootFilesystem: true
-              #capabilities: {drop: ["ALL"]}
-              capabilities: {add: ["NET_ADMIN"]}
 
             probes:
               liveness: &probes
@@ -70,22 +54,48 @@ spec:
                   httpGet:
                     path: /api?mode=version
                     port: *httpPort
+                  failureThreshold: 3
                   initialDelaySeconds: 0
                   periodSeconds: 10
                   timeoutSeconds: 1
-                  failureThreshold: 3
               readiness: *probes
               startup:
                 enabled: false
 
-    service:
-      main:
-        ports:
-          http:
-            port: *httpPort
+            resources:
+              requests:
+                cpu: 15m
+                memory: 1.3G
+              limits:
+                memory: 1.3G
+
+            securityContext:
+              capabilities: {add: ["NET_ADMIN"]}
+              privileged: true # TODO: how do I get rid of this?
+              #allowPrivilegeEscalation: true
+              #readOnlyRootFilesystem: true
+              #capabilities: {drop: ["ALL"]}
+
+    persistence:
+      complete:
+        existingClaim: sabnzbd-complete-pvc
+
+      config:
+        existingClaim: sabnzbd-config-pvc
+
+      downloads:
+        existingClaim: sabnzbd-downloads-pvc
+
+      incomplete:
+        existingClaim: sabnzbd-incomplete-pvc
 
     route:
       main:
+        annotations:
+          glance/name: "Sabnzbd"
+          glance/show: "true"
+          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/sabnzbd.png"
+          glance/id: "Downloads"
         hostnames:
           - "{{ .Release.Name }}.${SECRET_DOMAIN}"
         parentRefs:
@@ -96,21 +106,9 @@ spec:
           - backendRefs:
               - identifier: main
                 port: *httpPort
-        annotations:
-          glance/name: "Sabnzbd"
-          glance/show: "true"
-          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/sabnzbd.png"
-          glance/id: "Downloads"
 
-    persistence:
-      config:
-        existingClaim: sabnzbd-config-pvc
-
-      complete:
-        existingClaim: sabnzbd-complete-pvc
-
-      incomplete:
-        existingClaim: sabnzbd-incomplete-pvc
-
-      downloads:
-        existingClaim: sabnzbd-downloads-pvc
+    service:
+      main:
+        ports:
+          http:
+            port: *httpPort

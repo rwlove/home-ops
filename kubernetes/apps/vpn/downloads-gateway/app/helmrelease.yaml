@@ -5,42 +5,30 @@ kind: HelmRelease
 metadata:
   name: downloads-gateway
 spec:
-  interval: 30m
   chart:
     spec:
       # renovate: registryUrl=https://angelnu.github.io/helm-charts
       chart: pod-gateway
-      version: 6.6.1
       sourceRef:
         kind: HelmRepository
         name: angelnu
+      version: 6.6.1
+  interval: 30m
 
   values:
-    controllers:
-      main:
-        type: statefulset
-
-        annotations:
-          reloader.stakater.com/auto: "true"
-
-    image:
-      repository: ghcr.io/angelnu/pod-gateway
-      tag: v1.13.0@sha256:a5b032e15f7570493977b330a5a86dcffebb807d35685ad803e47afb62d105f2
-
-    securityContext:
-      privileged: true
-
-    DNS: 172.16.1.1
-
     addons:
+      netshoot:
+        enabled: true
+
+        resources:
+          limits:
+            memory: 30M
+          requests:
+            cpu: 15m
+            memory: 30M
+
       vpn:
         enabled: true
-        type: gluetun
-        image:
-          # TODO: Replace with ghcr.io/qdm12/gluetun when a versioned tag is available
-          repository: ghcr.io/qdm12/gluetun
-          tag: v3.41.1@sha256:1a5bf4b4820a879cdf8d93d7ef0d2d963af56670c9ebff8981860b6804ebc8ab
-
         env:
           - name: VPN_INTERFACE
             value: wg0
@@ -55,46 +43,54 @@ spec:
         envFrom:
           - secretRef:
               name: downloads-gateway-vpnconfig
-
+        image:
+          # TODO: Replace with ghcr.io/qdm12/gluetun when a versioned tag is available
+          repository: ghcr.io/qdm12/gluetun
+          tag: v3.41.1@sha256:1a5bf4b4820a879cdf8d93d7ef0d2d963af56670c9ebff8981860b6804ebc8ab
+        resources:
+          limits:
+            memory: 256M
+          requests:
+            cpu: 15m
+            memory: 256M
         securityContext:
-          privileged: true
           capabilities:
             add:
               - NET_ADMIN
+          privileged: true
+        type: gluetun
 
-        resources:
-          requests:
-            cpu: 15m
-            memory: 256M
-          limits:
-            memory: 256M
+    controllers:
+      main:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        type: statefulset
 
-      netshoot:
-        enabled: true
+    DNS: 172.16.1.1
 
-        resources:
-          requests:
-            cpu: 15m
-            memory: 30M
-          limits:
-            memory: 30M
+    image:
+      repository: ghcr.io/angelnu/pod-gateway
+      tag: v1.13.0@sha256:a5b032e15f7570493977b330a5a86dcffebb807d35685ad803e47afb62d105f2
 
     resources:
+      limits:
+        memory: 30M
       requests:
         cpu: 15m
-        memory: 30M
-      limits:
         memory: 30M
 
     routed_namespaces:
       - downloads
 
+    securityContext:
+      privileged: true
+
     settings:
+      DNS_LOCAL_CIDRS: "${SECRET_DOMAIN} cluster.local local"
       NOT_ROUTED_TO_GATEWAY_CIDRS: 10.42.0.0/16 10.43.0.0/16 192.168.0.0/16
       VPN_BLOCK_OTHER_TRAFFIC: true
       VPN_INTERFACE: wg0
       VPN_LOCAL_CIDRS: 10.42.0.0/16 10.43.0.0/16 192.168.0.0/16
-      DNS_LOCAL_CIDRS: "${SECRET_DOMAIN} cluster.local local"
       VPN_TRAFFIC_PORT: "51820"
       VXLAN_ID: 43
       VXLAN_IP_NETWORK: 172.16.1
@@ -103,9 +99,9 @@ spec:
       gatewayAnnotation: setGateway
       gatewayDefault: true
       gatewayLabel: setGateway
-      namespaceSelector:
-        type: label
-        label: routed-gateway
       image:
         repository: ghcr.io/angelnu/gateway-admision-controller
         tag: v3.12.0@sha256:6f6ab596afd5fef0ca4648eadfb21cd37ba86fa5afa8b85edcc072976a61fbed
+      namespaceSelector:
+        label: routed-gateway
+        type: label

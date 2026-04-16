@@ -12,16 +12,12 @@ spec:
   values:
     controllers:
       main:
-        type: statefulset
-        annotations:
-          reloader.stakater.com/auto: "true"
-
         pod:
           securityContext:
-            runAsUser: 1000
-            runAsGroup: 1001
             fsGroup: 1001
             fsGroupChangePolicy: OnRootMismatch
+            runAsGroup: 1001
+            runAsUser: 1000
             supplementalGroups:
               - 100
 
@@ -35,6 +31,9 @@ spec:
                         values: ["sabnzbd"]
                   topologyKey: kubernetes.io/hostname
 
+        annotations:
+          reloader.stakater.com/auto: "true"
+        type: statefulset
         containers:
           app:
             image:
@@ -42,28 +41,28 @@ spec:
               tag: 5.1.4@sha256:bb82ad6668f8eda1d0fcce6c1341498bfa879155bb1295cd9d314a2c35c07a01
 
             env:
-              QBT_WEBUI_PORT: &httpPort 8080
-              # TODO: schema validation doesn't pass with an environment variable
-              #       It would be better to use the WIREGUARD_FORWARD_PORT form the
-              #       'mullvad' external secret
-              QBT_TORRENTING_PORT: &port-bt 24589
               QBT_Application__MemoryWorkingSetLimit:
                 valueFrom:
                   resourceFieldRef:
                     containerName: app
                     resource: limits.memory
                     divisor: 1Mi
-              QBT_Preferences__WebUI__AlternativeUIEnabled: false
-              QBT_Preferences__WebUI__AuthSubnetWhitelistEnabled: true
-              QBT_Preferences__WebUI__AuthSubnetWhitelist: |-
-                192.168.0.0/16, 0.0.0.0/0
-              QBT_Preferences__WebUI__LocalHostAuth: false
               QBT_BitTorrent__Session__Interface: vxlan0
               QBT_BitTorrent__Session__InterfaceAddress:
                 valueFrom:
                   fieldRef:
                     fieldPath: status.podIP
               QBT_BitTorrent__Session__InterfaceName: vxlan0
+              QBT_Preferences__WebUI__AlternativeUIEnabled: false
+              QBT_Preferences__WebUI__AuthSubnetWhitelist: |-
+                192.168.0.0/16, 0.0.0.0/0
+              QBT_Preferences__WebUI__AuthSubnetWhitelistEnabled: true
+              QBT_Preferences__WebUI__LocalHostAuth: false
+              QBT_TORRENTING_PORT: &port-bt 24589
+              QBT_WEBUI_PORT: &httpPort 8080
+              # TODO: schema validation doesn't pass with an environment variable
+              #       It would be better to use the WIREGUARD_FORWARD_PORT form the
+              #       'mullvad' external secret
 
             resources:
               requests:
@@ -74,29 +73,29 @@ spec:
 
             securityContext:
               allowPrivilegeEscalation: false
-              readOnlyRootFilesystem: true
               capabilities: {drop: ["ALL"]}
+              readOnlyRootFilesystem: true
 
-    service:
-      app:
-        forceRename: "{{ .Release.Name }}"
-        primary: true
-        ports:
-          http:
-            port: *httpPort
+    persistence:
+      config:
+        existingClaim: qbittorrent-config-pvc
 
-      bittorrent:
-        type: LoadBalancer
-        annotations:
-          lbipam.cilium.io/ips: 10.45.0.14 #SVC_QBITTORRENT_ADDR
-        externalTrafficPolicy: Local
-        ports:
-          bittorrent:
-            port: *port-bt
-            protocol: TCP
+      downloads:
+        existingClaim: qbittorrent-downloads
+
+      incomplete:
+        existingClaim: qbittorrent-incomplete
+
+      media:
+        existingClaim: qbittorrent-media
 
     route:
       app:
+        annotations:
+          glance/name: "QBittorrent"
+          glance/show: "true"
+          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/qbittorrent.png"
+          glance/id: "Downloads"
         hostnames:
           - "bt.${SECRET_DOMAIN}"
         parentRefs:
@@ -107,21 +106,21 @@ spec:
           - backendRefs:
               - identifier: app
                 port: *httpPort
+
+    service:
+      app:
+        forceRename: "{{ .Release.Name }}"
+        ports:
+          http:
+            port: *httpPort
+        primary: true
+
+      bittorrent:
+        type: LoadBalancer
         annotations:
-          glance/name: "QBittorrent"
-          glance/show: "true"
-          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/qbittorrent.png"
-          glance/id: "Downloads"
-
-    persistence:
-      config:
-        existingClaim: qbittorrent-config-pvc
-
-      downloads:
-        existingClaim: qbittorrent-downloads
-
-      media:
-        existingClaim: qbittorrent-media
-
-      incomplete:
-        existingClaim: qbittorrent-incomplete
+          lbipam.cilium.io/ips: 10.45.0.14 #SVC_QBITTORRENT_ADDR
+        externalTrafficPolicy: Local
+        ports:
+          bittorrent:
+            port: *port-bt
+            protocol: TCP

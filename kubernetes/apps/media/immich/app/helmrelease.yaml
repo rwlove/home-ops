@@ -5,7 +5,6 @@ kind: HelmRelease
 metadata:
   name: immich
 spec:
-  interval: 30m
   chart:
     spec:
       # renovate: registryUrl=https://immich-app.github.io/immich-charts
@@ -14,6 +13,7 @@ spec:
       sourceRef:
         kind: HelmRepository
         name: immich-charts
+  interval: 30m
 
   values:
     controllers:
@@ -43,6 +43,10 @@ spec:
               DB_PASSWORD: immich
               DB_DATABASE_NAME: immich
 
+    image:
+      # renovate: datasource=github-releases depName=immich-app/immich
+      tag: "v2.3.1"
+
     immich:
       metrics:
         enabled: true
@@ -70,39 +74,9 @@ spec:
         library:
           existingClaim: immich-upload-pvc
 
-    image:
-      # renovate: datasource=github-releases depName=immich-app/immich
-      tag: "v2.3.1"
-
-    server:
-      controllers:
-        main:
-          type: statefulset
-          replicas: 2
-          strategy: RollingUpdate
-
-          containers:
-            main:
-              resources:
-                requests:
-                  cpu: 15m
-                  memory: 3Gi
-                limits:
-                  memory: 3Gi
-
-      persistence:
-        external:
-          enabled: true
-          existingClaim: immich-external-library-pvc
-          # readOnly: true
-
     machine-learning:
       controllers:
         main:
-          type: statefulset
-          replicas: 2
-          strategy: RollingUpdate
-
           containers:
             main:
               image:
@@ -160,8 +134,34 @@ spec:
                 spec:
                   initialDelaySeconds: 90
 
+          replicas: 2
+          strategy: RollingUpdate
+          type: statefulset
+
       persistence:
         cache:
           enabled: true
           storageClassName: ceph-block
           size: 40G
+
+    server:
+      controllers:
+        main:
+          containers:
+            main:
+              resources:
+                requests:
+                  cpu: 15m
+                  memory: 3Gi
+                limits:
+                  memory: 3Gi
+
+          replicas: 2
+          strategy: RollingUpdate
+          type: statefulset
+
+      persistence:
+        external:
+          enabled: true
+          existingClaim: immich-external-library-pvc
+          # readOnly: true

@@ -5,27 +5,27 @@ kind: HelmRelease
 metadata:
   name: vector-agent
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
 
+  interval: 30m
   values:
     controllers:
       main:
-        type: daemonset
-        strategy: RollingUpdate
+        pod:
+          tolerations:
+            - key: node-role.kubernetes.io/master
+              effect: NoSchedule
+
         annotations:
           reloader.stakater.com/auto: "true"
 
         serviceAccount:
           identifier: vector-agent
 
-        pod:
-          tolerations:
-            - key: node-role.kubernetes.io/master
-              effect: NoSchedule
-
+        strategy: RollingUpdate
+        type: daemonset
         containers:
           main:
             image:
@@ -53,15 +53,15 @@ spec:
                     apiVersion: v1
                     fieldPath: metadata.namespace
 
-            securityContext:
-              privileged: true
-
             resources:
               requests:
                 cpu: 23m
                 memory: 918M
               limits:
                 memory: 918M
+
+            securityContext:
+              privileged: true
 
     persistence:
       config:
@@ -77,22 +77,6 @@ spec:
         globalMounts:
           - path: /vector-data-dir
 
-      var-log:
-        type: hostPath
-        hostPath: /var/log
-        hostPathType: Directory
-        globalMounts:
-          - path: /var/log
-            readOnly: true
-
-      var-lib:
-        type: hostPath
-        hostPath: /var/lib
-        hostPathType: Directory
-        globalMounts:
-          - path: /var/lib
-            readOnly: true
-
       procfs:
         type: hostPath
         hostPath: /proc
@@ -107,6 +91,22 @@ spec:
         hostPathType: Directory
         globalMounts:
           - path: /host/sys
+            readOnly: true
+
+      var-lib:
+        type: hostPath
+        hostPath: /var/lib
+        hostPathType: Directory
+        globalMounts:
+          - path: /var/lib
+            readOnly: true
+
+      var-log:
+        type: hostPath
+        hostPath: /var/log
+        hostPathType: Directory
+        globalMounts:
+          - path: /var/log
             readOnly: true
 
     podMonitor:

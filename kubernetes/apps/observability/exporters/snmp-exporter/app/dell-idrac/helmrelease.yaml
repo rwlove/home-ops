@@ -5,57 +5,57 @@ kind: HelmRelease
 metadata:
   name: &app snmp-exporter-dell-idrac
 spec:
-  interval: 30m
   chart:
     spec:
       chart: prometheus-snmp-exporter
-      version: 9.13.1
       sourceRef:
         kind: HelmRepository
         name: prometheus-community-charts
+
+      version: 9.13.1
+  dependsOn:
+    - name: kube-prometheus-stack
+      namespace: observability
 
   install:
     createNamespace: true
     remediation:
       retries: 3
 
+  interval: 30m
   upgrade:
     cleanupOnFail: true
     remediation:
-      strategy: rollback
       retries: 3
 
-  dependsOn:
-    - name: kube-prometheus-stack
-      namespace: observability
-
+      strategy: rollback
   values:
-    fullnameOverride: *app
-
-    image:
-      repository: quay.io/prometheus/snmp-exporter
     extraArgs:
       - "--config.file=/config/snmp.yaml"
 
     extraConfigmapMounts:
-      - name: *app
-        mountPath: /config/snmp.yaml
-        subPath: snmp.yaml
-        configMap: *app
-        readOnly: true
+      - configMap: *app
         defaultMode: 420
 
+        mountPath: /config/snmp.yaml
+        name: *app
+        readOnly: true
+        subPath: snmp.yaml
+    fullnameOverride: *app
+
+    image:
+      repository: quay.io/prometheus/snmp-exporter
     serviceMonitor:
       enabled: true
       namespace: observability
       params:
-        - name: dell-idrac-0
+        - auth: ["public_v2"]
           module:
             - dell
+          name: dell-idrac-0
           target: 192.168.1.22
-          auth: ["public_v2"]
       path: /snmp
-      scrapeTimeout: 10s
       relabelings:
         - sourceLabels: [__param_target]
           targetLabel: instance
+      scrapeTimeout: 10s

@@ -5,28 +5,28 @@ kind: HelmRelease
 metadata:
   name: searxng
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
+  interval: 30m
   values:
     controllers:
       searxng:
-        type: statefulset
         annotations:
           reloader.stakater.com/auto: "true"
+        type: statefulset
         containers:
           app:
             image:
               repository: ghcr.io/searxng/searxng
               tag: 2025.8.19-25647c2@sha256:81084f251c63f62b79ca15c25d29f7159812cfd06b6dc8ef720e007e6d4f8ad8
-            envFrom:
-              - secretRef:
-                  name: searxng-secret
             env:
               SEARXNG_BASE_URL: https://search.${SECRET_DOMAIN}
               SEARXNG_URL: https://search.${SECRET_DOMAIN}
               SEARXNG_PORT: &httpPort 8080
+            envFrom:
+              - secretRef:
+                  name: searxng-secret
             probes:
               liveness: &probes
                 enabled: true
@@ -42,6 +42,12 @@ spec:
               readiness: *probes
               startup:
                 enabled: false
+            resources:
+              requests:
+                cpu: 15m
+                memory: 1Gi
+              limits:
+                memory: 1Gi
             securityContext:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: true
@@ -53,12 +59,6 @@ spec:
                   - SETGID
                   - SETUID
                   - DAC_OVERRIDE
-            resources:
-              requests:
-                cpu: 15m
-                memory: 1Gi
-              limits:
-                memory: 1Gi
     service:
       app:
         controller: searxng
@@ -67,6 +67,12 @@ spec:
             port: *httpPort
     route:
       app:
+        annotations:
+          glance/name: "Searxng"
+          glance/show: "true"
+          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/searxng.png"
+          glance/id: "Collaboration"
+
         hostnames:
           - "search.${SECRET_DOMAIN}"
         parentRefs:
@@ -77,12 +83,6 @@ spec:
           - backendRefs:
               - identifier: app
                 port: *httpPort
-        annotations:
-          glance/name: "Searxng"
-          glance/show: "true"
-          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/searxng.png"
-          glance/id: "Collaboration"
-
     persistence:
       config:
         type: configMap

@@ -5,51 +5,53 @@ kind: HelmRelease
 metadata:
   name: &app smartctl-exporter
 spec:
-  interval: 30m
   chart:
     spec:
       chart: prometheus-smartctl-exporter
-      version: 0.16.0
       sourceRef:
         kind: HelmRepository
         name: prometheus-community-charts
+      version: 0.16.0
   install:
     remediation:
       retries: 3
+  interval: 30m
+  uninstall:
+    keepHistory: false
   upgrade:
     cleanupOnFail: true
     remediation:
       retries: 3
-  uninstall:
-    keepHistory: false
   values:
+    config:
+      devices:
+        - /dev/sda
+        - /dev/sdb
+        - /dev/sdc
+        - /dev/sdd
+        - /dev/sde
+        - /dev/sdf
+        - /dev/sdg
+        - /dev/nvme0n1
+        - /dev/nvme1n1
+        - /dev/nvme2n1
     fullnameOverride: *app
     image:
       repository: ghcr.io/joryirving/smartctl_exporter
       tag: 0.14.0@sha256:24c92b081d6d583ea5de4fa4bb6c4880ce25cb28f297f7643257f288382f9074
-    config:
-      devices:
-      - /dev/sda
-      - /dev/sdb
-      - /dev/sdc
-      - /dev/sdd
-      - /dev/sde
-      - /dev/sdf
-      - /dev/sdg
-      - /dev/nvme0n1
-      - /dev/nvme1n1
-      - /dev/nvme2n1
+    prometheusRules:
+      enabled: false
     serviceMonitor:
       enabled: true
       relabelings:
-      - action: labeldrop
-        regex: (pod)
-      - action: replace
-        regex: (.*)
-        replacement: $1.${SECRET_DOMAIN}
-        sourceLabels:
-        - __meta_kubernetes_endpoint_node_name
-        targetLabel: instance
+        - action: labeldrop
+          regex: (pod)
+        - action: replace
+          regex: (.*)
+          replacement: $1.${SECRET_DOMAIN}
+          sourceLabels:
+            - __meta_kubernetes_endpoint_node_name
+          targetLabel: instance
       # - action: replace
       #   separator: ':'
       #   # regex: \b((?:sd[a-z]+|nvme\d+n\d+))\b|\b((?:cp\d+|work\d+|n\d{3}-\d{2}))\b
@@ -58,5 +60,3 @@ spec:
       #   - device
       #   - __meta_kubernetes_endpoint_node_name
       #   targetLabel: device
-    prometheusRules:
-      enabled: false

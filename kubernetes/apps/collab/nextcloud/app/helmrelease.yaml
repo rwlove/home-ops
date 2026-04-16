@@ -5,82 +5,29 @@ kind: HelmRelease
 metadata:
   name: nextcloud
 spec:
-  timeout: 15m
-  interval: 1h
   chartRef:
     kind: OCIRepository
     name: nextcloud
+  interval: 1h
+  timeout: 15m
   values:
-    nginx:
+    externalDatabase:
+      database: nextcloud
       enabled: true
-    nextcloud:
-      extraInitContainers:
-        - name: init-db
-          image: ghcr.io/home-operations/postgres-init:18.3.0@sha256:6fa1f331cddd2eb0b6afa7b8d3685c864127a81ab01c3d9400bc3ff5263a51cf
-          envFrom:
-            - secretRef:
-                name: nextcloud-secret
-        - name: create-redis-session-ini
-          image: busybox:1.37-uclibc
-          command:
-            - sh
-            - -c
-            - touch /usr/local/etc/php/conf.d/redis-session.ini
-          volumeMounts:
-            - name: php-confd
-              mountPath: "/usr/local/etc/php/conf.d/"
-      extraVolumeMounts:
-        - name: php-confd
-          mountPath: "/usr/local/etc/php/conf.d/redis-session.ini"
-          subPath: redis-session.ini
-        - name: tmpfs
-          mountPath: "/tmp"
-      extraVolumes:
-        - name: php-confd
-          emptyDir: {}
-        - name: tmpfs
-          emptyDir: {}
-      datadir: /var/www/data
-      extraEnv:
-        - name: REDIS_HOST
-          value: dragonfly.databases.svc.cluster.local.
-        - name: REDIS_HOST_PORT
-          value: "6379"
       existingSecret:
         enabled: true
+        passwordKey: INIT_POSTGRES_PASS
         secretName: nextcloud-secret
-      host: &host cloud.${SECRET_DOMAIN}
-      mail:
-        enabled: true
-        fromAddress: admin
-        domain: ${SECRET_DOMAIN}
-        smtp:
-          host: smtp-relay.${SECRET_DOMAIN}
-          port: 25
-          authtype: NONE
-          name: ""
-          password: ""
-      securityContext:
-        runAsUser: 1022
-        runAsGroup: 1022
-        fsGroup: 1022
-        fsGroupChangePolicy: "OnRootMismatch"
-        runAsNonRoot: true
+        usernameKey: INIT_POSTGRES_USER
+      host: postgres-nextcloud-rw.databases.svc.cluster.local.
+      type: postgresql
+    ingress:
+      enabled: false
+    internalDatabase:
+      enabled: false
+    nextcloud:
       configs:
         # log levels: 0=debug, 1=info, 2=warn, 3=error, 4=fatal
-        logging.config.php: |-
-          <?php
-          $CONFIG = array (
-            'log_type' => 'file',
-            'logfile' => 'nextcloud.log',
-            'loglevel' => 0,
-            'logdateformat' => 'F d, Y H:i:s'
-            );
-        timezone.config.php: |-
-          <?php
-          $CONFIG = array (
-            'default_timezone' => 'America/Los_Angeles',
-          );
         local.config.php: |-
           <?php
           $CONFIG = array (
@@ -102,32 +49,85 @@ spec:
             'check_data_directory_permissions' => false,
             'overwrite.cli.url' => 'https://cloud.thesteamedcrab.com',
           );
-    internalDatabase:
-      enabled: false
-    externalDatabase:
-      enabled: true
-      type: postgresql
-      host: postgres-nextcloud-rw.databases.svc.cluster.local.
-      database: nextcloud
+        logging.config.php: |-
+          <?php
+          $CONFIG = array (
+            'log_type' => 'file',
+            'logfile' => 'nextcloud.log',
+            'loglevel' => 0,
+            'logdateformat' => 'F d, Y H:i:s'
+            );
+        timezone.config.php: |-
+          <?php
+          $CONFIG = array (
+            'default_timezone' => 'America/Los_Angeles',
+          );
+      datadir: /var/www/data
       existingSecret:
         enabled: true
         secretName: nextcloud-secret
-        usernameKey: INIT_POSTGRES_USER
-        passwordKey: INIT_POSTGRES_PASS
-    ingress:
-      enabled: false
+      extraEnv:
+        - name: REDIS_HOST
+          value: dragonfly.databases.svc.cluster.local.
+        - name: REDIS_HOST_PORT
+          value: "6379"
+      extraInitContainers:
+        - envFrom:
+            - secretRef:
+                name: nextcloud-secret
+          image: ghcr.io/home-operations/postgres-init:18.3.0@sha256:6fa1f331cddd2eb0b6afa7b8d3685c864127a81ab01c3d9400bc3ff5263a51cf
+          name: init-db
+        - command:
+            - sh
+            - -c
+            - touch /usr/local/etc/php/conf.d/redis-session.ini
+          image: busybox:1.37-uclibc
+          name: create-redis-session-ini
+          volumeMounts:
+            - mountPath: "/usr/local/etc/php/conf.d/"
+              name: php-confd
+      extraVolumeMounts:
+        - mountPath: "/usr/local/etc/php/conf.d/redis-session.ini"
+          name: php-confd
+          subPath: redis-session.ini
+        - mountPath: "/tmp"
+          name: tmpfs
+      extraVolumes:
+        - emptyDir: {}
+          name: php-confd
+        - emptyDir: {}
+          name: tmpfs
+      host: &host cloud.${SECRET_DOMAIN}
+      mail:
+        domain: ${SECRET_DOMAIN}
+        enabled: true
+        fromAddress: admin
+        smtp:
+          authtype: NONE
+          host: smtp-relay.${SECRET_DOMAIN}
+          name: ""
+          password: ""
+          port: 25
+      securityContext:
+        fsGroup: 1022
+        fsGroupChangePolicy: "OnRootMismatch"
+        runAsGroup: 1022
+        runAsNonRoot: true
+        runAsUser: 1022
+    nginx:
+      enabled: true
     persistence:
       enabled: true
       existingClaim: nextcloud-config-pvc
       nextcloudData:
-        enabled: true
-        existingClaim: nextcloud-data-pvc
         accessMode: ReadWriteMany
     # this seems to be required for nextcloud initialization which takes a long time
+        enabled: true
+        existingClaim: nextcloud-data-pvc
     startupProbe:
       enabled: true
+      failureThreshold: 30
       initialDelaySeconds: 10
       periodSeconds: 20
-      timeoutSeconds: 5
-      failureThreshold: 30
       successThreshold: 1
+      timeoutSeconds: 5

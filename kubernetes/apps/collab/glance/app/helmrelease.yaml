@@ -5,10 +5,10 @@ kind: HelmRelease
 metadata:
   name: &app glance
 spec:
-  interval: 1h
   chartRef:
     kind: OCIRepository
     name: app-template
+  interval: 1h
   install:
     remediation:
       retries: 3
@@ -20,33 +20,37 @@ spec:
   values:
     controllers:
       glance:
-        type: statefulset
+        pod:
+          securityContext:
+            fsGroup: 1000
+            fsGroupChangePolicy: OnRootMismatch
+            runAsGroup: 1000
+            runAsNonRoot: true
+            runAsUser: 1000
         annotations:
           reloader.stakater.com/auto: "true"
+        serviceAccount:
+          identifier: *app
+        type: statefulset
         containers:
           glance:
             image:
               repository: docker.io/glanceapp/glance
               tag: v0.8.4@sha256:6df86a7e8868d1eda21f35205134b1962c422957e42a0c44d4717c8e8f741b1a
-            securityContext:
-              allowPrivilegeEscalation: false
-              readOnlyRootFilesystem: true
-              capabilities: {drop: ["ALL"]}
             resources:
               requests:
                 cpu: 100m
                 memory: 64Mi
               limits:
                 memory: 96Mi
-          k8s-extension:
-            image:
-              repository: ghcr.io/lukasdietrich/glance-k8s/glance-k8s
-              tag: v0.4.7@sha256:4ff785aa8d33d9bd065f1f66cb1c9d4eedd7c0793af07f2bebfb22889f0b07ee
             securityContext:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: true
               capabilities: {drop: ["ALL"]}
-            resources: {}
+          k8s-extension:
+            image:
+              repository: ghcr.io/lukasdietrich/glance-k8s/glance-k8s
+              tag: v0.4.7@sha256:4ff785aa8d33d9bd065f1f66cb1c9d4eedd7c0793af07f2bebfb22889f0b07ee
             probes:
               liveness:
                 enabled: true
@@ -62,15 +66,11 @@ spec:
                   httpGet:
                     path: /healthz
                     port: 8080
-        serviceAccount:
-          identifier: *app
-        pod:
-          securityContext:
-            runAsUser: 1000
-            runAsGroup: 1000
-            runAsNonRoot: true
-            fsGroup: 1000
-            fsGroupChangePolicy: OnRootMismatch
+            resources: {}
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: {drop: ["ALL"]}
     service:
       glance:
         controller: glance
@@ -102,10 +102,18 @@ spec:
           - path: /app/config/glance.yml
             subPath: glance.yml
             readOnly: true
-    serviceAccount:
-      glance:
-        enabled: true
     rbac:
+      bindings:
+        list:
+          type: ClusterRoleBinding
+          forceRename: *app
+          roleRef:
+            kind: ClusterRole
+            name: *app
+          subjects:
+            - kind: ServiceAccount
+              name: *app
+              namespace: "{{ .Release.Namespace }}"
       roles:
         list:
           type: ClusterRole
@@ -126,14 +134,6 @@ spec:
             - apiGroups: ["apps"]
               resources: ["deployments", "statefulsets", "daemonsets"]
               verbs: ["list"]
-      bindings:
-        list:
-          type: ClusterRoleBinding
-          forceRename: *app
-          roleRef:
-            kind: ClusterRole
-            name: *app
-          subjects:
-            - kind: ServiceAccount
-              name: *app
-              namespace: "{{ .Release.Namespace }}"
+    serviceAccount:
+      glance:
+        enabled: true

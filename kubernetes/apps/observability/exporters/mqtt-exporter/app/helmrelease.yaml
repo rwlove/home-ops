@@ -5,11 +5,11 @@ kind: HelmRelease
 metadata:
   name: &app mqtt-exporter
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
 
+  interval: 30m
   install:
     remediation:
       retries: 3
@@ -19,11 +19,20 @@ spec:
       strategy: rollback
       retries: 3
   values:
+    defaultPodOptions:
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
+      securityContext:
+        runAsGroup: 568
+        runAsNonRoot: true
+        runAsUser: 568
     controllers:
       mqtt-exporter:
-        type: statefulset
         annotations:
           reloader.stakater.com/auto: "true"
+        type: statefulset
         containers:
           app:
             image:
@@ -55,15 +64,6 @@ spec:
               capabilities:
                 drop:
                   - ALL
-    defaultPodOptions:
-      dnsConfig:
-        options:
-          - name: ndots
-            value: "1"
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 568
-        runAsGroup: 568
     service:
       app:
         controller: *app

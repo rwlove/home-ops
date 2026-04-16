@@ -5,24 +5,30 @@ kind: HelmRelease
 metadata:
   name: &app speedtest-prometheus
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
 
+  interval: 30m
   install:
     remediation:
       retries: 3
 
   upgrade:
+    cleanupOnFail: true
+
     remediation:
       retries: 3
       remediateLastFailure: true
-    cleanupOnFail: true
-
   values:
     controllers:
       main:
+        pod:
+          securityContext:
+            runAsGroup: 568
+            runAsNonRoot: true
+
+            runAsUser: 568
         containers:
           main:
             image:
@@ -46,18 +52,18 @@ spec:
                 drop:
                   - ALL
 
-        pod:
-          securityContext:
-            runAsUser: 568
-            runAsGroup: 568
-            runAsNonRoot: true
-
     service:
       main:
         controller: main
         ports:
           http:
             port: *httpPort
+    persistence:
+      config:
+        enabled: true
+        type: emptyDir
+        globalMounts:
+          - path: /.config
 
     serviceMonitor:
       main:
@@ -69,9 +75,3 @@ spec:
             interval: 60m
             scrapeTimeout: 5m
 
-    persistence:
-      config:
-        enabled: true
-        type: emptyDir
-        globalMounts:
-          - path: /.config

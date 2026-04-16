@@ -5,27 +5,27 @@ kind: HelmRelease
 metadata:
   name: &app lidarr
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
 
+  interval: 30m
   values:
     controllers:
       main:
-        type: statefulset
-        annotations:
-          reloader.stakater.com/auto: "true"
-
         pod:
           securityContext:
-            runAsUser: 1000
-            runAsGroup: 1001
             fsGroup: 1001
             fsGroupChangePolicy: "OnRootMismatch"
+            runAsGroup: 1001
+            runAsUser: 1000
             supplementalGroups:
               - 100
 
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        type: statefulset
         containers:
           main:
             image:
@@ -45,10 +45,6 @@ spec:
               - secretRef:
                   name: *app
 
-            securityContext:
-              allowPrivilegeEscalation: false
-              readOnlyRootFilesystem: true
-              capabilities: {drop: ["ALL"]}
 
             resources:
               requests:
@@ -57,6 +53,10 @@ spec:
               limits:
                 memory: 4G
 
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: {drop: ["ALL"]}
     service:
       main:
         controller: main
@@ -66,6 +66,12 @@ spec:
 
     route:
       main:
+        annotations:
+          glance/name: "Lidarr"
+          glance/show: "true"
+          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/lidarr.png"
+          glance/id: "Media"
+
         hostnames:
           - "{{ .Release.Name }}.${SECRET_DOMAIN}"
         parentRefs:
@@ -77,21 +83,15 @@ spec:
               - identifier: main
                 port: *httpPort
 
-        annotations:
-          glance/name: "Lidarr"
-          glance/show: "true"
-          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/lidarr.png"
-          glance/id: "Media"
-
     persistence:
       config:
         existingClaim: lidarr-config-pvc
 
-      media:
-        existingClaim: lidarr-media
-
       downloads:
         existingClaim: lidarr-downloads
+
+      media:
+        existingClaim: lidarr-media
 
       sabnzbd:
         existingClaim: lidarr-sabnzbd-downloads

@@ -5,21 +5,30 @@ kind: HelmRelease
 metadata:
   name: longhorn
 spec:
-  interval: 30m
   chart:
     spec:
       # renovate: registryUrl=https://charts.longhorn.io
       chart: longhorn
-      version: 1.11.1
       sourceRef:
         kind: HelmRepository
         name: longhorn-charts
+      version: 1.11.1
+  interval: 30m
   values:
     # preUpgradeChecker and image sections are workarounds until 1.11.1 is released
     # https://github.com/longhorn/longhorn/issues/12573
-    preUpgradeChecker:
-      jobEnabled: false
-      upgradeVersionCheck: false
+    defaultSettings:
+      backupTarget: "nfs://beast:/mnt/mass_storage/longhorn-backups"
+      createDefaultDiskLabeledNodes: true
+      defaultDataLocality: best-effort
+      defaultReplicaCount: 2
+      kubernetesClusterAutoscalerEnabled: true
+
+      replicaAutoBalance: best-effort
+      storageMinimalAvailablePercentage: 10
+    global:
+      imageRegistry: docker.io
+
     image:
       longhorn:
         instanceManager:
@@ -27,23 +36,14 @@ spec:
         manager:
           tag: v1.11.0-hotfix-1
 
-    global:
-      imageRegistry: docker.io
-
+    longhornManager:
+      securityContext:
+        privileged: true
     persistence:
       defaultClass: false
       defaultClassReplicaCount: 1
       reclaimPolicy: Retain
 
-    defaultSettings:
-      defaultReplicaCount: 2
-      replicaAutoBalance: best-effort
-      defaultDataLocality: best-effort
-      backupTarget: "nfs://beast:/mnt/mass_storage/longhorn-backups"
-      createDefaultDiskLabeledNodes: true
-      storageMinimalAvailablePercentage: 10
-      kubernetesClusterAutoscalerEnabled: true
-
-    longhornManager:
-      securityContext:
-        privileged: true
+    preUpgradeChecker:
+      jobEnabled: false
+      upgradeVersionCheck: false

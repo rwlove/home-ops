@@ -5,18 +5,48 @@ kind: HelmRelease
 metadata:
   name: &app home-assistant
 spec:
-  interval: 1h
   chartRef:
     kind: OCIRepository
     name: app-template
 
+  interval: 1h
   values:
     controllers:
       main:
-        type: statefulset
+        pod:
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: node.network/vlan-iot
+                        operator: In
+                        values:
+                          - "true"
+                      - key: node.network/vlan-security
+                        operator: In
+                        values:
+                          - "true"
+
+          annotations:
+            k8s.v1.cni.cncf.io/networks: hass-iot-static, hass-security-static
+
+          # IOT VLAN (20), SECURITY VLAN (40)
+          priorityClassName: home-cluster-critical
+
+          securityContext:
+            fsGroup: 568
+            fsGroupChangePolicy: OnRootMismatch
+            runAsGroup: 568
+            runAsUser: 568
+            supplementalGroups:
+              - 100
+              - 1010
 
         annotations:
           reloader.stakater.com/auto: "true"
+
+        type: statefulset
 
         initContainers:
           init-db:
@@ -54,42 +84,12 @@ spec:
                 memory: 1.4G
               limits:
                 memory: 1.4G
-        pod:
-          priorityClassName: home-cluster-critical
-
-          securityContext:
-            runAsUser: 568
-            runAsGroup: 568
-            fsGroup: 568
-            fsGroupChangePolicy: OnRootMismatch
-            supplementalGroups:
-              - 100
-              - 1010
-
-          annotations:
-            k8s.v1.cni.cncf.io/networks: hass-iot-static, hass-security-static
-
-          # IOT VLAN (20), SECURITY VLAN (40)
-          affinity:
-            nodeAffinity:
-              requiredDuringSchedulingIgnoredDuringExecution:
-                nodeSelectorTerms:
-                  - matchExpressions:
-                      - key: node.network/vlan-iot
-                        operator: In
-                        values:
-                          - "true"
-                      - key: node.network/vlan-security
-                        operator: In
-                        values:
-                          - "true"
-
     service:
       main:
-        controller: main
         type: LoadBalancer
         annotations:
           lbipam.cilium.io/ips: ${SVC_HOME_ASSISTANT_ADDR}
+        controller: main
         externalTrafficPolicy: Cluster
         ports:
           http:
@@ -97,16 +97,6 @@ spec:
 
     route:
       main:
-        hostnames:
-          - "hass.${SECRET_DOMAIN}"
-        parentRefs:
-          - name: external
-            namespace: network
-            sectionName: https
-        rules:
-          - backendRefs:
-              - identifier: main
-                port: *httpPort
         annotations:
           glance/name: "Home Assistant"
           glance/show: "true"
@@ -118,16 +108,21 @@ spec:
           startpunkt.ullberg.us/name: "Home Assistant"
           startpunkt.ullberg.us/instance: "user"
 
+        hostnames:
+          - "hass.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: external
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: main
+                port: *httpPort
     persistence:
       config:
         existingClaim: home-assistant-config-pvc
         globalMounts:
           - path: /config
-
-      media:
-        existingClaim: home-assistant-media-pvc
-        globalMounts:
-          - path: /media
 
       config-cache:
         accessMode: ReadWriteOnce
@@ -137,6 +132,11 @@ spec:
           main:
             main:
               - path: /config/.venv
+
+      media:
+        existingClaim: home-assistant-media-pvc
+        globalMounts:
+          - path: /media
 
       tmp:
         type: emptyDir

@@ -5,22 +5,15 @@ kind: HelmRelease
 metadata:
   name: frigate
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
 
+  interval: 30m
   values:
     controllers:
       main:
-        type: statefulset
-
-        annotations:
-          reloader.stakater.com/auto: "true"
-
         pod:
-          priorityClassName: home-cluster-critical
-
           annotations:
             k8s.v1.cni.cncf.io/networks: frigate-security-static
 
@@ -28,6 +21,13 @@ spec:
             google.feature.node.kubernetes.io/coral-usb: "true"
             intel.feature.node.kubernetes.io/gpu: "true"
             node.network/vlan-security: "true"
+
+          priorityClassName: home-cluster-critical
+
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        type: statefulset
 
         containers:
           main:
@@ -69,13 +69,6 @@ spec:
                   timeoutSeconds: 1
                   failureThreshold: 30
 
-            securityContext:
-              privileged: true
-              capabilities:
-                add:
-                  - NET_ADMIN
-                  - NET_RAW
-
             resources:
               requests:
                 gpu.intel.com/i915: "1"
@@ -84,6 +77,13 @@ spec:
               limits:
                 gpu.intel.com/i915: "1"
                 memory: 12Gi
+
+            securityContext:
+              privileged: true
+              capabilities:
+                add:
+                  - NET_ADMIN
+                  - NET_RAW
 
     service:
       main:
@@ -111,16 +111,6 @@ spec:
 
     route:
       main:
-        hostnames:
-          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
-        parentRefs:
-          - name: internal
-            namespace: network
-            sectionName: https
-        rules:
-          - backendRefs:
-              - identifier: main
-                port: *securePort
         annotations:
           startpunkt.ullberg.us/enable: "true"
           startpunkt.ullberg.us/name: "Security Cameras"
@@ -131,34 +121,44 @@ spec:
           glance/show: "true"
           glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/frigate.png"
           glance/id: "Security"
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: main
+                port: *securePort
     persistence:
-      config:
-        enabled: true
-        existingClaim: frigate-config-pvc
-        globalMounts:
-          - path: /config
-
-      clips:
-        existingClaim: frigate-clips-pvc
-        globalMounts:
-          - path: /media/frigate/clips
-
-      recordings:
-        existingClaim: frigate-recordings-pvc
-        globalMounts:
-          - path: /media/frigate/recordings
-
-      exports:
-        existingClaim: frigate-exports-pvc
-        globalMounts:
-          - path: /media/frigate/exports
-
       cache:
         type: emptyDir
         medium: Memory
         sizeLimit: 2Gi
         globalMounts:
           - path: /dev/shm
+
+      clips:
+        existingClaim: frigate-clips-pvc
+        globalMounts:
+          - path: /media/frigate/clips
+
+      config:
+        enabled: true
+        existingClaim: frigate-config-pvc
+        globalMounts:
+          - path: /config
+
+      exports:
+        existingClaim: frigate-exports-pvc
+        globalMounts:
+          - path: /media/frigate/exports
+
+      recordings:
+        existingClaim: frigate-recordings-pvc
+        globalMounts:
+          - path: /media/frigate/recordings
 
       usb:
         type: hostPath

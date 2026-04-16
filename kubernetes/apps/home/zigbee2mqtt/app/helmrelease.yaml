@@ -5,22 +5,15 @@ kind: HelmRelease
 metadata:
   name: zigbee2mqtt
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
 
+  interval: 30m
   values:
     controllers:
       main:
-        type: statefulset
-
-        annotations:
-          reloader.stakater.com/auto: "true"
-
         pod:
-          priorityClassName: home-cluster-critical
-
           affinity:
             nodeAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:
@@ -33,6 +26,13 @@ spec:
 
           nodeSelector:
             zigbee.feature.node.kubernetes.io/sonoff: "true"
+
+          priorityClassName: home-cluster-critical
+
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        type: statefulset
 
         containers:
           main:
@@ -80,15 +80,15 @@ spec:
                   failureThreshold: 30
                   periodSeconds: 10
 
-            securityContext:
-              privileged: true
-
             resources:
               requests:
                 cpu: 23m
                 memory: 300M
               limits:
                 memory: 300M
+
+            securityContext:
+              privileged: true
 
     service:
       main:
@@ -101,19 +101,14 @@ spec:
             enabled: true
             port: 9000
 
-    serviceMonitor:
-      main:
-        serviceName: &app zigbee
-        enabled: true
-        endpoints:
-          - port: metrics
-            scheme: http
-            path: /metrics
-            interval: 1m
-            scrapeTimeout: 10s
-
     route:
       main:
+        annotations:
+          glance/name: "Zigbee 2 MQTT"
+          glance/show: "true"
+          glance/id: "Home Automation"
+          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/zigbee2mqtt-light.png"
+
         hostnames:
           - "{{ .Release.Name }}.${SECRET_DOMAIN}"
         parentRefs:
@@ -124,12 +119,6 @@ spec:
           - backendRefs:
               - identifier: main
                 port: *httpPort
-        annotations:
-          glance/name: "Zigbee 2 MQTT"
-          glance/show: "true"
-          glance/id: "Home Automation"
-          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/zigbee2mqtt-light.png"
-
     persistence:
       config:
         existingClaim: zigbee2mqtt-config-pvc
@@ -142,3 +131,14 @@ spec:
         hostPathType: CharDevice
         globalMounts:
           - path: *serialdevice
+    serviceMonitor:
+      main:
+        enabled: true
+        serviceName: &app zigbee
+        endpoints:
+          - port: metrics
+            scheme: http
+            path: /metrics
+            interval: 1m
+            scrapeTimeout: 10s
+

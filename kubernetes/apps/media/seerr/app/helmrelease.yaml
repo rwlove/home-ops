@@ -5,16 +5,23 @@ kind: HelmRelease
 metadata:
   name: &app seerr
 spec:
-  interval: 1h
   chartRef:
     kind: OCIRepository
     name: app-template
+  interval: 1h
   values:
+    defaultPodOptions:
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
     controllers:
       seerr:
-        type: statefulset
         annotations:
           reloader.stakater.com/auto: "true"
+        type: statefulset
         containers:
           app:
             image:
@@ -39,22 +46,15 @@ spec:
                   timeoutSeconds: 1
                   failureThreshold: 3
               readiness: *probes
-            securityContext:
-              allowPrivilegeEscalation: false
-              readOnlyRootFilesystem: true
-              capabilities: {drop: ["ALL"]}
             resources:
               requests:
                 cpu: 10m
               limits:
                 memory: 2Gi
-    defaultPodOptions:
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
-        fsGroup: 1000
-        fsGroupChangePolicy: OnRootMismatch
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: {drop: ["ALL"]}
     service:
       app:
         controller: seerr
@@ -64,16 +64,6 @@ spec:
 
     route:
       app:
-        hostnames:
-          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
-        parentRefs:
-          - name: internal
-            namespace: network
-            sectionName: https
-        rules:
-          - backendRefs:
-              - identifier: app
-                port: *httpPort
         annotations:
           glance/name: "Seer"
           glance/show: "true"
@@ -85,6 +75,16 @@ spec:
           startpunkt.ullberg.us/group: "media"
           startpunkt.ullberg.us/instance: "user"
 
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: *httpPort
     persistence:
       config:
         existingClaim: seerr-config-pvc

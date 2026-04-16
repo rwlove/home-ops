@@ -5,26 +5,19 @@ kind: HelmRelease
 metadata:
   name: kromgo
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
 
+  interval: 30m
   values:
     controllers:
       main:
-        type: statefulset
-        replicas: 2
-        strategy: RollingUpdate
-
-        annotations:
-          reloader.stakater.com/auto: "true"
-
         pod:
           securityContext:
-            runAsUser: 568
             runAsGroup: 568
             runAsNonRoot: true
+            runAsUser: 568
           topologySpreadConstraints:
             - maxSkew: 1
               topologyKey: kubernetes.io/hostname
@@ -33,6 +26,13 @@ spec:
                 matchLabels:
                   app.kubernetes.io/name: kromgo
 
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        replicas: 2
+        strategy: RollingUpdate
+
+        type: statefulset
         containers:
           main:
             image:
@@ -40,10 +40,6 @@ spec:
               tag: v0.9.1
             env:
               PROMETHEUS_URL: http://kube-prometheus-stack-prometheus.observability.svc.cluster.local:9090
-            securityContext:
-              allowPrivilegeEscalation: false
-              readOnlyRootFilesystem: true
-              capabilities: {drop: ["ALL"]}
             resources:
               requests:
                 cpu: 15m
@@ -51,6 +47,10 @@ spec:
               limits:
                 memory: 64M
 
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: {drop: ["ALL"]}
     service:
       main:
         controller: main

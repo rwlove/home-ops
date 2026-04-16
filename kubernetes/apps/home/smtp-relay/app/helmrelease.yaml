@@ -5,20 +5,36 @@ kind: HelmRelease
 metadata:
   name: &app smtp-relay
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
 
+  interval: 30m
   values:
     controllers:
       main:
-        type: statefulset
-        replicas: 1
+
+        pod:
+          securityContext:
+            fsGroup: 568
+            fsGroupChangePolicy: OnRootMismatch
+
+            runAsGroup: 568
+            runAsUser: 568
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: DoNotSchedule
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: *app
 
         annotations:
           reloader.stakater.com/auto: "true"
 
+        replicas: 1
+
+        type: statefulset
         containers:
           main:
             image:
@@ -49,22 +65,6 @@ spec:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: true
               capabilities: {drop: ["ALL"]}
-
-        pod:
-          securityContext:
-            runAsUser: 568
-            runAsGroup: 568
-            fsGroup: 568
-            fsGroupChangePolicy: OnRootMismatch
-
-          topologySpreadConstraints:
-            - maxSkew: 1
-              topologyKey: kubernetes.io/hostname
-              whenUnsatisfiable: DoNotSchedule
-              labelSelector:
-                matchLabels:
-                  app.kubernetes.io/name: *app
-
     service:
       main:
         type: LoadBalancer
@@ -76,14 +76,10 @@ spec:
             port: *metricsPort
           smtp:
             port: *port
-
-    serviceMonitor:
-      main:
-        serviceName: *app
-        endpoints:
-          - port: metrics
-
     persistence:
+      cache:
+        type: emptyDir
+        medium: Memory
       config:
         type: configMap
         name: *app
@@ -92,6 +88,10 @@ spec:
             subPath: maddy.conf
             readOnly: true
 
-      cache:
-        type: emptyDir
-        medium: Memory
+
+    serviceMonitor:
+      main:
+        serviceName: *app
+        endpoints:
+          - port: metrics
+

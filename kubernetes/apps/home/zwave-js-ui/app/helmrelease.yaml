@@ -5,18 +5,34 @@ kind: HelmRelease
 metadata:
   name: &app zwave-js-ui
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
 
+  interval: 30m
   values:
     controllers:
       main:
-        type: statefulset
+        pod:
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: nabu.feature.node.kubernetes.io/zwa2
+                        operator: In
+                        values:
+                          - "true"
+
+          nodeSelector:
+            nabu.feature.node.kubernetes.io/zwa2: "true"
+
+          priorityClassName: home-cluster-critical
+
         annotations:
           reloader.stakater.com/auto: "true"
 
+        type: statefulset
         containers:
           main:
             image:
@@ -39,9 +55,6 @@ spec:
               startup:
                 enabled: false
 
-            securityContext:
-              privileged: true
-
             resources:
               requests:
                 cpu: 50m
@@ -49,21 +62,8 @@ spec:
               limits:
                 memory: 746M
 
-        pod:
-          priorityClassName: home-cluster-critical
-
-          affinity:
-            nodeAffinity:
-              requiredDuringSchedulingIgnoredDuringExecution:
-                nodeSelectorTerms:
-                  - matchExpressions:
-                      - key: nabu.feature.node.kubernetes.io/zwa2
-                        operator: In
-                        values:
-                          - "true"
-
-          nodeSelector:
-            nabu.feature.node.kubernetes.io/zwa2: "true"
+            securityContext:
+              privileged: true
 
     service:
       main:
@@ -76,6 +76,12 @@ spec:
 
     route:
       main:
+        annotations:
+          glance/name: "ZWave JS UI"
+          glance/show: "true"
+          glance/id: "Home Automation"
+          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/z-wave-js-ui.png"
+
         hostnames:
           - "zwave.${SECRET_DOMAIN}"
         parentRefs:
@@ -86,12 +92,6 @@ spec:
           - backendRefs:
               - identifier: main
                 port: *httpPort
-        annotations:
-          glance/name: "ZWave JS UI"
-          glance/show: "true"
-          glance/id: "Home Automation"
-          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/z-wave-js-ui.png"
-
     persistence:
       config:
         existingClaim: zwavejs2mqtt-config-pvc

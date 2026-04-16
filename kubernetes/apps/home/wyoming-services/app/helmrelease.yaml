@@ -5,15 +5,33 @@ kind: HelmRelease
 metadata:
   name: wyoming-services
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
 
+  interval: 30m
   values:
     controllers:
-      piper:
+      openwakeword:
+        annotations:
+          reloader.stakater.com/auto: "true"
+
         type: statefulset
+
+        containers:
+          main:
+            image:
+              repository: docker.io/rhasspy/wyoming-openwakeword
+              tag: 2.1.0
+            args:
+              - --preload-model
+              - "ok_nabu"
+              - --custom-model-dir
+              - /custom
+
+      piper:
+        annotations:
+          reloader.stakater.com/auto: "true"
 
         statefulset:
           volumeClaimTemplates:
@@ -24,8 +42,7 @@ spec:
               globalMounts:
                 - path: /data
 
-        annotations:
-          reloader.stakater.com/auto: "true"
+        type: statefulset
 
         containers:
           main:
@@ -44,7 +61,8 @@ spec:
                 memory: 600Mi
 
       whisper:
-        type: statefulset
+        annotations:
+          reloader.stakater.com/auto: "true"
 
         statefulset:
           volumeClaimTemplates:
@@ -55,8 +73,7 @@ spec:
               globalMounts:
                 - path: /data
 
-        annotations:
-          reloader.stakater.com/auto: "true"
+        type: statefulset
 
         containers:
           main:
@@ -75,24 +92,16 @@ spec:
               limits:
                 memory: 2G
 
-      openwakeword:
-        type: statefulset
-
-        annotations:
-          reloader.stakater.com/auto: "true"
-
-        containers:
-          main:
-            image:
-              repository: docker.io/rhasspy/wyoming-openwakeword
-              tag: 2.1.0
-            args:
-              - --preload-model
-              - "ok_nabu"
-              - --custom-model-dir
-              - /custom
-
     service:
+      openwakeword:
+        type: LoadBalancer
+        annotations:
+          lbipam.cilium.io/ips: ${SVC_WYOMING_WAKEWORD_ADDR}
+        controller: openwakeword
+        ports:
+          http:
+            port: 10400
+
       piper:
         type: LoadBalancer
         annotations:
@@ -104,22 +113,13 @@ spec:
 
       whisper:
         type: LoadBalancer
-        controller: whisper
         annotations:
           lbipam.cilium.io/ips: ${SVC_WYOMING_WHISPER_ADDR}
+        controller: whisper
         ports:
           http:
             port: 10300
             protocol: TCP
-
-      openwakeword:
-        type: LoadBalancer
-        controller: openwakeword
-        annotations:
-          lbipam.cilium.io/ips: ${SVC_WYOMING_WAKEWORD_ADDR}
-        ports:
-          http:
-            port: 10400
 
     persistence:
       openwakeword-config:

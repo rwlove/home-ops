@@ -5,37 +5,33 @@ kind: HelmRelease
 metadata:
   name: &app suggestarr
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
 
+  interval: 30m
   values:
     controllers:
       main:
-        type: statefulset
-        annotations:
-          reloader.stakater.com/auto: "true"
-
         pod:
           securityContext:
-            runAsUser: 1000
-            runAsGroup: 1001
             fsGroup: 1001
             fsGroupChangePolicy: "OnRootMismatch"
+            runAsGroup: 1001
+            runAsUser: 1000
             supplementalGroups:
               - 100
 
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        type: statefulset
         containers:
           main:
             image:
               repository: docker.io/ciuse99/suggestarr
               tag: v2.4.3@sha256:79a9ec281a5486c28b59b807be8ec8e0be7f1943534eecc59adf9945fce8dd0e
 
-            securityContext:
-              allowPrivilegeEscalation: false
-              readOnlyRootFilesystem: true
-              capabilities: {drop: ["ALL"]}
 
             resources:
               requests:
@@ -44,6 +40,10 @@ spec:
               limits:
                 memory: 1G
 
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: {drop: ["ALL"]}
     service:
       main:
         controller: main
@@ -53,6 +53,12 @@ spec:
 
     route:
       main:
+        annotations:
+          glance/name: "Suggestarr"
+          glance/show: "true"
+          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/suggest-arr.png"
+          glance/id: "Media"
+
         hostnames:
           - "{{ .Release.Name }}.${SECRET_DOMAIN}"
         parentRefs:
@@ -63,12 +69,6 @@ spec:
           - backendRefs:
               - identifier: main
                 port: *port
-        annotations:
-          glance/name: "Suggestarr"
-          glance/show: "true"
-          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/suggest-arr.png"
-          glance/id: "Media"
-
     persistence:
       config:
         existingClaim: suggestarr-config-pvc

@@ -5,18 +5,26 @@ kind: HelmRelease
 metadata:
   name: &app medikeep
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
 
+  interval: 30m
   values:
     controllers:
       main:
-        type: statefulset
+        pod:
+          securityContext:
+            fsGroup: 999
+            fsGroupChangePolicy: OnRootMismatch
 
+            runAsGroup: 999
+            runAsNonRoot: true
+            runAsUser: 999
         annotations:
           reloader.stakater.com/auto: "true"
+
+        type: statefulset
 
         initContainers:
           init-db:
@@ -42,6 +50,10 @@ spec:
               MPLCONFIGDIR: /app/matplotlib
 
             envFrom: *envFrom
+            probes:
+              startup:
+                enabled: false
+
 
             resources:
               requests:
@@ -57,18 +69,6 @@ spec:
                 drop:
                   - ALL
 
-            probes:
-              startup:
-                enabled: false
-
-        pod:
-          securityContext:
-            runAsUser: 999
-            runAsGroup: 999
-            runAsNonRoot: true
-            fsGroup: 999
-            fsGroupChangePolicy: OnRootMismatch
-
     service:
       main:
         controller: main
@@ -80,6 +80,12 @@ spec:
 
     route:
       main:
+        annotations:
+          glance/name: "MediKeep"
+          glance/show: "true"
+          #glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/paperless-ngx.png"
+          glance/id: "Collaboration"
+
         hostnames:
           - "{{ .Release.Name }}.${SECRET_DOMAIN}"
         parentRefs:
@@ -90,12 +96,23 @@ spec:
           - backendRefs:
               - identifier: main
                 port: *reactPort
-        annotations:
-          glance/name: "MediKeep"
-          glance/show: "true"
-          #glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/paperless-ngx.png"
-          glance/id: "Collaboration"
-
+    persistence:
+      backups:
+        type: emptyDir
+        globalMounts:
+          - path: /app/backups
+      logs:
+        type: emptyDir
+        globalMounts:
+          - path: /app/logs
+      matplotlib:
+        type: emptyDir
+        globalMounts:
+          - path: /app/matplotlib
+      uploads:
+        type: emptyDir
+        globalMounts:
+          - path: /app/uploads
     serviceMonitor:
       main:
         serviceName: *app
@@ -106,20 +123,3 @@ spec:
             interval: 1m
             scrapeTimeout: 10s
 
-    persistence:
-      logs:
-        type: emptyDir
-        globalMounts:
-          - path: /app/logs
-      uploads:
-        type: emptyDir
-        globalMounts:
-          - path: /app/uploads
-      backups:
-        type: emptyDir
-        globalMounts:
-          - path: /app/backups
-      matplotlib:
-        type: emptyDir
-        globalMounts:
-          - path: /app/matplotlib

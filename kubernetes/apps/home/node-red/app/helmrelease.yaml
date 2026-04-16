@@ -5,29 +5,15 @@ kind: HelmRelease
 metadata:
   name: &app node-red
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
 
+  interval: 30m
   values:
     controllers:
       main:
-        type: statefulset
-        annotations:
-          reloader.stakater.com/auto: "true"
-
         pod:
-          securityContext:
-            runAsUser: 568
-            runAsGroup: 568
-            fsGroup: 568
-            fsGroupChangePolicy: "OnRootMismatch"
-
-          annotations:
-            k8s.v1.cni.cncf.io/networks: node-red-iot-static
-
-          # IOT VLAN (20)
           affinity:
             nodeAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:
@@ -38,6 +24,20 @@ spec:
                         values:
                           - "true"
 
+          annotations:
+            k8s.v1.cni.cncf.io/networks: node-red-iot-static
+
+          # IOT VLAN (20)
+          securityContext:
+            fsGroup: 568
+            fsGroupChangePolicy: "OnRootMismatch"
+
+            runAsGroup: 568
+            runAsUser: 568
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        type: statefulset
         containers:
           main:
             image:
@@ -52,19 +52,19 @@ spec:
               NODE_RED__APPLICATION_URL: &host "{{ .Release.Name }}.${SECRET_DOMAIN}"
               NODE_RED__LOG_LEVEL: info
 
-            securityContext:
-              privileged: true
-              capabilities:
-                add:
-                  - NET_ADMIN
-                  - NET_RAW
-
             resources:
               requests:
                 cpu: 35m
                 memory: 200M
               limits:
                 memory: 200M
+
+            securityContext:
+              privileged: true
+              capabilities:
+                add:
+                  - NET_ADMIN
+                  - NET_RAW
 
     service:
       main:
@@ -75,6 +75,11 @@ spec:
 
     route:
       main:
+        annotations:
+          glance/name: "Node Red"
+          glance/show: "true"
+          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/node-red.png"
+          glance/id: "Home Automation"
         hostnames:
           - "{{ .Release.Name }}.${SECRET_DOMAIN}"
         parentRefs:
@@ -85,12 +90,6 @@ spec:
           - backendRefs:
               - identifier: main
                 port: *httpPort
-        annotations:
-          glance/name: "Node Red"
-          glance/show: "true"
-          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/node-red.png"
-          glance/id: "Home Automation"
-          
     persistence:
       data:
         existingClaim: node-red-data-pvc

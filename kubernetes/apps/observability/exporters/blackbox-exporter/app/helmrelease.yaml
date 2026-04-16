@@ -5,85 +5,85 @@ kind: HelmRelease
 metadata:
   name: &app blackbox-exporter
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: blackbox-exporter
 
+  interval: 30m
   values:
+    allowIcmp: true
+
+    config:
+      modules:
+        http_2xx:
+          http:
+            follow_redirects: true
+            preferred_ip_protocol: "ip4"
+            valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+          prober: http
+          timeout: 5s
+        icmp:
+          icmp:
+            preferred_ip_protocol: "ip4"
+          prober: icmp
+          timeout: 30s
+        tcp_connect:
+          prober: tcp
+          tcp:
+            preferred_ip_protocol: ipv4
+          timeout: 5s
     fullnameOverride: blackbox-exporter
     image:
       registry: quay.io
 
-    securityContext:
-      allowPrivilegeEscalation: false
-      readOnlyRootFilesystem: true
-      capabilities:
-        add:
-          - NET_RAW
+    podAnnotations:
+      reloader.stakater.com/auto: "true"
 
     podSecurityContext:
       sysctls:
         - name: net.ipv4.ping_group_range
           value: "0 2147483647"
 
-    podAnnotations:
-      reloader.stakater.com/auto: "true"
-
-    allowIcmp: true
-
-    config:
-      modules:
-        http_2xx:
-          prober: http
-          timeout: 5s
-          http:
-            valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
-            follow_redirects: true
-            preferred_ip_protocol: "ip4"
-        icmp:
-          prober: icmp
-          timeout: 30s
-          icmp:
-            preferred_ip_protocol: "ip4"
-        tcp_connect:
-          prober: tcp
-          timeout: 5s
-          tcp:
-            preferred_ip_protocol: ipv4
-    serviceMonitor:
-      enabled: true
-      defaults:
-        interval: 1m
-        scrapeTimeout: 10s
-
     prometheusRule:
-      enabled: true
       additionalLabels:
         app: prometheus-operator
         release: prometheus
+      enabled: true
       rules:
         - alert: BlackboxSslCertificateWillExpireSoon
+          annotations:
+            description: |-
+              The SSL certificate for {{ $labels.instance }} will expire in less than 3 days
           expr: probe_ssl_earliest_cert_expiry - time() < 86400 * 3
           for: 5m
           labels:
             severity: critical
+        - alert: BlackboxSslCertificateExpired
           annotations:
             description: |-
-              The SSL certificate for {{ $labels.instance }} will expire in less than 3 days
-        - alert: BlackboxSslCertificateExpired
+              The SSL certificate for {{ $labels.instance }} has expired
           expr: probe_ssl_earliest_cert_expiry - time() <= 0
           for: 5m
           labels:
             severity: critical
+        - alert: BlackboxProbeFailed
           annotations:
             description: |-
-              The SSL certificate for {{ $labels.instance }} has expired
-        - alert: BlackboxProbeFailed
+              The host {{ $labels.instance }} is currently unreachable
           expr: probe_success == 0
           for: 5m
           labels:
             severity: critical
-          annotations:
-            description: |-
-              The host {{ $labels.instance }} is currently unreachable
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        add:
+          - NET_RAW
+
+      readOnlyRootFilesystem: true
+    serviceMonitor:
+      defaults:
+        interval: 1m
+        scrapeTimeout: 10s
+
+      enabled: true

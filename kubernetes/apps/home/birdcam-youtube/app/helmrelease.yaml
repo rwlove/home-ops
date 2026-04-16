@@ -5,51 +5,32 @@ kind: HelmRelease
 metadata:
   name: &app birdcam-youtube
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
     namespace: flux-system
+  interval: 30m
   dependsOn:
     - name: frigate
       namespace: home
   values:
     controllers:
       main:
-        type: statefulset
-        replicas: 1
-
+        pod:
+          nodeSelector:
+            intel.feature.node.kubernetes.io/gpu: "true"
         annotations:
           reloader.stakater.com/auto: "true"
 
+        replicas: 1
+
+        type: statefulset
         containers:
           main:
             image:
               repository: ghcr.io/jrottenberg/ffmpeg
               tag: 8.1-vaapi@sha256:a697f6d7dcb3157cbe7e01a8bb6aeeaf9d7c1914adc19304c503c63769c11091
 
-            envFrom:
-              - secretRef:
-                  name: *app
-
-            env:
-              LIBVA_DRIVER_NAME: iHD
-
-            probes:
-              liveness: &probes
-                enabled: false
-                custom: true
-                spec:
-                  httpGet:
-                    host: frigate.home
-                    path: /api/version
-                    port: &unsecurePort 5000
-                  initialDelaySeconds: 0
-                  periodSeconds: 10
-                  timeoutSeconds: 7
-                  failureThreshold: 30
-              readiness: *probes
-              startup: *probes
 
             args:
               - "-re"         # Read input at native frame rate. This is equivalent to setting
@@ -67,6 +48,28 @@ spec:
               - "-v"
               - "verbose"
 
+            env:
+              LIBVA_DRIVER_NAME: iHD
+
+            envFrom:
+              - secretRef:
+                  name: *app
+
+            probes:
+              liveness: &probes
+                enabled: false
+                custom: true
+                spec:
+                  httpGet:
+                    host: frigate.home
+                    path: /api/version
+                    port: &unsecurePort 5000
+                  initialDelaySeconds: 0
+                  periodSeconds: 10
+                  timeoutSeconds: 7
+                  failureThreshold: 30
+              readiness: *probes
+              startup: *probes
             resources:
               requests:
                 gpu.intel.com/i915: "1"
@@ -79,6 +82,3 @@ spec:
             securityContext:
               privileged: true
 
-        pod:
-          nodeSelector:
-            intel.feature.node.kubernetes.io/gpu: "true"

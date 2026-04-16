@@ -5,25 +5,25 @@ kind: HelmRelease
 metadata:
   name: obsidian-couchdb
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
 
+  interval: 30m
   values:
     controllers:
       main:
-        type: statefulset
+        pod:
+          securityContext:
+            fsGroup: ${APP_GID}
+            fsGroupChangePolicy: "OnRootMismatch"
 
+            runAsGroup: ${APP_GID}
+            runAsUser: ${APP_UID}
         annotations:
           reloader.stakater.com/auto: "true"
 
-        pod:
-          securityContext:
-            runAsUser: ${APP_UID}
-            runAsGroup: ${APP_GID}
-            fsGroup: ${APP_GID}
-            fsGroupChangePolicy: "OnRootMismatch"
+        type: statefulset
 
         initContainers:
           init-config:
@@ -88,6 +88,10 @@ spec:
             init-config:
               - path: /tmp/config
 
+      config-storage:
+        type: emptyDir
+        globalMounts:
+          - path: /opt/couchdb/etc/default.d
       data:
         existingClaim: obsidian-data-pvc
         advancedMounts:
@@ -95,7 +99,3 @@ spec:
             main:
               - path: /opt/couchdb/data
 
-      config-storage:
-        type: emptyDir
-        globalMounts:
-          - path: /opt/couchdb/etc/default.d

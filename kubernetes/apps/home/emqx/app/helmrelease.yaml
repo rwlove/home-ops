@@ -5,71 +5,21 @@ kind: HelmRelease
 metadata:
   name: emqx
 spec:
-  interval: 30m
   chart:
     spec:
       chart: emqx
       # renovate: registryUrl=https://repos.emqx.io/charts
-      version: 5.8.9
       sourceRef:
         kind: HelmRepository
         name: emqx-charts
 
+      version: 5.8.9
+  interval: 30m
   values:
-    priorityClassName: home-cluster-critical
-
-    image:
-      repository: public.ecr.aws/emqx/emqx
-
-    replicaCount: 3
-    recreatePods: true
-
-    emqxConfig:
-      EMQX_ALLOW_ANONYMOUS: "false"
-      EMQX_AUTH__MNESIA__PASSWORD_HASH: plain
-      EMQX_DASHBOARD__DEFAULT_USERNAME: admin
-
-    service:
-      type: LoadBalancer
-      annotations:
-        lbipam.cilium.io/ips: ${SVC_EMQX_ADDR}
-      externalTrafficPolicy: Cluster
-
-    metrics:
-      enabled: false
-
-    securityContext:
-      privileged: true
-      capabilities:
-        add:
-          - NET_ADMIN
-          - NET_RAW
-
-    probles:
-      startup:
-        enabled: false
-      readiness:
-        enabled: false
-      liveness:
-        enabled: false
-
-    persistence:
-      enabled: true
-      storageClassName: ceph-block
-      size: 1Gi
-
-    resources:
-      requests:
-        cpu: 30m
-        memory: 700M
-      limits:
-        memory: 700M
-
     affinity:
       podAntiAffinity:
         preferredDuringSchedulingIgnoredDuringExecution:
-          - weight: 100
-            podAffinityTerm:
+          - podAffinityTerm:
               labelSelector:
                 matchExpressions:
                   - key: app.kubernetes.io/name
@@ -77,16 +27,66 @@ spec:
                     values: ["emqx"]
               topologyKey: kubernetes.io/hostname
 
+            weight: 100
+    emqxConfig:
+      EMQX_ALLOW_ANONYMOUS: "false"
+      EMQX_AUTH__MNESIA__PASSWORD_HASH: plain
+      EMQX_DASHBOARD__DEFAULT_USERNAME: admin
+
+    image:
+      repository: public.ecr.aws/emqx/emqx
+
+    metrics:
+      enabled: false
+
+    persistence:
+      enabled: true
+      size: 1Gi
+
+      storageClassName: ceph-block
+    priorityClassName: home-cluster-critical
+
+    probles:
+      liveness:
+        enabled: false
+
+      readiness:
+        enabled: false
+      startup:
+        enabled: false
+    recreatePods: true
+
+    replicaCount: 3
+    resources:
+      limits:
+        memory: 700M
+
+      requests:
+        cpu: 30m
+        memory: 700M
+    securityContext:
+      capabilities:
+        add:
+          - NET_ADMIN
+          - NET_RAW
+
+      privileged: true
+    service:
+      annotations:
+        lbipam.cilium.io/ips: ${SVC_EMQX_ADDR}
+      externalTrafficPolicy: Cluster
+
+      type: LoadBalancer
   valuesFrom:
-    - targetPath: emqxConfig.EMQX_DASHBOARD__DEFAULT_PASSWORD
-      kind: Secret
+    - kind: Secret
       name: emqx
+      targetPath: emqxConfig.EMQX_DASHBOARD__DEFAULT_PASSWORD
       valuesKey: admin_password
-    - targetPath: emqxConfig.EMQX_AUTH__USER__1__USERNAME
-      kind: Secret
+    - kind: Secret
       name: emqx
+      targetPath: emqxConfig.EMQX_AUTH__USER__1__USERNAME
       valuesKey: user_1_username
-    - targetPath: emqxConfig.EMQX_AUTH__USER__1__PASSWORD
-      kind: Secret
+    - kind: Secret
       name: emqx
+      targetPath: emqxConfig.EMQX_AUTH__USER__1__PASSWORD
       valuesKey: user_1_password

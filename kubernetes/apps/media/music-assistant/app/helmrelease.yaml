@@ -1,31 +1,30 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: &app music-assistant
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
 
+  interval: 30m
   values:
     controllers:
       main:
-        type: statefulset
-        annotations:
-          reloader.stakater.com/auto: "true"
-
         pod:
           securityContext:
-            runAsUser: 1000
-            runAsGroup: 1001
             fsGroup: 1001
             fsGroupChangePolicy: "OnRootMismatch"
+            runAsGroup: 1001
+            runAsUser: 1000
             supplementalGroups:
               - 100
 
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        type: statefulset
         containers:
           main:
             image:
@@ -41,10 +40,10 @@ spec:
 
     service:
       main:
-        controller: main
+        type: LoadBalancer
         annotations:
           lbipam.cilium.io/ips: ${SVC_MUSIC_ASSISTANT_ADDR}
-        type: LoadBalancer
+        controller: main
         externalTrafficPolicy: Cluster
         ports:
           http:
@@ -56,16 +55,6 @@ spec:
 
     route:
       main:
-        hostnames:
-          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
-        parentRefs:
-          - name: internal
-            namespace: network
-            sectionName: https
-        rules:
-          - backendRefs:
-              - identifier: main
-                port: *httpPort
         annotations:
           startpunkt.ullberg.us/enable: "true"
           startpunkt.ullberg.us/name: "Music Assistant"
@@ -77,12 +66,22 @@ spec:
           glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/music-assistant.png"
           glance/id: "Media"
 
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: main
+                port: *httpPort
     persistence:
-      media:
-        existingClaim: music-assistant-music-pvc
-
       data:
         existingClaim: music-assistant-data-pvc
+
+      media:
+        existingClaim: music-assistant-music-pvc
 
       tmpfs:
         type: emptyDir

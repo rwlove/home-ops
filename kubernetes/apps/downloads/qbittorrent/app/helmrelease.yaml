@@ -13,14 +13,6 @@ spec:
     controllers:
       main:
         pod:
-          securityContext:
-            fsGroup: 1001
-            fsGroupChangePolicy: OnRootMismatch
-            runAsGroup: 1001
-            runAsUser: 1000
-            supplementalGroups:
-              - 100
-
           affinity:
             podAntiAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:
@@ -30,6 +22,14 @@ spec:
                         operator: In
                         values: ["sabnzbd"]
                   topologyKey: kubernetes.io/hostname
+
+          securityContext:
+            fsGroup: 1001
+            fsGroupChangePolicy: OnRootMismatch
+            runAsGroup: 1001
+            runAsUser: 1000
+            supplementalGroups:
+              - 100
 
         annotations:
           reloader.stakater.com/auto: "true"
@@ -76,19 +76,23 @@ spec:
               capabilities: {drop: ["ALL"]}
               readOnlyRootFilesystem: true
 
-    persistence:
-      config:
-        existingClaim: qbittorrent-config-pvc
+    service:
+      app:
+        forceRename: "{{ .Release.Name }}"
+        ports:
+          http:
+            port: *httpPort
+        primary: true
 
-      downloads:
-        existingClaim: qbittorrent-downloads
-
-      incomplete:
-        existingClaim: qbittorrent-incomplete
-
-      media:
-        existingClaim: qbittorrent-media
-
+      bittorrent:
+        type: LoadBalancer
+        annotations:
+          lbipam.cilium.io/ips: 10.45.0.14 #SVC_QBITTORRENT_ADDR
+        externalTrafficPolicy: Local
+        ports:
+          bittorrent:
+            port: *port-bt
+            protocol: TCP
     route:
       app:
         annotations:
@@ -107,20 +111,16 @@ spec:
               - identifier: app
                 port: *httpPort
 
-    service:
-      app:
-        forceRename: "{{ .Release.Name }}"
-        ports:
-          http:
-            port: *httpPort
-        primary: true
+    persistence:
+      config:
+        existingClaim: qbittorrent-config-pvc
 
-      bittorrent:
-        type: LoadBalancer
-        annotations:
-          lbipam.cilium.io/ips: 10.45.0.14 #SVC_QBITTORRENT_ADDR
-        externalTrafficPolicy: Local
-        ports:
-          bittorrent:
-            port: *port-bt
-            protocol: TCP
+      downloads:
+        existingClaim: qbittorrent-downloads
+
+      incomplete:
+        existingClaim: qbittorrent-incomplete
+
+      media:
+        existingClaim: qbittorrent-media
+

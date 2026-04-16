@@ -14,7 +14,6 @@ spec:
   url: oci://ghcr.io/home-operations/charts-mirror/external-dns
   verify:
     provider: cosign
-
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
 apiVersion: helm.toolkit.fluxcd.io/v2
@@ -22,42 +21,39 @@ kind: HelmRelease
 metadata:
   name: external-dns-cloudflare
 spec:
-  interval: 1h
   chartRef:
     kind: OCIRepository
     name: cloudflare-dns
 
   install:
-    disableSchemaValidation: true # Ref: https://github.com/kubernetes-sigs/external-dns/issues/5206
     crds: CreateReplace
+    disableSchemaValidation: true # Ref: https://github.com/kubernetes-sigs/external-dns/issues/5206
     remediation:
       retries: 3
 
+  interval: 1h
   upgrade:
-    disableSchemaValidation: true # Ref: https://github.com/kubernetes-sigs/external-dns/issues/5206
     cleanupOnFail: true
     crds: CreateReplace
+    disableSchemaValidation: true # Ref: https://github.com/kubernetes-sigs/external-dns/issues/5206
     remediation:
-      strategy: rollback
       retries: 3
 
+      strategy: rollback
   values:
-    fullnameOverride: &app externaldns-cloudflare
-
-    provider:
-      name: cloudflare
-
+    domainFilters:
+      - "${SECRET_DOMAIN}"
     env:
       - name: &name CF_API_EMAIL
         valueFrom:
           secretKeyRef:
-            name: &secret external-dns-cloudflare-secret
             key: *name
+            name: &secret external-dns-cloudflare-secret
       - name: &name CF_API_KEY
         valueFrom:
           secretKeyRef:
-            name: *secret
             key: *name
+            name: *secret
 
     extraArgs:
       - --cloudflare-dns-records-per-page=1000
@@ -71,14 +67,17 @@ spec:
       #- --gateway-name=external
       #- --gateway-name=tcp
 
-    policy: sync
-    sources: ["crd", "gateway-httproute", "gateway-tlsroute", "gateway-tcproute"]
-    txtOwnerId: default
-    txtPrefix: k8s.
-    domainFilters:
-      - "${SECRET_DOMAIN}"
-    serviceMonitor:
-      enabled: true
+    fullnameOverride: &app externaldns-cloudflare
 
     podAnnotations:
       secret.reloader.stakater.com/reload: *secret
+    policy: sync
+    provider:
+      name: cloudflare
+
+    serviceMonitor:
+      enabled: true
+
+    sources: ["crd", "gateway-httproute", "gateway-tlsroute", "gateway-tcproute"]
+    txtOwnerId: default
+    txtPrefix: k8s.

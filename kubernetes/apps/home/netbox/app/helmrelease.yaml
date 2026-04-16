@@ -4,79 +4,44 @@ kind: HelmRelease
 metadata:
   name: &app netbox
 spec:
-  interval: 1h
   chartRef:
     kind: OCIRepository
     name: netbox
+  interval: 1h
   values:
-    commonLabels:
-      postgres: "true"
-      teleport: enabled
-    commonAnnotations:
-      reloader.stakater.com/auto: "true"
-    initContainers:
-      - name: init-db
-        image: ghcr.io/home-operations/postgres-init:18
-        envFrom:
-          - secretRef:
-              name: &secret netbox-secret
-    superuser:
-      existingSecret: *secret
     admins:
       - ["rwlove", "server.netbox@${SECRET_DOMAIN}"]
-    loginRequired: false
-    timeZone: ${TIMEZONE}
-    dateFormat: "j. F, Y"
-    shortDateFormat: "j.m.Y"
-    timeFormat: "G:i"
-    shortTimeFormat: "H:i:s"
-    dateTimeFormat: "j. F, Y g:i a"
-    shortDateTimeFormat: "j.m.Y H:i"
-    storages:
-      default:
-        BACKEND: "storages.backends.s3.S3Storage"
-        OPTIONS:
-          bucket_name: "netbox"
-          endpoint_url: "http://garage.storage.svc.cluster.local:3900"
-          region_name: "us-east-1"
-    existingSecret: *secret
-    metricsEnabled: true
-    postgresql:
-      enabled: false
-    valkey:
-      enabled: false
-    tasksDatabase:
-      host: dragonfly.databases.svc.cluster.local
-      database: 3
-      #existingSecretName: "netbox-secret"
-      #existingSecretKey: "REDIS_PASSWORD"
     cachingDatabase:
-      host: dragonfly.databases.svc.cluster.local
       database: 4
       #existingSecretName: "netbox-secret"
       #existingSecretKey: "REDIS_PASSWORD"
-    externalDatabase:
-      host: postgres-netbox-rw.databases.svc.cluster.local
-      port: 5432
-      database: netbox
-      username: netbox
-      existingSecretName: "netbox-secret"
-      existingSecretKey: "NETBOX_PG_PASS"
-    email:
-      server: smtp-relay.home.svc.cluster.local
-      port: 2525
-      from: netbox@${SECRET_DOMAIN}
+      host: dragonfly.databases.svc.cluster.local
+    commonAnnotations:
+      reloader.stakater.com/auto: "true"
+    commonLabels:
+      postgres: "true"
+      teleport: enabled
     csrf:
       trustedOrigins: ["https://netbox.${SECRET_DOMAIN}"]
-    persistence:
+    dateFormat: "j. F, Y"
+    dateTimeFormat: "j. F, Y g:i a"
+    email:
+      from: netbox@${SECRET_DOMAIN}
+      port: 2525
+      server: smtp-relay.home.svc.cluster.local
+    existingSecret: &secret netbox-secret
+    externalDatabase:
+      database: netbox
+      existingSecretKey: "NETBOX_PG_PASS"
+      existingSecretName: "netbox-secret"
+      host: postgres-netbox-rw.databases.svc.cluster.local
+      port: 5432
+      username: netbox
+    extraConfig:
+      - secret:
+          secretName: *secret
+    housekeeping:
       enabled: false
-    readinessProbe:
-      enabled: false
-    livenessProbe:
-      enabled: false
-    service:
-      annotations:
-        teleport.dev/name: *app
     httpRoute:
       enabled: true
       hostnames:
@@ -84,19 +49,54 @@ spec:
       parentRefs:
         - name: internal
           namespace: network
-    extraConfig:
-      - secret:
-          secretName: *secret
-    housekeeping:
+    initContainers:
+      - envFrom:
+          - secretRef:
+              name: *secret
+        image: ghcr.io/home-operations/postgres-init:18
+        name: init-db
+    livenessProbe:
+      enabled: false
+    loginRequired: false
+    metricsEnabled: true
+    persistence:
+      enabled: false
+    postgresql:
+      enabled: false
+    readinessProbe:
+      enabled: false
+    service:
+      annotations:
+        teleport.dev/name: *app
+    shortDateFormat: "j.m.Y"
+    shortDateTimeFormat: "j.m.Y H:i"
+    shortTimeFormat: "H:i:s"
+    storages:
+      default:
+        BACKEND: "storages.backends.s3.S3Storage"
+        OPTIONS:
+          bucket_name: "netbox"
+          endpoint_url: "http://garage.storage.svc.cluster.local:3900"
+          region_name: "us-east-1"
+    superuser:
+      existingSecret: *secret
+    tasksDatabase:
+      database: 3
+      #existingSecretName: "netbox-secret"
+      #existingSecretKey: "REDIS_PASSWORD"
+      host: dragonfly.databases.svc.cluster.local
+    timeFormat: "G:i"
+    timeZone: ${TIMEZONE}
+    valkey:
       enabled: false
     worker:
       enabled: false
   valuesFrom:
-    - targetPath: storages.default.OPTIONS.access_key
-      kind: Secret
+    - kind: Secret
       name: *secret
+      targetPath: storages.default.OPTIONS.access_key
       valuesKey: AWS_ACCESS_KEY_ID
-    - targetPath: storages.default.OPTIONS.secret_key
-      kind: Secret
+    - kind: Secret
       name: *secret
+      targetPath: storages.default.OPTIONS.secret_key
       valuesKey: AWS_SECRET_ACCESS_KEY

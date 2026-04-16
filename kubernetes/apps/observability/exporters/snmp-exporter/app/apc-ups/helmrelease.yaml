@@ -5,51 +5,51 @@ kind: HelmRelease
 metadata:
   name: &app snmp-exporter-apc-ups
 spec:
-  interval: 30m
   chart:
     spec:
       chart: prometheus-snmp-exporter
-      version: 9.13.1
       sourceRef:
         kind: HelmRepository
         name: prometheus-community-charts
+
+      version: 9.13.1
+  dependsOn:
+    - name: kube-prometheus-stack
+      namespace: observability
 
   install:
     remediation:
       retries: 3
 
+  interval: 30m
   upgrade:
     cleanupOnFail: true
     remediation:
-      strategy: rollback
       retries: 3
 
-  dependsOn:
-    - name: kube-prometheus-stack
-      namespace: observability
-
+      strategy: rollback
   values:
-    fullnameOverride: *app
     extraArgs: ["--config.file=/config/snmp.yaml"]
     extraConfigmapMounts:
-      - name: &name apc-ups-snmp-configmap
-        mountPath: /config/snmp.yaml
-        subPath: snmp.yaml
-        configMap: *name
-        readOnly: true
+      - configMap: &name apc-ups-snmp-configmap
         defaultMode: 420
+        mountPath: /config/snmp.yaml
+        name: *name
+        readOnly: true
+        subPath: snmp.yaml
+    fullnameOverride: *app
     serviceMonitor:
       enabled: true
       params:
-        - name: apc-ups-1500
+        - auth: ["public_v1"]
           module: ["apcups"]
+          name: apc-ups-1500
           target: 192.168.5.36
-          auth: ["public_v1"]
-        - name: apc-ups-3000
+        - auth: ["public_v1"]
           module: ["apcups"]
+          name: apc-ups-3000
           target: 192.168.5.65
-          auth: ["public_v1"]
       path: /snmp
-      scrapeTimeout: 10s
       relabelings:
         - {sourceLabels: ["__param_target"], targetLabel: instance}
+      scrapeTimeout: 10s

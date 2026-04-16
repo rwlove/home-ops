@@ -9,10 +9,10 @@ spec:
     spec:
       # renovate: registryUrl=https://immich-app.github.io/immich-charts
       chart: immich
-      version: 0.11.1
       sourceRef:
         kind: HelmRepository
         name: immich-charts
+      version: 0.11.1
   interval: 30m
 
   values:
@@ -21,55 +21,55 @@ spec:
         containers:
           main:
             env:
-              REDIS_HOSTNAME: dragonfly.databases.svc.cluster.local
-              REDIS_PORT: "6379"
-              REDIS_DBINDEX: "1"
+              DB_DATABASE_NAME: immich
+
+              DB_HOSTNAME: postgres-immich-rw.databases.svc.cluster.local
+              DB_PASSWORD: immich
+              DB_USERNAME: immich
               DISABLE_REVERSE_GEOCODING: "false"
-              REVERSE_GEOCODING_PRECISION: "2"
-              LOG_LEVEL: verbose
-              IMMICH_SERVER_URL: http://immich-server.media.svc.cluster.local:3001
-              PUBLIC_IMMICH_SERVER_URL: https://immich.${SECRET_DOMAIN}
               EXTERNAL_PATH: "/external"
               IMMICH_MACHINE_LEARNING_URL: http://immich-machine-learning.media:3003
               # IMMICH_WEB_URL: http://immich-web.media.svc.cluster.local:3000
+              IMMICH_SERVER_URL: http://immich-server.media.svc.cluster.local:3001
+              LOG_LEVEL: verbose
               OAUTH_ENABLED: "false"
               # OAUTH_ISSUER_URL: "https://auth.${SECRET_DOMAIN}/.well-known/openid-configuration"
               # OAUTH_CLIENT_ID: immich
               # OAUTH_CLIENT_SECRET: "${SECRET_IMMICH_OAUTH_CLIENT_SECRET}"
               # OAUTH_AUTO_REGISTER: "true"
               # OAUTH_BUTTON_TEXT: "Login with Authelia"
-              DB_HOSTNAME: postgres-immich-rw.databases.svc.cluster.local
-              DB_USERNAME: immich
-              DB_PASSWORD: immich
-              DB_DATABASE_NAME: immich
-
+              PUBLIC_IMMICH_SERVER_URL: https://immich.${SECRET_DOMAIN}
+              REDIS_DBINDEX: "1"
+              REDIS_HOSTNAME: dragonfly.databases.svc.cluster.local
+              REDIS_PORT: "6379"
+              REVERSE_GEOCODING_PRECISION: "2"
     image:
       # renovate: datasource=github-releases depName=immich-app/immich
       tag: "v2.3.1"
 
     immich:
-      metrics:
-        enabled: true
-      logLevel: "log"
       concurrency:
         backgroundTask: 10
-        smartSearch: 5
-        metadataExtraction: 10
         faceDetection: 5
+        library: 5
+        metadataExtraction: 10
+        migration: 5
         search: 5
         sidecar: 5
-        library: 5
-        migration: 5
+        smartSearch: 5
         thumbnailGeneration: 10
         videoConversion: 1
+      enablePasswordLogin: true
+      logLevel: "log"
       machineLearning:
         clipModelName: ViT-L-16-SigLIP-256__webli
         facialRecognitionModelName: antelopev2
-      enablePasswordLogin: true
+      metrics:
+        enabled: true
       oauth:
-        issuerUrl: https://auth.${SECRET_DOMAIN}
         clientId: immich
 
+        issuerUrl: https://auth.${SECRET_DOMAIN}
       persistence:
         library:
           existingClaim: immich-upload-pvc
@@ -79,34 +79,30 @@ spec:
         main:
           containers:
             main:
+              env:
+                # Nvidia
+                MACHINE_LEARNING_PRELOAD__CLIP: "ViT-L-16-SigLIP-256__webli"
+
+                NVIDIA_DRIVER_CAPABILITIES: "all"
+                NVIDIA_VISIBLE_DEVICES: "all"
               image:
                 repository: ghcr.io/immich-app/immich-machine-learning
                 tag: v2.7.5-cuda
 
 
-              securityContext:
-                privileged: true
-
-              env:
-                # Nvidia
-                NVIDIA_VISIBLE_DEVICES: "all"
-                NVIDIA_DRIVER_CAPABILITIES: "all"
-                MACHINE_LEARNING_PRELOAD__CLIP: "ViT-L-16-SigLIP-256__webli"
-
               resources:
-                requests:
-                  cpu: 100m
-                  memory: 5G
-                  nvidia.com/gpu: 1
                 limits:
                   memory: 5G
                   nvidia.com/gpu: 1
 
+                requests:
+                  cpu: 100m
+                  memory: 5G
+                  nvidia.com/gpu: 1
+              securityContext:
+                privileged: true
+
           pod:
-            runtimeClassName: nvidia
-
-            priorityClassName: ai-gpu-critical
-
             affinity:
               nodeAffinity:
                 requiredDuringSchedulingIgnoredDuringExecution:
@@ -119,6 +115,8 @@ spec:
 
             nodeSelector:
               nvidia.com/gpu.present: "true"
+
+            priorityClassName: ai-gpu-critical
 
             probes:
               liveness:
@@ -134,6 +132,8 @@ spec:
                 spec:
                   initialDelaySeconds: 90
 
+            runtimeClassName: nvidia
+
           replicas: 2
           strategy: RollingUpdate
           type: statefulset
@@ -141,21 +141,21 @@ spec:
       persistence:
         cache:
           enabled: true
-          storageClassName: ceph-block
           size: 40G
 
+          storageClassName: ceph-block
     server:
       controllers:
         main:
           containers:
             main:
               resources:
-                requests:
-                  cpu: 15m
-                  memory: 3Gi
                 limits:
                   memory: 3Gi
 
+                requests:
+                  cpu: 15m
+                  memory: 3Gi
           replicas: 2
           strategy: RollingUpdate
           type: statefulset

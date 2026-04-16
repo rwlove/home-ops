@@ -5,11 +5,11 @@ kind: HelmRelease
 metadata:
   name: esphome
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
 
+  interval: 30m
   values:
     defaultPodOptions:
       securityContext:
@@ -20,18 +20,7 @@ spec:
 
     controllers:
       main:
-        type: statefulset
-
-        annotations:
-          reloader.stakater.com/auto: "true"
-
         pod:
-          priorityClassName: home-cluster-critical
-
-          annotations:
-            k8s.v1.cni.cncf.io/networks: esphome-iot-static
-
-          # IOT VLAN (20)
           affinity:
             nodeAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:
@@ -42,11 +31,30 @@ spec:
                         values:
                           - "true"
 
+          annotations:
+            k8s.v1.cni.cncf.io/networks: esphome-iot-static
+
+          # IOT VLAN (20)
+          priorityClassName: home-cluster-critical
+
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        type: statefulset
+
         containers:
           main:
             image:
               repository: ghcr.io/home-operations/esphome
               tag: 2026.4.0@sha256:f2903ef91562cd00ff7707cfff417565879ad4a147a27343bc9f4be1bfe849cd
+
+
+            env:
+              ESPHOME_DASHBOARD_USE_PING: true
+              ESPHOME__INSTANCE_NAME: ESPHome
+              ESPHOME__PORT: &httpPort 6052
+              ESPHOME__APPLICATION_URL: &host "{{ .Release.Name }}.${SECRET_DOMAIN}"
+              ESPHOME__LOG_LEVEL: info
 
             probes:
               liveness:
@@ -67,20 +75,12 @@ spec:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: true
               capabilities: {drop: ["ALL"], add: ["NET_RAW"]}
-
-            env:
-              ESPHOME_DASHBOARD_USE_PING: true
-              ESPHOME__INSTANCE_NAME: ESPHome
-              ESPHOME__PORT: &httpPort 6052
-              ESPHOME__APPLICATION_URL: &host "{{ .Release.Name }}.${SECRET_DOMAIN}"
-              ESPHOME__LOG_LEVEL: info
-
     service:
       main:
-        controller: main
         type: LoadBalancer
         annotations:
           lbipam.cilium.io/ips: ${SVC_ESPHOME_ADDR}
+        controller: main
         externalTrafficPolicy: Cluster
         ports:
           http:
@@ -88,6 +88,12 @@ spec:
 
     route:
       main:
+        annotations:
+          glance/name: "ESPHome"
+          glance/show: "true"
+          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/esphome.png"
+          glance/id: "Home Automation"
+
         hostnames:
           - "{{ .Release.Name }}.${SECRET_DOMAIN}"
         parentRefs:
@@ -98,25 +104,19 @@ spec:
           - backendRefs:
               - identifier: main
                 port: *httpPort
-        annotations:
-          glance/name: "ESPHome"
-          glance/show: "true"
-          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/esphome.png"
-          glance/id: "Home Automation"
-
     persistence:
-      config:
-        existingClaim: esphome-config
-        globalMounts:
-          - path: /config
       buildcache:
-        suffix: buildcache
-        size: 50Gi
         accessMode: ReadWriteOnce
+        size: 50Gi
+        suffix: buildcache
         advancedMounts:
           main:
             main:
               - path: /cache
+      config:
+        existingClaim: esphome-config
+        globalMounts:
+          - path: /config
       tmpfs:
         type: emptyDir
         advancedMounts:

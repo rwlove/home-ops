@@ -5,27 +5,27 @@ kind: HelmRelease
 metadata:
   name: &app radarr
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
 
+  interval: 30m
   values:
     controllers:
       main:
-        type: statefulset
-        annotations:
-          reloader.stakater.com/auto: "true"
-
         pod:
           securityContext:
-            runAsUser: 1000
-            runAsGroup: 1001
             fsGroup: 1001
             fsGroupChangePolicy: "OnRootMismatch"
+            runAsGroup: 1001
+            runAsUser: 1000
             supplementalGroups:
               - 100
 
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        type: statefulset
         containers:
           main:
             image:
@@ -45,10 +45,6 @@ spec:
               - secretRef:
                   name: *app
 
-            securityContext:
-              allowPrivilegeEscalation: false
-              readOnlyRootFilesystem: true
-              capabilities: {drop: ["ALL"]}
 
             resources:
               requests:
@@ -57,6 +53,10 @@ spec:
               limits:
                 memory: 800M
 
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: {drop: ["ALL"]}
     service:
       main:
         controller: main
@@ -66,6 +66,12 @@ spec:
 
     route:
       main:
+        annotations:
+          glance/name: "Radarr"
+          glance/show: "true"
+          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/radarr.png"
+          glance/id: "Media"
+
         hostnames:
           - "{{ .Release.Name }}.${SECRET_DOMAIN}"
         parentRefs:
@@ -76,21 +82,15 @@ spec:
           - backendRefs:
               - identifier: main
                 port: *httpPort
-        annotations:
-          glance/name: "Radarr"
-          glance/show: "true"
-          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/radarr.png"
-          glance/id: "Media"
-
     persistence:
       config:
         existingClaim: radarr-config-pvc
 
-      media:
-        existingClaim: radarr-media
-
       downloads:
         existingClaim: radarr-downloads
+
+      media:
+        existingClaim: radarr-media
 
       sabnzbd:
         existingClaim: sonarr-sabnzbd-downloads

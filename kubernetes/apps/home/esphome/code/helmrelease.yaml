@@ -5,11 +5,11 @@ kind: HelmRelease
 metadata:
   name: esphome-code
 spec:
-  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
 
+  interval: 30m
   dependsOn:
     - name: esphome
       namespace: home
@@ -17,10 +17,17 @@ spec:
   values:
     controllers:
       main:
-        type: statefulset
+        pod:
+          securityContext:
+            fsGroup: 0
+            fsGroupChangePolicy: OnRootMismatch
 
+            runAsGroup: 0
+            runAsUser: 0
         annotations:
           reloader.stakater.com/auto: "true"
+
+        type: statefulset
 
         containers:
           main:
@@ -46,13 +53,6 @@ spec:
               limits:
                 memory: 120M
 
-        pod:
-          securityContext:
-            runAsUser: 0
-            runAsGroup: 0
-            fsGroup: 0
-            fsGroupChangePolicy: OnRootMismatch
-
     service:
       main:
         controller: main
@@ -62,6 +62,12 @@ spec:
 
     route:
       main:
+        annotations:
+          glance/name: "ESPHome Code"
+          glance/show: "true"
+          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/vscode.png"
+          glance/id: "Home Automation"
+
         hostnames:
           - "esphome-code.${SECRET_DOMAIN}"
         parentRefs:
@@ -72,12 +78,6 @@ spec:
           - backendRefs:
               - identifier: main
                 port: *httpPort
-        annotations:
-          glance/name: "ESPHome Code"
-          glance/show: "true"
-          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/vscode.png"
-          glance/id: "Home Automation"
-
     persistence:
       config:
         existingClaim: esphome-config

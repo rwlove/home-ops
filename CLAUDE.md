@@ -1,3 +1,5 @@
+@.agents/instructions/sorting.instructions.md
+
 # Home Operations - AI Assistant Guide
 
 This is a **Home Kubernetes cluster monorepo** managed with GitOps (Flux, Renovate, GitHub Actions).

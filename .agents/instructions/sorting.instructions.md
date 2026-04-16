@@ -37,6 +37,10 @@ Whenever asked to sort these files, follow these instructions:
 
 - Items within the `spec.values` sections should be sorted as follows:
   - `defaultPodOptions`
+  - `controllers`
+  - `service`
+  - `route`
+  - `persistence`
   - Any other fields should be added next in alphabetical order.
 
 ### Detailed sorting rules for nested sections

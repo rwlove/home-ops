@@ -6,11 +6,11 @@ Whenever asked to sort these files, follow these instructions:
 
 ## Override rules for Kubernetes related file types
 
-- There should be no `namespace` field, remove it if it exists
+- There should be no `namespace` field, remove it if it exists, except for `cluster-apps` which must have `namespace: flux-system` below `name` in the `metadata` section.
 
 - Whenever they are present on the same level of a YAML structure, these fields should be sorted as follows:
   - "---" (required, insert at top if missing)
-  - "# yaml-language-server: $schema=" (if missing, add "# TODO: add schema")
+  - "# yaml-language-server: $schema=" (required, if missing, add "# TODO: add schema")
   - `apiVersion`
   - `kind`
   - `metadata`

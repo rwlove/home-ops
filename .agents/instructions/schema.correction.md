@@ -12,9 +12,11 @@ Whenever requested to fix or correct schemas, follow these instructions:
 
 ## apiVersion to schema mappings ##
 `kustomize.toolkit.fluxcd.io/v1` -> `# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/kustomization-kustomize-v1.json`
-`helm.toolkit.fluxcd.io/v2` -> `# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json`
+`helm.toolkit.fluxcd.io/v2` and `kind: HelmRelease` -> `# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json`
 `source.toolkit.fluxcd.io/v1` -> `# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/refs/heads/main/ocirepository-source-v1.json`
 `kustomize.config.k8s.io/v1beta1` -> `# yaml-language-server: $schema=https://json.schemastore.org/kustomization`
 `v1` and `kind: PersistentVolumeClaim` -> `# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/v1.26.1-standalone-strict/persistentvolumeclaim-v1.json`
 `v1` and `kind: PersistentVolume` -> `# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/refs/heads/master/master/persistentvolume-v1.json`
 `external-secrets.io/v1` -> `# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/external-secrets.io/externalsecret_v1.json`
+
+`# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json`

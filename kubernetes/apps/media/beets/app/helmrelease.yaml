@@ -1,0 +1,94 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app beets
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  values:
+    controllers:
+      beets:
+        type: cronjob
+        cronjob:
+          schedule: "0 */6 * * *"
+          concurrencyPolicy: Forbid
+          successfulJobsHistory: 3
+          failedJobsHistory: 3
+          backoffLimit: 1
+          activeDeadlineSeconds: 10800
+          ttlSecondsAfterFinished: 86400
+        pod:
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 988
+            fsGroupChangePolicy: OnRootMismatch
+        initContainers:
+          config-setup:
+            image:
+              repository: ghcr.io/dmfrey/bash
+              tag: 5.2.26-alpine3.20
+            command:
+              - "/usr/local/bin/bash"
+              - -c
+              - |
+                envsubst < /tmptmp/config.yaml > /tmp/config.yaml
+                exit 0
+            envFrom:
+              - secretRef:
+                  name: beets-secret
+        containers:
+          app:
+            image:
+              repository: lscr.io/linuxserver/beets
+              tag: 2.9.0
+            command:
+              - /bin/bash
+              - -c
+              - |
+                set -e
+                export PATH="/lsiopy/bin:$PATH"
+                echo "[$(date)] Starting beets incremental import..."
+                beet -c /tmp/config.yaml import -q /media
+                echo "[$(date)] Beets import complete."
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: false
+              capabilities: { drop: ["ALL"] }
+            resources:
+              requests:
+                cpu: 100m
+                memory: 512Mi
+              limits:
+                memory: 2Gi
+    persistence:
+      config:
+        existingClaim: beets-config-pvc
+
+      config-source:
+        type: configMap
+        name: beets-config
+        defaultMode: 0775
+        advancedMounts:
+          main:
+            config-setup:
+              - path: /tmptmp/config.yaml
+                subPath: config.yaml
+                readOnly: true
+      media:
+        existingClaim: beets-media-pvc
+
+      tmp:
+        type: emptyDir
+        medium: Memory
+
+      tmptmp:
+        type: emptyDir
+        medium: Memory

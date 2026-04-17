@@ -19,8 +19,25 @@ spec:
             runAsGroup: 568
             runAsUser: 568
 
+        type: statefulset
+
         annotations:
           reloader.stakater.com/auto: "true"
+
+        initContainers:
+          config-setup:
+            image:
+              repository: ghcr.io/dmfrey/bash
+              tag: 5.2.26-alpine3.20
+            command:
+              - "/usr/local/bin/bash"
+              - -c
+              - |
+                envsubst < /tmp/config.ini > /data/config.ini
+                exit 0
+            envFrom:
+              - secretRef:
+                  name: soularr-secret
 
         containers:
           main:
@@ -65,8 +82,21 @@ spec:
     persistence:
       data:
         existingClaim: soularr-data-pvc
-        globalMounts:
-          - path: /data
 
       downloads:
         existingClaim: slskd-downloads-pvc
+
+      config-file:
+        type: configMap
+        name: soularr-configmap
+        defaultMode: 0775
+        advancedMounts:
+          *app :
+            config-setup:
+              - path: /tmp/config.ini
+                subPath: config.ini
+                readOnly: true
+
+      tmp:
+        type: emptyDir
+        medium: Memory

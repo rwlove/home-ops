@@ -8,6 +8,7 @@ Whenever requested to fix or correct schemas, follow these instructions:
 - if you cannot find the right schema to apply to a file then apend "# TODO: apply schema"
 - schemas should always follow `---`
 - there is always a schema defined on the second line of a yaml file
+- remove incorrect schemas and replace them with the correct schema comment
 
 ## apiVersion to schema mappings ##
 `kustomize.toolkit.fluxcd.io/v1` -> `# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/kustomization-kustomize-v1.json`

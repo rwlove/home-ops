@@ -1,0 +1,55 @@
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres-romm
+spec:
+  instances: 2
+
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.7
+
+  primaryUpdateStrategy: unsupervised
+
+  failoverDelay: 30
+
+  replicationSlots:
+    highAvailability:
+      enabled: true
+
+  postgresql:
+    parameters:
+      pg_stat_statements.max: "10000"
+      pg_stat_statements.track: all
+      timezone: "America/New_York"
+      shared_buffers: 512MB
+      # Buffer WAL locally on the Primary
+      wal_keep_size: "1GB"
+      max_slot_wal_keep_size: "2GB"
+
+  storage:
+    size: 10Gi
+    storageClass: ceph-block
+
+  enableSuperuserAccess: true
+  superuserSecret:
+    name: cloudnative-pg
+
+  monitoring:
+    enablePodMonitor: true
+
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters: &params
+        barmanObjectName: garage-romm
+        serverName: postgres-romm-backup
+
+  bootstrap:
+    recovery:
+      source: source
+
+  externalClusters:
+    - name: source
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        parameters: *params

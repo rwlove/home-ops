@@ -5,32 +5,22 @@ kind: HelmRelease
 metadata:
   name: &app slskd
 spec:
+  interval: 30m
   chartRef:
     kind: OCIRepository
     name: app-template
-  interval: 30m
 
   values:
-    defaultPodOptions:
-      securityContext:
-        fsGroup: 1001
-        fsGroupChangePolicy: OnRootMismatch
-        runAsGroup: 1000
-        runAsNonRoot: true
-        runAsUser: 1000
-        seccompProfile: {type: RuntimeDefault}
-
     controllers:
       slskd:
+        type: statefulset
         annotations:
           reloader.stakater.com/auto: "true"
-        type: statefulset
         containers:
           app:
             image:
               repository: ghcr.io/slskd/slskd
-              tag: 0.25.1@sha256:ab9ed50e028b524cefdb7c1dd8ebca368a076e18441ee8ac2326473eb850b4c3
-
+              tag: 0.24.5@sha256:17ef977563be206f3b5932080b1e23883b2cb39dc9010640f6f39b4eaec887e3
             env:
               DOTNET_BUNDLE_EXTRACT_BASE_DIR: /tmp/.net
               SLSKD_APP_DIR: /config
@@ -52,36 +42,50 @@ spec:
                   httpGet:
                     path: /health
                     port: *httpPort
-                  failureThreshold: 3
                   initialDelaySeconds: 0
                   periodSeconds: 10
                   timeoutSeconds: 1
+                  failureThreshold: 3
               readiness: *probes
-
-            resources:
-              requests:
-                cpu: 25m
-                memory: 1G
-              limits:
-                memory: 1G
 
             securityContext:
               allowPrivilegeEscalation: false
-              capabilities: {drop: ["ALL"]}
               readOnlyRootFilesystem: true
+              capabilities: {drop: ["ALL"]}
+            resources:
+              requests:
+                cpu: 25m
+                memory: 300M
+              limits:
+                memory: 300M
+
+    defaultPodOptions:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 568
+        runAsGroup: 568
+        fsGroup: 568
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile: {type: RuntimeDefault}
 
     service:
       app:
         ports:
           http:
             port: *httpPort
+
+    serviceMonitor:
+      app:
+        serviceName: slskd
+        endpoints:
+          - port: http
+            scheme: http
+            path: /metrics
+            interval: 1m
+            scrapeTimeout: 10s
+
     route:
       main:
-        annotations:
-          glance/name: "Soulseek"
-          glance/show: "true"
-          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/soulseek.png"
-          glance/id: "Downloads"
         hostnames:
           - "soulseek.${SECRET_DOMAIN}"
         parentRefs:
@@ -92,6 +96,12 @@ spec:
           - backendRefs:
               - identifier: app
                 port: *httpPort
+        annotations:
+          startpunkt.ullberg.us/enable: "true"
+          startpunkt.ullberg.us/name: "Soulseek"
+          startpunkt.ullberg.us/icon: mdi:download
+          startpunkt.ullberg.us/group: Downloads
+          startpunkt.ullberg.us/instance: "admin"
 
     persistence:
       config:
@@ -104,20 +114,8 @@ spec:
           - path: /config/slskd.yml
             subPath: slskd.yml
             readOnly: true
-
-      media:
-        existingClaim: slskd-downloads-pvc
-
       tmp:
         type: emptyDir
 
-
-    serviceMonitor:
-      app:
-        endpoints:
-          - port: http
-            scheme: http
-            path: /metrics
-            interval: 1m
-            scrapeTimeout: 10s
-        serviceName: slskd
+      media:
+        existingClaim: slskd-downloads-pvc

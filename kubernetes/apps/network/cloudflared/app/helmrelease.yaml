@@ -48,29 +48,39 @@ spec:
             env:
               NO_AUTOUPDATE: true
               TUNNEL_CRED_FILE: /etc/cloudflared/creds/credentials.json
-              TUNNEL_METRICS: 0.0.0.0:8080
-              TUNNEL_ORIGIN_ENABLE_HTTP2: true
-              TUNNEL_TRANSPORT_PROTOCOL: quic
-              TUNNEL_POST_QUANTUM: true
               TUNNEL_ID:
                 valueFrom:
                   secretKeyRef:
-                    name: cloudflared-tunnel-secret
                     key: TunnelID
 
+                    name: cloudflared-tunnel-secret
+              TUNNEL_METRICS: 0.0.0.0:8080
+              TUNNEL_ORIGIN_ENABLE_HTTP2: true
+              TUNNEL_POST_QUANTUM: true
+              TUNNEL_TRANSPORT_PROTOCOL: quic
             probes:
-              liveness: &probes
+              liveness:
                 enabled: true
                 custom: true
                 spec:
+                  failureThreshold: 3
                   httpGet:
                     path: /ready
                     port: &httpPort 8080
                   initialDelaySeconds: 0
                   periodSeconds: 10
                   timeoutSeconds: 1
+              readiness:
+                enabled: true
+                custom: true
+                spec:
                   failureThreshold: 3
-              readiness: *probes
+                  httpGet:
+                    path: /ready
+                    port: *httpPort
+                  initialDelaySeconds: 0
+                  periodSeconds: 10
+                  timeoutSeconds: 1
               startup:
                 enabled: false
 
@@ -83,8 +93,9 @@ spec:
 
             securityContext:
               allowPrivilegeEscalation: false
+              capabilities:
+                drop: ["ALL"]
               readOnlyRootFilesystem: true
-              capabilities: {drop: ["ALL"]}
     service:
       main:
         controller: main
@@ -110,10 +121,10 @@ spec:
 
     serviceMonitor:
       main:
-        serviceName: *app
         endpoints:
           - port: http
             scheme: http
             path: /metrics
             interval: 1m
             scrapeTimeout: 30s
+        serviceName: *app

@@ -46,62 +46,73 @@ spec:
                   name: frigate
 
             probes:
-              liveness: &probes
+              liveness:
                 enabled: false
                 custom: true
                 spec:
+                  failureThreshold: 30
                   httpGet:
                     path: /api/version
                     port: &unsecurePort 5000
                   initialDelaySeconds: 0
                   periodSeconds: 10
                   timeoutSeconds: 7
+              readiness:
+                enabled: false
+                custom: true
+                spec:
                   failureThreshold: 30
-              readiness: *probes
+                  httpGet:
+                    path: /api/version
+                    port: *unsecurePort
+                  initialDelaySeconds: 0
+                  periodSeconds: 10
+                  timeoutSeconds: 7
               startup:
                 enabled: false
                 custom: true
                 spec:
+                  failureThreshold: 30
+
                   httpGet:
                     path: /api/version
                     port: *unsecurePort
                   periodSeconds: 10
                   timeoutSeconds: 1
-                  failureThreshold: 30
-
             resources:
               requests:
-                gpu.intel.com/i915: "1"
                 cpu: 3
+                gpu.intel.com/i915: "1"
                 memory: 14Gi
               limits:
                 gpu.intel.com/i915: "1"
                 memory: 14Gi
 
             securityContext:
+              capabilities:
+                drop: ["ALL"]
               privileged: true
-              capabilities: {drop: ["ALL"]}
 
     service:
       main:
         controller: main
         ports:
-          http:
-            port: &securePort 8971
-          rtsp:
-            port: 8554
           go2rtc-tcp:
             enabled: true
-            primary: false
             port: 1984
+            primary: false
             protocol: TCP
             targetPort: 1984
           go2rtc-udp:
             enabled: true
-            primary: false
             port: 1984
+            primary: false
             protocol: UDP
             targetPort: 1984
+          http:
+            port: &securePort 8971
+          rtsp:
+            port: 8554
           unsecure:
             port: *unsecurePort
 
@@ -109,15 +120,15 @@ spec:
     route:
       main:
         annotations:
-          startpunkt.ullberg.us/enable: "true"
-          startpunkt.ullberg.us/name: "Security Cameras"
-          startpunkt.ullberg.us/icon: mdi:cctv
-          startpunkt.ullberg.us/group: "security"
-          startpunkt.ullberg.us/instance: "user"
-          glance/name: "Frigate"
-          glance/show: "true"
           glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/frigate.png"
           glance/id: "Security"
+          glance/name: "Frigate"
+          glance/show: "true"
+          startpunkt.ullberg.us/enable: "true"
+          startpunkt.ullberg.us/group: "security"
+          startpunkt.ullberg.us/icon: mdi:cctv
+          startpunkt.ullberg.us/instance: "user"
+          startpunkt.ullberg.us/name: "Security Cameras"
         hostnames:
           - "{{ .Release.Name }}.${SECRET_DOMAIN}"
         parentRefs:

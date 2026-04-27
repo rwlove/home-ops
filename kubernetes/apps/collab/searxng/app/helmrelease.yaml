@@ -22,24 +22,34 @@ spec:
               tag: 2025.8.19-25647c2@sha256:81084f251c63f62b79ca15c25d29f7159812cfd06b6dc8ef720e007e6d4f8ad8
             env:
               SEARXNG_BASE_URL: https://search.${SECRET_DOMAIN}
-              SEARXNG_URL: https://search.${SECRET_DOMAIN}
               SEARXNG_PORT: &httpPort 8080
+              SEARXNG_URL: https://search.${SECRET_DOMAIN}
             envFrom:
               - secretRef:
                   name: searxng-secret
             probes:
-              liveness: &probes
+              liveness:
                 enabled: true
                 custom: true
                 spec:
+                  failureThreshold: 3
                   httpGet:
                     path: /stats
                     port: *httpPort
                   initialDelaySeconds: 0
                   periodSeconds: 10
                   timeoutSeconds: 1
+              readiness:
+                enabled: true
+                custom: true
+                spec:
                   failureThreshold: 3
-              readiness: *probes
+                  httpGet:
+                    path: /stats
+                    port: *httpPort
+                  initialDelaySeconds: 0
+                  periodSeconds: 10
+                  timeoutSeconds: 1
               startup:
                 enabled: false
             resources:
@@ -50,15 +60,15 @@ spec:
                 memory: 1Gi
             securityContext:
               allowPrivilegeEscalation: false
-              readOnlyRootFilesystem: true
               capabilities:
-                drop:
-                  - ALL
                 add:
                   - CHOWN
                   - SETGID
                   - SETUID
                   - DAC_OVERRIDE
+                drop:
+                  - ALL
+              readOnlyRootFilesystem: true
     service:
       app:
         controller: searxng
@@ -68,11 +78,11 @@ spec:
     route:
       app:
         annotations:
-          glance/name: "Searxng"
-          glance/show: "true"
           glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/searxng.png"
           glance/id: "Collaboration"
 
+          glance/name: "Searxng"
+          glance/show: "true"
         hostnames:
           - "search.${SECRET_DOMAIN}"
         parentRefs:
@@ -98,7 +108,7 @@ spec:
                 readOnly: true
 
       tmpfs:
-        type: emptyDir
         enabled: true
+        type: emptyDir
         globalMounts:
           - path: /tmp

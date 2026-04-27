@@ -1,5 +1,5 @@
 ---
-# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -15,8 +15,8 @@ spec:
   upgrade:
     cleanupOnFail: true
     remediation:
-      strategy: rollback
       retries: 3
+      strategy: rollback
   values:
     controllers:
       glance:
@@ -45,8 +45,9 @@ spec:
                 memory: 96Mi
             securityContext:
               allowPrivilegeEscalation: false
+              capabilities:
+                drop: ["ALL"]
               readOnlyRootFilesystem: true
-              capabilities: {drop: ["ALL"]}
           k8s-extension:
             image:
               repository: ghcr.io/lukasdietrich/glance-k8s/glance-k8s
@@ -69,8 +70,9 @@ spec:
             resources: {}
             securityContext:
               allowPrivilegeEscalation: false
+              capabilities:
+                drop: ["ALL"]
               readOnlyRootFilesystem: true
-              capabilities: {drop: ["ALL"]}
     service:
       glance:
         controller: glance
@@ -105,7 +107,6 @@ spec:
     rbac:
       bindings:
         list:
-          type: ClusterRoleBinding
           forceRename: *app
           roleRef:
             kind: ClusterRole
@@ -114,9 +115,9 @@ spec:
             - kind: ServiceAccount
               name: *app
               namespace: "{{ .Release.Namespace }}"
+          type: ClusterRoleBinding
       roles:
         list:
-          type: ClusterRole
           forceRename: *app
           rules:
             - apiGroups: ["", "metrics.k8s.io"]
@@ -134,6 +135,7 @@ spec:
             - apiGroups: ["apps"]
               resources: ["deployments", "statefulsets", "daemonsets"]
               verbs: ["list"]
+          type: ClusterRole
     serviceAccount:
       glance:
         enabled: true

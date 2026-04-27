@@ -41,8 +41,6 @@ spec:
               tag: 2.9.2@sha256:2a21bbf7a664a149024bbe1f776e3151f28ed9db15948270dcbffb89544a41f0
 
             env:
-              ZIGBEE2MQTT_DATA: &datadir /data
-              ZIGBEE2MQTT_CONFIG_FRONTEND_URL: https://zigbee.${SECRET_DOMAIN}
               ZIGBEE2MQTT_CONFIG_ADVANCED_LAST_SEEN: ISO_8601
               ZIGBEE2MQTT_CONFIG_ADVANCED_LOG_LEVEL: info # debug
               ZIGBEE2MQTT_CONFIG_ADVANCED_LOG_OUTPUT: >-
@@ -52,6 +50,7 @@ spec:
               ZIGBEE2MQTT_CONFIG_DEVICE_OPTIONS_RETAIN: "true"
               ZIGBEE2MQTT_CONFIG_EXPERIMENTAL_NEW_API: true
               ZIGBEE2MQTT_CONFIG_FRONTEND_PORT: &httpPort 8080
+              ZIGBEE2MQTT_CONFIG_FRONTEND_URL: https://zigbee.${SECRET_DOMAIN}
               ZIGBEE2MQTT_CONFIG_HOMEASSISTANT_DISCOVERY_TOPIC: homeassistant
               ZIGBEE2MQTT_CONFIG_HOMEASSISTANT_STATUS_TOPIC: homeassistant/status
               ZIGBEE2MQTT_CONFIG_MQTT_INCLUDE_DEVICE_INFORMATION: "true"
@@ -60,11 +59,12 @@ spec:
               ZIGBEE2MQTT_CONFIG_MQTT_SERVER: mqtt://emqx.home.svc.cluster.local:1883
               ZIGBEE2MQTT_CONFIG_MQTT_VERSION: 5
               ZIGBEE2MQTT_CONFIG_PERMIT_JOIN: "false"
+              ZIGBEE2MQTT_CONFIG_SERIAL_ADAPTER: zstack
+
               ZIGBEE2MQTT_CONFIG_SERIAL_BAUDRATE: 115200
               ZIGBEE2MQTT_CONFIG_SERIAL_DISABLE_LED: "false"
               ZIGBEE2MQTT_CONFIG_SERIAL_PORT: &serialdevice /dev/ttyACM0
-              ZIGBEE2MQTT_CONFIG_SERIAL_ADAPTER: zstack
-
+              ZIGBEE2MQTT_DATA: &datadir /data
             envFrom:
               - secretRef:
                   name: zigbee2mqtt-secret
@@ -95,8 +95,8 @@ spec:
         controller: main
         ports:
           http:
-            primary: true
             port: *httpPort
+            primary: true
           websocket:
             enabled: true
             port: 9000
@@ -104,11 +104,11 @@ spec:
     route:
       main:
         annotations:
-          glance/name: "Zigbee 2 MQTT"
-          glance/show: "true"
-          glance/id: "Home Automation"
           glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/zigbee2mqtt-light.png"
 
+          glance/id: "Home Automation"
+          glance/name: "Zigbee 2 MQTT"
+          glance/show: "true"
         hostnames:
           - "{{ .Release.Name }}.${SECRET_DOMAIN}"
         parentRefs:
@@ -134,10 +134,10 @@ spec:
     serviceMonitor:
       main:
         enabled: true
-        serviceName: &app zigbee
         endpoints:
           - port: metrics
             scheme: http
             path: /metrics
             interval: 1m
             scrapeTimeout: 10s
+        serviceName: &app zigbee

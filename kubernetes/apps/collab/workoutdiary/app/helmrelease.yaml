@@ -12,13 +12,13 @@ spec:
   interval: 30m
   values:
     controllers:
-      main:
+      api:
         annotations:
           reloader.stakater.com/auto: "true"
 
         type: statefulset
         containers:
-          main:
+          api:
             image:
               repository: ghcr.io/rwlove/workoutdiary-api
               tag: 0.3
@@ -28,17 +28,49 @@ spec:
                 cpu: 15m
                 memory: 128M
               limits:
-                memory: 256M
+                memory: 128M
+
+      frontend:
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        type: statefulset
+        containers:
+          api:
+            image:
+              repository: ghcr.io/rwlove/workoutdiary-frontend
+              tag: 0.3
+
+            resources:
+              requests:
+                cpu: 15m
+                memory: 128M
+              limits:
+                memory: 128M
 
     service:
-      main:
-        controller: main
+      api:
+        controller: api
         ports:
           http:
-            port: &httpPort 8851
+            port: &apiPort 8851
+      frontend:
+        controller: frontend
+        ports:
+          http:
+            port: &httpPort 8080
 
     route:
-      main:
+      api:
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: api
+                port: *apiPort
+      frontend:
         annotations:
           glance/name: "Workout Diary"
           glance/show: "true"
@@ -52,7 +84,7 @@ spec:
             sectionName: https
         rules:
           - backendRefs:
-              - identifier: main
+              - identifier: frontend
                 port: *httpPort
 
     persistence:

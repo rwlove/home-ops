@@ -110,3 +110,63 @@
                   parameter:
                     source: payload
                     name: pull_request.user.login
+- id: github-rwlove-pump-package
+  execute-command: /config/github-renovate-operator.sh
+  pass-arguments-to-command:
+    - # job name
+      source: string
+      name: rwlove-home-ops
+    - # namespace
+      source: string
+      name: renovate
+    - # project (Renovate scans home-ops, not pump)
+      source: string
+      name: rwlove/home-ops
+    - # Renovate Operator webhook URL
+      source: string
+      name: http://renovate-operator.renovate.svc.cluster.local:8082
+  trigger-rule:
+    and:
+      - # Validate the webhook secret
+        match:
+          type: payload-hmac-sha1
+          secret: >-
+            {{ getenv "GITHUB_WEBHOOK_SECRET" | js }}
+          parameter:
+            source: header
+            name: x-hub-signature
+      - # Trigger only for the rwlove repo owner
+        match:
+          type: value
+          value: rwlove
+          parameter:
+            source: payload
+            name: repository.owner.login
+      - # Trigger only for the pump repo
+        match:
+          type: value
+          value: pump
+          parameter:
+            source: payload
+            name: repository.name
+      - # Trigger on GitHub package events
+        match:
+          type: value
+          value: package
+          parameter:
+            source: header
+            name: x-github-event
+      - # Trigger only on package publish
+        match:
+          type: value
+          value: published
+          parameter:
+            source: payload
+            name: action
+      - # Trigger only for container packages
+        match:
+          type: value
+          value: CONTAINER
+          parameter:
+            source: payload
+            name: package.package_type

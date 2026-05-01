@@ -1,0 +1,58 @@
+---
+# yaml-language-server: $schema=https://k8s-schemas.bjw-s.dev/renovate-operator.mogenius.com/renovatejob_v1alpha1.json
+apiVersion: renovate-operator.mogenius.com/v1alpha1
+kind: RenovateJob
+metadata:
+  name: rwlove-pump
+  namespace: renovate
+spec:
+  discoveryFilters:
+    - "rwlove/home-ops"
+  extraEnv:
+    - name: LOG_LEVEL
+      value: "debug"
+    - name: RENOVATE_ENDPOINT
+      value: https://api.github.com/
+    - name: RENOVATE_PLATFORM
+      value: github
+    - name: RENOVATE_PLATFORM_COMMIT
+      value: "true"
+    - name: DOCKERHUB_USERNAME
+      valueFrom:
+        secretKeyRef:
+          name: renovate-operator-secret
+          key: DOCKERHUB_USERNAME
+    - name: DOCKERHUB_TOKEN
+      valueFrom:
+        secretKeyRef:
+          name: renovate-operator-secret
+          key: DOCKERHUB_TOKEN
+    - name: RENOVATE_HOST_RULES
+      value: >-
+        [{"hostType":"docker","matchHost":"docker.io","username":"$(DOCKERHUB_USERNAME)","password":"$(DOCKERHUB_TOKEN)"}]
+    - name: RENOVATE_REDIS_URL
+      value: redis://dragonfly.databases.svc.cluster.local:6379
+    - name: RENOVATE_REPOSITORY_CACHE
+      value: enabled
+    - name: RENOVATE_CACHE_PRIVATE_PACKAGES
+      value: "true"
+    # Restrict Renovate to only the pump HelmRelease so a webhook-triggered
+    # run skips the rest of the repo.
+    - name: RENOVATE_INCLUDE_PATHS
+      value: >-
+        ["kubernetes/apps/collab/pump/app/helmrelease.yaml"]
+  image: ghcr.io/renovatebot/renovate:43.160.4@sha256:00185c0d63462acec8331cc9a94dcd74a763f2765fca0edcc3ff568af1dc8104
+  parallelism: 1
+  provider:
+    name: github
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  # Webhook-driven; cron set to once a year so scheduled runs are effectively a no-op.
+  schedule: 0 0 1 1 *
+  secretRef: renovate-home-ops
+  webhook:
+    enabled: true
+    authentication:
+      enabled: false

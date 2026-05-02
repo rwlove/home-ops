@@ -1,4 +1,7 @@
-@.agents/instructions/sorting.instructions.md
+@.agents/instructions/flux.sorting.instructions.md
+@.agents/instructions/helmfile.sorting.instructions.md
+@.agents/instructions/kustomize.config.sorting.instructions.md
+@.agents/instructions/schema.correction.md
 
 # Home Operations - AI Assistant Guide
 

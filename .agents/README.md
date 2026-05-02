@@ -34,6 +34,7 @@ skills can discover them.
 | `add-cnpg-cluster.md` | Scaffold a CNPG postgres cluster with Garage-backed barman backups. |
 | `add-mcp-server.md` | Scaffold an MCP server under `mcp-system/` with the sidecar `MCPServerRegistration`. |
 | `dependency-mapper.md` | Build and validate the Flux Kustomization dependency graph. |
+| `expose-app.md` | Attach an HTTPRoute to a per-app Gateway listener with shim-managed TLS. |
 | `flux-suspend.md` | Document the suspend / unsuspend workflow and the `disable-<app>` commit pattern. |
 | `pr-review.md` | Apply the repo's PR review standards to a Renovate or manual PR. |
 

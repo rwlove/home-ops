@@ -98,3 +98,41 @@ spec:
         memory: 512Mi
       limits:
         memory: 2Gi
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: StatefulSet
+              name: kubeclaw-gateway
+            patch: |
+              apiVersion: apps/v1
+              kind: StatefulSet
+              metadata:
+                name: kubeclaw-gateway
+              spec:
+                template:
+                  spec:
+                    affinity:
+                      nodeAffinity:
+                        requiredDuringSchedulingIgnoredDuringExecution:
+                          nodeSelectorTerms:
+                            - matchExpressions:
+                                - key: node-role.kubernetes.io/control-plane
+                                  operator: DoesNotExist
+                    containers:
+                      - name: gateway
+                        livenessProbe:
+                          $patch: replace
+                          tcpSocket:
+                            port: gateway
+                          initialDelaySeconds: 60
+                          periodSeconds: 30
+                          timeoutSeconds: 10
+                          failureThreshold: 5
+                        readinessProbe:
+                          $patch: replace
+                          tcpSocket:
+                            port: gateway
+                          periodSeconds: 10
+                          timeoutSeconds: 5
+                          failureThreshold: 3

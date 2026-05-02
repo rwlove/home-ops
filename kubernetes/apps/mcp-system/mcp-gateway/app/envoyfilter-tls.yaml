@@ -1,0 +1,42 @@
+---
+# yaml-language-server: $schema=https://github.com/datreeio/CRDs-catalog/raw/refs/heads/main/networking.istio.io/envoyfilter_v1alpha3.json
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: mcp-ext-proc-mcp-system-gateway-tls
+spec:
+  configPatches:
+    - applyTo: HTTP_FILTER
+      match:
+        context: GATEWAY
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+              subFilter:
+                name: envoy.filters.http.router
+          portNumber: 443
+      patch:
+        operation: INSERT_FIRST
+        value:
+          name: envoy.filters.http.ext_proc
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor
+            allow_mode_override: true
+            failure_mode_allow: false
+            grpc_service:
+              envoy_grpc:
+                cluster_name: outbound|50051||mcp-gateway.mcp-system.svc.cluster.local
+            message_timeout: 10s
+            mutation_rules:
+              allow_all_routing: true
+            processing_mode:
+              request_body_mode: BUFFERED
+              request_header_mode: SEND
+              request_trailer_mode: SKIP
+              response_body_mode: NONE
+              response_header_mode: SEND
+              response_trailer_mode: SKIP
+  workloadSelector:
+    labels:
+      gateway.networking.k8s.io/gateway-name: mcp-gateway

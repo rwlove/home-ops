@@ -206,21 +206,105 @@ window is rolling, not calendar — at 10/day you hit the cap on day
 wildcard's renewal pressure.</li>
 <li><strong>Total elapsed</strong>: ~5 days for 22 certs.</li>
 </ul>
+<h2 id="critical-gotchas-learned-the-hard-way"><a class="header" href="#critical-gotchas-learned-the-hard-way">Critical gotchas (learned the hard way)</a></h2>
+<p>Three things bit us during the first execution attempt on 2026-05-02.
+Read these <em>before</em> writing any YAML.</p>
+<h3 id="1-the-gateway-shim-must-be-explicitly-enabled"><a class="header" href="#1-the-gateway-shim-must-be-explicitly-enabled">1. The gateway-shim must be explicitly enabled</a></h3>
+<p>cert-manager v1.16+ does <strong>not</strong> enable the gateway-shim by default,
+contrary to what some release notes suggest. You need
+<code>config.enableGatewayAPI: true</code> in the Helm values. Without it,
+annotating a Gateway with <code>cert-manager.io/cluster-issuer</code> is <strong>silently
+inert</strong> — no Certificate is ever created. Verify before Phase 0:</p>
+<pre><code class="language-sh">kubectl get cm -n cert-manager cert-manager -o jsonpath='{.data.config\.yaml}'
+# Expect to see: enableGatewayAPI: true
+</code></pre>
+<p>If absent, set it in the chart values and roll out cert-manager <em>first</em>.</p>
+<h3 id="2-the-reflector-pattern-fights-the-gateway-shim-across-namespaces"><a class="header" href="#2-the-reflector-pattern-fights-the-gateway-shim-across-namespaces">2. The reflector pattern fights the gateway-shim across namespaces</a></h3>
+<p>This cluster mirrors <code>network/thesteamedcrab-com-tls</code> to <code>istio-system</code>
+and <code>mcp-system</code> via reflector. The gateway-shim is <strong>per-namespace</strong>:
+it creates a Certificate in the same namespace as the Gateway. So
+annotating the istio Gateway whose listener references the
+reflector-mirrored Secret causes:</p>
+<ol>
+<li>shim creates a <code>Certificate</code> in <code>istio-system</code> targeting the
+mirrored Secret's name</li>
+<li>cert-manager re-issues from ACME because "Secret was previously
+issued by a different issuer" (1 ACME order against the budget)</li>
+<li>ongoing fight: shim's Certificate vs reflector for ownership of
+the Secret</li>
+</ol>
+<p><strong>Don't annotate any Gateway whose listener still references a
+reflector-mirrored Secret.</strong> Migrate that Gateway's HTTPRoutes to
+per-app listeners with their own Secret names <em>first</em>, then remove
+the wildcard listener and the reflector dependency, then add the
+shim annotation.</p>
+<p>For this cluster: the istio Gateway is excluded from Phase 0. It gets
+annotated only after its (small) HTTPRoute set is migrated and the
+wildcard listener is removed.</p>
+<h3 id="3-httproute-sectionname-has-no-fallback"><a class="header" href="#3-httproute-sectionname-has-no-fallback">3. HTTPRoute <code>sectionName</code> has no fallback</a></h3>
+<p>A HTTPRoute attached to a listener that goes <code>Programmed=False</code>
+<strong>does not fall back to other listeners</strong> that match its hostname.
+The route is just down. The wildcard listener you keep around
+"as a backstop" only catches HTTPRoutes that explicitly point at it
+via <code>sectionName</code>.</p>
+<p><strong>Implication for the canary</strong>: don't pick an app whose downtime is
+unacceptable. The canary's listener is <code>Programmed=False</code> until ACME
+issues, which can be ~30s but can be much longer if anything's wrong.</p>
 <h2 id="phase-0--annotation-prep"><a class="header" href="#phase-0--annotation-prep">Phase 0 — Annotation prep</a></h2>
-<p>Verified 2026-05-02 against cert-manager v1.17.1: the gateway-shim is
-<strong>Secret-aware</strong>. When a listener's <code>certificateRefs</code> Secret is
-already populated by a manual <code>Certificate</code> resource, the shim does
-not create a duplicate. So adding the shim annotations to a Gateway
-that still has the wildcard listener is a no-op for that listener
-and only affects new (Secret-missing) listeners added in later
-phases.</p>
-<p>Test that produced this result: a scratch namespace with a manual
-self-signed <code>Certificate</code> producing <code>scratch-tls</code>, plus a Gateway
-referencing <code>scratch-tls</code> via <code>certificateRefs</code> <em>and</em> carrying the
-<code>cert-manager.io/issuer</code> annotation. After 30s, only the original
-<code>Certificate</code> existed — no shim-created duplicate.</p>
-<h3 id="01-add-the-annotations-to-each-gateway"><a class="header" href="#01-add-the-annotations-to-each-gateway">0.1 Add the annotations to each Gateway</a></h3>
-<p>For each of <code>external</code>, <code>internal</code>, <code>mcp-gateway</code>, <code>istio</code>:</p>
+<p>Verified 2026-05-02 against cert-manager v1.17.1 with
+<code>config.enableGatewayAPI: true</code>: when the shim sees a listener whose
+referenced Secret doesn't exist (or isn't owned by an in-namespace
+Certificate), it creates one. When an in-namespace Certificate already
+owns the Secret, the shim is a no-op.</p>
+<p>For this cluster, that means it's <strong>safe</strong> to annotate Gateways in the
+<code>network</code> namespace (which holds the manual <code>thesteamedcrab.com</code>
+Certificate that owns <code>thesteamedcrab-com-tls</code>), and <strong>unsafe</strong> to
+annotate Gateways in <code>istio-system</code> or <code>mcp-system</code> while they still
+reference the reflector-mirrored Secret.</p>
+<h3 id="01-pre-flight-test-one-time"><a class="header" href="#01-pre-flight-test-one-time">0.1 Pre-flight test (one-time)</a></h3>
+<p>Confirm the shim creates Certificates for new Secret refs:</p>
+<pre><code class="language-sh">kubectl apply -f - &lt;&lt;'EOF'
+---
+apiVersion: v1
+kind: Namespace
+metadata: { name: shim-test }
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata: { name: ss, namespace: shim-test }
+spec: { selfSigned: {} }
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: scratch
+  namespace: shim-test
+  annotations:
+    cert-manager.io/issuer: ss
+spec:
+  gatewayClassName: envoy
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: bar.shim-test.thesteamedcrab.com
+      allowedRoutes: { namespaces: { from: Same } }
+      tls:
+        certificateRefs: [{ kind: Secret, name: bar-shim-tls }]
+EOF
+sleep 20
+kubectl get certificate -n shim-test
+kubectl delete namespace shim-test
+</code></pre>
+<p>Expected: a <code>bar-shim-tls</code> Certificate appears, <code>Ready: True</code>. If
+nothing appears within 30s, the shim isn't running — fix that before
+proceeding.</p>
+<h3 id="02-add-the-annotations"><a class="header" href="#02-add-the-annotations">0.2 Add the annotations</a></h3>
+<p>Annotate <strong>only</strong> the <code>external</code> and <code>internal</code> Gateways
+(<code>network</code> namespace). Skip <code>istio</code> and <code>mcp-gateway</code> for now —
+they're in namespaces that depend on the reflector. They'll be
+annotated in Phase 5 after their HTTPRoutes have moved off the
+shared Secret.</p>
 <pre><code class="language-yaml">metadata:
   annotations:
     # ...existing annotations...
@@ -232,24 +316,17 @@ referencing <code>scratch-tls</code> via <code>certificateRefs</code> <em>and</e
 Phase 1 is done:</p>
 <pre><code class="language-yaml">    cert-manager.io/cluster-issuer: cluster-internal-ca
 </code></pre>
-<p>(or keep <code>letsencrypt-production</code> and skip the private CA entirely if
-you adopted the all-ACME alternative).</p>
-<h3 id="02-verify-nothing-changed"><a class="header" href="#02-verify-nothing-changed">0.2 Verify nothing changed</a></h3>
-<pre><code class="language-sh"># Should still be exactly one Certificate, the wildcard
+<h3 id="03-verify"><a class="header" href="#03-verify">0.3 Verify</a></h3>
+<pre><code class="language-sh"># Cert count must be unchanged after reconcile.
 kubectl get certificate -A
 
-# Confirm annotations landed
-kubectl get gateway -n network external -o jsonpath='{.metadata.annotations}' | jq
-
-# Smoke-test a few hostnames serve the existing wildcard cert
-echo | openssl s_client -connect photos.thesteamedcrab.com:443 \
-  -servername photos.thesteamedcrab.com 2&gt;/dev/null \
-  | openssl x509 -noout -subject -dates
+# If a new Certificate appears in any namespace, the shim hit
+# something it shouldn't have. Stop and investigate.
 </code></pre>
-<p>If a second Certificate appeared in any namespace after applying the
-annotations, <strong>stop</strong> — the shim's behavior may have changed in a
-newer cert-manager version. Re-run the verification test in a scratch
-namespace before continuing.</p>
+<p>If a Certificate appeared, check whether it's in a namespace whose
+Gateway you annotated. If yes, you almost certainly hit case (2) above
+— the listener references a reflector-mirrored Secret. Revert the
+annotation and migrate that Gateway separately later.</p>
 <h2 id="phase-1--internal-gateway--private-ca-parallel-track"><a class="header" href="#phase-1--internal-gateway--private-ca-parallel-track">Phase 1 — Internal Gateway → private CA (parallel track)</a></h2>
 <p>This phase is independent of the ACME phases below — it has no rate
 limit concerns and can run in any order or in parallel.</p>
@@ -319,6 +396,15 @@ migrated, so rollback is the same as the ACME track: revert
 public visibility). Avoid the highest-traffic apps (immich, jellyfin)
 until after canary; pick something like the github webhook or a
 seldom-used bookmark.</p>
+<blockquote>
+<p>⚠ <strong>No fallback.</strong> Once you flip the HTTPRoute's <code>sectionName</code> to
+the new per-app listener, the route is bound to that listener
+<em>only</em>. If ACME issuance fails or is slow, the route returns 404 (or
+connection refused) until the cert lands — the wildcard listener
+does <strong>not</strong> serve as a backstop. Pick a canary you can afford to
+have down for ~30s in the happy case and several minutes in the
+failure case.</p>
+</blockquote>
 <h3 id="21-add-a-per-app-listener"><a class="header" href="#21-add-a-per-app-listener">2.1 Add a per-app listener</a></h3>
 <pre><code class="language-yaml">spec:
   listeners:
@@ -335,14 +421,9 @@ seldom-used bookmark.</p>
           - kind: Secret
             name: &lt;app&gt;-tls
 </code></pre>
-<p>If Phase 0.1 verified the shim is Secret-aware, add the annotation to
-the Gateway in this same commit:</p>
-<pre><code class="language-yaml">metadata:
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-production
-    cert-manager.io/duration: "168h"        # 7d
-    cert-manager.io/renew-before: "48h"
-</code></pre>
+<p>The Gateway already carries the shim annotations from Phase 0; this
+new listener picks them up automatically. cert-manager will create a
+<code>&lt;app&gt;-tls</code> Certificate within seconds of the listener appearing.</p>
 <h3 id="22-flip-the-httproutes-sectionname"><a class="header" href="#22-flip-the-httproutes-sectionname">2.2 Flip the HTTPRoute's sectionName</a></h3>
 <pre><code class="language-diff">   parentRefs:
      - name: external
@@ -366,9 +447,10 @@ impact.</p>
 auto-renewed at least once (<code>renewBefore: 48h</code> means renewal kicks in
 on day 5 — wait for that).</p>
 <h2 id="phase-3--wave-migration-on-public-gateways"><a class="header" href="#phase-3--wave-migration-on-public-gateways">Phase 3 — Wave migration on public Gateways</a></h2>
-<p>Goal: migrate the remaining ~21 public-facing HTTPRoutes (10 on
-external, 9 on mcp-gateway, 2 on istio) at <strong>5 per day</strong> with 12h
-soaks.</p>
+<p>Goal: migrate the remaining ~19 public-facing HTTPRoutes on Gateways
+that are already annotated (<code>external</code> 10, <code>mcp-gateway</code> 9) at
+<strong>5 per day</strong> with 12h soaks. The 2 istio routes are deferred to
+Phase 5.</p>
 <h3 id="per-wave-procedure"><a class="header" href="#per-wave-procedure">Per-wave procedure</a></h3>
 <p>For each batch of 5:</p>
 <ol>
@@ -389,15 +471,16 @@ kubectl get challenge -A
 </li>
 </ol>
 <h3 id="recommended-wave-order"><a class="header" href="#recommended-wave-order">Recommended wave order</a></h3>
-<p>Smallest count first to surface issues with smaller blast radius:</p>
+<p>Public Gateway with the manual <code>Certificate</code> first (lower risk —
+that's where Phase 0 was verified safe):</p>
 <ol>
-<li>Wave 1: <code>istio</code> (2 routes — fold into wave 2 if room)</li>
-<li>Wave 2: <code>external</code> (5 of 10, the canary already done)</li>
-<li>Wave 3: <code>external</code> (the other 5 + remainder)</li>
-<li>Wave 4: <code>mcp-gateway</code> (5 of 9)</li>
-<li>Wave 5: <code>mcp-gateway</code> (the other 4)</li>
+<li>Wave 1: <code>external</code> (5 of 10; canary already done)</li>
+<li>Wave 2: <code>external</code> (the other 5)</li>
+<li>Wave 3: <code>mcp-gateway</code> (5 of 9)</li>
+<li>Wave 4: <code>mcp-gateway</code> (the other 4)</li>
 </ol>
-<p>Total ~5 calendar days at one wave per ~12h.</p>
+<p>Total ~4 calendar days at one wave per ~12h. The 2 istio routes are
+handled in Phase 5 once the reflector dependency is removed.</p>
 <h3 id="what-to-do-if-you-hit-a-rate-limit-error"><a class="header" href="#what-to-do-if-you-hit-a-rate-limit-error">What to do if you hit a rate-limit error</a></h3>
 <p>cert-manager surfaces LE rate-limit responses in the Order resource:</p>
 <pre><code class="language-sh">kubectl get order -A | grep -i rate
@@ -416,6 +499,64 @@ Failing.</li>
 <h2 id="phase-4--cleanup"><a class="header" href="#phase-4--cleanup">Phase 4 — Cleanup</a></h2>
 <p>Run only after every HTTPRoute on every Gateway has been migrated
 and soaked for 7+ days.</p>
+<h3 id="40-istio-gateway-migration-prerequisite"><a class="header" href="#40-istio-gateway-migration-prerequisite">4.0 istio Gateway migration (prerequisite)</a></h3>
+<p>The istio Gateway was excluded from Phase 0 / Phase 3 because its
+listener references the reflector-mirrored Secret. Migrate its
+HTTPRoutes (~2: kiali and one redirect) <em>before</em> deleting the
+wildcard Certificate.</p>
+<p>For each istio HTTPRoute (<code>&lt;app&gt;</code> = e.g. <code>kiali</code>):</p>
+<ol>
+<li>
+<p>Create a manual Certificate in <code>istio-system</code> (no shim
+involvement — the istio Gateway is still un-annotated):</p>
+<pre><code class="language-yaml">apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: &lt;app&gt;
+  namespace: istio-system
+spec:
+  secretName: &lt;app&gt;-tls
+  issuerRef:
+    name: letsencrypt-production
+    kind: ClusterIssuer
+  dnsNames:
+    - &lt;app&gt;.${SECRET_DOMAIN}
+  duration: 168h
+  renewBefore: 48h
+</code></pre>
+</li>
+<li>
+<p>Wait for it to be Ready (1 ACME issuance per cert).</p>
+</li>
+<li>
+<p>Add a per-app listener to the istio Gateway referencing
+<code>&lt;app&gt;-tls</code>, then flip the HTTPRoute's <code>sectionName</code>.</p>
+</li>
+<li>
+<p>Soak briefly. Confirm the HTTPRoute serves via the new listener.</p>
+</li>
+</ol>
+<p>After all istio HTTPRoutes are migrated:</p>
+<ol start="5">
+<li>
+<p>Remove the wildcard listener from the istio Gateway.</p>
+</li>
+<li>
+<p>Remove <code>istio-system</code> from the wildcard Certificate's
+<code>reflector...reflection-allowed-namespaces</code> annotation list (in
+<code>kubernetes/apps/network/envoy-gateway/config/certificate.yaml</code>).
+This stops new mirroring; existing Secret in istio-system can be
+deleted manually if desired (no consumers).</p>
+</li>
+<li>
+<p>Now the istio Gateway has no reflector-mirrored Secret. Add the
+<code>cert-manager.io/cluster-issuer</code> annotations from Phase 0. The
+shim is now safe — every listener's referenced Secret is owned by
+an in-namespace manual Certificate. (Optionally, delete the manual
+Certificates afterward and let the shim recreate them, at the
+cost of one ACME order per cert.)</p>
+</li>
+</ol>
 <h3 id="41-verify-no-consumers-reference-the-wildcard-secret"><a class="header" href="#41-verify-no-consumers-reference-the-wildcard-secret">4.1 Verify no consumers reference the wildcard Secret</a></h3>
 <pre><code class="language-sh">grep -rn 'thesteamedcrab-com-tls\|${SECRET_DOMAIN/./-}-tls' kubernetes/
 </code></pre>

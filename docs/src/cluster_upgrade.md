@@ -249,12 +249,19 @@ replacement.
 
      kubeadm upgrade node
      systemctl daemon-reload
-     systemctl restart crio
-     systemctl restart kubelet
+
+     # Multi-minor cri-o jumps (1.28 → 1.34) leave stale container
+     # refs that hang internal_wipe forever. Skip the regular start;
+     # do the kill+wipe+start dance up front.
+     systemctl kill --signal=SIGKILL crio || true
+     crio wipe -f
+     systemctl start crio
+     systemctl start kubelet
 
      # Verify and clean up rollback files only after success
      rpm -q cri-o kubelet kubeadm kubectl
-     # rm /usr/bin/*.manual    # only after smoke-test confirms success
+     systemctl is-active crio kubelet
+     # rm /usr/bin/*.manual-pre-1.34.7    # only after smoke-test confirms success
    '
    ```
 4. Smoke-test, uncordon, wait for `HEALTH_OK` — same as above.
@@ -292,6 +299,7 @@ kubectl run nvidia-smoke --rm -i --restart=Never \
 | `longhorn-manager-X` stuck CrashLoopBackOff with `bind: address already in use` on port 9502 | Old longhorn-manager process orphaned by a previous container; cri-o lost track of it but the binary is still bound | `ssh root@<node> 'pgrep -af "longhorn-manager -d daemon"'` → `kill -9 <pid>`; then `kubectl delete pod -n longhorn-system longhorn-manager-X` |
 | Multiple CNPG replica pods stuck Init:CrashLoopBackOff on a recently-broken node | Their Longhorn volumes failed to attach during the node's outage; pods are now in 5-minute kubelet backoff | Once Longhorn recovers, `kubectl delete pod` each one to force immediate retry. Volume attaches succeed. |
 | Replicas-cascading-CNPG-PDB-blocks-drain | One replica unhealthy in cluster X means PDB has 0 disruptions; subsequent drain anywhere blocks on cluster X's PDB | Heal the unhealthy replica before draining its peer's host. The Longhorn pre-drain step (above) prevents this. |
+| cri-o stuck in `activating (start)` indefinitely after package upgrade; logs flood with `Killing container <id> failed: container does not exist` | cri-o's `internal_wipe = true` tries to kill phantom containers left in `/var/lib/containers/storage/` by the previous version, but their runc state in `/run/crun` is gone. Worse across multi-minor jumps (1.28 → 1.34). | `systemctl kill --signal=SIGKILL crio` → `crio wipe -f` (clears container refs, keeps images) → `systemctl start crio` → `systemctl start kubelet`. Hit on worker6 during the manual-install upgrade — likely also needed on worker5 for the same reason. |
 ```
 
 ### Master procedure

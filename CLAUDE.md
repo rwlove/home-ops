@@ -49,6 +49,18 @@ Flux recursively searches `kubernetes/apps/` for `kustomization.yaml` files. Eac
 - Apps use `HelmRelease` via Flux, rarely raw manifests
 - Clusters are mostly identical except for app selections and sizing
 
+### Flux suspend / disable workflow
+
+Look out for the `disable-<app>` / `Revert "disable-<app>"` commit
+pattern in `git log`. The user manually pauses an app's reconciliation
+when they need to break the GitOps loop temporarily — typically when a
+release is in flight and they don't want Flux clobbering their hand
+edits, or to take an app offline for maintenance.
+
+**Do not** revert these on the user's behalf, "fix" them, or unsuspend
+a Flux Kustomization without explicit instruction. If a `Suspended:
+True` status shows up unexpectedly, ask before touching it.
+
 ## Common Operations
 
 - **Add app**: Create in `kubernetes/apps/` with kustomization + HelmRelease

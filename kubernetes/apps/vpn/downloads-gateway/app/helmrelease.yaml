@@ -40,7 +40,13 @@ spec:
             # connectivity check BEFORE establishing the VXLAN tunnel. Pod-gateway's
             # gateway_init.sh sets `iptables INPUT policy DROP` and only accepts
             # VXLAN/DHCP/loopback — ICMP from clients is dropped, so the client init
-            # fails with "100% packet loss". Allow ICMP via postStart.
+            # fails with "100% packet loss". Insert an ICMP ACCEPT rule via postStart.
+            #
+            # postStart blocks the container from being marked "Started", so it
+            # MUST NOT wait synchronously for gateway_init.sh (the container's main
+            # command) — that's a deadlock. Instead, fork a background poller that
+            # tries to insert the rule for ~30s, then exit immediately. The rule is
+            # idempotent: -C checks first, -I inserts at position 1 if missing.
             lifecycle:
               postStart:
                 exec:
@@ -48,11 +54,18 @@ spec:
                     - /bin/sh
                     - -c
                     - |
-                      until iptables -L INPUT -n 2>/dev/null | head -1 | grep -q 'policy DROP'; do
-                        sleep 1
-                      done
-                      iptables -C INPUT -p icmp -j ACCEPT 2>/dev/null || \
-                        iptables -I INPUT 1 -p icmp -j ACCEPT
+                      (
+                        for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+                          if iptables -C INPUT -p icmp -j ACCEPT 2>/dev/null; then
+                            exit 0
+                          fi
+                          if iptables -I INPUT 1 -p icmp -j ACCEPT 2>/dev/null; then
+                            exit 0
+                          fi
+                          sleep 2
+                        done
+                      ) >/dev/null 2>&1 &
+                      exit 0
           gluetun:
             enabled: true
             dependsOn: main

@@ -1,12 +1,11 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# Print Status / Instances / Ready instances for every CNPG cluster in the
+# databases namespace.
+set -euo pipefail
 
-DBS="postgres-immich postgres-home-assistant postgres-pocket-id postgres-lldap postgres-paperless postgres-atuin postgres-netbox postgres-nextcloud postgres-nametag"
+dbs=$(kubectl get cluster.postgresql.cnpg.io -n databases -o jsonpath='{.items[*].metadata.name}')
 
-for db in $DBS ; do
-
-    echo "Database: $db"
-    kubectl cnpg -n databases status $db | grep "Status:"
-    kubectl cnpg -n databases status $db | grep "Instances:"
-    kubectl cnpg -n databases status $db | grep "Ready instances:"
-
+for db in ${dbs}; do
+  echo "Database: ${db}"
+  kubectl cnpg -n databases status "${db}" | grep -E "^(Status|Instances|Ready instances):"
 done

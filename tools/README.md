@@ -10,7 +10,7 @@ flow — they're for ad-hoc operator work.
 |---|---|
 | `run-on-all-nodes.sh` | Run a command via `ssh root@<node>` on every node (discovered via kubectl). |
 | `reconcile-cluster.sh` | Force-reconcile the `cluster-apps` Flux Kustomization. |
-| `events.sh` | Watch cluster events with the chatty Flux ones filtered out. |
+| `events.sh` | Watch cluster events with the chatty Flux ones filtered out. Env vars: `NAMESPACE`, `WARNINGS_ONLY=1`, `SHOW_FILTERED=1` (audit), `EVENTS_FILTER_EXTRA`. |
 | `get_unfulfilled_deployments.sh` | List Deployments / ReplicaSets / StatefulSets whose ready < desired. |
 
 ## CNPG Postgres

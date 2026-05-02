@@ -36,6 +36,23 @@ spec:
                 memory: 30M
             securityContext:
               privileged: true
+            # The v7 client-side gateway-init script pings the gateway pod IP as a
+            # connectivity check BEFORE establishing the VXLAN tunnel. Pod-gateway's
+            # gateway_init.sh sets `iptables INPUT policy DROP` and only accepts
+            # VXLAN/DHCP/loopback — ICMP from clients is dropped, so the client init
+            # fails with "100% packet loss". Allow ICMP via postStart.
+            lifecycle:
+              postStart:
+                exec:
+                  command:
+                    - /bin/sh
+                    - -c
+                    - |
+                      until iptables -L INPUT -n 2>/dev/null | head -1 | grep -q 'policy DROP'; do
+                        sleep 1
+                      done
+                      iptables -C INPUT -p icmp -j ACCEPT 2>/dev/null || \
+                        iptables -I INPUT 1 -p icmp -j ACCEPT
           gluetun:
             enabled: true
             dependsOn: main
@@ -88,6 +105,10 @@ spec:
       VPN_TRAFFIC_PORT: "51820"
       VXLAN_ID: 43
       VXLAN_IP_NETWORK: 172.16.1
+      # Default is 0 (kernel-chosen). Cilium's CNI doesn't carry VXLAN traffic
+      # cleanly with port 0 — the chart's settings.sh comment explicitly says
+      # "change it to 4789 (preferably) when using Cillium".
+      VXLAN_PORT: "4789"
 
     webhook:
       gatewayAnnotation: setGateway

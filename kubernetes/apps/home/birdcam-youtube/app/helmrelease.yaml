@@ -16,9 +16,6 @@ spec:
   values:
     controllers:
       main:
-        pod:
-          nodeSelector:
-            intel.feature.node.kubernetes.io/gpu: "true"
         annotations:
           reloader.stakater.com/auto: "true"
 
@@ -31,53 +28,49 @@ spec:
               repository: ghcr.io/jrottenberg/ffmpeg
               tag: 8.1-vaapi@sha256:ce71f3ed264ec98fc9dba52d6a70b8c3bc816f4cbff3338b5c7250b296002e3c
 
-
             args:
-              - "-re"         # Read input at native frame rate. This is equivalent to setting
-              - "-i"          # input (url next line)
-              - "rtsp://frigate.home:8554/birdcam" # input URL
-              - "-vcodec"     # video codec
-              - "copy"
-              - "-preset"
-              - "ultrafast"
-              - "-acodec"     # audio codec
-              - "copy"        #
-              - "-f"          # output format
-              - "flv"         # format
-              - "rtmp://a.rtmp.youtube.com/live2/$(YOUTUBE_KEY)"
               - "-v"
               - "verbose"
-
-            env:
-              LIBVA_DRIVER_NAME: iHD
+              - "-rtsp_transport"
+              - "tcp"
+              - "-stimeout"
+              - "5000000"
+              - "-fflags"
+              - "+genpts"
+              - "-i"
+              - "rtsp://frigate.home:8554/birdcam"
+              - "-vcodec"
+              - "copy"
+              - "-acodec"
+              - "copy"
+              - "-f"
+              - "flv"
+              - "rtmp://a.rtmp.youtube.com/live2/$(YOUTUBE_KEY)"
 
             envFrom:
               - secretRef:
                   name: *app
 
             probes:
-              liveness: &probes
+              liveness:
                 enabled: false
+              readiness:
+                enabled: false
+              startup:
+                enabled: true
                 custom: true
                 spec:
                   httpGet:
                     host: frigate.home
                     path: /api/version
-                    port: &unsecurePort 5000
+                    port: 5000
                   initialDelaySeconds: 0
                   periodSeconds: 10
                   timeoutSeconds: 7
                   failureThreshold: 30
-              readiness: *probes
-              startup: *probes
             resources:
               requests:
-                gpu.intel.com/i915: "1"
                 cpu: 800m
                 memory: 2Gi
               limits:
-                gpu.intel.com/i915: "1"
                 memory: 2Gi
-
-            securityContext:
-              privileged: true

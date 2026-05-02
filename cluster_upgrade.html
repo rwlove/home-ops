@@ -186,22 +186,27 @@ used outside of vendor CRDs</li>
 <p>The cri-o package swap, kubeadm upgrade, and kubelet bump all happen
 inside the same drain window per node, so we drain once per node.</p>
 <h3 id="order"><a class="header" href="#order">Order</a></h3>
+<p>Standard "clean RPM" workers first, then the special cases, then masters.</p>
 <ol>
-<li><code>worker7</code> (canary — plainest config, no special hardware)</li>
-<li><code>worker6</code></li>
-<li><code>worker5</code></li>
-<li><code>worker3</code></li>
+<li><code>worker7</code> ✅ migrated 2026-05-02 — k8s 1.34.7 + cri-o 1.34.7</li>
+<li><code>worker3</code> — Intel GPU label but no pinned pods; <strong>mon-f is pinned
+here, drain only when worker3 is the active mon target</strong> (see
+"mon nodeSelector trap" below)</li>
 <li><code>worker2</code></li>
-<li><code>worker4</code> — <strong>pre-suspend Frigate, zigbee2mqtt, zwave-js-ui</strong> via
-the <code>disable-&lt;app&gt;</code> GitOps pattern; expect brief recording /
-automation gap</li>
-<li><code>worker8</code> — NVIDIA. <strong>Pre-suspend ollama, comfyui.</strong> Carefully port
-the NVIDIA runtime stanza to a drop-in. Smoke-test with a
+<li><code>worker4</code> — Frigate node. <strong>Pre-suspend frigate, zigbee2mqtt,
+zwave-js-ui</strong> via the <code>disable-&lt;app&gt;</code> GitOps pattern; expect brief
+recording / automation gap.</li>
+<li><code>worker8</code> — NVIDIA. <strong>Pre-suspend ollama, comfyui.</strong> Carefully
+port the NVIDIA runtime stanza to a drop-in. Smoke-test with a
 <code>runtimeClassName: nvidia</code> pod before un-suspending.</li>
+<li><code>worker6</code> — <strong>manual-install kubelet/cri-o</strong>, requires the
+alternate procedure below (no <code>rm crio.conf</code>, use <code>dnf install</code>).</li>
+<li><code>worker5</code> — same alternate procedure as worker6.</li>
 <li><code>master3</code></li>
-<li><code>master2</code></li>
-<li><code>master1</code> (last — the VIP risk is bounded by master2/master3 kube-vip
-DaemonSet pods that we verified are healthy)</li>
+<li><code>master2</code> (kubelet already 1.34.7; cri-o still 1.28.4)</li>
+<li><code>master1</code> (last — already on 1.34.2 + cri-o 1.34.2; just kubelet
+patch bump). The VIP risk is bounded by master2/master3 kube-vip
+DaemonSet pods.</li>
 </ol>
 <p>Never drain two masters concurrently. After each master, verify etcd
 quorum:</p>
@@ -212,74 +217,170 @@ quorum:</p>
   --key=/etc/kubernetes/pki/etcd/server.key \
   endpoint status --cluster -w table
 </code></pre>
-<h3 id="per-worker-procedure"><a class="header" href="#per-worker-procedure">Per-worker procedure</a></h3>
-<p>For each worker, in order:</p>
+<h3 id="pre-flight-before-every-node-lessons-from-2026-05-02"><a class="header" href="#pre-flight-before-every-node-lessons-from-2026-05-02">Pre-flight before every node (lessons from 2026-05-02)</a></h3>
+<p>These four checks <strong>must</strong> happen before draining any node. Skipping
+any of them caused real damage on the first attempt at this phase.</p>
 <ol>
 <li>
-<p><strong>Pre-flight per-node</strong>:</p>
-<pre><code class="language-sh"># If the worker hosts a CNPG primary, fail it over first
-for primary in $(kubectl get pod -n databases -l 'cnpg.io/instanceRole=primary' \
-    --field-selector spec.nodeName=&lt;worker&gt;.thesteamedcrab.com -o name); do
-  cluster=$(kubectl get $primary -n databases -o jsonpath='{.metadata.labels.cnpg\.io/cluster}')
-  kubectl cnpg promote -n databases "$cluster" &lt;some-replica&gt;
-done
-
-# Set ceph noout (skips OSD rebalance during the planned outage)
-kubectl exec -n rook-ceph deploy/rook-ceph-tools -- ceph osd set noout
-
-# If the worker hosts hardware-pinned single-replica pods,
-# commit a `disable-&lt;app&gt;` PR first (suspend their HelmRelease).
-</code></pre>
+<p><strong>Wait for <code>ceph -s</code> HEALTH_OK</strong> before draining the next node.
+Not just "the previous node's OSD pod is Ready" — Rook creates
+dynamic per-host OSD PDBs (<code>rook-ceph-osd-host-&lt;host&gt;</code>) when an
+OSD is unavailable, with <code>MAX UNAVAILABLE: 1, ALLOWED DISRUPTIONS: 0</code>. While ANY OSD-host PDB exists for ANY host, the next drain
+will hang indefinitely on its own host's PDB. This cost ~20
+minutes of stuck drain on worker3 because worker6 was still
+degraded in the background.</p>
 </li>
 <li>
-<p><strong>Drain</strong> (lets PDBs do their job):</p>
+<p><strong>Check mon nodeSelectors and don't drain a mon's pinned host
+while another mon is also down.</strong> Rook pins each mon to a
+specific node:</p>
+<pre><code class="language-sh">kubectl get pod -n rook-ceph -l app=rook-ceph-mon -o jsonpath='{range .items[*]}{.metadata.labels.mon}{"\t"}{.spec.nodeSelector.kubernetes\.io/hostname}{"\n"}{end}'
+</code></pre>
+<p>Currently: <code>mon-c</code> → worker5, <code>mon-e</code> → master1, <code>mon-f</code> →
+worker3. Draining a node hosting a pinned mon strands that mon —
+it cannot reschedule until the pin is satisfied again. <strong>If two
+mons are pinned to drained nodes, etcd-equivalent quorum is
+lost.</strong> Drain pinned-mon nodes one at a time and let the mon come
+back before touching the next.</p>
+</li>
+<li>
+<p><strong>Check the package install style on the target node.</strong> Some
+nodes have <code>kubelet/kubeadm/kubectl/cri-o</code> installed via dnf
+(RPM-tracked). Others have manually-installed binaries (no RPM
+entries):</p>
+<pre><code class="language-sh">ssh root@&lt;node&gt; 'rpm -qa | grep -cE "^(kubeadm|kubelet|kubectl|cri-o)-"'
+</code></pre>
+<p>Returns 4 → standard procedure. Returns 0 → <strong>alternate
+procedure</strong> (don't <code>rm crio.conf</code>; use <code>dnf install</code> not <code>dnf upgrade</code>). Nodes known to be manual-install: worker5, worker6.</p>
+</li>
+<li>
+<p><strong>CNPG primary failover</strong>:</p>
+<pre><code class="language-sh">for c in $(kubectl get pod -n databases -l 'cnpg.io/instanceRole=primary' \
+    --field-selector spec.nodeName=&lt;node&gt;.thesteamedcrab.com \
+    -o jsonpath='{range .items[*]}{.metadata.labels.cnpg\.io/cluster}{"\n"}{end}'); do
+  replica=$(kubectl get pod -n databases -l "cnpg.io/cluster=$c,cnpg.io/instanceRole=replica" \
+    -o jsonpath='{range .items[?(@.spec.nodeName!="&lt;node&gt;.thesteamedcrab.com")]}{.metadata.name}{"\n"}{end}' | head -1)
+  kubectl cnpg promote -n databases "$c" "$replica"
+done
+</code></pre>
+<p>Then poll <code>kubectl get pod -n databases -l 'cnpg.io/instanceRole=primary' --field-selector spec.nodeName=&lt;node&gt;...</code>
+until empty.</p>
+</li>
+<li>
+<p><strong>Hardware-pinned pod suspension</strong> (worker4: frigate +
+zigbee2mqtt + zwave-js-ui; worker8: ollama + comfyui). Use the
+<code>disable-&lt;app&gt;</code> GitOps commit pattern, not <code>kubectl scale</code> —
+Flux will revert imperative scales. Wait for Flux reconciliation
+to actually take the pods down before draining.</p>
+</li>
+</ol>
+<h3 id="standard-per-worker-procedure-rpm-tracked-nodes"><a class="header" href="#standard-per-worker-procedure-rpm-tracked-nodes">Standard per-worker procedure (RPM-tracked nodes)</a></h3>
+<p>For workers with RPM entries (rpm-qa returns 4 packages):</p>
+<ol>
+<li>Pre-flight checks above.</li>
+<li><strong>Drain</strong>:
 <pre><code class="language-sh">kubectl drain &lt;worker&gt;.thesteamedcrab.com \
   --ignore-daemonsets --delete-emptydir-data
 </code></pre>
 </li>
-<li>
-<p><strong>On the node — package swap + kubeadm upgrade</strong>:</p>
+<li><strong>Package upgrade and kubelet config refresh</strong>:
 <pre><code class="language-sh">ssh root@&lt;worker&gt;.thesteamedcrab.com '
-  # Get rid of the legacy crio.conf / .rpmnew so the new package can drop a clean drop-in
+  # Drop the legacy crio.conf / .rpmnew. Order matters: only do
+  # this RIGHT BEFORE the upgrade succeeds — leaving cri-o
+  # without a config will trigger the "unsafe procfs detected"
+  # runc error and break ALL pods on the node.
   rm -f /etc/crio/crio.conf /etc/crio/crio.conf.rpmnew /etc/crio/crio.conf.working
 
-  # Swap the cri-o package: removes legacy 1.28.4 (el8 / kubic repo) and installs new 1.34.x
-  dnf -y swap cri-o-1.28.4 cri-o
-  dnf clean all &amp;&amp; dnf makecache
+  # Single transaction: cri-o upgrade picks up the new isv repo
+  # automatically since 1.34.7 &gt; 1.28.4.
+  dnf upgrade -y cri-o kubelet-1.34.7 kubeadm-1.34.7 kubectl-1.34.7
 
-  # Upgrade kubeadm + kubelet + kubectl to the latest 1.34 (or 1.35 in Phase 3)
-  dnf -y install kubeadm-1.34.7 kubelet-1.34.7 kubectl-1.34.7
-
-  # Run kubeadm upgrade for this worker (no-op for cri-o swap; needed for kubelet config in Phase 3)
   kubeadm upgrade node
-
   systemctl daemon-reload
   systemctl restart crio
   systemctl restart kubelet
 '
 </code></pre>
 </li>
-<li>
-<p><strong>Smoke-test the node before uncordon</strong>:</p>
+<li><strong>Smoke-test before uncordon</strong>:
 <pre><code class="language-sh">ssh root@&lt;worker&gt;.thesteamedcrab.com '
-  crictl info | grep -E "runtimeName|systemd|cgroupDriver"
-  crictl images | head
+  systemctl is-active crio kubelet
+  crictl info | grep -E "CgroupManagerName|DefaultRuntime"
+  ls /etc/crio/crio.conf.d/   # should exist; legacy crio.conf should be gone
 '
-kubectl get node &lt;worker&gt;.thesteamedcrab.com -o wide
+kubectl get node &lt;worker&gt;.thesteamedcrab.com -o wide   # version + cri-o version match expected
 </code></pre>
 </li>
-<li>
-<p><strong>Uncordon</strong>:</p>
+<li><strong>Uncordon</strong>:
 <pre><code class="language-sh">kubectl uncordon &lt;worker&gt;.thesteamedcrab.com
-kubectl exec -n rook-ceph deploy/rook-ceph-tools -- ceph osd unset noout
+</code></pre>
+Rook auto-clears any host noout flag on its own a few seconds
+after uncordon — don't manually unset it.</li>
+<li><strong>Wait for <code>ceph -s</code> HEALTH_OK</strong> (no OSDs down, no degraded PGs)
+before the next node. Do not skip this. Typically ~1–3 minutes.</li>
+</ol>
+<h3 id="alternate-procedure-for-manual-install-nodes-worker5-worker6"><a class="header" href="#alternate-procedure-for-manual-install-nodes-worker5-worker6">Alternate procedure for manual-install nodes (worker5, worker6)</a></h3>
+<p>These nodes have kubelet/cri-o binaries in <code>/usr/bin/</code> not tracked by
+RPM. <code>dnf upgrade</code> cannot upgrade what it cannot see, and <code>rm crio.conf</code> will break the node since the dnf step provides no
+replacement.</p>
+<ol>
+<li>Pre-flight checks (same as above).</li>
+<li><strong>Drain</strong> (same as above).</li>
+<li><strong>Fresh-install via dnf</strong> (overwrites the un-tracked binaries):
+<pre><code class="language-sh">ssh root@&lt;worker&gt;.thesteamedcrab.com '
+  # Stop services so we can replace running binaries cleanly
+  systemctl stop kubelet
+  systemctl stop crio
+
+  # Move the manual binaries aside (rollback if dnf install fails)
+  mv /usr/bin/kubelet  /usr/bin/kubelet.manual
+  mv /usr/bin/kubeadm  /usr/bin/kubeadm.manual
+  mv /usr/bin/kubectl  /usr/bin/kubectl.manual
+  mv /usr/bin/crio     /usr/bin/crio.manual
+
+  # Install the RPMs fresh (now they will be tracked)
+  dnf install -y cri-o kubelet-1.34.7 kubeadm-1.34.7 kubectl-1.34.7
+
+  # Now we can safely remove crio.conf — package provides drop-in
+  rm -f /etc/crio/crio.conf /etc/crio/crio.conf.rpmnew /etc/crio/crio.conf.working
+
+  kubeadm upgrade node
+  systemctl daemon-reload
+  systemctl restart crio
+  systemctl restart kubelet
+
+  # Verify and clean up rollback files only after success
+  rpm -q cri-o kubelet kubeadm kubectl
+  # rm /usr/bin/*.manual    # only after smoke-test confirms success
+'
 </code></pre>
 </li>
-<li>
-<p><strong>Wait</strong> for <code>ceph -s</code> to return <code>HEALTH_OK</code> before proceeding to
-the next node.</p>
-</li>
+<li>Smoke-test, uncordon, wait for <code>HEALTH_OK</code> — same as above.</li>
 </ol>
 <h3 id="worker8-nvidia-extra-steps"><a class="header" href="#worker8-nvidia-extra-steps">Worker8 (NVIDIA) extra steps</a></h3>
+<p>After the standard procedure:</p>
+<pre><code class="language-sh">ssh root@worker8.thesteamedcrab.com 'cat &gt; /etc/crio/crio.conf.d/20-nvidia.conf &lt;&lt;EOF
+[crio.runtime.runtimes.nvidia]
+runtime_path = "/usr/bin/nvidia-container-runtime"
+runtime_root = "/run/nvidia"
+runtime_type = "oci"
+EOF
+systemctl restart crio'
+</code></pre>
+<p>Smoke-test before resuming ollama / comfyui:</p>
+<pre><code class="language-sh">kubectl run nvidia-smoke --rm -i --restart=Never \
+  --overrides='{"spec":{"runtimeClassName":"nvidia","nodeName":"worker8.thesteamedcrab.com"}}' \
+  --image=nvidia/cuda:12.0-base-ubuntu22.04 -- nvidia-smi
+</code></pre>
+<h3 id="failure-modes-seen-on-2026-05-02"><a class="header" href="#failure-modes-seen-on-2026-05-02">Failure modes seen on 2026-05-02</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Symptom</th><th>Root cause</th><th>Fix</th></tr></thead><tbody>
+<tr><td>Drain hangs ~indefinitely on <code>rook-ceph-osd-host-*</code> PDB</td><td>A previous node's OSD is still degraded; Rook's per-host PDB blocks all OSD evictions cluster-wide</td><td>Wait for <code>ceph -s</code> HEALTH_OK, then retry drain</td></tr>
+<tr><td>New pods on a node fail with <code>runc create failed: unsafe procfs detected</code></td><td><code>/etc/crio/crio.conf</code> was removed but the new cri-o package didn't install</td><td>Restore <code>crio.conf</code> from a peer node's identical version (<code>scp root@&lt;peer&gt;:/etc/crio/crio.conf root@&lt;broken&gt;:/etc/crio/</code>), <code>systemctl restart crio</code></td></tr>
+<tr><td><code>mon-X</code> stays Pending after drain</td><td>Mon is pinned via <code>nodeSelector</code> to the cordoned node</td><td>Uncordon the pinned node, mon comes back. Don't drain another mon's host until quorum is restored</td></tr>
+<tr><td><code>dnf upgrade</code> reports <code>kubelet-1.34.7: No match for argument</code></td><td>Node has manually-installed kubelet (no RPM entry)</td><td>Use the alternate procedure (<code>dnf install</code> after moving binaries aside)</td></tr>
+</tbody></table>
+</div>
+<h3 id="worker8-nvidia-extra-steps-1"><a class="header" href="#worker8-nvidia-extra-steps-1">Worker8 (NVIDIA) extra steps</a></h3>
 <p>After step 3 above, drop in the NVIDIA runtime config:</p>
 <pre><code class="language-sh">ssh root@worker8.thesteamedcrab.com 'cat &gt; /etc/crio/crio.conf.d/20-nvidia.conf &lt;&lt;EOF
 [crio.runtime.runtimes.nvidia]

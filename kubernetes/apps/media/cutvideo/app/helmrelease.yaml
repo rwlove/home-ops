@@ -17,11 +17,24 @@ spec:
           reloader.stakater.com/auto: "true"
 
         type: statefulset
+
+        initContainers:
+          init-db:
+            image:
+              repository: ghcr.io/home-operations/postgres-init
+              tag: 18.3.0@sha256:6fa1f331cddd2eb0b6afa7b8d3685c864127a81ab01c3d9400bc3ff5263a51cf
+
+            envFrom: &envFrom
+              - secretRef:
+                  name: cutvideo-secret
+
         containers:
           main:
             image:
               repository: ghcr.io/rwlove/cutvideo
               tag: v0.4
+
+            envFrom: *envFrom
 
             probes:
               liveness: &probes
@@ -70,12 +83,3 @@ spec:
           - backendRefs:
               - identifier: main
                 port: *httpPort
-
-    persistence:
-      data:
-        type: persistentVolumeClaim
-        accessMode: ReadWriteOnce
-        size: 1Gi
-        storageClass: ceph-block
-        globalMounts:
-          - path: /var/lib/cutvideo

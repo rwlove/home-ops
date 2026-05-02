@@ -12,77 +12,72 @@ spec:
       sourceRef:
         kind: HelmRepository
         name: angelnu
-      version: 6.6.1
+      version: 7.1.1
   interval: 30m
 
   values:
     DNS: 172.16.1.1
-
-    addons:
-      netshoot:
-        enabled: true
-
-        resources:
-          limits:
-            memory: 30M
-          requests:
-            cpu: 15m
-            memory: 30M
-
-      vpn:
-        enabled: true
-        env:
-          - name: VPN_INTERFACE
-            value: wg0
-          - name: FIREWALL
-            value: "off"
-          - name: DOT
-            value: "off"
-          - name: HEALTH_TARGET_ADDRESS
-            value: "1.1.1.1"
-          - name: HEALTH_VPN_DURATION_INITIAL
-            value: 30s
-        envFrom:
-          - secretRef:
-              name: downloads-gateway-vpnconfig
-        image:
-          repository: ghcr.io/qdm12/gluetun
-          tag: v3.41.1@sha256:1a5bf4b4820a879cdf8d93d7ef0d2d963af56670c9ebff8981860b6804ebc8ab
-        resources:
-          limits:
-            memory: 256M
-          requests:
-            cpu: 15m
-            memory: 256M
-        securityContext:
-          capabilities:
-            add:
-              - NET_ADMIN
-          privileged: true
-        type: gluetun
 
     controllers:
       main:
         annotations:
           reloader.stakater.com/auto: "true"
         type: statefulset
-
-    image:
-      repository: ghcr.io/angelnu/pod-gateway
-      tag: v1.13.0@sha256:a5b032e15f7570493977b330a5a86dcffebb807d35685ad803e47afb62d105f2
-
-    resources:
-      limits:
-        memory: 30M
-      requests:
-        cpu: 15m
-        memory: 30M
+        containers:
+          main:
+            image:
+              repository: ghcr.io/angelnu/pod-gateway
+              tag: v1.13.0@sha256:a5b032e15f7570493977b330a5a86dcffebb807d35685ad803e47afb62d105f2
+            resources:
+              requests:
+                cpu: 15m
+                memory: 30M
+              limits:
+                memory: 30M
+            securityContext:
+              privileged: true
+          gluetun:
+            enabled: true
+            dependsOn: main
+            image:
+              repository: ghcr.io/qdm12/gluetun
+              tag: v3.41.1@sha256:1a5bf4b4820a879cdf8d93d7ef0d2d963af56670c9ebff8981860b6804ebc8ab
+            env:
+              VPN_INTERFACE: wg0
+              FIREWALL: "off"
+              DOT: "off"
+              HEALTH_TARGET_ADDRESS: "1.1.1.1"
+              HEALTH_VPN_DURATION_INITIAL: 30s
+            envFrom:
+              - secretRef:
+                  name: downloads-gateway-vpnconfig
+            resources:
+              requests:
+                cpu: 15m
+                memory: 256M
+              limits:
+                memory: 256M
+            securityContext:
+              capabilities:
+                add:
+                  - NET_ADMIN
+              privileged: true
+          netshoot:
+            image:
+              repository: ghcr.io/nicolaka/netshoot
+              tag: v0.13
+            command:
+              - sleep
+              - infinity
+            resources:
+              requests:
+                cpu: 15m
+                memory: 30M
+              limits:
+                memory: 30M
 
     routed_namespaces:
       - downloads
-
-    securityContext:
-      privileged: true
 
     settings:
       DNS_LOCAL_CIDRS: "${SECRET_DOMAIN} cluster.local local"

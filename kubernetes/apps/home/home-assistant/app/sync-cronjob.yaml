@@ -1,0 +1,103 @@
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: home-assistant-config-sync
+spec:
+  schedule: "*/5 * * * *"
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsUser: 568
+            runAsGroup: 568
+            fsGroup: 568
+          containers:
+            - name: sync
+              image: alpine:3.20
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  apk add --no-cache --quiet git curl openssh-client > /dev/null
+
+                  # Set up SSH for GitHub deploy key
+                  export HOME=/tmp/git-home
+                  mkdir -p "$HOME/.ssh"
+                  cp /ssh/ssh-private-key "$HOME/.ssh/id_ed25519"
+                  cp /ssh/known-hosts "$HOME/.ssh/known_hosts"
+                  chmod 700 "$HOME/.ssh"
+                  chmod 600 "$HOME/.ssh/id_ed25519"
+                  chmod 644 "$HOME/.ssh/known_hosts"
+
+                  cd /config
+
+                  # Don't clobber UI/manual edits — bail if working tree is dirty
+                  if [ -n "$(git status --porcelain)" ]; then
+                    echo "Working tree dirty, skipping pull. Commit/push from code-server first."
+                    git status --short
+                    exit 0
+                  fi
+
+                  BEFORE=$(git rev-parse HEAD)
+                  # Use the deploy key for this single command without rewriting the persistent remote URL
+                  # (so code-server's HTTPS auth keeps working independently)
+                  GIT_SSH_COMMAND="ssh -i $HOME/.ssh/id_ed25519 -o UserKnownHostsFile=$HOME/.ssh/known_hosts" \
+                    git -c url."git@github.com:".insteadOf="https://github.com/" \
+                        fetch --quiet origin main
+                  GIT_SSH_COMMAND="ssh -i $HOME/.ssh/id_ed25519 -o UserKnownHostsFile=$HOME/.ssh/known_hosts" \
+                    git -c url."git@github.com:".insteadOf="https://github.com/" \
+                        pull --ff-only --quiet origin main
+                  AFTER=$(git rev-parse HEAD)
+
+                  if [ "$BEFORE" != "$AFTER" ]; then
+                    echo "Updated $BEFORE -> $AFTER"
+                    # Trigger HA to reload everything reloadable; restart for unreloadable changes
+                    # (this only reloads — for new packages or integrations a full restart is still needed)
+                    curl -sSf -X POST \
+                      -H "Authorization: Bearer $HA_TOKEN" \
+                      -H "Content-Type: application/json" \
+                      http://home-assistant.home.svc.cluster.local:8123/api/services/homeassistant/reload_all \
+                      -d '{}' > /dev/null
+                    echo "Triggered HA reload_all"
+                  else
+                    echo "No changes (HEAD=$AFTER)"
+                  fi
+              env:
+                - name: HA_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: home-assistant-config-sync
+                      key: ha-token
+              volumeMounts:
+                - name: config
+                  mountPath: /config
+                - name: ssh
+                  mountPath: /ssh
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+                limits:
+                  memory: 128Mi
+          volumes:
+            - name: config
+              persistentVolumeClaim:
+                claimName: home-assistant-config-pvc
+            - name: ssh
+              secret:
+                secretName: home-assistant-config-sync
+                defaultMode: 0400
+                items:
+                  - key: ssh-private-key
+                    path: ssh-private-key
+                  - key: known-hosts
+                    path: known-hosts

@@ -758,98 +758,50 @@ window is rolling, not calendar — at 10/day you hit the cap on day
 wildcard's renewal pressure.</li>
 <li><strong>Total elapsed</strong>: ~5 days for 22 certs.</li>
 </ul>
-<h2 id="phase-0--pre-flight-verification"><a class="header" href="#phase-0--pre-flight-verification">Phase 0 — Pre-flight verification</a></h2>
-<p>The plan rests on cert-manager's gateway-shim being a no-op for
-listeners whose <code>certificateRefs</code> Secret is already managed by an
-existing manual Certificate. <strong>This needs to be verified, not
-assumed.</strong> Historically the shim has tracked Certificates by
-ownerReference (Gateway → Certificate), not globally by Secret name —
-so an existing manual <code>Certificate</code> without a Gateway ownerRef may not
-satisfy the shim's check, and adding <code>cert-manager.io/cluster-issuer</code>
-to the Gateway could cause the shim to create a <em>second</em> Certificate
-fighting for the same Secret.</p>
-<h3 id="01-test-in-a-scratch-namespace"><a class="header" href="#01-test-in-a-scratch-namespace">0.1 Test in a scratch namespace</a></h3>
-<p>Before touching production Gateways:</p>
-<pre><code class="language-sh">kubectl create ns cert-shim-test
-
-# A throwaway manual Certificate for foo.scratch.thesteamedcrab.com
-# (use letsencrypt-staging — no rate-limit cost)
-cat &lt;&lt;EOF | kubectl apply -f -
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: scratch
-  namespace: cert-shim-test
-spec:
-  secretName: scratch-tls
-  issuerRef:
-    name: letsencrypt-staging
-    kind: ClusterIssuer
-  dnsNames: [foo.scratch.thesteamedcrab.com]
-EOF
-
-# Wait until Ready
-kubectl wait --for=condition=Ready certificate/scratch \
-  -n cert-shim-test --timeout=5m
-
-# Throwaway Gateway referencing that Secret + the shim annotation
-cat &lt;&lt;EOF | kubectl apply -f -
-apiVersion: gateway.networking.k8s.io/v1
-kind: Gateway
-metadata:
-  name: scratch
-  namespace: cert-shim-test
+<h2 id="phase-0--annotation-prep"><a class="header" href="#phase-0--annotation-prep">Phase 0 — Annotation prep</a></h2>
+<p>Verified 2026-05-02 against cert-manager v1.17.1: the gateway-shim is
+<strong>Secret-aware</strong>. When a listener's <code>certificateRefs</code> Secret is
+already populated by a manual <code>Certificate</code> resource, the shim does
+not create a duplicate. So adding the shim annotations to a Gateway
+that still has the wildcard listener is a no-op for that listener
+and only affects new (Secret-missing) listeners added in later
+phases.</p>
+<p>Test that produced this result: a scratch namespace with a manual
+self-signed <code>Certificate</code> producing <code>scratch-tls</code>, plus a Gateway
+referencing <code>scratch-tls</code> via <code>certificateRefs</code> <em>and</em> carrying the
+<code>cert-manager.io/issuer</code> annotation. After 30s, only the original
+<code>Certificate</code> existed — no shim-created duplicate.</p>
+<h3 id="01-add-the-annotations-to-each-gateway"><a class="header" href="#01-add-the-annotations-to-each-gateway">0.1 Add the annotations to each Gateway</a></h3>
+<p>For each of <code>external</code>, <code>internal</code>, <code>mcp-gateway</code>, <code>istio</code>:</p>
+<pre><code class="language-yaml">metadata:
   annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-staging
-spec:
-  gatewayClassName: envoy
-  listeners:
-    - name: https
-      protocol: HTTPS
-      port: 443
-      hostname: foo.scratch.thesteamedcrab.com
-      allowedRoutes:
-        namespaces: { from: Same }
-      tls:
-        certificateRefs:
-          - kind: Secret
-            name: scratch-tls
-EOF
+    # ...existing annotations...
+    cert-manager.io/cluster-issuer: letsencrypt-production
+    cert-manager.io/duration: "168h"      # 7d
+    cert-manager.io/renew-before: "48h"
+</code></pre>
+<p>For the <code>internal</code> Gateway, swap the issuer to the private CA once
+Phase 1 is done:</p>
+<pre><code class="language-yaml">    cert-manager.io/cluster-issuer: cluster-internal-ca
+</code></pre>
+<p>(or keep <code>letsencrypt-production</code> and skip the private CA entirely if
+you adopted the all-ACME alternative).</p>
+<h3 id="02-verify-nothing-changed"><a class="header" href="#02-verify-nothing-changed">0.2 Verify nothing changed</a></h3>
+<pre><code class="language-sh"># Should still be exactly one Certificate, the wildcard
+kubectl get certificate -A
 
-# Watch the namespace's Certificates for ~2 min
-kubectl get certificate -n cert-shim-test -w
+# Confirm annotations landed
+kubectl get gateway -n network external -o jsonpath='{.metadata.annotations}' | jq
+
+# Smoke-test a few hostnames serve the existing wildcard cert
+echo | openssl s_client -connect photos.thesteamedcrab.com:443 \
+  -servername photos.thesteamedcrab.com 2&gt;/dev/null \
+  | openssl x509 -noout -subject -dates
 </code></pre>
-<p><strong>Decision tree</strong>:</p>
-<ul>
-<li>✅ Only the original <code>scratch</code> Certificate appears, no shim-created
-duplicate → shim is Secret-aware. Phase 0 in production is safe;
-proceed.</li>
-<li>❌ A second Certificate (named like <code>scratch-https</code> or
-<code>&lt;gateway&gt;-&lt;listener&gt;</code>) appears → shim is ownerRef-only. Adopt the
-alternative Phase 0 below.</li>
-</ul>
-<h3 id="02-cleanup"><a class="header" href="#02-cleanup">0.2 Cleanup</a></h3>
-<pre><code class="language-sh">kubectl delete ns cert-shim-test
-</code></pre>
-<h3 id="03-if-the-shim-made-a-duplicate-adjust-strategy"><a class="header" href="#03-if-the-shim-made-a-duplicate-adjust-strategy">0.3 If the shim made a duplicate, adjust strategy</a></h3>
-<p>Phase 0 (the bulk annotation add) is unsafe. Skip it. Instead:</p>
-<ul>
-<li>Don't add <code>cert-manager.io/cluster-issuer</code> to the Gateway upfront.</li>
-<li>For each per-app listener you add (Phase 1+), add the annotation
-<em>and</em> the listener in the same commit. The annotation now applies
-but the only listener with a "missing Secret" is the new one — so
-the shim creates exactly one Certificate (for the new app).</li>
-<li>The existing wildcard listener still has a managed Secret. If the
-shim creates a duplicate Certificate against it the moment the
-annotation is present, you have to either: (a) accept the duplicate
-and immediately delete one of the two Certificates, then watch
-whether the shim re-creates it, or (b) precede each annotation add
-by removing the wildcard listener from that Gateway and serving its
-routes via per-app listeners only.</li>
-<li>This path is sufficiently fiddly that <strong>if the test in 0.1 fails,
-stop and revisit the architecture.</strong> Don't improvise in
-production.</li>
-</ul>
+<p>If a second Certificate appeared in any namespace after applying the
+annotations, <strong>stop</strong> — the shim's behavior may have changed in a
+newer cert-manager version. Re-run the verification test in a scratch
+namespace before continuing.</p>
 <h2 id="phase-1--internal-gateway--private-ca-parallel-track"><a class="header" href="#phase-1--internal-gateway--private-ca-parallel-track">Phase 1 — Internal Gateway → private CA (parallel track)</a></h2>
 <p>This phase is independent of the ACME phases below — it has no rate
 limit concerns and can run in any order or in parallel.</p>

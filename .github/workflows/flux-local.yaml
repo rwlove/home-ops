@@ -6,6 +6,13 @@ on:
   pull_request:
     branches:
       - main
+  # Run on direct-to-main pushes too, so commits that bypass PR review
+  # (e.g. quick fixes pushed directly) still get flux-local validated.
+  push:
+    branches:
+      - main
+    paths:
+      - "kubernetes/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.number || github.ref }}
@@ -46,7 +53,8 @@ jobs:
           args: test --enable-helm --all-namespaces --path /github/workspace/kubernetes/flux -v
 
   diff:
-    if: ${{ needs.filter-changes.outputs.changed-files != '[]' }}
+    # Diff-against-default-branch only makes sense on PRs.
+    if: ${{ github.event_name == 'pull_request' && needs.filter-changes.outputs.changed-files != '[]' }}
     name: Flux Local Diff
     runs-on: ubuntu-latest
     needs:

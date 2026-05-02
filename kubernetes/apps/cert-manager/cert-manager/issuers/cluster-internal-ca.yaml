@@ -1,0 +1,34 @@
+---
+# Self-signed root CA used to issue per-listener certificates for the
+# internal Gateway's HTTPRoutes. Not browser-trusted by default — devices
+# that visit *.thesteamedcrab.com on the internal LB must import the
+# root CA cert (export with: kubectl get secret -n cert-manager
+# cluster-internal-ca-tls -o jsonpath='{.data.tls\.crt}' | base64 -d).
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: cluster-internal-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: thesteamedcrab.com Internal CA
+  duration: 87600h    # 10y root
+  renewBefore: 720h   # 30d
+  secretName: cluster-internal-ca-tls
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: selfsigned-bootstrap
+    kind: ClusterIssuer
+---
+# ClusterIssuer that uses the root above to issue per-listener certs.
+# Reference this from the internal Gateway's
+# `cert-manager.io/cluster-issuer` annotation in Phase 0.2.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: cluster-internal-ca
+spec:
+  ca:
+    secretName: cluster-internal-ca-tls

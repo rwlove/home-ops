@@ -31,6 +31,7 @@ skills can discover them.
 | Skill | What it does |
 |-------|--------------|
 | `add-app.md` | Scaffold a generic app-template HelmRelease application. |
+| `add-cnpg-cluster.md` | Scaffold a CNPG postgres cluster with Garage-backed barman backups. |
 | `add-mcp-server.md` | Scaffold an MCP server under `mcp-system/` with the sidecar `MCPServerRegistration`. |
 | `dependency-mapper.md` | Build and validate the Flux Kustomization dependency graph. |
 | `flux-suspend.md` | Document the suspend / unsuspend workflow and the `disable-<app>` commit pattern. |

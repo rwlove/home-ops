@@ -80,10 +80,45 @@ kubectl exec -n kube-system etcd-master1.thesteamedcrab.com -- etcdctl \
 
 ### Pre-flight before every node (lessons from 2026-05-02)
 
-These four checks **must** happen before draining any node. Skipping
-any of them caused real damage on the first attempt at this phase.
+These checks **must** happen before draining any node. Skipping any of
+them caused real damage on the first attempt at this phase.
 
-1. **Wait for `ceph -s` HEALTH_OK** before draining the next node.
+1. **Drain Longhorn replicas off the target node FIRST, before
+   `kubectl drain`.** Otherwise: when the node's longhorn-manager
+   blips during the cri-o restart, every replica still on that node
+   becomes inaccessible, and pods on OTHER nodes whose replicas are
+   here go into CrashLoopBackOff. That cascades into CNPG PDBs
+   blocking subsequent drains. Two ways to do this:
+
+   **Via Longhorn UI** (preferred — visual confirmation):
+   - Open the Longhorn UI (port-forward `longhorn-frontend` in
+     `longhorn-system` if you don't have ingress wired up).
+   - Node tab → click target node → "Edit Node" → set "Node
+     Scheduling" to **Disable** AND "Eviction Requested" to **True**.
+   - Watch the Volume tab — every volume with a replica on this node
+     should show its replica count restoring on other nodes.
+   - When the target node's "Replicas" count reaches 0, proceed.
+   - **Re-enable scheduling and clear eviction after the node is back
+     and you've uncordoned it**, otherwise replicas won't return.
+
+   **Via kubectl** (equivalent):
+   ```sh
+   kubectl patch -n longhorn-system nodes.longhorn.io <node> \
+     --type=merge -p '{"spec":{"allowScheduling":false,"evictionRequested":true}}'
+
+   # Wait until no replicas remain on the node
+   until [ "$(kubectl get replicas.longhorn.io -n longhorn-system -o json |
+     jq -r --arg n "<node>" '.items[] | select(.spec.nodeID==$n) | .metadata.name' |
+     wc -l)" = "0" ]; do sleep 10; done
+
+   # … do the drain + upgrade + uncordon …
+
+   # After uncordon and node Ready, restore Longhorn scheduling:
+   kubectl patch -n longhorn-system nodes.longhorn.io <node> \
+     --type=merge -p '{"spec":{"allowScheduling":true,"evictionRequested":false}}'
+   ```
+
+2. **Wait for `ceph -s` HEALTH_OK** before draining the next node.
    Not just "the previous node's OSD pod is Ready" — Rook creates
    dynamic per-host OSD PDBs (`rook-ceph-osd-host-<host>`) when an
    OSD is unavailable, with `MAX UNAVAILABLE: 1, ALLOWED DISRUPTIONS:
@@ -92,20 +127,22 @@ any of them caused real damage on the first attempt at this phase.
    minutes of stuck drain on worker3 because worker6 was still
    degraded in the background.
 
-2. **Check mon nodeSelectors and don't drain a mon's pinned host
+3. **Check mon nodeSelectors and don't drain a mon's pinned host
    while another mon is also down.** Rook pins each mon to a
-   specific node:
+   specific node and recreates them under new letters as nodes drop
+   in/out:
    ```sh
    kubectl get pod -n rook-ceph -l app=rook-ceph-mon -o jsonpath='{range .items[*]}{.metadata.labels.mon}{"\t"}{.spec.nodeSelector.kubernetes\.io/hostname}{"\n"}{end}'
    ```
-   Currently: `mon-c` → worker5, `mon-e` → master1, `mon-f` →
-   worker3. Draining a node hosting a pinned mon strands that mon —
-   it cannot reschedule until the pin is satisfied again. **If two
-   mons are pinned to drained nodes, etcd-equivalent quorum is
-   lost.** Drain pinned-mon nodes one at a time and let the mon come
-   back before touching the next.
+   Re-check before every node — the mon names shift (we saw c,e,f →
+   c,e,g → c,e,h over a single afternoon as nodes drained). Draining
+   a node hosting a pinned mon strands that mon — it cannot
+   reschedule until the pin is satisfied again. **If two mons are
+   pinned to drained nodes, ceph quorum is lost.** Drain pinned-mon
+   nodes one at a time and let the mon come back before touching the
+   next.
 
-3. **Check the package install style on the target node.** Some
+4. **Check the package install style on the target node.** Some
    nodes have `kubelet/kubeadm/kubectl/cri-o` installed via dnf
    (RPM-tracked). Others have manually-installed binaries (no RPM
    entries):
@@ -116,7 +153,7 @@ any of them caused real damage on the first attempt at this phase.
    procedure** (don't `rm crio.conf`; use `dnf install` not `dnf
    upgrade`). Nodes known to be manual-install: worker5, worker6.
 
-4. **CNPG primary failover**:
+5. **CNPG primary failover**:
    ```sh
    for c in $(kubectl get pod -n databases -l 'cnpg.io/instanceRole=primary' \
        --field-selector spec.nodeName=<node>.thesteamedcrab.com \
@@ -129,7 +166,7 @@ any of them caused real damage on the first attempt at this phase.
    Then poll `kubectl get pod -n databases -l 'cnpg.io/instanceRole=primary' --field-selector spec.nodeName=<node>...`
    until empty.
 
-5. **Hardware-pinned pod suspension** (worker4: frigate +
+6. **Hardware-pinned pod suspension** (worker4: frigate +
    zigbee2mqtt + zwave-js-ui; worker8: ollama + comfyui). Use the
    `disable-<app>` GitOps commit pattern, not `kubectl scale` —
    Flux will revert imperative scales. Wait for Flux reconciliation
@@ -252,27 +289,9 @@ kubectl run nvidia-smoke --rm -i --restart=Never \
 | New pods on a node fail with `runc create failed: unsafe procfs detected` | `/etc/crio/crio.conf` was removed but the new cri-o package didn't install | Restore `crio.conf` from a peer node's identical version (`scp root@<peer>:/etc/crio/crio.conf root@<broken>:/etc/crio/`), `systemctl restart crio` |
 | `mon-X` stays Pending after drain | Mon is pinned via `nodeSelector` to the cordoned node | Uncordon the pinned node, mon comes back. Don't drain another mon's host until quorum is restored |
 | `dnf upgrade` reports `kubelet-1.34.7: No match for argument` | Node has manually-installed kubelet (no RPM entry) | Use the alternate procedure (`dnf install` after moving binaries aside) |
-
-### Worker8 (NVIDIA) extra steps
-
-After step 3 above, drop in the NVIDIA runtime config:
-
-```sh
-ssh root@worker8.thesteamedcrab.com 'cat > /etc/crio/crio.conf.d/20-nvidia.conf <<EOF
-[crio.runtime.runtimes.nvidia]
-runtime_path = "/usr/bin/nvidia-container-runtime"
-runtime_root = "/run/nvidia"
-runtime_type = "oci"
-EOF
-systemctl restart crio'
-```
-
-Verify with a smoke-test pod before resuming ollama / comfyui:
-
-```sh
-kubectl run nvidia-smoke --rm -i --restart=Never \
-  --overrides='{"spec":{"runtimeClassName":"nvidia","nodeName":"worker8.thesteamedcrab.com"}}' \
-  --image=nvidia/cuda:12.0-base-ubuntu22.04 -- nvidia-smi
+| `longhorn-manager-X` stuck CrashLoopBackOff with `bind: address already in use` on port 9502 | Old longhorn-manager process orphaned by a previous container; cri-o lost track of it but the binary is still bound | `ssh root@<node> 'pgrep -af "longhorn-manager -d daemon"'` → `kill -9 <pid>`; then `kubectl delete pod -n longhorn-system longhorn-manager-X` |
+| Multiple CNPG replica pods stuck Init:CrashLoopBackOff on a recently-broken node | Their Longhorn volumes failed to attach during the node's outage; pods are now in 5-minute kubelet backoff | Once Longhorn recovers, `kubectl delete pod` each one to force immediate retry. Volume attaches succeed. |
+| Replicas-cascading-CNPG-PDB-blocks-drain | One replica unhealthy in cluster X means PDB has 0 disruptions; subsequent drain anywhere blocks on cluster X's PDB | Heal the unhealthy replica before draining its peer's host. The Longhorn pre-drain step (above) prevents this. |
 ```
 
 ### Master procedure

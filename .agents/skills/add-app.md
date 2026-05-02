@@ -1,128 +1,111 @@
 ---
 name: add-app
-description: Scaffold a new app-template Helm chart application
+description: Scaffold a new app-template HelmRelease application in this repo
 ---
 
 # Add New Application
 
-This skill scaffolds a new application in your home-ops repository based on the `app-template` Helm chart.
+This skill scaffolds a new application following the conventions in
+`kubernetes/apps/`. The app-template chart is shared via the
+`components/repos/app-template/` Component — apps consume it through
+`chartRef`, not by creating their own `OCIRepository`.
+
+For MCP servers under `kubernetes/apps/mcp-system/`, prefer the
+`add-mcp-server` skill — that pattern has a sidecar
+`MCPServerRegistration` that this skill does not produce.
 
 ## Workflow
 
 ### Step 1: Collect Application Details
 
-Use the `question` tool to gather:
+Ask the user for:
 
-1. **App name** - the Kubernetes resource name (e.g., `autobrr`, `sonarr`)
-2. **Namespace** - the target Kubernetes namespace (e.g., `downloads`, `media`, `system`)
-3. **Image repository** - full container image URL (e.g., `ghcr.io/autobrr/autobrr`)
-4. **Image tag** - version tag (e.g., `v1.76.0`)
-5. **Port** - application port number (e.g., `7474`)
-6. **Dependencies** - any Flux Kustomization dependencies (e.g., `rook-ceph-cluster`)
-7. **Has secrets** - whether to create an ExternalSecret (yes/no)
+1. **App name** — e.g. `autobrr`, `sonarr`
+2. **Namespace** — must already exist under `kubernetes/apps/<namespace>/`
+3. **Image repository** — e.g. `ghcr.io/autobrr/autobrr`
+4. **Image tag** — preferably a sha-pinned tag (`v1.76.0@sha256:...`)
+5. **Port** — application HTTP port
+6. **Dependencies** — Flux Kustomizations this depends on (cross-namespace
+   deps must include `namespace:`)
+7. **Has secrets** — whether to scaffold an ExternalSecret
 
-### Step 2: Create Directory Structure
+### Step 2: Create Directory
 
-Create the directory: `kubernetes/apps/<namespace>/<app-name>/app/`
+`kubernetes/apps/<namespace>/<app>/app/`
 
 ### Step 3: Generate Files
 
-Create these files with templated values:
-
 ---
 
-**`kubernetes/apps/<namespace>/<app-name>/ks.yaml`**
+**`kubernetes/apps/<namespace>/<app>/ks.yaml`**
 ```yaml
 ---
-# yaml-language-server: $schema=https://k8s-schemas.bjw-s.dev/kustomize.toolkit.fluxcd.io/kustomization_v1.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/kustomization-kustomize-v1.json
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
-  name: <app-name>
+  name: &app <app>
 spec:
   commonMetadata:
     labels:
-      app.kubernetes.io/name: <app-name>
-  components:
-    - ../../../../components/volsync
-  dependsOn:
-    - name: rook-ceph-cluster
-      namespace: rook-ceph
+      app.kubernetes.io/name: *app
+  targetNamespace: <namespace>
+  path: ./kubernetes/apps/<namespace>/<app>/app
   interval: 1h
-  path: "./kubernetes/apps/<namespace>/<app-name>/app"
-  postBuild:
-    substitute:
-      APP: <app-name>
+  timeout: 5m
   prune: true
+  wait: false
   sourceRef:
     kind: GitRepository
-    name: flux-system
+    name: home-ops-kubernetes
     namespace: flux-system
-  targetNamespace: <namespace>
-  timeout: 5m
-  wait: false
+  # dependsOn: include only if needed; cross-namespace deps require `namespace:`
 ```
-
-Only include `dependsOn` if user specified dependencies.
 
 ---
 
-**`kubernetes/apps/<namespace>/<app-name>/app/kustomization.yaml`**
+**`kubernetes/apps/<namespace>/<app>/app/kustomization.yaml`**
 ```yaml
 ---
 # yaml-language-server: $schema=https://json.schemastore.org/kustomization
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+components:
+  - ../../../../components/repos/app-template
 resources:
-  - ./ocirepository.yaml
   - ./helmrelease.yaml
+  # - ./externalsecret.yaml   # add if secrets needed
 ```
 
-Include `./externalsecret.yaml` only if secrets are needed.
+The `components/repos/app-template/` Component supplies the shared
+`OCIRepository/app-template`. Do not create a per-app `ocirepository.yaml`
+for the app-template chart.
 
 ---
 
-**`kubernetes/apps/<namespace>/<app-name>/app/ocirepository.yaml`**
+**`kubernetes/apps/<namespace>/<app>/app/helmrelease.yaml`**
 ```yaml
 ---
-# yaml-language-server: $schema=https://k8s-schemas.bjw-s.dev/source.toolkit.fluxcd.io/ocirepository_v1.json
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: OCIRepository
-metadata:
-  name: <app-name>
-spec:
-  interval: 15m
-  layerSelector:
-    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
-    operation: copy
-  ref:
-    tag: 4.6.2
-  url: oci://ghcr.io/bjw-s-labs/helm/app-template
-```
-
----
-
-**`kubernetes/apps/<namespace>/<app-name>/app/helmrelease.yaml`**
-```yaml
----
-# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
-  name: <app-name>
+  name: <app>
 spec:
   chartRef:
     kind: OCIRepository
-    name: <app-name>
+    name: app-template
   interval: 30m
   values:
+    defaultPodOptions:
+      securityContext:
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
     controllers:
-      <app-name>:
-        pod:
-          securityContext:
-            runAsGroup: 2000
-            runAsNonRoot: true
-            runAsUser: 2000
+      <app>:
+        annotations:
+          reloader.stakater.com/auto: "true"
         containers:
           app:
             image:
@@ -154,59 +137,61 @@ spec:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: true
               capabilities:
-                drop:
-                  - ALL
+                drop: ["ALL"]
     service:
       app:
+        controller: <app>
         ports:
           http:
             port: <port>
 ```
 
+Note on UID/GID: 1000 is the prevailing convention in this repo, but
+match whatever the upstream image's non-root user is. Mismatches show
+up as `Permission denied` on writes into the image's WORKDIR — see the
+mealie-mcp postmortem for an example.
+
 ---
 
-**`kubernetes/apps/<namespace>/<app-name>/app/externalsecret.yaml`** (only if secrets needed)
+**`kubernetes/apps/<namespace>/<app>/app/externalsecret.yaml`** (optional)
 ```yaml
 ---
-# yaml-language-server: $schema=https://k8s-schemas.bjw-s.dev/external-secrets.io/externalsecret_v1.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/external-secrets.io/externalsecret_v1.json
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
-  name: <app-name>
+  name: <app>
 spec:
   refreshInterval: 12h
   secretStoreRef:
     kind: ClusterSecretStore
     name: onepassword-connect
   target:
-    name: <app-name>-secret
+    name: <app>-secret
     creationPolicy: Owner
   data:
     - secretKey: SECRET_KEY
       remoteRef:
-        key: <app-name>
+        key: <app>
         property: secret_key
 ```
 
-Update the `data` section with actual secret keys based on the app's needs.
+### Step 4: Wire Up Namespace Kustomization
 
-### Step 4: Update Namespace Kustomization
-
-Read `kubernetes/apps/<namespace>/kustomization.yaml` and add the new app's ks.yaml to the resources array:
-```yaml
-resources:
-  - ./namespace.yaml
-  - ./<app-name>/ks.yaml
-  # ... existing apps
-```
+Edit `kubernetes/apps/<namespace>/kustomization.yaml` and add the new
+ks.yaml to `resources:` in alphabetical order.
 
 ### Step 5: Verify
 
-Run `find kubernetes/apps/<namespace>/<app-name> -type f` to confirm all files were created correctly.
+`find kubernetes/apps/<namespace>/<app> -type f` — confirm files exist.
+Check sorting/schemas with `.agents/instructions/*.instructions.md`.
 
 ## Notes
 
-- Default app-template version is `4.6.2`
-- Security context defaults: runAsUser/runAsGroup 2000, readOnlyRootFilesystem true, drop ALL caps
-- If the namespace directory doesn't exist, ask user to create it first
-- Always ask for confirmation before writing files
+- The `app-template` chart version is pinned in
+  `kubernetes/components/repos/app-template/ocirepository.yaml`. Bumps
+  there cascade to every consumer — handle as its own PR.
+- Sticking with the security defaults (non-root, read-only root FS,
+  drop ALL caps) is repo convention; relax only with justification.
+- Storage: see `.agents/instructions/storage-class.instructions.md` for
+  picking between Rook/Ceph, Longhorn, and Garage.

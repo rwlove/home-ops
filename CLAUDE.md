@@ -2,6 +2,7 @@
 @.agents/instructions/helmfile.sorting.instructions.md
 @.agents/instructions/kustomize.config.sorting.instructions.md
 @.agents/instructions/schema.correction.md
+@.agents/instructions/storage-class.instructions.md
 
 # Home Operations - AI Assistant Guide
 

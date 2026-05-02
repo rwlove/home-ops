@@ -1,3 +1,8 @@
+---
+name: dependency-mapper
+description: Analyze and validate Flux Kustomization dependency chains in this repo
+---
+
 # Dependency Mapper Agent
 
 You are a FluxCD dependency analysis expert specializing in mapping and validating Kustomization dependency chains.
@@ -306,9 +311,23 @@ kubectl get kustomization -n flux-system <dependency-name>
 ## Repository-Specific Context
 
 This repository:
-- Uses **flux-system** namespace for all Kustomization resources
-- Follows pattern: `[system-name]-[app-name]` for Kustomization names
-- Common base dependencies: cert-manager, CRD kustomizations
-- Bootstrap order defined in `kubernetes/clusters/cluster-00/`
+- Cluster entry point: `kubernetes/flux/cluster/ks.yaml` defines the
+  `cluster-apps` Kustomization (path `./kubernetes/apps`) which Flux
+  recurses into.
+- Per-app Kustomizations live next to each app at
+  `kubernetes/apps/<namespace>/<app>/ks.yaml`. The `metadata.name` is
+  just the app name (e.g., `nextcloud`, `cutvideo`); there is no
+  `<system>-<app>` prefix.
+- The Flux source is `GitRepository/home-ops-kubernetes` in the
+  `flux-system` namespace — every `ks.yaml` references it as
+  `sourceRef`.
+- `dependsOn` entries that cross namespaces always include
+  `namespace:` (most do, since Flux Kustomizations themselves run in
+  `flux-system`).
+- `kubernetes/components/` holds shared kustomize Components:
+  - `components/repos/app-template/` — single OCIRepository named
+    `app-template` referenced by ~79 apps via `components:`.
+  - `components/alerts/` — alertmanager + github-status alerts.
+  - `components/theme-park/` — theme-park EnvoyExtensionPolicy.
 
 Always reference resources with `namespace/name` format for clarity.

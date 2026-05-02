@@ -198,6 +198,20 @@ metadata:
     cert-manager.io/renew-before: "48h"
 ```
 
+> **What `duration` actually does.** Let's Encrypt's default profile
+> always issues 90-day certificates regardless of the `duration`
+> requested by ACME. The `cert-manager.io/duration` annotation controls
+> only cert-manager's *renewal cadence* — it tells cert-manager "treat
+> this cert as expiring after 168h" so it renews early. You still get
+> 90-day certs, just rotated every ~5 days.
+>
+> For actually-short LE certs, opt into the `tlsserver` profile (~6-day
+> validity) by adding `acme.cert-manager.io/order-profile-name:
+> tlsserver` on the per-listener Certificate or via cert-manager's
+> issuer-level configuration. That changes the LE order profile and
+> the issued cert is genuinely short-lived. Verify with
+> `openssl s_client … | openssl x509 -noout -dates` after issuance.
+
 For the `internal` Gateway, swap the issuer to the private CA once
 Phase 1 is done:
 

@@ -15,10 +15,11 @@ spec:
       template:
         spec:
           restartPolicy: OnFailure
-          securityContext:
-            runAsUser: 568
-            runAsGroup: 568
-            fsGroup: 568
+          # Run as root so apk add can install git/curl/openssh. /config is
+          # chmod 777 and HA writes its own files as uid 568, so root-created
+          # files written by `git pull` remain accessible to HA. The
+          # safe.directory line below stops git's CVE-2022-24765 check from
+          # tripping on the uid mismatch.
           containers:
             - name: sync
               image: docker.io/library/alpine:3.23
@@ -37,6 +38,10 @@ spec:
                   chmod 700 "$HOME/.ssh"
                   chmod 600 "$HOME/.ssh/id_ed25519"
                   chmod 644 "$HOME/.ssh/known_hosts"
+
+                  # /config is owned by uid 568 (HA); we run as root.
+                  # CVE-2022-24765 makes git refuse without this opt-in.
+                  git config --global --add safe.directory /config
 
                   cd /config
 

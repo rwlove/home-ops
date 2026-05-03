@@ -1,0 +1,71 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: omada-mcp
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  values:
+    defaultPodOptions:
+      securityContext:
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+    controllers:
+      omada-mcp:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        pod:
+          annotations:
+            sidecar.istio.io/inject: "true"
+        containers:
+          app:
+            image:
+              repository: docker.io/jmtvms/tplink-omada-mcp
+              tag: v0.15.0@sha256:46bc8d69bcd3cd44583d7359fb7c1c5875fb199ecda7191c25059f7e734401ab
+            env:
+              OMADA_STRICT_SSL: "false"
+              OMADA_TOOL_CATEGORIES: "all:r"
+              MCP_SERVER_USE_HTTP: "true"
+              MCP_HTTP_BIND_ADDR: "0.0.0.0"
+              MCP_HTTP_PORT: "3000"
+              MCP_HTTP_ALLOWED_ORIGINS: "*"
+            envFrom:
+              - secretRef:
+                  name: omada-mcp-secret
+            resources:
+              requests:
+                cpu: 10m
+                memory: 128Mi
+              limits:
+                memory: 256Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: {drop: ["ALL"]}
+    service:
+      app:
+        controller: omada-mcp
+        ports:
+          http:
+            port: 3000
+    route:
+      app:
+        hostnames:
+          - "omada-mcp.mcp.local"
+        parentRefs:
+          - name: mcp-gateway
+            namespace: mcp-system
+            sectionName: mcps
+        rules:
+          - matches:
+              - path:
+                  type: PathPrefix
+                  value: /mcp
+            backendRefs:
+              - identifier: app
+                port: 3000

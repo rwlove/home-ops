@@ -1,0 +1,50 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/postgresql.cnpg.io/cluster_v1.json
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres-authelia
+spec:
+  instances: 2
+
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.7
+
+  primaryUpdateStrategy: unsupervised
+
+  postgresql:
+    parameters:
+      timezone: "America/New_York"
+
+  storage:
+    size: 5Gi
+    storageClass: ceph-block
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+  enableSuperuserAccess: true
+  superuserSecret:
+    name: cloudnative-pg
+
+  monitoring:
+    enablePodMonitor: true
+
+  plugins:
+    - enabled: true
+      isWALArchiver: true
+      name: barman-cloud.cloudnative-pg.io
+      parameters:
+        barmanObjectName: garage-authelia
+        serverName: postgres-authelia-backup
+
+  externalClusters:
+    - name: postgres-authelia-backup
+      plugin:
+        enabled: true
+        isWALArchiver: false
+        name: barman-cloud.cloudnative-pg.io
+        parameters:
+          barmanObjectName: garage-authelia
+          serverName: postgres-authelia-backup

@@ -1,0 +1,112 @@
+---
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: Image Registry Check
+
+on:
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  filter-changes:
+    name: Filter changes
+    runs-on: ubuntu-latest
+    outputs:
+      changed-files: ${{ steps.changed-files.outputs.changed_files }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Get changed files
+        id: changed-files
+        uses: bjw-s-labs/action-changed-files@a9a36fb08ce06db9b02fbd8026cc2c0945eb9841 # v0.6.0
+        with:
+          patterns: |-
+            kubernetes/**/*
+            .github/image-registry-allowlist.txt
+            tools/check-image-registry.sh
+
+  extract-images:
+    if: ${{ needs.filter-changes.outputs.changed-files != '[]' }}
+    name: Extract images
+    runs-on: ubuntu-latest
+    needs:
+      - filter-changes
+    strategy:
+      matrix:
+        branches:
+          - default
+          - pull
+      fail-fast: false
+    outputs:
+      default: ${{ steps.extract.outputs.default }}
+      pull: ${{ steps.extract.outputs.pull }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: "${{ matrix.branches == 'default' && github.event.repository.default_branch || '' }}"
+
+      - name: Gather images
+        uses: docker://ghcr.io/allenporter/flux-local:v8.1.0
+        with:
+          args: >-
+            get cluster
+            --all-namespaces
+            --path /github/workspace/kubernetes/flux
+            --enable-images
+            --only-images
+            --output json
+            --output-file images.json
+
+      - name: Emit images
+        id: extract
+        run: |
+          echo "${{ matrix.branches }}=$(jq --compact-output '.' images.json)" >> "${GITHUB_OUTPUT}"
+
+  check-new-images:
+    if: ${{ needs.extract-images.outputs.default != needs.extract-images.outputs.pull }}
+    name: Check new images
+    runs-on: ubuntu-latest
+    needs:
+      - extract-images
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Diff images (pull − default)
+        id: diff
+        run: |
+          new_images=$(jq --compact-output --null-input \
+            --argjson f1 '${{ needs.extract-images.outputs.default }}' \
+            --argjson f2 '${{ needs.extract-images.outputs.pull }}' \
+            '$f2 - $f1')
+          echo "$new_images" > new-images.json
+          {
+            echo "## New images on this PR"
+            echo '```json'
+            echo "$new_images" | jq
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Validate registries
+        run: |
+          ./tools/check-image-registry.sh --json new-images.json
+
+  image-registry-check-success:
+    if: ${{ !cancelled() }}
+    needs:
+      - check-new-images
+    name: Image registry check successful
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check job status
+        if: ${{ contains(needs.*.result, 'failure') }}
+        run: exit 1

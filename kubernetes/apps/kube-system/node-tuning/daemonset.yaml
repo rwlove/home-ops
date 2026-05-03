@@ -1,4 +1,5 @@
 ---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/daemonset-apps-v1.json
 # Persists node-level sysctl tunings that can't be set per-pod.
 #
 # Currently:
@@ -28,34 +29,15 @@ spec:
       labels:
         app.kubernetes.io/name: node-tuning
     spec:
-      hostPID: true
-      tolerations:
-        - operator: Exists
-      initContainers:
-        - name: apply-sysctls
-          image: busybox:1.36
-          command:
-            - /bin/sh
-            - -c
-            - |
-              set -eux
-              sysctl -w fs.inotify.max_user_instances=8192
-              sysctl -w fs.inotify.max_user_watches=524288
-          securityContext:
-            privileged: true
-          resources:
-            requests:
-              cpu: 1m
-              memory: 8Mi
       containers:
-        - name: pause
-          image: registry.k8s.io/pause:3.10
+        - image: registry.k8s.io/pause:3.10
+          name: pause
           resources:
-            requests:
-              cpu: 1m
-              memory: 8Mi
             limits:
               memory: 16Mi
+            requests:
+              cpu: 1m
+              memory: 8Mi
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -64,3 +46,22 @@ spec:
             runAsNonRoot: true
             runAsUser: 65535
             seccompProfile: { type: RuntimeDefault }
+      hostPID: true
+      initContainers:
+        - command:
+            - /bin/sh
+            - -c
+            - |
+              set -eux
+              sysctl -w fs.inotify.max_user_instances=8192
+              sysctl -w fs.inotify.max_user_watches=524288
+          image: busybox:1.36
+          name: apply-sysctls
+          resources:
+            requests:
+              cpu: 1m
+              memory: 8Mi
+          securityContext:
+            privileged: true
+      tolerations:
+        - operator: Exists

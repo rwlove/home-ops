@@ -288,20 +288,26 @@ kubectl run nvidia-smoke --rm -i --restart=Never \
   --image=nvidia/cuda:12.0-base-ubuntu22.04 -- nvidia-smi
 ```
 
-### Failure modes seen on 2026-05-02
+### Failure modes seen during the 1.34.2 → 1.34.7 (2026-05-02) and 1.34.7 → 1.35.4 (2026-05-03) upgrades
 
 | Symptom | Root cause | Fix |
 |---------|-----------|-----|
-| Drain hangs ~indefinitely on `rook-ceph-osd-host-*` PDB | A previous node's OSD is still degraded; Rook's per-host PDB blocks all OSD evictions cluster-wide | Wait for `ceph -s` HEALTH_OK, then retry drain |
+| Drain hangs ~indefinitely on `rook-ceph-osd-host-*` PDB | A previous node's OSD is still degraded; Rook's per-host PDB blocks all OSD evictions cluster-wide. On this homelab, ceph "Global Recovery Event" can run for an HOUR at default ~683 KB/s — far longer than the 30-min drain timeout suggests. | Two options: (1) wait for `ceph -s` HEALTH_OK and zero remapped/misplaced pgs; or (2) `kubectl delete pod -n rook-ceph rook-ceph-osd-N-...` directly — drain bypasses the eviction API once the pod is already terminating. Safe with 8 OSDs + 3-way replication for the ~10-min window. |
 | New pods on a node fail with `runc create failed: unsafe procfs detected` | `/etc/crio/crio.conf` was removed but the new cri-o package didn't install | Restore `crio.conf` from a peer node's identical version (`scp root@<peer>:/etc/crio/crio.conf root@<broken>:/etc/crio/`), `systemctl restart crio` |
-| `mon-X` stays Pending after drain | Mon is pinned via `nodeSelector` to the cordoned node | Uncordon the pinned node, mon comes back. Don't drain another mon's host until quorum is restored |
-| `dnf upgrade` reports `kubelet-1.34.7: No match for argument` | Node has manually-installed kubelet (no RPM entry) | Use the alternate procedure (`dnf install` after moving binaries aside) |
+| `mon-X` stays Pending after drain | Mon is pinned via `nodeSelector` to the cordoned node | Uncordon the pinned node, mon comes back. Don't drain another mon's host until quorum is restored. (Note: Rook recreates mons under new letters as nodes drop in/out — re-check assignments before each drain.) |
+| `dnf upgrade` reports `kubelet-1.34.7: No match for argument` | Node has manually-installed kubelet (no RPM entry) | Use the alternate procedure (`dnf install` after moving binaries aside). Affects worker5 and worker6. |
 | `longhorn-manager-X` stuck CrashLoopBackOff with `bind: address already in use` on port 9502 | Old longhorn-manager process orphaned by a previous container; cri-o lost track of it but the binary is still bound | `ssh root@<node> 'pgrep -af "longhorn-manager -d daemon"'` → `kill -9 <pid>`; then `kubectl delete pod -n longhorn-system longhorn-manager-X` |
 | Multiple CNPG replica pods stuck Init:CrashLoopBackOff on a recently-broken node | Their Longhorn volumes failed to attach during the node's outage; pods are now in 5-minute kubelet backoff | Once Longhorn recovers, `kubectl delete pod` each one to force immediate retry. Volume attaches succeed. |
 | Replicas-cascading-CNPG-PDB-blocks-drain | One replica unhealthy in cluster X means PDB has 0 disruptions; subsequent drain anywhere blocks on cluster X's PDB | Heal the unhealthy replica before draining its peer's host. The Longhorn pre-drain step (above) prevents this. |
-| cri-o stuck in `activating (start)` indefinitely after package upgrade; logs flood with `Killing container <id> failed: container does not exist` | cri-o's `internal_wipe = true` tries to kill phantom containers left in `/var/lib/containers/storage/` by the previous version, but their runc state in `/run/crun` is gone. Worse across multi-minor jumps (1.28 → 1.34). | `systemctl kill --signal=SIGKILL crio` → `crio wipe -f` (clears container refs, keeps images) → `systemctl start crio` → `systemctl start kubelet`. Hit on worker6 during the manual-install upgrade — likely also needed on worker5 for the same reason. |
-| Suspended app stays at `replicas: 0` after the suspend HR is reverted | Manually scaling a StatefulSet/Deployment to 0 before drain (the post-suspend step that actually stops pods) sticks. Helm/Flux applying the un-suspended HR doesn't reset the imperative scale. | After reverting `disable-<app>`, `kubectl scale -n <ns> statefulset <app> --replicas=1` (or whatever the desired count is). Bit us with frigate, ollama, comfyui. |
-```
+| cri-o stuck in `activating (start)` indefinitely after package upgrade; logs flood with `Killing container <id> failed: container does not exist` | cri-o's `internal_wipe = true` tries to kill phantom containers left in `/var/lib/containers/storage/` by the previous version, but their runc state in `/run/crun` is gone. Worse across multi-minor jumps (1.28 → 1.34). | `systemctl kill --signal=SIGKILL crio` → `crio wipe -f` (clears container refs, keeps images) → `systemctl start crio` → `systemctl start kubelet`. Hit on worker6 during the manual-install upgrade. |
+| Suspended app stays at `replicas: 0` after the suspend HR is reverted | Manually scaling a StatefulSet/Deployment to 0 before drain (the post-suspend step that actually stops pods) sticks. Helm/Flux applying the un-suspended HR doesn't reset the imperative scale. | After reverting `disable-<app>`, `kubectl scale -n <ns> statefulset <app> --replicas=1` (or whatever the desired count is). Bit us repeatedly with frigate, ollama, comfyui. |
+| Reboot scheduled with `(sleep 5 && systemctl reboot) &` never fires | The backgrounded subshell gets SIGHUPed when the SSH session ends, killing the sleep before it triggers reboot | Use `systemd-run --on-active=5s --unit=upgrade-reboot systemctl reboot` instead — runs as a transient systemd unit independent of the SSH session |
+| Node boots into a kernel with no initramfs ("Kernel panic - VFS: Unable to mount root") | `dnf upgrade -y` installed a new kernel package but the dracut hook that generates `/boot/initramfs-<KVER>.img` failed silently | At grub, select an older kernel to boot. Once back, regenerate: `dracut -f /boot/initramfs-<KVER>.img <KVER>`. Then reboot. **Prevent it**: add an initramfs check before the reboot step (see procedure). |
+| Initramfs check via `rpm -q kernel-core` fails on manual-install nodes | Worker5/6 don't have kernel-core in the RPM database; query returns "package kernel-core is not installed" and the check loop iterates over the wrong tokens | Use `ls -1 /boot/vmlinuz-* \| grep -v rescue \| sort -V \| tail -1 \| sed 's\|/boot/vmlinuz-\|\|'` instead — works on any node regardless of RPM tracking |
+| crio + kubelet inactive after reboot (services disabled in systemd) | New cri-o/kubelet RPM install on top of an existing manual-install node resets the systemd unit enable state to disabled | Always `systemctl enable crio kubelet` *before* the reboot step, or after the reboot if you forgot |
+| Longhorn instance-manager won't evict even though node has 0 replicas | Longhorn keeps the per-node instance-manager PDB at `disruptionsAllowed: 0` until `spec.evictionRequested: true` is set on the Longhorn node CR | Before drain: `kubectl patch -n longhorn-system nodes.longhorn.io <node> --type=merge -p '{"spec":{"allowScheduling":false,"evictionRequested":true}}'`. The Longhorn UI does this for you when you set "Disable Scheduling + Eviction Requested". After uncordon, restore: `'{"spec":{"allowScheduling":true,"evictionRequested":false}}'` |
+| HelmRelease `spec.suspend: true` revert pushed to git, but cluster HR still shows `suspend: true` after Flux reconciles | Flux's helm-controller can get stuck on a transient state; observedGeneration matches but the spec doesn't reflect the new file | Direct patch: `kubectl patch hr -n <ns> <name> --type=merge -p '{"spec":{"suspend":null}}'`. Bit us with descheduler at the end of Phase 3. |
+| Static pod manifests (apiserver, controller-manager, scheduler, etcd) stay at the old patch version after `kubeadm upgrade node` on patch bumps | `kubeadm upgrade node` only refreshes the kubelet config + kubeconfig on patches; static pod images are only bumped via `kubeadm upgrade apply` (one master) or by the minor bump. So `apiserver: v1.34.2` can persist for months while kubelets are at 1.34.7. | Acceptable while inside the same minor. The next minor bump (`kubeadm upgrade apply v1.35.x`) refreshes them. |
 
 ### Master procedure
 
@@ -309,12 +315,144 @@ Same as worker, with two differences:
 
 - **Master1 is special** (already on cri-o 1.34.x). Skip the cri-o swap;
   just do the k8s patch / minor bump. Master1 is also the last in the
-  order so the kube-vip VIP can fail over to master2/master3 during
-  master1's drain.
-- **First control plane in Phase 3 minor bump** uses
-  `kubeadm upgrade apply v1.35.x`; the others use
-  `kubeadm upgrade node`. The first one *must* be done before any
-  others.
+  order for patch upgrades so the kube-vip VIP can fail over to
+  master2/master3 during master1's drain.
+- **First control plane in a minor bump** uses
+  `kubeadm upgrade apply v1.X.Y`; the others use `kubeadm upgrade
+  node`. The first one *must* be done before any others. Order in
+  Phase 3 was: master1 (apply) → master2 (node) → master3 (node) →
+  workers.
+
+## Phase 3 — k8s minor bump (1.34 → 1.35), per-node procedure
+
+The per-node procedure that actually worked across all 10 nodes for
+the 2026-05-03 minor bump. Use this verbatim for future minor bumps —
+it's substantially more robust than what's in the per-worker section
+above (which was for the 1.34 patch upgrade).
+
+### Phase 3 prep (once, before any node)
+
+```sh
+# Stage v1.35 repos on every node
+ssh root@<every-node> 'cat > /etc/yum.repos.d/Kubernetes-1.35.repo <<EOF
+[Kubernetes-1.35]
+name=Kubernetes 1.35 Repo
+baseurl=https://pkgs.k8s.io/core:/stable:/v1.35/rpm/
+enabled=1
+gpgcheck=1
+gpgkey=https://pkgs.k8s.io/core:/stable:/v1.35/rpm/repodata/repomd.xml.key
+EOF
+cat > /etc/yum.repos.d/isv_cri-o_stable_v1.35.repo <<EOF
+[isv_cri-o_stable_v1.35]
+name=CRI-O v1.35 (Stable) (rpm)
+baseurl=https://download.opensuse.org/repositories/isv:/cri-o:/stable:/v1.35/rpm/
+gpgcheck=1
+gpgkey=https://download.opensuse.org/repositories/isv:/cri-o:/stable:/v1.35/rpm/repodata/repomd.xml.key
+enabled=1
+EOF'
+
+# etcd snapshot (off-cluster)
+kubectl exec -n kube-system etcd-master1.thesteamedcrab.com -- etcdctl ... snapshot save /var/lib/etcd/snapshot-prephase3-$(date +%Y%m%d).db
+scp root@master1:/var/lib/etcd/snapshot-prephase3-*.db ~/cluster-backups/etcd-prephase3/
+
+# Suspend descheduler (commit `new: disable-descheduler` + scale to 0)
+
+# kubeadm upgrade plan (from the master that will receive `apply`)
+ssh root@master1 'dnf install -y kubeadm-1.35.4 && kubeadm upgrade plan v1.35.4'
+```
+
+### First control plane (master1): `kubeadm upgrade apply`
+
+```sh
+# Pre-flight: CNPG primaries failover, set Longhorn evictionRequested=true
+# (see standard worker procedure)
+
+kubectl drain master1.thesteamedcrab.com --ignore-daemonsets --delete-emptydir-data
+
+ssh root@master1.thesteamedcrab.com '
+  set -eu
+  kubeadm upgrade apply v1.35.4 --yes
+  dnf install -y kubelet-1.35.4 kubectl-1.35.4
+  dnf upgrade -y                       # full system, picks up new kernel + cri-o 1.35.x
+  systemctl enable crio kubelet        # RPM upgrade can reset enable state
+  systemd-run --on-active=5s --unit=upgrade-reboot systemctl reboot
+'
+
+# Wait for reboot + Ready, then uncordon. cri-o post-reboot recovery
+# can take 60-120s of "activating" before settling.
+```
+
+### Other control planes (master2, master3): `kubeadm upgrade node`
+
+Same as master1 but replace `kubeadm upgrade apply v1.35.4 --yes` with
+`kubeadm upgrade node`. Wait for `ceph -s HEALTH_OK` between each.
+
+### Workers (with hardware-pinned variants)
+
+The robust per-worker block is:
+
+```sh
+# Pre-flight (do all of these IN ORDER):
+# 1. Confirm Longhorn replicas on the node are 0 via UI eviction
+#    (or `kubectl patch -n longhorn-system nodes.longhorn.io <node>
+#    --type=merge -p '{"spec":{"allowScheduling":false,
+#    "evictionRequested":true}}'` and wait for replicas to migrate).
+# 2. Verify ceph HEALTH_OK and zero remapped/misplaced pgs.
+# 3. Verify mons not pinned to this node — or accept 2/3 quorum.
+# 4. CNPG primary failover for any primary on this node.
+# 5. Hardware-pinned pod suspend (frigate / ollama / comfyui / zigbee /
+#    zwave) via the `disable-<app>` GitOps commit pattern, plus
+#    `kubectl scale ... --replicas=0` once Flux applies the suspend.
+
+# Drain — with auto OSD-pod-delete after 60s if drain stalls on the
+# Rook OSD-host PDB:
+kubectl drain <node> --ignore-daemonsets --delete-emptydir-data \
+  --timeout=600s &
+DRAIN_PID=$!
+sleep 60
+if kill -0 $DRAIN_PID 2>/dev/null; then
+  REMAINING=$(kubectl get pods -A --field-selector spec.nodeName=<node> \
+    -o wide 2>&1 | grep -vE \
+    'cilium-|node-tuning|node-feature|node-problem|engine-image|longhorn-csi-plugin|longhorn-manager|multus|node-exporter|smartctl|vector-agent|nodeplugin|intel-gpu|NAME' \
+    | wc -l)
+  if [ "$REMAINING" -ge "1" ]; then
+    OSD=$(kubectl get pod -n rook-ceph -l 'app=rook-ceph-osd' \
+      --field-selector spec.nodeName=<node> \
+      -o jsonpath='{.items[0].metadata.name}')
+    [ -n "$OSD" ] && kubectl delete pod -n rook-ceph "$OSD" --grace-period=30
+  fi
+fi
+wait $DRAIN_PID
+
+# Upgrade + full system update + initramfs check + reboot:
+ssh root@<node> 'set -eu
+  dnf install -y kubeadm-1.35.4 kubelet-1.35.4 kubectl-1.35.4
+  kubeadm upgrade node
+  dnf upgrade -y                           # full system; may bump kernel + cri-o
+
+  # Initramfs check via /boot (works on RPM and manual-install nodes)
+  LATEST_K=$(ls -1 /boot/vmlinuz-* | grep -v rescue | sort -V | tail -1 \
+    | sed "s|/boot/vmlinuz-||")
+  if [ ! -f /boot/initramfs-${LATEST_K}.img ]; then
+    dracut -f /boot/initramfs-${LATEST_K}.img $LATEST_K
+  fi
+
+  systemctl enable crio kubelet            # RPM upgrade can reset state
+  systemd-run --on-active=5s --unit=upgrade-reboot systemctl reboot
+'
+
+# Wait for SSH back, services active, Ready, kubelet at v1.35.4.
+# Then uncordon, restore Longhorn (allowScheduling=true,
+# evictionRequested=false), revert the disable-<app> commit, scale
+# the StatefulSet/Deployment back to 1.
+```
+
+### Phase 3 worker order (used 2026-05-03)
+
+`worker7 → worker3 → worker2 → worker6 → worker5 → worker4 → worker8`.
+
+The hardware-pinned ones go last so we don't suspend their workloads
+longer than necessary.
 
 ## Phase 5 — verify and clean up
 

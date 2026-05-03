@@ -1,0 +1,100 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/configmap-v1.json
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: authelia-config
+data:
+  configuration.yml: |
+    server:
+      address: 'tcp://0.0.0.0:9091/'
+      buffers:
+        read: 4096
+        write: 4096
+
+    log:
+      level: 'info'
+      format: 'text'
+
+    telemetry:
+      metrics:
+        enabled: true
+        address: 'tcp://0.0.0.0:9959/'
+
+    theme: 'auto'
+
+    identity_validation:
+      reset_password:
+        # jwt_secret comes from env: AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET
+
+    authentication_backend:
+      password_reset:
+        disable: false
+      refresh_interval: '5 minutes'
+      ldap:
+        implementation: 'lldap'
+        address: 'ldap://lldap.auth.svc.cluster.local:3893'
+        timeout: '5 seconds'
+        start_tls: false
+        base_dn: 'dc=thesteamedcrab,dc=com'
+        additional_users_dn: 'ou=people'
+        additional_groups_dn: 'ou=groups'
+        users_filter: '(&({username_attribute}={input})(objectClass=person))'
+        groups_filter: '(member={dn})'
+        user: 'uid=admin,ou=people,dc=thesteamedcrab,dc=com'
+        # password from env: AUTHELIA_AUTHENTICATION_BACKEND_LDAP_PASSWORD
+
+    password_policy:
+      standard:
+        enabled: true
+        min_length: 8
+        require_uppercase: false
+        require_lowercase: false
+        require_number: false
+        require_special: false
+
+    access_control:
+      default_policy: 'deny'
+      rules:
+        - domain: 'auth.thesteamedcrab.com'
+          policy: 'bypass'
+        - domain: '*.thesteamedcrab.com'
+          policy: 'one_factor'
+
+    session:
+      cookies:
+        - domain: 'thesteamedcrab.com'
+          authelia_url: 'https://auth.thesteamedcrab.com'
+          default_redirection_url: 'https://thesteamedcrab.com'
+          inactivity: '5 minutes'
+          expiration: '1 hour'
+          remember_me: '1 month'
+      redis:
+        host: 'dragonfly.databases.svc.cluster.local'
+        port: 6379
+        database_index: 5
+
+    regulation:
+      max_retries: 5
+      find_time: '2 minutes'
+      ban_time: '5 minutes'
+
+    storage:
+      postgres:
+        address: 'tcp://postgres-authelia-rw.databases.svc.cluster.local:5432'
+        database: 'authelia'
+        username: 'authelia'
+        # password from env: AUTHELIA_STORAGE_POSTGRES_PASSWORD
+      # encryption_key from env: AUTHELIA_STORAGE_ENCRYPTION_KEY
+
+    notifier:
+      disable_startup_check: false
+      smtp:
+        address: 'smtp://smtp-relay.home.svc.cluster.local:2525'
+        sender: 'Authelia <auth@thesteamedcrab.com>'
+        subject: '[Authelia] {title}'
+        startup_check_address: 'test@thesteamedcrab.com'
+        disable_require_tls: true
+        disable_html_emails: false
+
+    # identity_providers (OIDC) — added in Stage 3 alongside the first client (immich)

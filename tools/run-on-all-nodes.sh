@@ -12,5 +12,5 @@ nodes=$(kubectl get nodes -o jsonpath='{.items[*].metadata.name}')
 
 for node in ${nodes}; do
   echo "## node ${node}"
-  ssh "root@${node}" "$@"
+  ssh "root@${node}" "$@" || true
 done

@@ -9,6 +9,7 @@
 - [nVidia Tesla P40](p40.md)
 - [Cluster Rebuild Actions](cluster_rebuild.md)
 - [Cluster Upgrade Runbook](cluster_upgrade.md)
+- [Promote Worker to Control Plane](promote_worker_to_control_plane.md)
 - [Per-Route Cert Migration](per-route-cert-migration.md)
 - [Initialization and Teardown](init_teardown.md)
 - [Immich restore to new CNPG database](immich_cnpg.md)

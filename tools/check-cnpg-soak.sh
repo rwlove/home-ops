@@ -34,7 +34,7 @@ declare -A REQ=(
   [postgres-atuin]=1024 [postgres-cutvideo]=512 [postgres-home-assistant]=1536
   [postgres-immich]=1024 [postgres-lldap]=512 [postgres-medikeep]=1024
   [postgres-nametag]=512 [postgres-netbox]=512 [postgres-nextcloud]=512
-  [postgres-paperless]=512 [postgres-pocket-id]=512 [postgres-romm]=1024
+  [postgres-paperless]=512 [postgres-romm]=1024
   [postgres-sparkyfitness]=1024
   [postgres-workoutdiary]=1024
 )

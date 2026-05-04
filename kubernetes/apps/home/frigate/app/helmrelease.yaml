@@ -29,6 +29,30 @@ spec:
 
         type: statefulset
 
+        initContainers:
+          # Native sidecar (restartPolicy: Always). Snapshots config.yml to git
+          # on every pod startup so version-bump auto-migrations are captured
+          # the moment they happen. The daily CronJob handles ongoing UI edits.
+          snapshot:
+            image:
+              repository: docker.io/library/alpine
+              tag: "3.23"
+            command: ["/bin/sh", "/opt/snapshot/snapshot.sh"]
+            env:
+              # Wait for Frigate to finish auto-migration before snapshotting.
+              WAIT_BEFORE: "120"
+              # Any positive value puts the script in sidecar mode (sleep
+              # forever after the attempt so the pod stays Ready, even if the
+              # snapshot itself failed — the daily CronJob will retry).
+              SLEEP_AFTER: "1"
+            resources:
+              requests:
+                cpu: 10m
+                memory: 64Mi
+              limits:
+                memory: 256Mi
+            restartPolicy: Always
+
         containers:
           main:
             image:
@@ -156,6 +180,26 @@ spec:
         existingClaim: frigate-recordings-pvc
         globalMounts:
           - path: /media/frigate/recordings
+
+      snapshot-script:
+        type: configMap
+        name: frigate-snapshot-script
+        defaultMode: 0555
+        advancedMounts:
+          main:
+            snapshot:
+              - path: /opt/snapshot
+                readOnly: true
+
+      snapshot-ssh:
+        type: secret
+        name: frigate-snapshot
+        defaultMode: 0400
+        advancedMounts:
+          main:
+            snapshot:
+              - path: /ssh
+                readOnly: true
 
       usb:
         type: hostPath

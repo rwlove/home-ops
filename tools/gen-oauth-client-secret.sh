@@ -14,7 +14,13 @@ PLAINTEXT=$(openssl rand -base64 24 | tr -d '/+=')
 echo "1P '$APP' item, field OAUTH_CLIENT_SECRET (plaintext):"
 echo "  $PLAINTEXT"
 echo
+RUNNER=$(command -v podman || command -v docker)
+if [ -z "$RUNNER" ]; then
+  echo "ERROR: neither podman nor docker found in PATH" >&2
+  exit 1
+fi
+
 echo "Authelia client_secret (paste in chat / configmap):"
-docker run --rm ghcr.io/authelia/authelia:4.39.13 \
+"$RUNNER" run --rm ghcr.io/authelia/authelia:4.39.13 \
   authelia crypto hash generate argon2 --password "$PLAINTEXT" |
   awk '/^Digest:/ {print "  " $2}'

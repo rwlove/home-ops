@@ -1,0 +1,98 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app av1corrector
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+
+  interval: 30m
+  values:
+    controllers:
+      main:
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        type: statefulset
+
+        initContainers:
+          init-db:
+            image:
+              repository: ghcr.io/home-operations/postgres-init
+              tag: 18.3.0@sha256:6fa1f331cddd2eb0b6afa7b8d3685c864127a81ab01c3d9400bc3ff5263a51cf
+
+            envFrom: &envFrom
+              - secretRef:
+                  name: av1corrector-secret
+
+        containers:
+          main:
+            image:
+              repository: ghcr.io/rwlove/av1corrector
+              tag: v0.1.0
+
+            env:
+              AV1CORRECTOR_LIBRARY_PATH: /library
+              AV1CORRECTOR_LISTEN_ADDR: ":8000"
+              AV1CORRECTOR_LOG_FORMAT: json
+
+            envFrom: *envFrom
+
+            probes:
+              liveness: &probes
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /healthz
+                    port: &httpPort 8000
+                  initialDelaySeconds: 30
+                  periodSeconds: 30
+                  timeoutSeconds: 3
+                  failureThreshold: 3
+              readiness: *probes
+              startup:
+                enabled: false
+
+            resources:
+              requests:
+                cpu: 500m
+                memory: 512Mi
+              limits:
+                memory: 4Gi
+
+    service:
+      main:
+        controller: main
+        ports:
+          http:
+            port: *httpPort
+
+    route:
+      main:
+        annotations:
+          glance/name: "AV1 Corrector"
+          glance/show: "true"
+          glance/id: "Media"
+
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - kind: Service
+                name: av1corrector-oauth2-proxy
+                port: 4180
+
+    persistence:
+      library:
+        type: persistentVolumeClaim
+        existingClaim: av1corrector-library-pvc
+        globalMounts:
+          - path: /library

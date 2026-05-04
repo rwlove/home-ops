@@ -1,0 +1,54 @@
+#!/bin/sh
+# Block commits that introduce literal credentials into the repo.
+#
+# This repo is public; secrets must be templated as {ENV_VAR} (Frigate-style)
+# or moved to ExternalSecret/1Password. The patterns below mirror the same
+# checks the in-cluster snapshot pipeline runs against config.yml on the PVC
+# (see kubernetes/apps/home/frigate/app/snapshot-script-cm.yaml). Catching
+# them at commit-time means a typo never reaches GitHub.
+#
+# Install with:
+#   ln -sf ../../tools/git-hooks/pre-commit .git/hooks/pre-commit
+#
+# Bypass for a single commit (rare, e.g., a known-fake string in a fixture):
+#   git commit --no-verify
+set -eu
+
+# Only scan staged YAML files (added or modified, not deleted).
+files=$(git diff --cached --name-only --diff-filter=AM | grep -E '\.ya?ml$' || true)
+[ -z "$files" ] && exit 0
+
+fail=0
+for f in $files; do
+  # Skip files that don't exist on disk (e.g., submodule paths).
+  [ -f "$f" ] || continue
+
+  # URL-embedded credential: ://user:NOT-{...}@host
+  m=$(grep -nE '://[a-zA-Z_][a-zA-Z0-9_]*:[^{][^@]*@' "$f" || true)
+  if [ -n "$m" ]; then
+    printf '%s\n' "ERROR: literal credential in URL form: $f" >&2
+    printf '%s\n' "$m" >&2
+    fail=1
+  fi
+
+  # Reolink-style query string: password=NOT-{
+  m=$(grep -nE 'password=[^{]' "$f" || true)
+  if [ -n "$m" ]; then
+    printf '%s\n' "ERROR: literal credential in query-string form: $f" >&2
+    printf '%s\n' "$m" >&2
+    fail=1
+  fi
+
+  # YAML field: 'password: literal' (allow {ENV} templates)
+  m=$(grep -nE "^[[:space:]]*password:[[:space:]]*['\"]?[^[:space:]'\"{]" "$f" || true)
+  if [ -n "$m" ]; then
+    printf '%s\n' "ERROR: literal credential in YAML field form: $f" >&2
+    printf '%s\n' "$m" >&2
+    fail=1
+  fi
+done
+
+if [ "$fail" -ne 0 ]; then
+  printf '\n%s\n' "Bypass with: git commit --no-verify (only if you're certain it's not a real credential)" >&2
+  exit 1
+fi

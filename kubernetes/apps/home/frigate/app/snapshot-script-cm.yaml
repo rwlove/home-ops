@@ -1,0 +1,128 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/configmap-v1.json
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frigate-snapshot-script
+data:
+  snapshot.sh: |
+    #!/bin/sh
+    # Snapshot Frigate's runtime config.yml into git.
+    #
+    # CONFIG_FILE   path to the config to snapshot (sidecar mounts the PVC; the
+    #               CronJob's init container dumps it to /shared/config.yml).
+    # SLEEP_AFTER   seconds-as-flag. Non-zero = sidecar mode: log failures and
+    #               sleep forever so the pod stays Ready. Zero = CronJob mode:
+    #               propagate non-zero exit so the Job is marked Failed.
+    # WAIT_BEFORE   delay before snapshotting (sidecar waits for Frigate to
+    #               finish auto-migrations).
+    set -u
+
+    CONFIG_FILE="${CONFIG_FILE:-/config/config.yml}"
+    REPO_URL="${REPO_URL:-git@github.com:rwlove/home-ops.git}"
+    SNAPSHOT_PATH="${SNAPSHOT_PATH:-kubernetes/apps/home/frigate/snapshots/config.yml}"
+    BRANCH="${BRANCH:-main}"
+    GIT_USER_EMAIL="${GIT_USER_EMAIL:-frigate-snapshot@cluster.local}"
+    GIT_USER_NAME="${GIT_USER_NAME:-frigate-snapshot}"
+    SLEEP_AFTER="${SLEEP_AFTER:-0}"
+    WAIT_BEFORE="${WAIT_BEFORE:-0}"
+
+    snapshot_attempt() {
+      set -e
+
+      apk add --no-cache --quiet git openssh-client > /dev/null
+
+      if [ "$WAIT_BEFORE" -gt 0 ]; then
+        echo "Waiting ${WAIT_BEFORE}s for Frigate to finish startup migrations..."
+        sleep "$WAIT_BEFORE"
+      fi
+
+      if [ ! -f "$CONFIG_FILE" ]; then
+        echo "ERROR: $CONFIG_FILE not found" >&2
+        return 1
+      fi
+
+      # Refuse to commit literal credentials to a public repo. Three patterns
+      # cover the realistic cases: URL-embedded creds, Reolink query-string
+      # format, and YAML password fields. All are safe when the value is a
+      # {FRIGATE_*} env-var template; the checks reject anything else
+      # (including in commented-out lines, since those still get committed).
+      fail=0
+      m=$(grep -nE '://[a-zA-Z_][a-zA-Z0-9_]*:[^{][^@]*@' "$CONFIG_FILE" || true)
+      if [ -n "$m" ]; then
+        echo "ERROR: literal credentials in URL form:" >&2
+        echo "$m" >&2
+        fail=1
+      fi
+      m=$(grep -nE 'password=[^{]' "$CONFIG_FILE" || true)
+      if [ -n "$m" ]; then
+        echo "ERROR: literal credentials in query-string form:" >&2
+        echo "$m" >&2
+        fail=1
+      fi
+      m=$(grep -nE "^[[:space:]]*password:[[:space:]]*['\"]?[^[:space:]'\"{]" "$CONFIG_FILE" || true)
+      if [ -n "$m" ]; then
+        echo "ERROR: literal credentials in YAML field form:" >&2
+        echo "$m" >&2
+        fail=1
+      fi
+      if [ "$fail" -ne 0 ]; then
+        echo "Refusing to commit config.yml with literal credentials." >&2
+        return 1
+      fi
+
+      export HOME=/tmp/git-home
+      mkdir -p "$HOME/.ssh"
+      cp /ssh/id_ed25519 "$HOME/.ssh/id_ed25519"
+      chmod 700 "$HOME/.ssh"
+      chmod 600 "$HOME/.ssh/id_ed25519"
+      export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o IdentitiesOnly=yes"
+
+      WORK=$(mktemp -d)
+      trap 'rm -rf "$WORK"' EXIT
+      cd "$WORK"
+
+      git clone --depth=1 --branch="$BRANCH" --quiet "$REPO_URL" repo
+      cd repo
+      git config user.email "$GIT_USER_EMAIL"
+      git config user.name "$GIT_USER_NAME"
+
+      DEST="$WORK/repo/$SNAPSHOT_PATH"
+      mkdir -p "$(dirname "$DEST")"
+      cp "$CONFIG_FILE" "$DEST"
+
+      if git diff --quiet; then
+        echo "No diff; nothing to commit."
+        return 0
+      fi
+
+      git add "$SNAPSHOT_PATH"
+      TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+      git commit --quiet -m "chore(frigate): config.yml snapshot ${TS}"
+
+      tries=0
+      until git push origin "$BRANCH" 2>&1; do
+        tries=$((tries + 1))
+        if [ "$tries" -ge 3 ]; then
+          echo "ERROR: push failed after 3 attempts" >&2
+          return 1
+        fi
+        echo "Push rejected; rebasing and retrying ($tries/3)..."
+        git pull --rebase --quiet origin "$BRANCH"
+      done
+      echo "Snapshot pushed."
+    }
+
+    if snapshot_attempt; then
+      rc=0
+    else
+      rc=$?
+      echo "Snapshot attempt failed (rc=$rc)." >&2
+    fi
+
+    if [ "$SLEEP_AFTER" -gt 0 ]; then
+      echo "Sidecar mode: sleeping forever so pod stays Ready."
+      exec sleep infinity
+    fi
+
+    exit "$rc"

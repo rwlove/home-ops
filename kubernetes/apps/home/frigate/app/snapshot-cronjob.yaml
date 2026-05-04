@@ -1,0 +1,82 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/cronjob-batch-v1.json
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: frigate-snapshot
+spec:
+  # 03:00 America/New_York → 07:00 UTC (EDT). Drifts to 08:00 UTC in winter,
+  # which is fine — this isn't time-critical.
+  schedule: "0 7 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          serviceAccountName: frigate-snapshot
+          restartPolicy: OnFailure
+          # An init container does kubectl exec to dump config.yml from the
+          # running Frigate pod (PVC is RWO, so we can't co-mount it). The main
+          # container then commits and pushes via the shared script.
+          initContainers:
+            - name: dump-config
+              image: docker.io/bitnami/kubectl:1.35.4
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  kubectl -n home exec frigate-0 -c main -- cat /config/config.yml > /shared/config.yml
+                  chmod 644 /shared/config.yml
+                  echo "Dumped $(wc -l < /shared/config.yml) lines from frigate-0:/config/config.yml"
+              volumeMounts:
+                - name: shared
+                  mountPath: /shared
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 128Mi
+          containers:
+            - name: snapshot
+              image: docker.io/library/alpine:3.23
+              command: ["/bin/sh", "/opt/snapshot/snapshot.sh"]
+              env:
+                - name: CONFIG_FILE
+                  value: /shared/config.yml
+              volumeMounts:
+                - name: shared
+                  mountPath: /shared
+                - name: ssh
+                  mountPath: /ssh
+                  readOnly: true
+                - name: script
+                  mountPath: /opt/snapshot
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+                limits:
+                  memory: 256Mi
+          volumes:
+            - name: shared
+              emptyDir: {}
+            - name: ssh
+              secret:
+                secretName: frigate-snapshot
+                defaultMode: 0400
+                items:
+                  - key: id_ed25519
+                    path: id_ed25519
+            - name: script
+              configMap:
+                name: frigate-snapshot-script
+                defaultMode: 0555
+                items:
+                  - key: snapshot.sh
+                    path: snapshot.sh

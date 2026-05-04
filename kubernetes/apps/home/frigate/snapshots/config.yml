@@ -1,0 +1,826 @@
+mqtt:
+  host: emqx.home.svc.cluster.local
+  topic_prefix: frigate
+  user: '{FRIGATE_MQTT_USERNAME}'
+  password: '{FRIGATE_MQTT_PASSWORD}'
+
+ffmpeg:
+  global_args: [-hide_banner, -loglevel, info]
+  # ➜  ~ cat /proc/cpuinfo  | grep "model name" | head -1
+  # model name	: Intel(R) Core(TM) i7-7700 CPU @ 3.60GHz (Lenovo M910x)
+  # https://www.intel.com/content/www/us/en/products/sku/97128/intel-core-i77700-processor-8m-cache-up-to-4-20-ghz/specifications.html
+  #hwaccel_args: preset-intel-qsv-h264
+  # (no QSV on Lenovo M910x) <-- delete above if working
+  # https://github.com/blakeblackshear/frigate/discussions/6405#discussioncomment-5821707
+  hwaccel_args: preset-vaapi
+
+detectors:
+  coral:
+    type: edgetpu
+    device: usb
+
+ui:
+  # can be "metric" or "imperial", default is metric
+  unit_system: imperial
+
+model:
+  path: plus://3e711036dc2003b0afdbfd8fa61de75e
+  #c68fb5900938a9cccddfbc637ce535f2
+  #18258fc4c00729ee12287b1adc2ed763
+  #a316bbbf0da5b12c0548bf475f534bde
+  #46287cf8d9e18ad374ab2d1acdaa8de8
+  #63e775900371c6f8d7b55d6d42facea8
+  #182461734fdb111413d4c7e83a3e3034
+  #6edeacefa958d51e89a961ed5b418b8f
+  #b5abb723a0db7a6bb581b71552774e81
+  #a9fc8d0fdc35df282fd3911f9b2a6f5b
+  #6514830311b1b8f1fb45cbc2702ef369
+  #path: plus://'{FRIGATE_PLUS_MODEL}'
+
+auth:
+  enabled: true
+  #reset_admin_password: true
+
+tls:
+  enabled: false
+
+logger:
+  default: info
+  #logs:
+  #  frigate.record: debug
+
+#logger:
+#  logs:
+#    frigate.record: debug
+
+database:
+  path: /config/frigate.db
+
+genai:
+  provider: ollama
+  base_url: http://ollama.ai:11434
+  model: gemma3:4b
+objects:
+  track:
+    - person
+    - dog
+    - car
+    - deer
+    - raccoon
+    - fox
+    - rabbit
+    - face
+    - license_plate
+    - amazon
+    - ups
+    - usps
+    - fedex
+    - package
+    - waste_bin
+    - bird
+    - motorcycle
+    - groundhog
+    - garbage_truck
+
+  genai:
+    enabled: true
+    prompt: Analyze the {label} in these images from the {camera} security 
+      camera. Focus on the actions, behavior, and potential intent of the 
+      {label}, rather than just describing its appearance.
+    object_prompts:
+      person: You are reviewing images from a security camera. Your task is to 
+        give a short but complete description of the person or persons closest 
+        to the camera, without describing the surroundings. Your response will 
+        be announced so it needs to be short and clear. If the image appears to 
+        be taken at night do not describe the color or brightness. Do not 
+        describe the image or when you think it was taken. Do not describe where
+        the person is. If the person is holding an item that you can clearly see
+        in detail, provide a short visual description.
+      car: You are reviewing images from a security camera. Your task is to give
+        a short but complete physical description of the car and what it is 
+        doing. Your response will be announced so it needs to be short and 
+        clear.
+  #model: deepseek-r1:8b
+  #model: llava:13b
+
+record:
+  enabled: true
+  alerts:
+    pre_capture: 10
+    post_capture: 10
+    retain:
+      days: 365
+      mode: active_objects
+  detections:
+    retain:
+      days: 90
+      mode: motion
+  continuous:
+    days: 365
+  motion:
+    days: 90
+snapshots:
+  enabled: true
+  timestamp: true
+  bounding_box: true
+  crop: false
+
+go2rtc:
+  api:
+    origin: '*'
+  webrtc:
+    candidates:
+      - 10.10.40.102:1984
+      - stun:1984
+  #log:
+  #  publish: debug
+  #  api: trace
+  publish:
+    birdcam: rtmp://a.rtmp.youtube.com/live2/5gc7-rbpw-jffy-spse-5fye
+  streams:
+    #backyard:
+    #  - rtsp://user:{FRIGATE_AMCREST_RTSP_PASSWORD}@amcrest-backyard:554/cam/realmonitor?channel=1?subtype=1
+    #backyard_substream:
+    #  - rtsp://user:{FRIGATE_AMCREST_RTSP_PASSWORD}@amcrest-backyard:554/cam/realmonitor?channel=1?subtype=0
+    pool:
+      - rtsp://user:{FRIGATE_AMCREST_RTSP_PASSWORD}@amcrest-pool:554/cam/realmonitor?channel=1?subtype=0
+    pool_substream:
+      - rtsp://user:{FRIGATE_AMCREST_RTSP_PASSWORD}@amcrest-pool:554/cam/realmonitor?channel=1?subtype=1
+    frontyard:
+      - rtsp://user:{FRIGATE_AMCREST_RTSP_PASSWORD}@amcrest-frontyard:554/cam/realmonitor?channel=1?subtype=0
+    frontyard_substream:
+      - rtsp://user:{FRIGATE_AMCREST_RTSP_PASSWORD}@amcrest-frontyard:554/cam/realmonitor?channel=1?subtype=1
+    garage:
+      - rtsp://user:{FRIGATE_AMCREST_RTSP_PASSWORD}@amcrest-garage:554/cam/realmonitor?channel=1?subtype=0
+    garage_substream:
+      - rtsp://user:{FRIGATE_AMCREST_RTSP_PASSWORD}@amcrest-garage:554/cam/realmonitor?channel=1?subtype=1
+    #office:
+    #  - rtsp://user:{FRIGATE_AMCREST_RTSP_PASSWORD}@amcrest-office:554/cam/realmonitor?channel=1?subtype=1
+    #office_substream:
+    #  - rtsp://user:{FRIGATE_AMCREST_RTSP_PASSWORD}@amcrest-office:554/cam/realmonitor?channel=1?subtype=0
+    #turret:
+    #  - rtsp://admin:{FRIGATE_AMCREST_RTSP_PASSWORD}@amcrest-turret:554/cam/realmonitor?channel=1?subtype=1
+    #turret_substream:
+    #  - rtsp://admin:{FRIGATE_AMCREST_RTSP_PASSWORD}@amcrest-turret:554/cam/realmonitor?channel=1?subtype=0
+    #bookshelf:
+    #  - rtsp://wyze:{FRIGATE_WYZECAM_RTSP_PASSWORD}@wyzecam-2/live
+    #familyroom:
+    #  - rtsp://wyze:{FRIGATE_WYZECAM_RTSP_PASSWORD}@wyzecam-1/live
+    #kitchen:
+    #  - rtsp://wyze:{FRIGATE_WYZECAM_RTSP_PASSWORD}@wyzecam-3/live
+    #backyard2:
+    #  - rtsp://user:{FRIGATE_AMCREST_RTSP_PASSWORD}@loryta-backyard:554/cam/realmonitor?channel=1?subtype=1
+    #backyard2_substream:
+    #  - rtsp://user:{FRIGATE_AMCREST_RTSP_PASSWORD}@loryta-backyard:554/cam/realmonitor?channel=1?subtype=0
+    frontdoor:
+      # For HTTP: Need to have both RTMP and HTTP enabled under Settings->Network->Advanced->Server Settings
+      #- ffmpeg:http://reolink-frontdoor/flv?port=1935&app=bcs&stream=channel0_main.bcs&user=user&password={FRIGATE_REOLINK_RTSP_PASSWORD}#video=copy#audio=copy#audio=opus"
+      - rtsp://user:{FRIGATE_REOLINK_RTSP_PASSWORD}@reolink-frontdoor:554/h264Preview_01_main
+    frontdoor_substream:
+      # For HTTP: Need to have both RTMP and HTTP enabled under Settings->Network->Advanced->Server Settings
+      #- "ffmpeg:http://reolink-frontdoor/flv?port=1935&app=bcs&stream=channel0_ext.bcs&user=user&password={FRIGATE_REOLINK_RTSP_PASSWORD}"
+      - rtsp://user:{FRIGATE_REOLINK_RTSP_PASSWORD}@reolink-frontdoor:554/h264Preview_01_sub
+    bush:
+      # Need to have both RTMP and HTTP enabled under Settings->Network->Advanced->Server Settings
+      #- ffmpeg:http://reolink-bush/flv?port=1935&app=bcs&stream=channel0_main.bcs&user=user&password={FRIGATE_REOLINK_RTSP_PASSWORD}#video=copy#audio=copy#audio=opus
+      - rtsp://user:{FRIGATE_REOLINK_RTSP_PASSWORD}@reolink-bush:554/h264Preview_01_main
+      #- ffmpeg:bush#video=h264#hardware
+    bush_substream:
+      # Need to have both RTMP and HTTP enabled under Settings->Network->Advanced->Server Settings
+      #- ffmpeg:http://reolink-bush/flv?port=1935&app=bcs&stream=channel0_ext.bcs&user=user&password={FRIGATE_REOLINK_RTSP_PASSWORD}
+      - rtsp://user:{FRIGATE_REOLINK_RTSP_PASSWORD}@reolink-bush:554/h264Preview_01_sub
+      #- ffmpeg:bush_sub#hardware
+    backyard:
+      # 2026-05-04: switched from bcs/FLV (RTMP gateway broken on this camera —
+      # was causing constant ffmpeg watchdog restarts and likely contributing
+      # to the upstream frigate ffmpeg memory leak). Direct RTSP works.
+      - rtsp://user:{FRIGATE_REOLINK_RTSP_PASSWORD}@reolink-backyard:554/h264Preview_01_main
+      #- ffmpeg:http://reolink-backyard/flv?port=1935&app=bcs&stream=channel0_main.bcs&user=user&password={FRIGATE_REOLINK_RTSP_PASSWORD}
+    backyard_substream:
+      - rtsp://user:{FRIGATE_REOLINK_RTSP_PASSWORD}@reolink-backyard:554/h264Preview_01_sub
+      #- ffmpeg:http://reolink-backyard/flv?port=1935&app=bcs&stream=channel0_sub.bcs&user=user&password={FRIGATE_REOLINK_RTSP_PASSWORD}
+    deck:
+      - rtsp://user:{FRIGATE_LORYTA_RTSP_PASSWORD}@loryta-deck:554/live
+    deck_substream:
+      - rtsp://user:{FRIGATE_LORYTA_RTSP_PASSWORD}@loryta-deck:554/cam/realmonitor?channel=1&subtype=1
+    birdcam:
+      - ffmpeg:rtsp://birdcam/user=admin_password={FRIGATE_BIRDCAM_RTSP_PASSWORD}_channel=1_stream=0.sdp?real_stream#video=h264#audio=aac
+      #- rtsp://birdcam-new/user=admin_password={FRIGATE_BIRDCAM_RTSP_PASSWORD}_channel=1_stream=0.sdp?real_stream
+      #- "ffmpeg:birdcam#audio=opus"
+    birdcam_substream:
+      - rtsp://birdcam/user=admin_password={FRIGATE_BIRDCAM_RTSP_PASSWORD}_channel=1_stream=1.sdp?real_stream
+      #- ffmpeg:rtsp://birdcam-new/user=admin_password={FRIGATE_BIRDCAM_RTSP_PASSWORD}_channel=1_stream=1.sdp?real_stream#video=h264#audio=copy#audio=opus
+    #birdcam_new:
+    #  - ffmpeg:rtsp://birdcam-new/user=admin_password={FRIGATE_BIRDCAM_RTSP_PASSWORD}_channel=1_stream=0.sdp?real_stream#video=h264#audio=copy#audio=opus
+    #  #- rtsp://birdcam-new/user=admin_password={FRIGATE_BIRDCAM_RTSP_PASSWORD}_channel=1_stream=0.sdp?real_stream
+    #  #- "ffmpeg:birdcam#audio=opus"
+    #birdcam_new_substream:
+    #  - rtsp://birdcam-new/user=admin_password={FRIGATE_BIRDCAM_RTSP_PASSWORD}_channel=1_stream=1.sdp?real_stream
+    #  #- ffmpeg:rtsp://birdcam-new/user=admin_password={FRIGATE_BIRDCAM_RTSP_PASSWORD}_channel=1_stream=1.sdp?real_stream#video=h264#audio=copy#audio=opus
+
+cameras:
+  reolink_frontdoor:
+    ui:
+      order: 1
+    ffmpeg:
+      output_args:
+        record: preset-record-generic-audio-copy
+      inputs:
+        - path: rtsp://127.0.0.1:8554/frontdoor
+          input_args: preset-rtsp-restream
+          roles:
+            - record
+        - path: rtsp://127.0.0.1:8554/frontdoor_substream
+          input_args: preset-rtsp-restream
+          roles:
+            - detect
+    detect:
+      fps: 7
+      width: 640
+      height: 480
+    zones:
+      driveway:
+        coordinates: 
+          0.517,0.467,0.558,0.462,0.608,0.453,0.662,0.449,0.708,0.443,0.776,0.438,0.814,0.438,0.842,0.446,0.809,0.449,0.749,0.455,0.705,0.459,0.681,0.467,0.612,0.479,0.568,0.485,0.526,0.492
+        inertia: 3
+        objects:
+          - car
+          - license_plate
+          - motorcycle
+          - deer
+          - dog
+          - rabbit
+          - groundhog
+          - person
+        loitering_time: 0
+      walkway:
+        coordinates: 
+          0.635,0.622,0.654,0.607,0.594,0.562,0.677,0.567,0.909,0.625,0.932,0.66,0.868,0.699,0.697,0.715,0.525,0.726,0.504,0.624
+        inertia: 3
+        objects:
+          - deer
+          - dog
+          - rabbit
+          - groundhog
+          - person
+          - package
+        loitering_time: 0
+    review:
+      alerts:
+        required_zones:
+          - walkway
+          - driveway
+    live:
+      streams:
+        frontdoor: frontdoor
+    motion:
+      threshold: 45
+      contour_area: 15
+      improve_contrast: true
+    objects:
+      genai:
+        enabled: true # <- enable GenAI for your front camera
+        use_snapshot: true
+        objects:
+          - person
+          - dog
+          - car
+          - fox
+        required_zones:
+          - walkway
+          - driveway
+  amcrest_frontyard:
+    ui:
+      order: 2
+    ffmpeg:
+      output_args:
+        record: preset-record-generic-audio-copy
+      inputs:
+        - path: rtsp://127.0.0.1:8554/frontyard
+          input_args: preset-rtsp-restream
+          roles:
+            - record
+        - path: rtsp://127.0.0.1:8554/frontyard_substream
+          input_args: preset-rtsp-restream
+          roles:
+            - detect
+    detect:
+      fps: 10
+      width: 704
+      height: 480
+    motion:
+      mask: 0.729,0.038,0.731,0.083,0.972,0.081,0.971,0.033
+    zones:
+      walkway:
+        coordinates: 
+          0.863,0.719,1,0.662,1,0.509,0.895,0.518,0.808,0.546,0.7,0.581,0.597,0.617,0.527,0.632,0.435,0.653,0.354,0.661,0.255,0.67,0.151,0.654,0,0.577,0,0.711,0.167,0.828,0.27,0.844,0.456,0.816,0.492,1,0.57,1,0.57,0.798,0.767,0.732
+        objects:
+          - person
+          - dog
+          - deer
+          - rabbit
+          - groundhog
+        inertia: 3
+        loitering_time: 0
+      driveway:
+        coordinates: 
+          0.061,0.362,0.107,0.308,0.176,0.241,0.111,0.269,0.086,0.288,0.076,0.296,0.034,0.338,0,0.376,0.001,0.428
+        objects:
+          - person
+          - car
+          - motorcycle
+          - deer
+          - dog
+          - rabbit
+          - groundhog
+        inertia: 3
+        loitering_time: 0
+      street:
+        coordinates: 
+          0.428,0.077,0.557,0.083,0.666,0.091,0.811,0.109,1,0.156,1,0.252,0.777,0.216,0.679,0.204,0.589,0.197,0.483,0.197,0.344,0.195,0.214,0.218,0,0.31,0,0.189,0.081,0.16,0.182,0.125,0.241,0.112,0.322,0.102
+        objects:
+          - person
+          - car
+          - garbage_truck
+          - motorcycle
+          - deer
+          - dog
+        inertia: 3
+        loitering_time: 0
+      Speed_Zone:
+        coordinates: 0.25,0.174,0.25,0.192,0.379,0.164,0.378,0.148
+        loitering_time: 0
+        speed_threshold: 10
+        distances: 12,25,12,25
+        objects: car
+        inertia: 3
+    review:
+      alerts:
+        required_zones:
+          - walkway
+          - driveway
+      detections:
+        required_zones: street
+    #snapshots:
+    #  required_zones:
+    #    - walkway
+    #    - driveway
+    #    - street
+    live:
+      streams:
+        frontyard: frontyard
+    objects:
+      genai:
+        enabled: true # <- enable GenAI for your front camera
+        use_snapshot: true
+        objects:
+          - person
+          - dog
+          - car
+          - fox
+        required_zones:
+          - walkway
+          - driveway
+  amcrest_garage:
+    ui:
+      order: 3
+    ffmpeg:
+      output_args:
+        record: preset-record-generic-audio-copy
+      inputs:
+        - path: rtsp://127.0.0.1:8554/garage
+          input_args: preset-rtsp-restream
+          roles:
+            - record
+        - path: rtsp://127.0.0.1:8554/garage_substream
+          input_args: preset-rtsp-restream
+          roles:
+            - detect
+    detect:
+      fps: 10
+      width: 704
+      height: 480
+    live:
+      streams:
+        garage: garage
+    motion:
+      mask: 
+        0.952,0.039,0.729,0.04,0.731,0.075,0.95,0.084,0.978,0.093,0.978,0.032
+      threshold: 32
+      contour_area: 10
+      improve_contrast: true
+    zones:
+      driveway:
+        coordinates: 
+          0.039,0.865,0.185,0.705,0.331,0.579,0.348,0.551,0.345,0.53,0.331,0.519,0.303,0.513,0.235,0.51,0.457,0.348,0.512,0.339,0.504,0.366,0.509,0.382,0.559,0.397,0.639,0.407,0.761,0.413,0.904,0.421,0.998,0.43,0.997,0.554,0.95,0.56,0.915,0.576,0.874,0.601,0.841,0.639,0.804,0.703,0.778,0.779,0.747,0.882,0.72,1,0.074,1
+        loitering_time: 0
+        objects:
+          - car
+          - license_plate
+          - motorcycle
+          - package
+          - person
+          - dog
+          - rabbit
+          - groundhog
+      neighbors:
+        coordinates: 
+          0.189,0.227,0.319,0.169,0.445,0.107,0.578,0.042,0.717,0.04,0.719,0.113,0.675,0.13,0.665,0.156,0.632,0.191,0.6,0.214,0.563,0.215,0.536,0.212,0.488,0.199,0.449,0.236,0.34,0.263,0.293,0.325,0.155,0.405,0.001,0.508,0.003,0.313,0.112,0.263
+        loitering_time: 0
+        objects:
+          - dog
+          - person
+          - rabbit
+          - groundhog
+      shed:
+        coordinates: 
+          0.394,0.254,0.412,0.321,0.408,0.376,0.515,0.371,0.55,0.306,0.592,0.256,0.565,0.178,0.489,0.173,0.432,0.21
+        loitering_time: 0
+        objects: person
+      weather_station:
+        coordinates: 
+          0.839,0.135,0.788,0.132,0.766,0.037,0.826,0.036,0.891,0.033,0.908,0.127
+        loitering_time: 0
+        objects: person
+    review:
+      alerts:
+        required_zones:
+          - driveway
+          - neighbors
+          - shed
+          - weather_station
+    objects:
+      genai:
+        enabled: true
+        use_snapshot: true
+        objects:
+          - person
+          - dog
+          - car
+          - fox
+        required_zones:
+          - walkway
+          - driveway
+  amcrest_pool:
+    ui:
+      order: 4
+    ffmpeg:
+      output_args:
+        record: preset-record-generic-audio-copy
+      inputs:
+        - path: rtsp://127.0.0.1:8554/pool
+          input_args: preset-rtsp-restream
+          roles:
+            - record
+        - path: rtsp://127.0.0.1:8554/pool_substream
+          input_args: preset-rtsp-restream
+          roles:
+            - detect
+    detect:
+      fps: 5
+      width: 640
+      height: 480
+    zones:
+      pool:
+        coordinates: 
+          0.842,1,1,1,1,0.392,0.869,0.367,0.748,0.358,0.606,0.35,0.502,0.327,0.402,0.317,0.208,0.306,0.116,0.306,0,0.281,0,0.51,0,1,0.194,1,0.309,1,0.416,1,0.558,1,0.672,1
+        objects:
+          - person
+          - dog
+          - rabbit
+          - groundhog
+        inertia: 3
+      greenway:
+        coordinates: 
+          0.234,0.412,0.478,0.412,1,0.5,1,0.338,0.698,0.294,0.366,0.273,0.105,0.285,0.106,0.448
+        objects:
+          - person
+          - car
+          - deer
+          - dog
+          - rabbit
+          - groundhog
+        inertia: 3
+    review:
+      alerts:
+        required_zones:
+          - pool
+          - greenway
+    #snapshots:
+    #  required_zones:
+    #    - pool
+    #    - greenway
+    live:
+      streams:
+        pool: pool
+    motion:
+      mask: 0.699,0.036,0.7,0.084,0.973,0.089,0.973,0.038
+
+      threshold: 30
+      contour_area: 15
+      improve_contrast: true
+    objects:
+      genai:
+        enabled: false
+  loryta_deck:
+    ui:
+      order: 5
+    ffmpeg:
+      hwaccel_args: preset-intel-qsv-h264
+      output_args:
+        record: preset-record-generic-audio-aac
+      inputs:
+        - path: rtsp://127.0.0.1:8554/deck
+          input_args: preset-rtsp-restream
+          roles:
+            - record
+        - path: rtsp://127.0.0.1:8554/deck_substream
+          input_args: preset-rtsp-restream
+          roles:
+            - detect
+    detect:
+      fps: 7
+      width: 704
+      height: 480
+    live:
+      streams:
+        deck: deck
+    motion:
+      mask: 0.663,0.083,0.662,0.035,0.975,0.036,0.977,0.084
+    zones:
+      kitchen_door:
+        coordinates: 
+          0.023,0.156,0.062,0.139,0.065,0.321,0.078,0.368,0.032,0.392,0.023,0.343
+        loitering_time: 0
+      deck:
+        coordinates: 
+          0.107,0.593,0.27,0.516,0.243,0.433,0.331,0.392,0.34,0.369,0.341,0.267,0.154,0.183,0.064,0.213,0.065,0.146,0.02,0.155,0.02,0.332,0.023,0.4,0.035,0.541,0.092,0.513
+        loitering_time: 0
+      greenway:
+        coordinates: 
+          0.872,0.331,0.779,0.293,0.724,0.313,0.644,0.29,0.566,0.262,0.488,0.243,0.435,0.229,0.441,0.193,0.419,0.179,0.395,0.187,0.37,0.159,0.358,0.173,0.347,0.192,0.335,0.214,0.329,0.228,0.264,0.232,0.154,0.182,0.074,0.205,0.077,0.15,0.219,0.142,0.413,0.147,0.522,0.158,0.625,0.18,0.715,0.207,0.869,0.255,1,0.303,1,0.376
+        loitering_time: 0
+    review:
+      alerts:
+        required_zones: greenway
+    objects:
+      genai:
+        enabled: false
+  reolink_bush:
+    ui:
+      order: 6
+    ffmpeg:
+      output_args:
+        record: preset-record-generic-audio-copy
+      inputs:
+        - path: rtsp://127.0.0.1:8554/bush
+          input_args: preset-rtsp-restream
+          #input_args: preset-http-reolink
+          roles:
+            - record
+        - path: rtsp://127.0.0.1:8554/bush_substream
+          input_args: preset-rtsp-restream
+          #input_args: preset-http-reolink
+          roles:
+            - detect
+    detect:
+      fps: 7
+      #width: 1280
+      #height: 960
+      width: 640
+      height: 480
+    zones:
+      greenway:
+        coordinates: 
+          0.565,0.499,0.447,0.48,0.337,0.466,0.25,0.457,0.177,0.458,0.109,0.445,0.033,0.437,0.03,0.49,0.069,0.508,0.118,0.52,0.174,0.537,0.242,0.568,0.325,0.608,0.429,0.652,0.553,0.71,0.686,0.756,0.824,0.801,1,0.831,1,0.691,1,0.6,0.978,0.591,0.855,0.552,0.701,0.516
+        inertia: 3
+        objects:
+          - car
+          - deer
+          - dog
+          - person
+          - rabbit
+          - fox
+          - raccoon
+        loitering_time: 0
+      pool:
+        coordinates: 
+          0.183,0.605,0.083,0.524,0,0.492,0,0.854,0.074,0.785,0.183,0.725
+        inertia: 3
+        objects:
+          - dog
+          - person
+        loitering_time: 0
+      street:
+        coordinates: 
+          0.482,0.441,0.492,0.473,0.157,0.454,0.012,0.429,0.006,0.407,0.063,0.414,0.231,0.423
+        inertia: 3
+        objects:
+          - car
+          - garbage_truck
+          - motorcycle
+          - deer
+          - dog
+          - person
+          - fox
+        loitering_time: 0
+    review:
+      alerts:
+        required_zones:
+          - greenway
+          - pool
+      detections: {}
+    #snapshots:
+    #  required_zones:
+    #    - greenway
+    #    - pool
+    live:
+      streams:
+        bush: bush
+    motion: {}
+    objects:
+      genai:
+        enabled: false
+  reolink_backyard:
+    ui:
+      order: 7
+    ffmpeg:
+      output_args:
+        record: preset-record-generic-audio-copy
+      inputs:
+        - path: rtsp://127.0.0.1:8554/backyard
+          input_args: preset-rtsp-restream
+          #input_args: preset-http-reolink
+          roles:
+            - record
+        - path: rtsp://127.0.0.1:8554/backyard_substream
+          input_args: preset-rtsp-restream
+          roles:
+            - detect
+    detect:
+      fps: 7
+      width: 1536
+      height: 576
+    objects:
+      track: []
+      genai:
+        enabled: false
+    review:
+      detections:
+        labels: []
+      alerts:
+        labels: []
+    live:
+      streams:
+        backyard: backyard
+  birdcam:
+    ui:
+      order: 8
+    ffmpeg:
+      output_args:
+        record: preset-record-generic-audio-copy
+      inputs:
+        - path: rtsp://127.0.0.1:8554/birdcam
+          input_args: preset-rtsp-restream
+          roles:
+            - record
+        - path: rtsp://127.0.0.1:8554/birdcam_substream
+          input_args: preset-rtsp-restream
+          roles:
+            - detect
+    objects:
+      track:
+        - bird
+      genai:
+        enabled: false
+    detect:
+      fps: 20
+      width: 800
+      height: 448
+    live:
+      streams:
+        birdcam: birdcam
+    zones:
+      Birdbox:
+        coordinates: 0,0,1,0,1,1,0,1
+        loitering_time: 0
+        inertia: 3
+        objects:
+          - bird
+    review:
+      alerts:
+        required_zones: Birdbox
+    motion:
+      mask: 0.003,0.043,0.207,0.041,0.206,0.072,0.005,0.071
+      contour_area: 100
+      threshold: 80
+      improve_contrast: true
+  #birdcam_new:
+  #  ui:
+  #    order: 9
+  #  ffmpeg:
+  #    output_args:
+  #      record: preset-record-generic-audio-copy
+  #    inputs:
+  #      - path: rtsp://127.0.0.1:8554/birdcam_new
+  #        input_args: preset-rtsp-restream
+  #        roles:
+  #          - record
+  #      - path: rtsp://127.0.0.1:8554/birdcam_new_substream
+  #        input_args: preset-rtsp-restream
+  #        roles:
+  #          - detect
+  #  objects:
+  #    track:
+  #      - bird
+  #  detect:
+  #    fps: 20
+  #    width: 704
+  #    height: 576
+  #  live:
+  #    streams:
+  #      birdcam: birdcam_new
+  #  zones:
+  #    Birdbox:
+  #      coordinates: 0,0,1,0,1,1,0,1
+  #      loitering_time: 0
+  #      inertia: 3
+  #      objects:
+  #        - bird
+  #  review:
+  #    alerts:
+  #      required_zones: Birdbox
+  #  motion:
+  #    mask: 0.017,0.028,0.314,0.025,0.319,0.061,0.019,0.056
+  #    contour_area: 35
+  #    threshold: 50
+  #    improve_contrast: true
+version: 0.17-0
+camera_groups:
+  Front_Yard:
+    order: 1
+    icon: LuChevronUp
+    cameras:
+      - amcrest_frontyard
+      - reolink_frontdoor
+      - amcrest_garage
+  Back_Yard:
+    order: 2
+    icon: LuChevronDown
+    cameras:
+      - amcrest_pool
+      - reolink_backyard
+      - reolink_bush
+      - birdcam
+semantic_search:
+  enabled: true
+  reindex: false
+  model_size: large
+detect:
+  enabled: true
+face_recognition:
+  enabled: true
+  model_size: large
+lpr:
+  enabled: true
+classification:
+  bird:
+    enabled: true
+  custom:
+    Dogs:
+      enabled: true
+      name: Dogs
+      threshold: 0.8
+      object_config:
+        objects:
+          - dog
+        classification_type: sub_label
+    Our Cars:
+      enabled: true
+      name: Our Cars
+      threshold: 0.8
+      object_config:
+        objects:
+          - car
+        classification_type: sub_label
+    People:
+      enabled: true
+      name: People
+      threshold: 0.8
+      object_config:
+        objects:
+          - person
+        classification_type: sub_label
+    Shed Door:
+      enabled: true
+      name: Shed Door
+      threshold: 0.8
+      state_config:
+        cameras:
+          amcrest_garage:
+            crop:
+              - 0.43293424741525005
+              - 0.19807444970792354
+              - 0.5470555020494433
+              - 0.36545228983807376
+        motion: true

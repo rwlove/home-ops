@@ -1,0 +1,84 @@
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: immich-offsite-backup
+spec:
+  schedule: "0 4 * * 0"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            fsGroup: 65534
+          containers:
+            - name: rclone
+              image: rclone/rclone:1.69.0
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -euo pipefail
+                  echo "===== Backup started: $(date -u) ====="
+                  echo "----- /data → crypt:data (excluding regenerable thumbs) -----"
+                  rclone sync /data crypt:data \
+                    --exclude "/thumbs/**" \
+                    --transfers=4 \
+                    --checkers=8 \
+                    --s3-storage-class=STANDARD \
+                    --stats=2m \
+                    --stats-one-line \
+                    --log-level INFO
+                  echo "----- /external → crypt:external -----"
+                  rclone sync /external crypt:external \
+                    --transfers=4 \
+                    --checkers=8 \
+                    --s3-storage-class=STANDARD \
+                    --stats=2m \
+                    --stats-one-line \
+                    --log-level INFO
+                  echo "===== Backup complete: $(date -u) ====="
+              env:
+                - name: RCLONE_CONFIG
+                  value: /config/rclone.conf
+                - name: TZ
+                  value: America/New_York
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 256Mi
+                limits:
+                  memory: 1Gi
+              volumeMounts:
+                - name: rclone-config
+                  mountPath: /config
+                  readOnly: true
+                - name: data
+                  mountPath: /data
+                  readOnly: true
+                - name: external
+                  mountPath: /external
+                  readOnly: true
+          volumes:
+            - name: rclone-config
+              secret:
+                secretName: immich-offsite-backup-secret
+                items:
+                  - key: rclone.conf
+                    path: rclone.conf
+                    mode: 0400
+            - name: data
+              persistentVolumeClaim:
+                claimName: immich-managed-library-pvc
+                readOnly: true
+            - name: external
+              persistentVolumeClaim:
+                claimName: immich-external-library-pvc
+                readOnly: true

@@ -1,0 +1,40 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: frigate-memory-rules
+spec:
+  groups:
+    - name: frigate.memory
+      rules:
+        # Upstream ffmpeg memory leak (discussions #19646, #19925) is unfixed
+        # in 0.17.1. Working-set climbs steadily until the 14Gi limit OOM-kills
+        # the pod. These alerts give a heads-up before that happens.
+        - alert: FrigateMemoryHigh
+          annotations:
+            summary: Frigate working-set above 12 GiB ({{ $value | humanize1024 }}B) — leak approaching the 14Gi cap
+            description: |
+              Frigate's ffmpeg memory leak appears to be progressing. Pod {{ $labels.pod }}
+              has been above 12 GiB for 30 minutes. Expect an OOM kill within hours if the
+              trend continues. See project_frigate_memory_leak.md.
+          expr: |
+            max by (namespace, pod, container) (
+              container_memory_working_set_bytes{namespace="home",pod=~"frigate-.*",container="main"}
+            ) > 12 * 1024 * 1024 * 1024
+          for: 30m
+          labels:
+            severity: warning
+        - alert: FrigateMemoryCritical
+          annotations:
+            summary: Frigate working-set above 13 GiB ({{ $value | humanize1024 }}B) — OOM kill imminent
+            description: |
+              Pod {{ $labels.pod }} is within 1 GiB of its 14Gi cap. Restart the pod to
+              reset the leak before kubelet OOM-kills it mid-recording.
+          expr: |
+            max by (namespace, pod, container) (
+              container_memory_working_set_bytes{namespace="home",pod=~"frigate-.*",container="main"}
+            ) > 13 * 1024 * 1024 * 1024
+          for: 5m
+          labels:
+            severity: critical

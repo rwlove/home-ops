@@ -38,3 +38,37 @@ spec:
           for: 5m
           labels:
             severity: critical
+    - name: frigate.snapshot
+      rules:
+        # The snapshot pipeline writes config.yml to git so PVC loss / version
+        # bump auto-migrations are recoverable. Silent failures defeat the
+        # point: this fires when either the daily CronJob fails or the
+        # in-pod sidecar can't reach Running (which usually means it's
+        # CrashLoopBackOff because of a literal-credential check or
+        # auth/network failure).
+        - alert: FrigateSnapshotJobFailed
+          annotations:
+            summary: Frigate snapshot Job failed ({{ $labels.job_name }})
+            description: |
+              The frigate-snapshot CronJob's last run failed. Common causes: literal
+              credential introduced in config.yml (check the Job logs for
+              "literal credentials"), GitHub deploy key revoked, or repo push
+              rejected. Inspect with `kubectl -n home logs job/{{ $labels.job_name }}`.
+          expr: kube_job_failed{namespace="home",job_name=~"frigate-snapshot.*"} > 0
+          for: 5m
+          labels:
+            severity: warning
+        - alert: FrigateSnapshotSidecarDown
+          annotations:
+            summary: Frigate snapshot sidecar not Running on {{ $labels.pod }}
+            description: |
+              The in-pod snapshot sidecar isn't Running (likely CrashLoopBackOff).
+              Startup-time snapshots aren't being captured. The daily CronJob
+              still runs, but version-bump migrations may be lost if the pod
+              restarts during the gap. Inspect with `kubectl -n home logs
+              {{ $labels.pod }} -c snapshot`.
+          expr: |
+            kube_pod_init_container_status_running{namespace="home",pod=~"frigate-.*",container="snapshot"} == 0
+          for: 15m
+          labels:
+            severity: warning

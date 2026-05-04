@@ -15,10 +15,14 @@ spec:
       version: 0.11.1
   interval: 30m
 
-  # Cold-start of immich-machine-learning preloads CLIP+SigLIP2 on the GPU,
-  # which blocks the HTTP /ping endpoint past Helm's default 5-min wait.
-  # Without disableWait, helm-controller marks the upgrade Failed and rolls
-  # back to the prior release, undoing the probe spec we wanted to apply.
+  # disableWait — immich-machine-learning's CLIP+SigLIP2 preload blocks
+  # /ping past helm-controller's 5-min default wait. Without this, the
+  # timed-out upgrade is marked Failed and helm-controller rolls back;
+  # the rollback ALSO waits for Ready and ALSO times out, leaving the
+  # release stuck and silently reverting the spec just applied (this is
+  # how a probe-tuning edit on 2026-05-04 was lost the first time).
+  # Recovery: suspend the HR, delete the failed/pending
+  # sh.helm.release.v1.* secrets, resume.
   install:
     disableWait: true
     remediation:

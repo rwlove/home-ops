@@ -1,0 +1,80 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/gateway.envoyproxy.io/envoypatchpolicy_v1alpha1.json
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyPatchPolicy
+metadata:
+  name: frigate-authelia-extauth
+spec:
+  jsonPatches:
+    - name: network/internal/https
+      operation:
+        op: add
+        path: /filter_chains/0/filters/0/typed_config/http_filters/0/typed_config/http_service/authorization_request
+        value:
+          allowed_headers:
+            patterns:
+              - exact: accept
+              - exact: cookie
+              - exact: proxy-authorization
+          headers_to_add:
+            - key: Host
+              value: "%REQ(:AUTHORITY)%"
+            - key: X-Forwarded-Method
+              value: "%REQ(:METHOD)%"
+            - key: X-Forwarded-Proto
+              value: "%REQ(:SCHEME)%"
+            - key: X-Forwarded-Host
+              value: "%REQ(:AUTHORITY)%"
+            - key: X-Forwarded-URI
+              value: "%REQ(:PATH)%"
+            - key: X-Forwarded-For
+              value: "%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%"
+      type: type.googleapis.com/envoy.config.listener.v3.Listener
+    - name: network/internal/https
+      operation:
+        op: add
+        path: /filter_chains/0/filters/0/typed_config/http_filters/0/typed_config/http_service/authorization_response/allowed_client_headers
+        value:
+          patterns:
+            - exact: location
+            - exact: set-cookie
+      type: type.googleapis.com/envoy.config.listener.v3.Listener
+    - name: network/internal/https-quic
+      operation:
+        op: add
+        path: /filter_chains/0/filters/0/typed_config/http_filters/0/typed_config/http_service/authorization_request
+        value:
+          allowed_headers:
+            patterns:
+              - exact: accept
+              - exact: cookie
+              - exact: proxy-authorization
+          headers_to_add:
+            - key: Host
+              value: "%REQ(:AUTHORITY)%"
+            - key: X-Forwarded-Method
+              value: "%REQ(:METHOD)%"
+            - key: X-Forwarded-Proto
+              value: "%REQ(:SCHEME)%"
+            - key: X-Forwarded-Host
+              value: "%REQ(:AUTHORITY)%"
+            - key: X-Forwarded-URI
+              value: "%REQ(:PATH)%"
+            - key: X-Forwarded-For
+              value: "%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%"
+      type: type.googleapis.com/envoy.config.listener.v3.Listener
+    - name: network/internal/https-quic
+      operation:
+        op: add
+        path: /filter_chains/0/filters/0/typed_config/http_filters/0/typed_config/http_service/authorization_response/allowed_client_headers
+        value:
+          patterns:
+            - exact: location
+            - exact: set-cookie
+      type: type.googleapis.com/envoy.config.listener.v3.Listener
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: Gateway
+    name: internal
+    namespace: network
+  type: JSONPatch

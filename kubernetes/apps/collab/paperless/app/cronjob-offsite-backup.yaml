@@ -2,9 +2,9 @@
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: immich-offsite-backup
+  name: paperless-offsite-backup
 spec:
-  schedule: "0 4 * * 0"
+  schedule: "0 4 * * 6"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 3
@@ -14,6 +14,15 @@ spec:
       template:
         spec:
           restartPolicy: OnFailure
+          # paperless-library-pvc is RWO Longhorn — multi-attach is single-node
+          # only. Pin to whatever node the paperless statefulset is on.
+          affinity:
+            podAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: paperless
+                  topologyKey: kubernetes.io/hostname
           securityContext:
             runAsNonRoot: true
             runAsUser: 65534
@@ -27,25 +36,17 @@ spec:
                 - |
                   set -euo pipefail
                   echo "===== Backup started: $(date -u) ====="
-                  echo "----- /data → crypt:data (excluding regenerable thumbs) -----"
-                  rclone sync /data crypt:data \
-                    --exclude "/thumbs/**" \
+                  echo "----- /library/media/documents → crypt:media (excluding regenerable thumbnails) -----"
+                  rclone sync /library/media/documents crypt:media \
+                    --exclude "/thumbnails/**" \
                     --transfers=4 \
                     --checkers=8 \
                     --s3-storage-class=STANDARD \
                     --stats=2m \
                     --stats-one-line \
                     --log-level INFO
-                  echo "----- /external → crypt:external -----"
-                  rclone sync /external crypt:external \
-                    --transfers=4 \
-                    --checkers=8 \
-                    --s3-storage-class=STANDARD \
-                    --stats=2m \
-                    --stats-one-line \
-                    --log-level INFO
-                  echo "----- garage:postgres-immich-backup → crypt:db (CNPG/Barman snapshots + WAL) -----"
-                  rclone sync garage:postgres-immich-backup crypt:db \
+                  echo "----- garage:postgres-paperless-backup → crypt:db (CNPG/Barman snapshots + WAL) -----"
+                  rclone sync garage:postgres-paperless-backup crypt:db \
                     --transfers=4 \
                     --checkers=8 \
                     --s3-storage-class=STANDARD \
@@ -68,25 +69,18 @@ spec:
                 - name: rclone-config
                   mountPath: /config
                   readOnly: true
-                - name: data
-                  mountPath: /data
-                  readOnly: true
-                - name: external
-                  mountPath: /external
+                - name: library
+                  mountPath: /library
                   readOnly: true
           volumes:
             - name: rclone-config
               secret:
-                secretName: immich-offsite-backup-secret
+                secretName: paperless-offsite-backup-secret
                 items:
                   - key: rclone.conf
                     path: rclone.conf
                     mode: 0400
-            - name: data
+            - name: library
               persistentVolumeClaim:
-                claimName: immich-managed-library-pvc
-                readOnly: true
-            - name: external
-              persistentVolumeClaim:
-                claimName: immich-external-library-pvc
+                claimName: paperless-library-pvc
                 readOnly: true

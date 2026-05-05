@@ -19,6 +19,9 @@ spec:
       securityContext:
         fsGroup: 1001
         fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1001
+        runAsNonRoot: true
+        runAsUser: 1108
         # seccompProfile: {type: RuntimeDefault}
 
     controllers:
@@ -34,8 +37,6 @@ spec:
 
             env:
               DOTNET_BUNDLE_EXTRACT_BASE_DIR: /tmp/.net
-              PUID: "1108"
-              PGID: "1001"
               SLSKD_APP_DIR: /config
               SLSKD_HTTP_PORT: &httpPort 5030
               SLSKD_NO_AUTH: true
@@ -69,19 +70,9 @@ spec:
                 memory: 2G
 
             securityContext:
-              # slskd's entrypoint starts as root to groupmod/usermod/chown /app
-              # and drop to PUID:PGID via gosu. SLSKD_APP_DIR=/config means
-              # /app is unused for data; we just need to clear the writability
-              # check. Caps cover the entrypoint's setup; after gosu drops to
-              # non-root they reset and slskd runs unprivileged.
-              # Container-level so the k8tz init container keeps its non-root.
               allowPrivilegeEscalation: false
-              capabilities:
-                drop: ["ALL"]
-                add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]
+              capabilities: {drop: ["ALL"]}
               readOnlyRootFilesystem: false
-              runAsNonRoot: false
-              runAsUser: 0
 
     service:
       app:
@@ -123,6 +114,12 @@ spec:
         existingClaim: slskd-downloads-pvc
 
       tmp:
+        type: emptyDir
+
+      # /app is image-internal scratch. Backing it with an emptyDir lets fsGroup
+      # make it group-writable so slskd's entrypoint passes its r+w check at /app.
+      # SLSKD_APP_DIR=/config keeps real data on the PVC.
+      app:
         type: emptyDir
 
 

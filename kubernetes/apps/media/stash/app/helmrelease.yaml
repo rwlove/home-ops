@@ -30,6 +30,26 @@ spec:
 
         type: statefulset
 
+        initContainers:
+          # Legacy data was written when Stash ran as root with mode 600.
+          # fsGroup chgrp's to 1001 but doesn't relax the file mode, so the
+          # non-root Stash (1114) still can't read the SQLite DB. Recurse
+          # the config dir once to fix ownership + group-readable mode.
+          fix-stash-perms:
+            image:
+              repository: docker.io/library/alpine
+              tag: "3.23"
+            command:
+              - sh
+              - -c
+              - "chown -R 1114:1001 /.stash && chmod -R u=rwX,g=rwX,o= /.stash"
+            securityContext:
+              runAsUser: 0
+              runAsNonRoot: false
+              capabilities:
+                drop: ["ALL"]
+                add: ["CHOWN", "FOWNER", "DAC_OVERRIDE"]
+
         containers:
           main:
             image:

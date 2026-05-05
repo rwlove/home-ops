@@ -14,6 +14,7 @@
 - [Initialization and Teardown](init_teardown.md)
 - [Immich restore to new CNPG database](immich_cnpg.md)
 - [Offsite Recovery — Immich and Paperless](offsite_recovery.md)
+- [master1 etcd Disk Swap](master1_etcd_disk_swap.md)
 - [Github Webhook](github_webhook.md)
 - [Resources: Limits and Requests Philosophy](limits.md)
 - [Debugging](debugging.md)

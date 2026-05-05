@@ -1,0 +1,76 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app kodi-playback-watcher
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+
+  interval: 30m
+  values:
+    controllers:
+      main:
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        type: deployment
+
+        containers:
+          main:
+            image:
+              repository: ghcr.io/rwlove/kodi-playback-watcher
+              tag: v0.1.0
+
+            env:
+              KPW_KODI_HOST: kodi-familyroom
+              KPW_KODI_WS_PORT: "9090"
+              KPW_KODI_SSH_USER: root
+              KPW_KODI_SSH_PORT: "22"
+              KPW_KODI_LOG_PATH: /storage/.kodi/temp/kodi.log
+              KPW_KODI_SSH_KEY_PATH: /etc/kpw-ssh/ssh_private_key
+              KPW_AV1CORRECTOR_URL: http://av1corrector.media.svc.cluster.local:8000
+              KPW_REPORT_DEBOUNCE_SECONDS: "30"
+              KPW_LISTEN_ADDR: ":8000"
+              KPW_LOG_FORMAT: json
+
+            probes:
+              liveness: &probes
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /healthz
+                    port: &httpPort 8000
+                  initialDelaySeconds: 10
+                  periodSeconds: 30
+                  timeoutSeconds: 3
+                  failureThreshold: 3
+              readiness: *probes
+              startup:
+                enabled: false
+
+            resources:
+              requests:
+                cpu: 10m
+                memory: 32Mi
+              limits:
+                memory: 128Mi
+
+    service:
+      main:
+        controller: main
+        ports:
+          http:
+            port: *httpPort
+
+    persistence:
+      ssh-key:
+        type: secret
+        name: kodi-playback-watcher-ssh
+        defaultMode: 0400
+        globalMounts:
+          - path: /etc/kpw-ssh
+            readOnly: true

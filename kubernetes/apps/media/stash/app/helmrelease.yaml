@@ -52,12 +52,13 @@ spec:
               - -c
               - |
                 set -ex
-                echo '--- before ---'
-                ls -la /.stash/
+                # Ownership/perms: legacy data was written by root mode 600.
                 chown -R 1114:1001 /.stash
                 chmod -R u=rwX,g=rwX,o= /.stash
-                echo '--- after ---'
-                ls -la /.stash/
+                # Path migration: config.yml from when the PVC mounted at
+                # /root/.stash still references that path. The PVC now
+                # mounts at /.stash, so rewrite the paths in-place. Idempotent.
+                sed -i 's|/root/\.stash|/.stash|g' /.stash/config.yml
             securityContext:
               runAsUser: 0
               runAsNonRoot: false

@@ -69,13 +69,16 @@ spec:
                 memory: 2G
 
             securityContext:
-              # slskd's entrypoint starts as root to chown /app (image-internal,
-              # owned ubuntu:ubuntu) and drop to PUID:PGID via gosu. /app is
-              # unused for data because SLSKD_APP_DIR=/config; we just need to
-              # clear the writability check. Container-level (not pod-level)
-              # so the auto-injected k8tz init container keeps its non-root.
+              # slskd's entrypoint starts as root to groupmod/usermod/chown /app
+              # and drop to PUID:PGID via gosu. SLSKD_APP_DIR=/config means
+              # /app is unused for data; we just need to clear the writability
+              # check. Caps cover the entrypoint's setup; after gosu drops to
+              # non-root they reset and slskd runs unprivileged.
+              # Container-level so the k8tz init container keeps its non-root.
               allowPrivilegeEscalation: false
-              capabilities: {drop: ["ALL"]}
+              capabilities:
+                drop: ["ALL"]
+                add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]
               readOnlyRootFilesystem: false
               runAsNonRoot: false
               runAsUser: 0

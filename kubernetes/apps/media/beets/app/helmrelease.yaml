@@ -55,9 +55,39 @@ spec:
               - |
                 set -e
                 export PATH="/lsiopy/bin:$PATH"
-                echo "[$(date)] Starting beets incremental import..."
+                echo "[$(date)] Starting beets incremental import on /media library..."
                 beet -c /tmp/config.yaml import -q /media
-                echo "[$(date)] Beets import complete."
+
+                echo "[$(date)] Bridge: re-tagging soularr's failed_imports with beets, then re-triggering Lidarr scan"
+                FAILED_DIR="/slskd/complete/failed_imports"
+                if [ -d "$FAILED_DIR" ]; then
+                  for src in "$FAILED_DIR"/*/; do
+                    [ -d "$src" ] || continue
+                    base=$(basename "$src")
+                    target="/slskd/$base"
+                    echo "  -> $base"
+                    # beets pre-tag (MB match — more permissive than Lidarr's 80% threshold)
+                    beet -c /tmp/config.yaml import -q "$src" || echo "     beet import nonzero exit (continuing)"
+                    # Move out of failed_imports so the next Lidarr scan path makes sense
+                    mv "$src" "$target" || { echo "     mv failed; skipping"; continue; }
+                    # Trigger Lidarr DownloadedAlbumsScan on the now-tagged dir
+                    if [ -n "${LIDARR__API_KEY:-}" ]; then
+                      curl -sS -X POST \
+                        -H "X-Api-Key: ${LIDARR__API_KEY}" \
+                        -H "Content-Type: application/json" \
+                        "http://lidarr.media.svc.cluster.local:8686/api/v1/command" \
+                        --data "{\"name\":\"DownloadedAlbumsScan\",\"path\":\"$target\"}" \
+                        > /dev/null && echo "     Lidarr scan triggered" \
+                        || echo "     Lidarr scan trigger failed"
+                    else
+                      echo "     LIDARR__API_KEY missing, skipping Lidarr trigger"
+                    fi
+                  done
+                fi
+                echo "[$(date)] Beets cron + bridge complete."
+            envFrom:
+              - secretRef:
+                  name: lidarr
             resources:
               requests:
                 cpu: 100m
@@ -109,6 +139,11 @@ spec:
 
       media:
         existingClaim: beets-media-pvc
+
+      slskd:
+        existingClaim: soularr-slskd-downloads-pvc
+        globalMounts:
+          - path: /slskd
 
       tmp:
         type: emptyDir

@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>nVidia Tesla P40 - Home Operations</title>
+        <title>master1 etcd Disk Swap - Home Operations</title>
 
 
         <!-- Custom HTML head -->
@@ -147,92 +147,125 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="nvidia-tesla-p40"><a class="header" href="#nvidia-tesla-p40">nVIDIA Tesla P40</a></h1>
-<p>nVIDIA GPU ignored on Host (Dell R730xd, CentOS 9), PCI Passthrough to KVM VM, running CentOS 9 as a K8S node running nVIDIA Container Toolkit pods.</p>
-<h2 id="host"><a class="header" href="#host">Host</a></h2>
-<h3 id="ignore-pci-device"><a class="header" href="#ignore-pci-device">Ignore PCI device</a></h3>
+                        <h1 id="master1-etcd-disk-swap-plan"><a class="header" href="#master1-etcd-disk-swap-plan">master1 etcd-Disk Swap Plan</a></h1>
+<p>Active plan to fix master1's degraded etcd performance by replacing
+the NVMe under <code>/</code>. Captured 2026-05-05 from a diagnostic session.</p>
+<h2 id="why"><a class="header" href="#why">Why</a></h2>
+<p>master1's etcd is the slow voter and the cause of intermittent
+apiserver timeouts on this cluster. Confirmed via Prometheus:</p>
+<div class="table-wrapper"><table><thead><tr><th>10m p99</th><th>master1 (192.168.1.9)</th><th>master2 (192.168.4.9)</th><th>master3 (192.168.4.10)</th></tr></thead><tbody>
+<tr><td><code>etcd_disk_wal_fsync</code></td><td><strong>31 ms</strong></td><td>17 ms</td><td>16 ms</td></tr>
+<tr><td><code>etcd_disk_backend_commit</code></td><td><strong>103 ms</strong></td><td>29 ms</td><td>27 ms</td></tr>
+<tr><td><code>etcd_server_slow_apply_total</code> (cumulative)</td><td><strong>67,523</strong></td><td>21,459</td><td>5,738</td></tr>
+</tbody></table>
+</div>
+<p>Read latency on the same NVMe is sub-millisecond. The slowness is on
+the <strong>sync-write path</strong> (page cache doesn't help <code>fdatasync</code>). The
+suspected drive is <code>nvme1n1</code> — a budget HS1TBNVME M2 1TB at 41% wear,
+hosting the LVM root that contains <code>/var/lib/etcd</code>.</p>
+<p>Cluster has a leader, zero leader changes/hr, no failed proposals —
+etcd is stable but degraded. Apiserver-master1 takes the brunt
+because it always reads from local etcd.</p>
+<p>Unrelated note: <code>/dev/sdb</code> on master1 is in <code>XfsShutdown</code> state — a
+secondary SATA disk that fell off the bus. <strong>Does not affect etcd</strong>
+(verified: nothing on sdb is mounted; etcd lives on <code>/</code>, OSD-1 lives
+on <code>nvme0n1p1</code>, Longhorn lives on <code>nvme0n1p2</code>). Investigate on its
+own schedule.</p>
+<h2 id="drive-recommendation"><a class="header" href="#drive-recommendation">Drive recommendation</a></h2>
+<p><strong>Micron 7450 PRO 480 GB M.2 2280</strong> (MTFDKBA480TFR-1BC1ZABYYR), ~$200 USD.</p>
+<p>Why this one:</p>
+<ul>
+<li>M.2 2280 fits the most common slot (verify before ordering).</li>
+<li>480 GB is plenty for <code>/</code> + etcd (etcd DB is ~340 MB).</li>
+<li>1 DWPD, 800 TBW endurance — etcd will not wear it out.</li>
+<li>Hardware power-loss-protection capacitors — the whole point.</li>
+<li>Gen4×4, negotiates down to Gen3.</li>
+</ul>
+<p>Alternatives if master1 has an M.2 22110 slot (longer 110 mm form factor):</p>
+<ul>
+<li>Samsung PM9A3 960 GB M.2 22110 (~$230–280)</li>
+<li>Micron 7450 PRO 960 GB M.2 22110 (~$270–370)</li>
+</ul>
+<p>See conversation history for retailer links; pricing as of 2026-05-04.</p>
+<h2 id="preflight-before-ordering"><a class="header" href="#preflight-before-ordering">Preflight (before ordering)</a></h2>
 <ol>
-<li>Apend to GRUB_CMDLINE_LINUX in /etc/default/grub</li>
-</ol>
-<p><code>intel_iommu=on pci-stub.ids=10de:1b38</code></p>
-<ol start="2">
-<li>Update Grub</li>
-</ol>
-<p><code>grubby --add-kernel $(grubby --default-kernel) --copy-default --args=vfio_pci.ids=10de:1b38 --title "Default kernel with vfio_pci" --make-default</code></p>
-<p><a href="https://www.ibm.com/docs/en/linux-on-systems?topic=through-pci">IBM through-pci</a></p>
-<ol start="3">
-<li>reboot</li>
-</ol>
-<h3 id="pci-passthrough-to-vm-via-virt-manager"><a class="header" href="#pci-passthrough-to-vm-via-virt-manager">PCI Passthrough to VM (via virt-manager)</a></h3>
-<ol>
-<li>Add Hardware -&gt; PCI Host Device</li>
-</ol>
-<h2 id="in-the-vm"><a class="header" href="#in-the-vm">In the VM</a></h2>
-<h3 id="blacklist-nouveau-in-vm"><a class="header" href="#blacklist-nouveau-in-vm">Blacklist nouveau in VM</a></h3>
-<ol>
-<li>
-<p>echo "blacklist nouveau" &gt; /etc/modprobe.d/blacklist-nouveau.conf</p>
-</li>
-<li>
-<p>Comment out the following block in /etc/X11/xorg.conf.d/10-nvidia.conf</p>
-</li>
-</ol>
-<pre><code>#Section "OutputClass"
-#    Identifier "nvidia"
-#    MatchDriver "nvidia-drm"
-#    Driver "nvidia"
-#    Option "AllowEmptyInitialConfiguration"
-#    Option "PrimaryGPU" "no"
-#    Option "SLI" "Auto"
-#    Option "BaseMosaic" "on"
-#EndSection
+<li><strong>Confirm M.2 slot length on master1</strong>: SSH and run <code>lspci -vv</code>,
+or look at the board. 2280 vs 22110 changes the buy.</li>
+<li><strong>Confirm where <code>cs_master1-root</code> LVM actually sits</strong>:
+<pre><code class="language-sh">pvs &amp;&amp; vgs &amp;&amp; lvs &amp;&amp; lsblk
 </code></pre>
-<ol start="3">
-<li>reboot</li>
+This is to verify the hypothesis that <code>/var/lib/etcd</code> is on
+<code>nvme1n1</code>. If it turns out to be on <code>nvme0n1</code> (the WD Blue), the
+diagnosis changes — the issue would be NVMe contention with
+Longhorn/Ceph rather than a slow drive. The fix would then be
+different (move workloads, not the drive).</li>
+<li><strong>Identify what was on <code>/dev/sdb</code></strong>:
+<pre><code class="language-sh">cat /etc/fstab | grep sdb
+blkid /dev/sdb              # may return nothing if device gone
+dmesg -T | grep -E 'sd[ab]|ata|sata'
+</code></pre>
+This is independent of the etcd fix but should be cleaned up
+eventually.</li>
 </ol>
-<h3 id="install-nvidia-driver"><a class="header" href="#install-nvidia-driver">Install nVIDIA Driver</a></h3>
-<p><code>dnf config-manager --add-repo http://developer.download.nvidia.com/compute/cuda/repos/rhel9/$\(uname -i)/cuda-rhel9.repo</code></p>
-<p><code>dnf module install nvidia-driver:565-dkms</code></p>
-<h4 id="install-nvidia-container-toolkit"><a class="header" href="#install-nvidia-container-toolkit">Install nVIDIA Container Toolkit</a></h4>
-<p><code>curl -s -L https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo | sudo tee /etc/yum.repos.d/nvidia-container-toolkit.repo</code></p>
-<p><code>dnf install nvidia-container-toolkit</code></p>
-<p><code>nvidia-ctk runtime configure --runtime=crio</code></p>
-<h4 id="configure-the-runtime"><a class="header" href="#configure-the-runtime">Configure the runtime</a></h4>
-<p><code>nvidia-ctk runtime configure --runtime=crio</code></p>
-<h4 id="results"><a class="header" href="#results">Results</a></h4>
-<p><a href="https://raw.githubusercontent.com/rwlove/home-ops/refs/heads/main/docs/assets/crio.conf">/etc/crio/crio.conf</a></p>
-<p><a href="https://raw.githubusercontent.com/rwlove/home-ops/refs/heads/main/docs/assets/config.toml">/etc/nvidia-container-runtime/config.toml</a></p>
-<h2 id="kubernetes"><a class="header" href="#kubernetes">Kubernetes</a></h2>
-<h3 id="install-nvidia-device-plugin"><a class="header" href="#install-nvidia-device-plugin">Install nVIDIA Device Plugin</a></h3>
-<p><a href="https://raw.githubusercontent.com/rwlove/home-ops/main/kubernetes/apps/kube-system/nvidia-device-plugin/app/helmrelease.yaml">Helm Chart</a></p>
-<h2 id="configuration-with-nfd--localai--ollama--etc"><a class="header" href="#configuration-with-nfd--localai--ollama--etc">Configuration with NFD / LocalAI / Ollama / etc</a></h2>
-<h3 id="localai"><a class="header" href="#localai">LocalAI</a></h3>
+<h2 id="replacement-options"><a class="header" href="#replacement-options">Replacement options</a></h2>
+<p>Two paths once the drive arrives:</p>
+<h3 id="option-a--reinstall-fresh-recommended"><a class="header" href="#option-a--reinstall-fresh-recommended">Option A — Reinstall fresh (recommended)</a></h3>
+<p>Treat master1 as a control-plane replacement: drain, remove from
+cluster, reinstall the OS on the new NVMe, rejoin via <code>kubeadm join --control-plane</code>. Symmetrical to
+<a href="promote_worker_to_control_plane.html">Promote Worker to Control Plane</a>
+— the same Phase 2/3/4 apply, just with master1 instead of worker2.</p>
+<p>Pros: clean state, drops accumulated cruft, validates the
+documented procedure.</p>
+<p>Cons: more downtime, more steps.</p>
+<h3 id="option-b--clone-lvm-offline"><a class="header" href="#option-b--clone-lvm-offline">Option B — Clone LVM offline</a></h3>
+<p>Boot master1 into rescue/live media, <code>dd</code> or <code>pvmove</code> the existing
+root LVM from <code>nvme1n1</code> to the new drive, update bootloader, reboot.</p>
+<p>Pros: faster, preserves config exactly.</p>
+<p>Cons: carries forward whatever cruft is on <code>/</code>; bootloader fiddling;
+no validation that the cluster's join procedure works.</p>
+<h2 id="sequencing-constraints"><a class="header" href="#sequencing-constraints">Sequencing constraints</a></h2>
+<p>Before doing either replacement option, confirm:</p>
 <ol>
-<li>make sure runtime is set correctly</li>
-<li>confirm that localai is running on the <code>nvidia-container-runtime</code></li>
+<li><strong>Cluster is otherwise healthy.</strong> Same gating conditions as the
+<a href="promote_worker_to_control_plane.html">Promote Worker to Control Plane</a>
+preconditions — etcd voter health, Ceph HEALTH_OK, no in-flight
+long storage operations.</li>
+<li><strong>Etcd snapshot saved off-host.</strong> See the Etcd snapshot section of
+the same runbook.</li>
+<li><strong>Immich offsite seed has finished.</strong> As of 2026-05-04 21:11 UTC
+the seed was 80% through phase 1 of 2 (1.82/2.28 TiB at 55 MiB/s).
+Phase 2 (<code>/external</code>) hadn't started. <strong>Watch for the
+<code>===== Backup complete =====</code> line in <code>media/immich-backup-initial</code>
+pod logs before doing anything that drains worker2.</strong> This doesn't
+block the master1 swap directly, but you don't want to stack
+storage-touching operations.</li>
 </ol>
-<h3 id="stable-diffusion"><a class="header" href="#stable-diffusion">stable-diffusion</a></h3>
-<h2 id="on-node-install-tcmalloc"><a class="header" href="#on-node-install-tcmalloc">On node install TCMalloc</a></h2>
-<p>dnf install -y gperftools gperftools-deve</p>
-<h2 id="other"><a class="header" href="#other">Other</a></h2>
-<h3 id="nvidia-htop"><a class="header" href="#nvidia-htop">nVidia HTOP</a></h3>
-<p>Improved <code>nvidia-smi</code> command.</p>
-<p><a href="https://github.com/peci1/nvidia-htop">nVidia HTOP</a></p>
-<h3 id="fan-control-methods"><a class="header" href="#fan-control-methods">Fan Control Methods</a></h3>
-<p>The R730XD doesn't officially support the P40 so it doesn't natively adjust the fan. Below are some workarounds that I have not implemented yet.</p>
-<p><a href="https://github.com/DrSpeedy/ipmi_fancontrol-ng">IPMI Fan Control</a></p>
-<p><a href="https://gist.github.com/fragtion/92ab3b33cfbaccb8e70037fb4f1b6c42">Fan Control Script 1</a></p>
-<p><a href="https://github.com/brezlord/iDRAC7_fan_control">Fan Control Script 2</a></p>
+<h2 id="after-master1-is-fixed"><a class="header" href="#after-master1-is-fixed">After master1 is fixed</a></h2>
+<p>In order:</p>
+<ol>
+<li><strong>Verify the fix landed.</strong> master1's etcd <code>slow_apply_total</code>
+should grow at the same rate as the other voters over a 10-minute
+window. If yes, the disk swap solved the etcd problem.</li>
+<li><strong>Investigate <code>BLUESTORE_SLOW_OP_ALERT</code> on OSD-1.</strong> Separate
+issue, on <code>nvme0n1</code>. Likely Longhorn ↔ Ceph contention on the same
+drive. Quantify with <code>iostat</code> and Ceph perf counters before
+deciding what to do.</li>
+<li><strong>Then promote worker2 as a control plane</strong> per
+<a href="promote_worker_to_control_plane.html">Promote Worker to Control Plane</a>,
+retiring the VM master2.</li>
+<li><strong>Then repeat for master3</strong> with another bare-metal worker, so all
+three control planes live in independent failure domains.</li>
+</ol>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="coral.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="offsite_recovery.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <i class="fa fa-angle-left"></i>
                             </a>
 
-                            <a rel="next" href="cluster_rebuild.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next" href="github_webhook.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <i class="fa fa-angle-right"></i>
                             </a>
 
@@ -242,11 +275,11 @@
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="coral.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="offsite_recovery.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <i class="fa fa-angle-left"></i>
                     </a>
 
-                    <a rel="next" href="cluster_rebuild.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next" href="github_webhook.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <i class="fa fa-angle-right"></i>
                     </a>
             </nav>

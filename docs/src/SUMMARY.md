@@ -13,6 +13,7 @@
 - [Per-Route Cert Migration](per-route-cert-migration.md)
 - [Initialization and Teardown](init_teardown.md)
 - [Immich restore to new CNPG database](immich_cnpg.md)
+- [Offsite Recovery — Immich and Paperless](offsite_recovery.md)
 - [Github Webhook](github_webhook.md)
 - [Resources: Limits and Requests Philosophy](limits.md)
 - [Debugging](debugging.md)

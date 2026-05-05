@@ -17,11 +17,13 @@ spec:
   values:
     defaultPodOptions:
       securityContext:
+        # slskd's entrypoint must start as root to chown /app (image-internal,
+        # owned ubuntu:ubuntu) before dropping to PUID:PGID via gosu. With
+        # SLSKD_APP_DIR=/config set below, /app is unused for data — we just
+        # need the writability check at startup to pass.
         fsGroup: 1001
         fsGroupChangePolicy: OnRootMismatch
-        runAsGroup: 1001
-        runAsNonRoot: true
-        runAsUser: 1000  # slskd image's /app is owned 1000:1000 internally; arbitrary UIDs fail startup check
+        runAsUser: 0
         # seccompProfile: {type: RuntimeDefault}
 
     controllers:
@@ -37,6 +39,8 @@ spec:
 
             env:
               DOTNET_BUNDLE_EXTRACT_BASE_DIR: /tmp/.net
+              PUID: "1108"
+              PGID: "1001"
               SLSKD_APP_DIR: /config
               SLSKD_HTTP_PORT: &httpPort 5030
               SLSKD_NO_AUTH: true

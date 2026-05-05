@@ -18,6 +18,13 @@ spec:
 
         type: statefulset
 
+        # Intel iGPU is only present on a subset of nodes. The hevc_vaapi
+        # encoder needs gpu.intel.com/i915 (provided by intel-device-plugin
+        # on those nodes); requesting it implicitly schedules here.
+        pod:
+          nodeSelector:
+            intel.feature.node.kubernetes.io/gpu: "true"
+
         initContainers:
           init-db:
             image:
@@ -32,12 +39,22 @@ spec:
           main:
             image:
               repository: ghcr.io/rwlove/av1corrector
-              tag: v0.5.0
+              tag: v0.6.0
 
             env:
               AV1CORRECTOR_LIBRARY_PATH: /library
               AV1CORRECTOR_LISTEN_ADDR: ":8000"
               AV1CORRECTOR_LOG_FORMAT: json
+
+              # Use the Intel iGPU's HEVC encoder for 8-bit AV1 sources.
+              # 10-bit sources (most modern AV1) will silently fall back to
+              # libx265 — HD630 / gen9.5 only encodes 8-bit HEVC.
+              AV1CORRECTOR_ENCODER: vaapi_hevc
+
+              # When the libx265 fallback path runs, use a faster preset.
+              # ~3× the throughput of "slow" for the 10-bit files that can't
+              # use the iGPU. Quality drop at CRF 18 is imperceptible.
+              AV1CORRECTOR_X265_PRESET: medium
 
             envFrom: *envFrom
 
@@ -61,8 +78,10 @@ spec:
               requests:
                 cpu: 500m
                 memory: 512Mi
+                gpu.intel.com/i915: 1
               limits:
                 memory: 4Gi
+                gpu.intel.com/i915: 1
 
     service:
       main:

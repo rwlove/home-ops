@@ -6,9 +6,11 @@ description: Scaffold a new CNPG postgres cluster with Garage-backed barman back
 # Add CNPG Postgres Cluster
 
 This skill scaffolds a new CloudNativePG cluster following the canonical
-pattern in `kubernetes/apps/databases/cloudnative-pg/config/`. Every
-cluster in the repo has the same five files plus a Flux Kustomization
-appended to `cloudnative-pg/ks.yaml`. Backups go to Garage (S3)
+pattern in `kubernetes/apps/databases/cloudnative-pg/config/`. The
+ObjectStore + ScheduledBackup + ExternalSecret trio is provided by the
+shared `components/cnpg-app-database` Component via `${APP}`
+substitution — each new cluster directory only needs `cluster.yaml`
+plus a Component-aware `kustomization.yaml`. Backups go to Garage (S3)
 through the barman-cloud plugin.
 
 This is two halves. The DB half lives in `databases/`. The consuming
@@ -65,7 +67,11 @@ files that will land in CrashLoopBackOff.
 ### Step 3: Generate the DB-side files
 
 Create `kubernetes/apps/databases/cloudnative-pg/config/<app>/` with
-five files. Substitute `<app>` everywhere it appears.
+two files. Substitute `<app>` everywhere it appears.
+
+The ExternalSecret, ObjectStore, and ScheduledBackup are *not* written
+per-app — they come from `components/cnpg-app-database` via `${APP}`
+substitution from the Flux Kustomization's `postBuild.substitute.APP`.
 
 #### `cluster.yaml`
 
@@ -126,78 +132,6 @@ The commented `bootstrap.recovery` block is intentional — it stays as
 a comment for normal new clusters and gets uncommented on disaster
 recovery. Don't remove it.
 
-#### `objectstore.yaml`
-
-```yaml
----
-apiVersion: barmancloud.cnpg.io/v1
-kind: ObjectStore
-metadata:
-  name: garage-<app>
-spec:
-  configuration:
-    data:
-      compression: bzip2
-    destinationPath: s3://postgres-<app>-backup/
-    endpointURL: http://garage.storage.svc.cluster.local:3900
-    s3Credentials:
-      accessKeyId:
-        name: <app>-secret
-        key: AWS_ACCESS_KEY_ID
-      secretAccessKey:
-        name: <app>-secret
-        key: AWS_SECRET_ACCESS_KEY
-    wal:
-      compression: bzip2
-      maxParallel: 4
-  retentionPolicy: 30d
-```
-
-#### `scheduledbackup.yaml`
-
-```yaml
----
-apiVersion: postgresql.cnpg.io/v1
-kind: ScheduledBackup
-metadata:
-  name: postgres-<app>-backup
-spec:
-  schedule: "@weekly"
-  immediate: true
-  backupOwnerReference: self
-  cluster:
-    name: postgres-<app>
-```
-
-#### `externalsecret.yaml` (in `databases/`)
-
-This is *the S3-creds secret only* — used by the ObjectStore. The
-consumer app's DB credentials live in a different ExternalSecret in
-the consuming app's namespace.
-
-```yaml
----
-# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/external-secrets.io/externalsecret_v1.json
-apiVersion: external-secrets.io/v1
-kind: ExternalSecret
-metadata:
-  name: <app>
-spec:
-  secretStoreRef:
-    kind: ClusterSecretStore
-    name: onepassword-connect
-  target:
-    name: <app>-secret
-    template:
-      data:
-        # S3
-        AWS_ACCESS_KEY_ID: "{{ .GARAGE_AWS_ACCESS_KEY_ID }}"
-        AWS_SECRET_ACCESS_KEY: "{{ .GARAGE_AWS_SECRET_ACCESS_KEY }}"
-  dataFrom:
-    - extract:
-        key: <app>
-```
-
 #### `kustomization.yaml`
 
 ```yaml
@@ -205,15 +139,31 @@ spec:
 # yaml-language-server: $schema=https://json.schemastore.org/kustomization
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+components:
+  - ../../../../../components/cnpg-app-database
 resources:
   - ./cluster.yaml
-  - ./externalsecret.yaml
-  - ./objectstore.yaml
-  - ./scheduledbackup.yaml
 ```
 
+The Component renders an ObjectStore (`garage-<app>`), a ScheduledBackup
+(`postgres-<app>-backup` against `postgres-<app>`, `@weekly`,
+`immediate: true`), and an ExternalSecret (`<app>` → `<app>-secret`
+with the Garage S3 creds). All three reference `${APP}` and resolve via
+the Flux Kustomization's `postBuild.substitute.APP`.
+
 If you added `service.yaml` for cross-namespace TCP, list it here too
-in alphabetical order.
+in alphabetical order:
+
+```yaml
+resources:
+  - ./cluster.yaml
+  - ./service.yaml
+```
+
+The S3-creds 1Password entry must contain `GARAGE_AWS_ACCESS_KEY_ID` /
+`GARAGE_AWS_SECRET_ACCESS_KEY` keyed under `<app>`. The consumer app's
+DB credentials live in a different ExternalSecret in the consuming
+app's namespace (Step 5).
 
 ### Step 4: Wire into Flux
 
@@ -227,10 +177,13 @@ file). Use the same shape every other entry uses:
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
-  name: <app>
+  name: &app <app>
   labels:
     substitution.flux.home.arpa/enabled: "true"
 spec:
+  commonMetadata:
+    labels:
+      app.kubernetes.io/name: *app
   targetNamespace: databases
   path: ./kubernetes/apps/databases/cloudnative-pg/config/<app>
   interval: 30m
@@ -244,19 +197,34 @@ spec:
   dependsOn:
     - name: cloudnative-pg
       namespace: databases
+    - name: cloudnative-pg-plugin-barman-cloud
+      namespace: databases
     - name: garage
       namespace: storage
     - name: rook-ceph-cluster
       namespace: rook-ceph
+  postBuild:
+    substitute:
+      APP: *app
   healthCheckExprs:
     - apiVersion: postgresql.cnpg.io/v1
       kind: Cluster
       current: status.phase in ['Cluster in healthy state']
 ```
 
-Apps that recover from a backup or reference the barman-cloud plugin
-directly also depend on `cloudnative-pg-plugin-barman-cloud` (see
-`netbox`, `nextcloud`). Default new clusters don't need that.
+Three things you must keep in sync, all driven off the `&app` anchor:
+
+- `metadata.name: &app <app>` — defines the anchor.
+- `commonMetadata.labels.app.kubernetes.io/name: *app` — adds
+  `app.kubernetes.io/name=<app>` to every child resource so
+  `kubectl get all -l app.kubernetes.io/name=<app>` works.
+- `postBuild.substitute.APP: *app` — feeds `${APP}` into the
+  `cnpg-app-database` Component so the ObjectStore /
+  ScheduledBackup / ExternalSecret render correctly.
+
+The `cloudnative-pg-plugin-barman-cloud` dependency is **required** for
+every cluster using the Component, since the Component's
+ScheduledBackup uses `method: plugin`.
 
 ### Step 5: Generate the consumer-side ExternalSecret
 

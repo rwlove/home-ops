@@ -102,6 +102,9 @@ spec:
         runAsGroup: 1000
         runAsNonRoot: true
         runAsUser: 1000
+        # Add when the app needs to write to a PVC (uncomment + match GID):
+        # fsGroup: 1000
+        # fsGroupChangePolicy: OnRootMismatch
     controllers:
       <app>:
         annotations:
@@ -138,6 +141,8 @@ spec:
               readOnlyRootFilesystem: true
               capabilities:
                 drop: ["ALL"]
+              seccompProfile:
+                type: RuntimeDefault
     service:
       app:
         controller: <app>
@@ -145,6 +150,12 @@ spec:
           http:
             port: <port>
 ```
+
+Security defaults above match `.agents/instructions/helmrelease.security.md`.
+If the app refuses to start under `readOnlyRootFilesystem: true`, the
+fix is usually a `persistence: tmpfs: { type: emptyDir }` block mounted
+at `/tmp` (and wherever else the app writes scratch). See that
+instruction file for the workaround patterns.
 
 Note on UID/GID: 1000 is the prevailing convention in this repo, but
 match whatever the upstream image's non-root user is. Mismatches show

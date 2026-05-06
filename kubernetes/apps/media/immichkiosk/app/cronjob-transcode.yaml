@@ -1,0 +1,106 @@
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: immichkiosk-transcode
+spec:
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: OnFailure
+          # Runs as root because alpine needs apk add curl+jq at start; pod
+          # has only the API key as input and no host/PVC mounts, so blast
+          # radius is limited to whatever the API key itself permits.
+          containers:
+            - name: transcode
+              image: alpine:3.20
+              securityContext:
+                runAsUser: 0
+                runAsGroup: 0
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  apk add --no-cache curl jq >/dev/null
+
+                  api() {
+                    curl -fsSL --retry 3 \
+                      -H "x-api-key: $IMMICH_API_KEY" \
+                      -H "Accept: application/json" \
+                      "$@"
+                  }
+
+                  echo "===== Kiosk transcode pass: $(date -u) ====="
+
+                  albumId=$(api "$IMMICH_URL/api/albums" \
+                    | jq -r --arg n "$ALBUM_NAME" '.[] | select(.albumName==$n) | .id')
+                  if [ -z "$albumId" ]; then
+                    echo "Album '$ALBUM_NAME' not found — nothing to do"
+                    exit 0
+                  fi
+                  echo "Album: $albumId"
+
+                  toProcess=$(api "$IMMICH_URL/api/albums/$albumId" \
+                    | jq -r --arg t "$TAG_NAME" '.assets[]
+                        | select(.type=="VIDEO")
+                        | select((.tags // []) | map(.name) | index($t) | not)
+                        | .id')
+                  if [ -z "$toProcess" ]; then
+                    echo "No untagged videos in album"
+                    exit 0
+                  fi
+                  count=$(printf '%s\n' "$toProcess" | wc -l)
+                  echo "Found $count video(s) to submit"
+
+                  idsJson=$(printf '%s\n' "$toProcess" | jq -R . | jq -s .)
+
+                  api -X POST \
+                    -H "Content-Type: application/json" \
+                    -d "$(jq -n --argjson ids "$idsJson" \
+                          '{name:"transcode-video", assetIds:$ids}')" \
+                    "$IMMICH_URL/api/assets/jobs"
+                  echo "Transcode jobs queued"
+
+                  tagId=$(api "$IMMICH_URL/api/tags" \
+                    | jq -r --arg n "$TAG_NAME" \
+                        '.[] | select(.name==$n) | .id' | head -n1)
+                  if [ -z "$tagId" ]; then
+                    tagId=$(api -X POST \
+                      -H "Content-Type: application/json" \
+                      -d "$(jq -n --arg n "$TAG_NAME" '{name:$n}')" \
+                      "$IMMICH_URL/api/tags" | jq -r '.id')
+                    echo "Created tag $TAG_NAME ($tagId)"
+                  fi
+
+                  api -X PUT \
+                    -H "Content-Type: application/json" \
+                    -d "$(jq -n --argjson ids "$idsJson" --arg tid "$tagId" \
+                          '{assetIds:$ids, tagIds:[$tid]}')" \
+                    "$IMMICH_URL/api/tags/assets"
+                  echo "Tagged $count asset(s) with $TAG_NAME"
+
+                  echo "===== Done: $(date -u) ====="
+              env:
+                - name: ALBUM_NAME
+                  value: "ImmichFrame Videos"
+                - name: TAG_NAME
+                  value: "kiosk-transcoded"
+                - name: IMMICH_URL
+                  value: "http://immich-server.media.svc.cluster.local:3001"
+                - name: TZ
+                  value: America/New_York
+              envFrom:
+                - secretRef:
+                    name: immichkiosk-transcode-secret
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+                limits:
+                  memory: 128Mi

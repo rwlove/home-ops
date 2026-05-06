@@ -22,6 +22,11 @@ fail=0
 for f in $files; do
   # Skip files that don't exist on disk (e.g., submodule paths).
   [ -f "$f" ] || continue
+  # Skip the snapshot script ConfigMap — it embeds these same patterns
+  # as shell regex literals, which would always trigger a false positive.
+  case "$f" in
+    kubernetes/apps/home/frigate/app/snapshot-script-cm.yaml) continue ;;
+  esac
 
   # URL-embedded credential: ://user:NOT-{...}@host
   m=$(grep -nE '://[a-zA-Z_][a-zA-Z0-9_]*:[^{][^@]*@' "$f" || true)
@@ -43,6 +48,15 @@ for f in $files; do
   m=$(grep -nE "^[[:space:]]*password:[[:space:]]*['\"]?[^[:space:]'\"{]" "$f" || true)
   if [ -n "$m" ]; then
     printf '%s\n' "ERROR: literal credential in YAML field form: $f" >&2
+    printf '%s\n' "$m" >&2
+    fail=1
+  fi
+
+  # rtmp:// destinations (e.g. go2rtc `publish:`) carry the stream key
+  # in the URL path. Reject any rtmp URL whose line lacks a {VAR} template.
+  m=$(grep -n 'rtmp://' "$f" | grep -v '{' || true)
+  if [ -n "$m" ]; then
+    printf '%s\n' "ERROR: literal credential in RTMP URL form: $f" >&2
     printf '%s\n' "$m" >&2
     fail=1
   fi

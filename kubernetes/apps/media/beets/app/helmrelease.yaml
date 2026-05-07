@@ -53,11 +53,26 @@ spec:
               - /bin/bash
               - -c
               - |
-                set -e
                 export PATH="/lsiopy/bin:$PATH"
                 echo "[$(date)] Starting beets incremental import on /media..."
-                beet -c /tmp/config.yaml import -q /media
-                echo "[$(date)] Beets import complete."
+                # Lidarr concurrent file moves cause ENOENT mid-import; the
+                # chroma plugin's fingerprint_file aborts the whole session.
+                # Retry — beets incremental mode skips already-imported albums.
+                attempts=0
+                max_attempts=5
+                while :; do
+                  if beet -c /tmp/config.yaml import -q /media; then
+                    echo "[$(date)] Beets import complete."
+                    exit 0
+                  fi
+                  attempts=$((attempts+1))
+                  if [ "$attempts" -ge "$max_attempts" ]; then
+                    echo "[$(date)] Beets failed $attempts times, giving up."
+                    exit 1
+                  fi
+                  echo "[$(date)] Beets failed (attempt $attempts/$max_attempts), retrying in 30s..."
+                  sleep 30
+                done
             resources:
               requests:
                 cpu: 100m

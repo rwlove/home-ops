@@ -12,6 +12,37 @@ spec:
   interval: 30m
   values:
     controllers:
+      kokoro:
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        statefulset:
+          volumeClaimTemplates:
+            - name: data
+              accessMode: ReadWriteOnce
+              size: 2Gi
+              storageClass: ceph-block
+              globalMounts:
+                - path: /data
+
+        type: statefulset
+
+        containers:
+          main:
+            image:
+              repository: ghcr.io/nordwestt/kokoro-wyoming
+              tag: 1.0.1
+            args:
+              - --voice=af_sky
+              - --data-dir=/data
+
+            resources:
+              requests:
+                cpu: 500m
+                memory: 1Gi
+              limits:
+                memory: 2Gi
+
       openwakeword:
         annotations:
           reloader.stakater.com/auto: "true"
@@ -103,6 +134,18 @@ spec:
                 nvidia.com/gpu: 1
 
     service:
+      kokoro:
+        # TODO: pin the LB IP via lbipam.cilium.io/ips once you've added
+        # SVC_WYOMING_KOKORO_ADDR to the cluster variable set. Until then
+        # Cilium will auto-assign from the pool; HA will need the assigned
+        # IP in its TTS Wyoming config.
+        type: LoadBalancer
+        controller: kokoro
+        ports:
+          http:
+            port: 10200
+            protocol: TCP
+
       openwakeword:
         type: LoadBalancer
         annotations:

@@ -1,0 +1,227 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: pv-volume-fill-rules
+spec:
+  groups:
+    # Replacements for the upstream KubePersistentVolume{Filling,InodesFilling}Up
+    # alerts (disabled in helmrelease.yaml via defaultRules.disabled). The upstream
+    # rules fire once per PVC; when N PVCs share a single NFS export, that's N
+    # near-identical alerts for one underlying problem. Splitting the rules here:
+    #
+    #   - KubePersistentVolume{Filling,Inodes}Up   → non-NFS PVCs only, per-PVC
+    #   - KubeNFSExport{Filling,Inodes}Up           → NFS-backed PVCs, aggregated
+    #                                                  by nfs_server (one alert
+    #                                                  per NFS host)
+    #
+    # The chain `kubelet_volume_stats_* → kube_persistentvolumeclaim_info →
+    # kube_persistentvolume_info` is what bridges per-PVC kubelet metrics to the
+    # PV-side `nfs_server`/`nfs_path` labels exposed by kube-state-metrics. The
+    # `label_replace` is needed because the PVC-info series uses `volumename`
+    # while the PV-info series uses `persistentvolume` for the same identifier.
+    - name: kubernetes-storage-pv
+      rules:
+        - alert: KubePersistentVolumeFillingUp
+          annotations:
+            description: The PersistentVolume claimed by {{ $labels.persistentvolumeclaim }} in Namespace {{ $labels.namespace }} is only {{ $value | humanizePercentage }} free.
+            runbook_url: https://runbooks.prometheus-operator.dev/runbooks/kubernetes/kubepersistentvolumefillingup
+            summary: PersistentVolume is filling up.
+          expr: |-
+            (
+              kubelet_volume_stats_available_bytes{job="kubelet", namespace=~".*", metrics_path="/metrics"}
+                /
+              kubelet_volume_stats_capacity_bytes{job="kubelet", namespace=~".*", metrics_path="/metrics"}
+            ) < 0.03
+            and
+            kubelet_volume_stats_used_bytes{job="kubelet", namespace=~".*", metrics_path="/metrics"} > 0
+            unless on (namespace, persistentvolumeclaim)
+            kube_persistentvolumeclaim_access_mode{access_mode="ReadOnlyMany"} == 1
+            unless on (namespace, persistentvolumeclaim)
+            kube_persistentvolumeclaim_labels{label_excluded_from_alerts="true"} == 1
+            unless on (namespace, persistentvolumeclaim)
+            (
+              label_replace(kube_persistentvolumeclaim_info, "persistentvolume", "$1", "volumename", "(.+)")
+                * on (persistentvolume) group_left()
+              kube_persistentvolume_info{nfs_server!=""}
+            )
+          for: 1m
+          labels:
+            severity: critical
+        - alert: KubePersistentVolumeFillingUp
+          annotations:
+            description: Based on recent sampling, the PersistentVolume claimed by {{ $labels.persistentvolumeclaim }} in Namespace {{ $labels.namespace }} is expected to fill up within four days. Currently {{ $value | humanizePercentage }} is available.
+            runbook_url: https://runbooks.prometheus-operator.dev/runbooks/kubernetes/kubepersistentvolumefillingup
+            summary: PersistentVolume is filling up.
+          expr: |-
+            (
+              kubelet_volume_stats_available_bytes{job="kubelet", namespace=~".*", metrics_path="/metrics"}
+                /
+              kubelet_volume_stats_capacity_bytes{job="kubelet", namespace=~".*", metrics_path="/metrics"}
+            ) < 0.15
+            and
+            kubelet_volume_stats_used_bytes{job="kubelet", namespace=~".*", metrics_path="/metrics"} > 0
+            and
+            predict_linear(kubelet_volume_stats_available_bytes{job="kubelet", namespace=~".*", metrics_path="/metrics"}[6h], 4 * 24 * 3600) < 0
+            unless on (namespace, persistentvolumeclaim)
+            kube_persistentvolumeclaim_access_mode{access_mode="ReadOnlyMany"} == 1
+            unless on (namespace, persistentvolumeclaim)
+            kube_persistentvolumeclaim_labels{label_excluded_from_alerts="true"} == 1
+            unless on (namespace, persistentvolumeclaim)
+            (
+              label_replace(kube_persistentvolumeclaim_info, "persistentvolume", "$1", "volumename", "(.+)")
+                * on (persistentvolume) group_left()
+              kube_persistentvolume_info{nfs_server!=""}
+            )
+          for: 1h
+          labels:
+            severity: warning
+        - alert: KubePersistentVolumeInodesFillingUp
+          annotations:
+            description: The PersistentVolume claimed by {{ $labels.persistentvolumeclaim }} in Namespace {{ $labels.namespace }} only has {{ $value | humanizePercentage }} free inodes.
+            runbook_url: https://runbooks.prometheus-operator.dev/runbooks/kubernetes/kubepersistentvolumeinodesfillingup
+            summary: PersistentVolumeInodes are filling up.
+          expr: |-
+            (
+              kubelet_volume_stats_inodes_free{job="kubelet", namespace=~".*", metrics_path="/metrics"}
+                /
+              kubelet_volume_stats_inodes{job="kubelet", namespace=~".*", metrics_path="/metrics"}
+            ) < 0.03
+            and
+            kubelet_volume_stats_inodes_used{job="kubelet", namespace=~".*", metrics_path="/metrics"} > 0
+            unless on (namespace, persistentvolumeclaim)
+            kube_persistentvolumeclaim_access_mode{access_mode="ReadOnlyMany"} == 1
+            unless on (namespace, persistentvolumeclaim)
+            kube_persistentvolumeclaim_labels{label_excluded_from_alerts="true"} == 1
+            unless on (namespace, persistentvolumeclaim)
+            (
+              label_replace(kube_persistentvolumeclaim_info, "persistentvolume", "$1", "volumename", "(.+)")
+                * on (persistentvolume) group_left()
+              kube_persistentvolume_info{nfs_server!=""}
+            )
+          for: 1m
+          labels:
+            severity: critical
+        - alert: KubePersistentVolumeInodesFillingUp
+          annotations:
+            description: Based on recent sampling, the PersistentVolume claimed by {{ $labels.persistentvolumeclaim }} in Namespace {{ $labels.namespace }} is expected to run out of inodes within four days. Currently {{ $value | humanizePercentage }} of its inodes are free.
+            runbook_url: https://runbooks.prometheus-operator.dev/runbooks/kubernetes/kubepersistentvolumeinodesfillingup
+            summary: PersistentVolumeInodes are filling up.
+          expr: |-
+            (
+              kubelet_volume_stats_inodes_free{job="kubelet", namespace=~".*", metrics_path="/metrics"}
+                /
+              kubelet_volume_stats_inodes{job="kubelet", namespace=~".*", metrics_path="/metrics"}
+            ) < 0.15
+            and
+            kubelet_volume_stats_inodes_used{job="kubelet", namespace=~".*", metrics_path="/metrics"} > 0
+            and
+            predict_linear(kubelet_volume_stats_inodes_free{job="kubelet", namespace=~".*", metrics_path="/metrics"}[6h], 4 * 24 * 3600) < 0
+            unless on (namespace, persistentvolumeclaim)
+            kube_persistentvolumeclaim_access_mode{access_mode="ReadOnlyMany"} == 1
+            unless on (namespace, persistentvolumeclaim)
+            kube_persistentvolumeclaim_labels{label_excluded_from_alerts="true"} == 1
+            unless on (namespace, persistentvolumeclaim)
+            (
+              label_replace(kube_persistentvolumeclaim_info, "persistentvolume", "$1", "volumename", "(.+)")
+                * on (persistentvolume) group_left()
+              kube_persistentvolume_info{nfs_server!=""}
+            )
+          for: 1h
+          labels:
+            severity: warning
+    - name: kubernetes-storage-nfs-export
+      rules:
+        - alert: KubeNFSExportFillingUp
+          annotations:
+            description: NFS export on {{ $labels.nfs_server }} is only {{ $value | humanizePercentage }} free. One or more PVCs backed by this server share the same underlying filesystem; check `df` on the server and identify the largest consumer.
+            summary: NFS export is filling up.
+          expr: |-
+            min by (nfs_server) (
+              (
+                kubelet_volume_stats_available_bytes{job="kubelet", namespace=~".*", metrics_path="/metrics"}
+                  /
+                kubelet_volume_stats_capacity_bytes{job="kubelet", namespace=~".*", metrics_path="/metrics"}
+              )
+                * on (namespace, persistentvolumeclaim) group_left(persistentvolume)
+              label_replace(kube_persistentvolumeclaim_info, "persistentvolume", "$1", "volumename", "(.+)")
+                * on (persistentvolume) group_left(nfs_server)
+              kube_persistentvolume_info{nfs_server!=""}
+            ) < 0.03
+          for: 1m
+          labels:
+            severity: critical
+        - alert: KubeNFSExportFillingUp
+          annotations:
+            description: NFS export on {{ $labels.nfs_server }} is predicted to fill within four days. Currently {{ $value | humanizePercentage }} free.
+            summary: NFS export is filling up.
+          expr: |-
+            min by (nfs_server) (
+              (
+                kubelet_volume_stats_available_bytes{job="kubelet", namespace=~".*", metrics_path="/metrics"}
+                  /
+                kubelet_volume_stats_capacity_bytes{job="kubelet", namespace=~".*", metrics_path="/metrics"}
+              )
+                * on (namespace, persistentvolumeclaim) group_left(persistentvolume)
+              label_replace(kube_persistentvolumeclaim_info, "persistentvolume", "$1", "volumename", "(.+)")
+                * on (persistentvolume) group_left(nfs_server)
+              kube_persistentvolume_info{nfs_server!=""}
+            ) < 0.15
+            and
+            min by (nfs_server) (
+              predict_linear(kubelet_volume_stats_available_bytes{job="kubelet", namespace=~".*", metrics_path="/metrics"}[6h], 4 * 24 * 3600)
+                * on (namespace, persistentvolumeclaim) group_left(persistentvolume)
+              label_replace(kube_persistentvolumeclaim_info, "persistentvolume", "$1", "volumename", "(.+)")
+                * on (persistentvolume) group_left(nfs_server)
+              kube_persistentvolume_info{nfs_server!=""}
+            ) < 0
+          for: 1h
+          labels:
+            severity: warning
+        - alert: KubeNFSExportInodesFillingUp
+          annotations:
+            description: NFS export on {{ $labels.nfs_server }} only has {{ $value | humanizePercentage }} free inodes.
+            summary: NFS export inodes are filling up.
+          expr: |-
+            min by (nfs_server) (
+              (
+                kubelet_volume_stats_inodes_free{job="kubelet", namespace=~".*", metrics_path="/metrics"}
+                  /
+                kubelet_volume_stats_inodes{job="kubelet", namespace=~".*", metrics_path="/metrics"}
+              )
+                * on (namespace, persistentvolumeclaim) group_left(persistentvolume)
+              label_replace(kube_persistentvolumeclaim_info, "persistentvolume", "$1", "volumename", "(.+)")
+                * on (persistentvolume) group_left(nfs_server)
+              kube_persistentvolume_info{nfs_server!=""}
+            ) < 0.03
+          for: 1m
+          labels:
+            severity: critical
+        - alert: KubeNFSExportInodesFillingUp
+          annotations:
+            description: NFS export on {{ $labels.nfs_server }} is predicted to run out of inodes within four days. Currently {{ $value | humanizePercentage }} free.
+            summary: NFS export inodes are filling up.
+          expr: |-
+            min by (nfs_server) (
+              (
+                kubelet_volume_stats_inodes_free{job="kubelet", namespace=~".*", metrics_path="/metrics"}
+                  /
+                kubelet_volume_stats_inodes{job="kubelet", namespace=~".*", metrics_path="/metrics"}
+              )
+                * on (namespace, persistentvolumeclaim) group_left(persistentvolume)
+              label_replace(kube_persistentvolumeclaim_info, "persistentvolume", "$1", "volumename", "(.+)")
+                * on (persistentvolume) group_left(nfs_server)
+              kube_persistentvolume_info{nfs_server!=""}
+            ) < 0.15
+            and
+            min by (nfs_server) (
+              predict_linear(kubelet_volume_stats_inodes_free{job="kubelet", namespace=~".*", metrics_path="/metrics"}[6h], 4 * 24 * 3600)
+                * on (namespace, persistentvolumeclaim) group_left(persistentvolume)
+              label_replace(kube_persistentvolumeclaim_info, "persistentvolume", "$1", "volumename", "(.+)")
+                * on (persistentvolume) group_left(nfs_server)
+              kube_persistentvolume_info{nfs_server!=""}
+            ) < 0
+          for: 1h
+          labels:
+            severity: warning

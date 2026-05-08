@@ -21,6 +21,14 @@ spec:
             runAsGroup: 1000
             fsGroup: 1000
             fsGroupChangePolicy: OnRootMismatch
+        initContainers:
+          init-db:
+            image:
+              repository: ghcr.io/home-operations/postgres-init
+              tag: 18.3.0@sha256:6fa1f331cddd2eb0b6afa7b8d3685c864127a81ab01c3d9400bc3ff5263a51cf
+            envFrom: &envFrom
+              - secretRef:
+                  name: n8n-secret
         containers:
           app:
             image:
@@ -28,31 +36,6 @@ spec:
               tag: 2.19.5@sha256:b1b0c592735e24acd3cc64db83f94ef4efd8e331e47c6883249cc51cc1bea16b
             env:
               DB_TYPE: postgresdb
-              DB_POSTGRESDB_HOST:
-                valueFrom:
-                  secretKeyRef:
-                    name: postgres-n8n-app
-                    key: host
-              DB_POSTGRESDB_PORT:
-                valueFrom:
-                  secretKeyRef:
-                    name: postgres-n8n-app
-                    key: port
-              DB_POSTGRESDB_DATABASE:
-                valueFrom:
-                  secretKeyRef:
-                    name: postgres-n8n-app
-                    key: dbname
-              DB_POSTGRESDB_USER:
-                valueFrom:
-                  secretKeyRef:
-                    name: postgres-n8n-app
-                    key: username
-              DB_POSTGRESDB_PASSWORD:
-                valueFrom:
-                  secretKeyRef:
-                    name: postgres-n8n-app
-                    key: password
               EXECUTIONS_DATA_PRUNE: "true"
               EXECUTIONS_DATA_MAX_AGE: 7
               EXECUTIONS_DATA_PRUNE_MAX_COUNT: 50000
@@ -63,12 +46,8 @@ spec:
               N8N_HOST: &host n8n.${SECRET_DOMAIN}
               N8N_LOG_LEVEL: info
               N8N_LOG_OUTPUT: console
-              N8N_ENCRYPTION_KEY:
-                valueFrom:
-                  secretKeyRef:
-                    name: n8n-secret
-                    key: N8N_ENCRYPTION_KEY
               WEBHOOK_URL: https://n8n.${SECRET_DOMAIN}/
+            envFrom: *envFrom
             resources:
               requests:
                 cpu: 5m

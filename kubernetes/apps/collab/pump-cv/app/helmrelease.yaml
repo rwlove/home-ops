@@ -56,13 +56,19 @@ spec:
             # entry point that pyproject.toml declares: pump-cv → pump_cv.main:run.
             # The package isn't installed site-wide (only the egg-info exists),
             # so PYTHONPATH=/app makes pump_cv importable.
-            command: ["pump-cv"]
+            #
+            # cd /cache so ultralytics downloads/loads the model from the
+            # persistent volume (avoids a 50 MB re-pull on every pod restart).
+            command: ["sh", "-c", "cd /cache && exec pump-cv"]
 
             env:
               PYTHONPATH: /app
               PUMP_API_BASE_URL: http://pump-api:8851
               # Read the rendered config that the init container produced.
               PUMP_CV_CONFIG: /config/default.yaml
+              # Ultralytics writes its settings.json here; default
+              # /root/.config/Ultralytics isn't writable in this image.
+              YOLO_CONFIG_DIR: /cache/.config/Ultralytics
 
             envFrom:
               - secretRef:
@@ -98,3 +104,16 @@ spec:
             pump-cv:
               - path: /config
                 readOnly: true
+
+      # Persistent cache for the yolov8m-pose.pt weights (~51 MB) + the
+      # ultralytics settings.json. Survives pod restarts so we don't
+      # re-download from github releases every time pump-cv reschedules.
+      cache:
+        type: persistentVolumeClaim
+        accessMode: ReadWriteOnce
+        size: 2Gi
+        storageClass: ceph-block
+        advancedMounts:
+          pump-cv:
+            pump-cv:
+              - path: /cache

@@ -1,0 +1,71 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: immich-mcp
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  values:
+    defaultPodOptions:
+      securityContext:
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+    controllers:
+      immich-mcp:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        pod:
+          annotations:
+            sidecar.istio.io/inject: "true"
+        containers:
+          app:
+            image:
+              repository: ghcr.io/joeru/claw2immich
+              tag: latest
+            env:
+              IMMICH_BASE_URL: http://immich-server.media.svc.cluster.local:2283
+              IMMICH_PROFILE: read_only
+              MCP_TRANSPORT: streamable-http
+              MCP_HOST: 0.0.0.0
+              MCP_PORT: "8000"
+              MCP_LOG_LEVEL: INFO
+            envFrom:
+              - secretRef:
+                  name: immich-mcp-secret
+            resources:
+              requests:
+                cpu: 10m
+                memory: 128Mi
+              limits:
+                memory: 256Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: {drop: ["ALL"]}
+    service:
+      app:
+        controller: immich-mcp
+        ports:
+          http:
+            port: 8000
+    route:
+      app:
+        hostnames:
+          - "immich-mcp.mcp.local"
+        parentRefs:
+          - name: mcp-gateway
+            namespace: mcp-system
+            sectionName: mcps
+        rules:
+          - matches:
+              - path:
+                  type: PathPrefix
+                  value: /mcp
+            backendRefs:
+              - identifier: app
+                port: 8000

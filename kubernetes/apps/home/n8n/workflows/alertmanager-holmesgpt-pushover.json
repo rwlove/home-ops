@@ -1,0 +1,139 @@
+{
+  "name": "AlertManager → HolmesGPT → Pushover",
+  "nodes": [
+    {
+      "name": "Alert Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "alert-investigate",
+        "responseMode": "onReceived",
+        "options": {}
+      }
+    },
+    {
+      "name": "Build HolmesGPT Prompt",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        460,
+        300
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "94da0b6d-c5d9-4cd3-bc11-44cccd31759b",
+              "name": "ask",
+              "value": "={{ 'IMPORTANT: Be concise. Investigate this alert in <=2 tool calls (kubectl_get_events on the namespace plus one other). Then answer in <500 chars total: 1 sentence root cause + 1 sentence remediation. Do not iterate further.\\n\\nAlert: ' + $json.body.alerts[0].labels.alertname + '\\nSeverity: ' + ($json.body.alerts[0].labels.severity || 'unknown') + '\\nNamespace: ' + ($json.body.alerts[0].labels.namespace || 'unknown') + '\\nPod: ' + ($json.body.alerts[0].labels.pod || 'n/a') + '\\nSummary: ' + ($json.body.alerts[0].annotations.summary || '(none)') + '\\nDescription: ' + ($json.body.alerts[0].annotations.description || '(none)') }}",
+              "type": "string"
+            },
+            {
+              "id": "452d6512-3103-4f4f-87d7-3d79c2439e03",
+              "name": "alertname",
+              "value": "={{ $json.body.alerts[0].labels.alertname }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      }
+    },
+    {
+      "name": "HolmesGPT Investigate",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        680,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://holmesgpt.observability.svc.cluster.local:8080/api/chat",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ ask: $json.ask }) }}",
+        "options": {
+          "timeout": 600000
+        }
+      }
+    },
+    {
+      "name": "Send Pushover",
+      "type": "n8n-nodes-base.pushover",
+      "typeVersion": 1,
+      "position": [
+        900,
+        300
+      ],
+      "credentials": {
+        "pushoverApi": {
+          "id": "Z7h0S0bfR7deJcvB",
+          "name": "Pushover - alertmanager"
+        }
+      },
+      "parameters": {
+        "userKey": "<REPLACE_FROM_OP_AT_IMPORT_TIME>",
+        "title": "={{ '🔍 ' + $('Build HolmesGPT Prompt').first().json.alertname }}",
+        "message": "={{ ($json.analysis || $json.response || JSON.stringify($json)).slice(0, 1000) }}",
+        "priority": 0,
+        "additionalFields": {
+          "sound": "intermission"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Alert Webhook": {
+      "main": [
+        [
+          {
+            "node": "Build HolmesGPT Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build HolmesGPT Prompt": {
+      "main": [
+        [
+          {
+            "node": "HolmesGPT Investigate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HolmesGPT Investigate": {
+      "main": [
+        [
+          {
+            "node": "Send Pushover",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

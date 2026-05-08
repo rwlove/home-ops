@@ -20,12 +20,10 @@ spec:
         annotations:
           reloader.stakater.com/auto: "true"
 
-        pod:
-          # The yolo backend uses cuda:0 — only worker8 has the
-          # nvidia.com/gpu resource via the gpu-operator. nodeSelector
-          # is belt-and-suspenders alongside the resource request.
-          nodeSelector:
-            nvidia.com/gpu.present: "true"
+        # Temporarily on CPU (P40 sm_61 incompatible with current PyTorch
+        # wheel). When the image is rebuilt with sm_61 support, re-add:
+        #   pod.nodeSelector.nvidia.com/gpu.present: "true"
+        # and the nvidia.com/gpu: 1 resource req+limit below.
 
         initContainers:
           # pump-cv config.py does not interpolate env vars in YAML, so
@@ -76,12 +74,12 @@ spec:
 
             resources:
               requests:
-                cpu: 100m
+                # Bumped from 100m for CPU-mode yolov8m inference; ~3-5 fps
+                # on a 640×480 substream uses 2-3 cores when active.
+                cpu: 2000m
                 memory: 1Gi
-                nvidia.com/gpu: 1
               limits:
                 memory: 2Gi
-                nvidia.com/gpu: 1
 
     persistence:
       config-template:

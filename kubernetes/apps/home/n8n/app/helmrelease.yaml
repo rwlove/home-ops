@@ -1,0 +1,115 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app n8n
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 30m
+  values:
+    controllers:
+      n8n:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        pod:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            fsGroupChangePolicy: OnRootMismatch
+        containers:
+          app:
+            image:
+              repository: ghcr.io/n8n-io/n8n
+              tag: 2.19.5@sha256:b1b0c592735e24acd3cc64db83f94ef4efd8e331e47c6883249cc51cc1bea16b
+            env:
+              DB_TYPE: postgresdb
+              DB_POSTGRESDB_HOST:
+                valueFrom:
+                  secretKeyRef:
+                    name: postgres-n8n-app
+                    key: host
+              DB_POSTGRESDB_PORT:
+                valueFrom:
+                  secretKeyRef:
+                    name: postgres-n8n-app
+                    key: port
+              DB_POSTGRESDB_DATABASE:
+                valueFrom:
+                  secretKeyRef:
+                    name: postgres-n8n-app
+                    key: dbname
+              DB_POSTGRESDB_USER:
+                valueFrom:
+                  secretKeyRef:
+                    name: postgres-n8n-app
+                    key: username
+              DB_POSTGRESDB_PASSWORD:
+                valueFrom:
+                  secretKeyRef:
+                    name: postgres-n8n-app
+                    key: password
+              EXECUTIONS_DATA_PRUNE: "true"
+              EXECUTIONS_DATA_MAX_AGE: 7
+              EXECUTIONS_DATA_PRUNE_MAX_COUNT: 50000
+              GENERIC_TIMEZONE: America/New_York
+              N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "false"
+              N8N_PROTOCOL: https
+              N8N_PORT: &port 8080
+              N8N_HOST: &host n8n.${SECRET_DOMAIN}
+              N8N_LOG_LEVEL: info
+              N8N_LOG_OUTPUT: console
+              N8N_ENCRYPTION_KEY:
+                valueFrom:
+                  secretKeyRef:
+                    name: n8n-secret
+                    key: N8N_ENCRYPTION_KEY
+              WEBHOOK_URL: https://n8n.${SECRET_DOMAIN}/
+            resources:
+              requests:
+                cpu: 5m
+                memory: 256Mi
+              limits:
+                memory: 2Gi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: false
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+    service:
+      app:
+        controller: n8n
+        ports:
+          http:
+            port: *port
+    route:
+      app:
+        annotations:
+          glance/name: "n8n"
+          glance/show: "true"
+          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/n8n.png"
+          glance/id: "Home Automation"
+        hostnames:
+          - *host
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: *port
+    persistence:
+      data:
+        existingClaim: n8n-data-pvc
+        advancedMounts:
+          n8n:
+            app:
+              - path: /home/node/.n8n

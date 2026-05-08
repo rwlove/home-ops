@@ -20,6 +20,31 @@ spec:
         annotations:
           reloader.stakater.com/auto: "true"
 
+        pod:
+          # The yolo backend uses cuda:0 — only worker8 has the
+          # nvidia.com/gpu resource via the gpu-operator. nodeSelector
+          # is belt-and-suspenders alongside the resource request.
+          nodeSelector:
+            nvidia.com/gpu.present: "true"
+
+        initContainers:
+          # pump-cv config.py does not interpolate env vars in YAML, so
+          # the configmap stores ${REOLINK_*} placeholders and we render
+          # them once at pod start into the shared emptyDir.
+          config-render:
+            image:
+              repository: ghcr.io/dmfrey/bash
+              tag: 5.2.26-alpine3.20
+            command:
+              - "/usr/local/bin/bash"
+              - -c
+              - |
+                envsubst < /config-template/default.yaml > /config/default.yaml
+                exit 0
+            envFrom:
+              - secretRef:
+                  name: pump-cv-secret
+
         containers:
           pump-cv:
             image:
@@ -30,14 +55,14 @@ spec:
             # exist in PATH (only python3 is installed). Use the console-script
             # entry point that pyproject.toml declares: pump-cv → pump_cv.main:run.
             # The package isn't installed site-wide (only the egg-info exists),
-            # so PYTHONPATH=/app makes pump_cv importable. (app-template chart
-            # doesn't expose workingDir, so we use PYTHONPATH instead.)
+            # so PYTHONPATH=/app makes pump_cv importable.
             command: ["pump-cv"]
 
             env:
               PYTHONPATH: /app
               PUMP_API_BASE_URL: http://pump-api:8851
-              PUMP_CV_CONFIG: /app/configs/default.yaml
+              # Read the rendered config that the init container produced.
+              PUMP_CV_CONFIG: /config/default.yaml
 
             envFrom:
               - secretRef:
@@ -45,16 +70,31 @@ spec:
 
             resources:
               requests:
-                cpu: 25m
-                memory: 256Mi
+                cpu: 100m
+                memory: 1Gi
+                nvidia.com/gpu: 1
               limits:
-                memory: 512Mi
+                memory: 2Gi
+                nvidia.com/gpu: 1
 
     persistence:
-      config-file:
+      config-template:
         type: configMap
         name: pump-cv-configmap
-        globalMounts:
-          - path: /app/configs/default.yaml
-            subPath: default.yaml
-            readOnly: true
+        advancedMounts:
+          pump-cv:
+            config-render:
+              - path: /config-template/default.yaml
+                subPath: default.yaml
+                readOnly: true
+
+      config:
+        type: emptyDir
+        medium: Memory
+        advancedMounts:
+          pump-cv:
+            config-render:
+              - path: /config
+            pump-cv:
+              - path: /config
+                readOnly: true

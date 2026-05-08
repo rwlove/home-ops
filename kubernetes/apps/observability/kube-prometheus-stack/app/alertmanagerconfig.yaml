@@ -22,6 +22,16 @@ spec:
           - name: alertname
             value: InfoInhibitor
             matchType: =
+      # Enrich critical alerts with HolmesGPT investigation via n8n,
+      # then `continue` to fall through to the existing pushover delivery
+      # (immediate notification preserved; investigation arrives 1–3 min
+      # later as a second pushover).
+      - receiver: n8n-investigate
+        continue: true
+        matchers:
+          - name: severity
+            value: critical
+            matchType: =
       - receiver: pushover
         matchers:
           - name: severity
@@ -78,3 +88,8 @@ spec:
           userKey:
             name: alertmanager-secret
             key: pushover_api_userkey
+    - name: n8n-investigate
+      webhookConfigs:
+        - url: http://n8n.home.svc.cluster.local:8080/webhook/alert-investigate
+          sendResolved: false
+          maxAlerts: 1

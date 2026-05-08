@@ -32,13 +32,16 @@ spec:
           pump:
             image:
               repository: ghcr.io/rwlove/pump
-              tag: v0.0.85@sha256:2a405076e447d6725fb7ff3ce2fd77346640a3f8a0ac9fe87a3f56dbf6645914
+              tag: v0.0.87@sha256:6931cb102e4842f7d7535ff78bedb3ef1d61376a977b9d601a8790285491927d
 
             env:
               # Activates the /api/cv/* proxy in pump (see internal/web/exercise.go).
               # The wall page's live camera previews and the admin panel both
               # depend on this being reachable.
               PUMP_CV_URL: http://pump-cv:8080
+              # Static-serve the per-set clip mp4s pump-cv writes here. Shared
+              # RWX volume (pump-clips-pvc, declared in pump-cv/app/clips-pvc.yaml).
+              PUMP_CLIPS_DIR: /clips
 
             envFrom:
               - secretRef:
@@ -83,3 +86,14 @@ spec:
               - kind: Service
                 name: pump-oauth2-proxy
                 port: 4180
+
+    persistence:
+      # Per-set clip mp4s written by pump-cv. Same RWX volume on both
+      # apps; declared in collab/pump-cv/app/clips-pvc.yaml.
+      clips:
+        type: persistentVolumeClaim
+        existingClaim: pump-clips-pvc
+        advancedMounts:
+          pump:
+            pump:
+              - path: /clips

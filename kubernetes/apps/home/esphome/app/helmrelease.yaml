@@ -19,7 +19,7 @@ spec:
         runAsUser: 2000
 
     controllers:
-      main:
+      esphome:
         pod:
           affinity:
             nodeAffinity:
@@ -43,7 +43,7 @@ spec:
         type: statefulset
 
         containers:
-          main:
+          app:
             image:
               repository: ghcr.io/home-operations/esphome
               tag: 2026.4.5@sha256:6724ec0343383bda3baadf76856517ea93c5fd7406fba92af056939741f7de06
@@ -76,18 +76,18 @@ spec:
               readOnlyRootFilesystem: true
               capabilities: {drop: ["ALL"], add: ["NET_RAW"]}
     service:
-      main:
+      app:
         type: LoadBalancer
         annotations:
           lbipam.cilium.io/ips: ${SVC_ESPHOME_ADDR}
-        controller: main
+        controller: esphome
         externalTrafficPolicy: Cluster
         ports:
           http:
             port: *httpPort
 
     route:
-      main:
+      app:
         annotations:
           glance/name: "ESPHome"
           glance/show: "true"
@@ -102,7 +102,7 @@ spec:
             sectionName: https
         rules:
           - backendRefs:
-              - identifier: main
+              - identifier: app
                 port: *httpPort
     persistence:
       buildcache:
@@ -110,8 +110,8 @@ spec:
         size: 50Gi
         suffix: buildcache
         advancedMounts:
-          main:
-            main:
+          esphome:
+            app:
               - path: /cache
       config:
         existingClaim: esphome-config
@@ -120,7 +120,7 @@ spec:
       tmpfs:
         type: emptyDir
         advancedMounts:
-          main:
-            main:
+          esphome:
+            app:
               - path: /tmp
                 subPath: esphome-tmp

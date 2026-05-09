@@ -1,0 +1,114 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app medialyze
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+
+  interval: 30m
+  values:
+    controllers:
+      medialyze:
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        pod:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            fsGroupChangePolicy: OnRootMismatch
+
+        containers:
+          app:
+            image:
+              repository: ghcr.io/frederikemmer/medialyze
+              tag: 0.1.1@sha256:8ef964a04b676108cc7300646ed0f4f8b62af604f96709f3041675bbff9df4ea
+
+            env:
+              TZ: "America/New_York"
+
+            probes:
+              liveness: &probes
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /
+                    port: &httpPort 8080
+                  initialDelaySeconds: 30
+                  periodSeconds: 30
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              readiness: *probes
+              startup:
+                enabled: false
+
+            resources:
+              requests:
+                cpu: 50m
+                memory: 256Mi
+              limits:
+                memory: 2Gi
+
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+
+    service:
+      app:
+        controller: medialyze
+        ports:
+          http:
+            port: *httpPort
+
+    route:
+      app:
+        annotations:
+          glance/name: "MediaLyze"
+          glance/show: "true"
+          glance/id: "Media"
+
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: *httpPort
+
+    persistence:
+      config:
+        type: persistentVolumeClaim
+        existingClaim: medialyze-config-pvc
+        globalMounts:
+          - path: /config
+      movies:
+        type: persistentVolumeClaim
+        existingClaim: medialyze-movies-pvc
+        globalMounts:
+          - path: /media/movies
+            readOnly: true
+      television:
+        type: persistentVolumeClaim
+        existingClaim: medialyze-television-pvc
+        globalMounts:
+          - path: /media/television
+            readOnly: true
+      tmp:
+        type: emptyDir
+        globalMounts:
+          - path: /tmp

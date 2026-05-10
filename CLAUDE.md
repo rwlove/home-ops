@@ -1,3 +1,4 @@
+@.agents/instructions/configmap.resources.instructions.md
 @.agents/instructions/flux.sorting.instructions.md
 @.agents/instructions/helmfile.sorting.instructions.md
 @.agents/instructions/helmrelease.security.md

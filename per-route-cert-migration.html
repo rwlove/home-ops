@@ -149,20 +149,20 @@
                     <main>
                         <h1 id="per-route-cert-migration-runbook"><a class="header" href="#per-route-cert-migration-runbook">Per-Route Cert Migration Runbook</a></h1>
 <p>This runbook covers migrating from one shared wildcard ACME certificate
-(<code>thesteamedcrab.com</code> covering <code>*.thesteamedcrab.com</code>) to per-listener
+(<code>${SECRET_DOMAIN}</code> covering <code>*.${SECRET_DOMAIN}</code>) to per-listener
 fine-grained short-term certificates, using cert-manager's Gateway API
 shim to auto-provision a Certificate per HTTPRoute hostname.</p>
 <p><strong>Why</strong>: smaller blast radius per renewal failure, per-host visibility,
 no reflector dependency for new namespaces, faster rotation.</p>
 <p><strong>Why this needs to be paced</strong>: Let's Encrypt limits issuance to 50
 certificates per Registered Domain per rolling 7-day window. The
-cluster has ~70 HTTPRoutes under <code>thesteamedcrab.com</code> — too many to
+cluster has ~70 HTTPRoutes under <code>${SECRET_DOMAIN}</code> — too many to
 flag-day onto ACME without breaching the limit and locking out <em>all</em>
 issuance for ~7 days.</p>
 <h2 id="state-at-the-start"><a class="header" href="#state-at-the-start">State at the start</a></h2>
 <div class="table-wrapper"><table><thead><tr><th>Aspect</th><th>Reality</th></tr></thead><tbody>
-<tr><td>Cert manifest</td><td>One <code>Certificate</code> (<code>thesteamedcrab.com</code>) producing <code>thesteamedcrab-com-tls</code></td></tr>
-<tr><td>Cert SANs</td><td>apex, <code>*.thesteamedcrab.com</code>, <code>*.app.…</code>, <code>*.mcp.…</code></td></tr>
+<tr><td>Cert manifest</td><td>One <code>Certificate</code> (<code>${SECRET_DOMAIN}</code>) producing <code>${SECRET_DOMAIN/./-}-tls</code></td></tr>
+<tr><td>Cert SANs</td><td>apex, <code>*.${SECRET_DOMAIN}</code>, <code>*.app.…</code>, <code>*.mcp.…</code></td></tr>
 <tr><td>Reflection</td><td>Secret reflected to <code>network</code>, <code>istio-system</code>, <code>mcp-system</code></td></tr>
 <tr><td>Issuer</td><td><code>letsencrypt-production</code> (DNS01 via Cloudflare)</td></tr>
 <tr><td>Gateways</td><td>4 — <code>external</code> (network), <code>internal</code> (network), <code>istio</code> (istio-system), <code>mcp-gateway</code> (mcp-system)</td></tr>
@@ -220,7 +220,7 @@ inert</strong> — no Certificate is ever created. Verify before Phase 0:</p>
 </code></pre>
 <p>If absent, set it in the chart values and roll out cert-manager <em>first</em>.</p>
 <h3 id="2-the-reflector-pattern-fights-the-gateway-shim-across-namespaces"><a class="header" href="#2-the-reflector-pattern-fights-the-gateway-shim-across-namespaces">2. The reflector pattern fights the gateway-shim across namespaces</a></h3>
-<p>This cluster mirrors <code>network/thesteamedcrab-com-tls</code> to <code>istio-system</code>
+<p>This cluster mirrors <code>network/${SECRET_DOMAIN/./-}-tls</code> to <code>istio-system</code>
 and <code>mcp-system</code> via reflector. The gateway-shim is <strong>per-namespace</strong>:
 it creates a Certificate in the same namespace as the Gateway. So
 annotating the istio Gateway whose listener references the
@@ -257,8 +257,8 @@ referenced Secret doesn't exist (or isn't owned by an in-namespace
 Certificate), it creates one. When an in-namespace Certificate already
 owns the Secret, the shim is a no-op.</p>
 <p>For this cluster, that means it's <strong>safe</strong> to annotate Gateways in the
-<code>network</code> namespace (which holds the manual <code>thesteamedcrab.com</code>
-Certificate that owns <code>thesteamedcrab-com-tls</code>), and <strong>unsafe</strong> to
+<code>network</code> namespace (which holds the manual <code>${SECRET_DOMAIN}</code>
+Certificate that owns <code>${SECRET_DOMAIN/./-}-tls</code>), and <strong>unsafe</strong> to
 annotate Gateways in <code>istio-system</code> or <code>mcp-system</code> while they still
 reference the reflector-mirrored Secret.</p>
 <h3 id="01-pre-flight-test-one-time"><a class="header" href="#01-pre-flight-test-one-time">0.1 Pre-flight test (one-time)</a></h3>
@@ -287,7 +287,7 @@ spec:
     - name: https
       protocol: HTTPS
       port: 443
-      hostname: bar.shim-test.thesteamedcrab.com
+      hostname: bar.shim-test.${SECRET_DOMAIN}
       allowedRoutes: { namespaces: { from: Same } }
       tls:
         certificateRefs: [{ kind: Secret, name: bar-shim-tls }]
@@ -361,7 +361,7 @@ metadata:
   namespace: cert-manager
 spec:
   isCA: true
-  commonName: thesteamedcrab.com Internal CA
+  commonName: ${SECRET_DOMAIN} Internal CA
   secretName: cluster-internal-ca-tls
   duration: 87600h  # 10y root
   renewBefore: 720h
@@ -392,7 +392,7 @@ it into:</p>
   -o jsonpath='{.data.tls\.crt}' | base64 -d &gt; internal-ca.crt
 </code></pre>
 <p>Don't proceed past 1.2 until you've imported and verified the root on
-at least your primary device. (Open <code>https://glance.thesteamedcrab.com</code>
+at least your primary device. (Open <code>https://glance.${SECRET_DOMAIN}</code>
 post-migration and confirm no cert warning.)</p>
 <h3 id="13-migrate-the-internal-gateway"><a class="header" href="#13-migrate-the-internal-gateway">1.3 Migrate the internal Gateway</a></h3>
 <p>Add <code>cert-manager.io/cluster-issuer: cluster-internal-ca</code> annotation
@@ -449,8 +449,8 @@ new listener picks them up automatically. cert-manager will create a
 kubectl get certificate -n network -w
 
 # Confirm the SAN is just the one hostname and duration ≈ 7d
-echo | openssl s_client -connect &lt;app&gt;.thesteamedcrab.com:443 \
-  -servername &lt;app&gt;.thesteamedcrab.com 2&gt;/dev/null \
+echo | openssl s_client -connect &lt;app&gt;.${SECRET_DOMAIN}:443 \
+  -servername &lt;app&gt;.${SECRET_DOMAIN} 2&gt;/dev/null \
   | openssl x509 -noout -subject -ext subjectAltName -dates
 </code></pre>
 <p>Soak 24h. If anything is wrong, <strong>revert the HTTPRoute sectionName</strong>.
@@ -571,7 +571,7 @@ cost of one ACME order per cert.)</p>
 </li>
 </ol>
 <h3 id="41-verify-no-consumers-reference-the-wildcard-secret"><a class="header" href="#41-verify-no-consumers-reference-the-wildcard-secret">4.1 Verify no consumers reference the wildcard Secret</a></h3>
-<pre><code class="language-sh">grep -rn 'thesteamedcrab-com-tls\|${SECRET_DOMAIN/./-}-tls' kubernetes/
+<pre><code class="language-sh">grep -rn '${SECRET_DOMAIN/./-}-tls\|${SECRET_DOMAIN/./-}-tls' kubernetes/
 </code></pre>
 <p>Anything still referencing the wildcard Secret needs to migrate first.
 Particular attention: Gateways in <code>istio-system</code> and <code>mcp-system</code> may
@@ -606,7 +606,7 @@ kubectl get certificate -A -o json | \
   jq -r '.items[] | "\(.metadata.namespace)/\(.metadata.name) duration=\(.spec.duration // "unset")"'
 
 # Smoke test from outside (public) and from a CA-trusting device (internal)
-for host in glance.thesteamedcrab.com photos.thesteamedcrab.com ... ; do
+for host in glance.${SECRET_DOMAIN} photos.${SECRET_DOMAIN} ... ; do
   echo "$host:"
   echo | openssl s_client -connect "$host:443" -servername "$host" 2&gt;/dev/null \
     | openssl x509 -noout -subject -dates
@@ -634,7 +634,7 @@ Certificate is deleted, re-creating it kicks off a new ACME order
 exist transiently during issuance/renewal)</li>
 <li><code>kubectl describe clusterissuer letsencrypt-production</code> — surfaces
 ACME backoff messages if rate-limited</li>
-<li>ACME audit log at <a href="https://crt.sh/?Identity=thesteamedcrab.com">https://crt.sh/?Identity=thesteamedcrab.com</a> —
+<li>ACME audit log at <a href="https://crt.sh/?Identity=$%7BSECRET_DOMAIN%7D">https://crt.sh/?Identity=${SECRET_DOMAIN}</a> —
 external counter you don't control, useful sanity check</li>
 </ul>
 <h2 id="when-to-stop-and-ask"><a class="header" href="#when-to-stop-and-ask">When to stop and ask</a></h2>
@@ -652,7 +652,7 @@ external counter you don't control, useful sanity check</li>
 <li>All ~70 routes go through ACME</li>
 <li>Wave size still 5/day; total elapsed ~14 days</li>
 <li>Internal hostnames will appear in public CT logs
-(<a href="https://crt.sh/?Identity=thesteamedcrab.com">https://crt.sh/?Identity=thesteamedcrab.com</a>) — anyone can
+(<a href="https://crt.sh/?Identity=$%7BSECRET_DOMAIN%7D">https://crt.sh/?Identity=${SECRET_DOMAIN}</a>) — anyone can
 enumerate your service catalog from the cert transparency feed.
 Mitigate with hostnames that don't betray service identity if this
 matters.</li>

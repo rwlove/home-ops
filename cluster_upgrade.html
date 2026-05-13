@@ -210,7 +210,7 @@ DaemonSet pods.</li>
 </ol>
 <p>Never drain two masters concurrently. After each master, verify etcd
 quorum:</p>
-<pre><code class="language-sh">kubectl exec -n kube-system etcd-master1.thesteamedcrab.com -- etcdctl \
+<pre><code class="language-sh">kubectl exec -n kube-system etcd-master1.${SECRET_DOMAIN} -- etcdctl \
   --endpoints=https://127.0.0.1:2379 \
   --cacert=/etc/kubernetes/pki/etcd/ca.crt \
   --cert=/etc/kubernetes/pki/etcd/server.crt \
@@ -293,10 +293,10 @@ procedure</strong> (don't <code>rm crio.conf</code>; use <code>dnf install</code
 <li>
 <p><strong>CNPG primary failover</strong>:</p>
 <pre><code class="language-sh">for c in $(kubectl get pod -n databases -l 'cnpg.io/instanceRole=primary' \
-    --field-selector spec.nodeName=&lt;node&gt;.thesteamedcrab.com \
+    --field-selector spec.nodeName=&lt;node&gt;.${SECRET_DOMAIN} \
     -o jsonpath='{range .items[*]}{.metadata.labels.cnpg\.io/cluster}{"\n"}{end}'); do
   replica=$(kubectl get pod -n databases -l "cnpg.io/cluster=$c,cnpg.io/instanceRole=replica" \
-    -o jsonpath='{range .items[?(@.spec.nodeName!="&lt;node&gt;.thesteamedcrab.com")]}{.metadata.name}{"\n"}{end}' | head -1)
+    -o jsonpath='{range .items[?(@.spec.nodeName!="&lt;node&gt;.${SECRET_DOMAIN}")]}{.metadata.name}{"\n"}{end}' | head -1)
   kubectl cnpg promote -n databases "$c" "$replica"
 done
 </code></pre>
@@ -316,12 +316,12 @@ to actually take the pods down before draining.</p>
 <ol>
 <li>Pre-flight checks above.</li>
 <li><strong>Drain</strong>:
-<pre><code class="language-sh">kubectl drain &lt;worker&gt;.thesteamedcrab.com \
+<pre><code class="language-sh">kubectl drain &lt;worker&gt;.${SECRET_DOMAIN} \
   --ignore-daemonsets --delete-emptydir-data
 </code></pre>
 </li>
 <li><strong>Package upgrade and kubelet config refresh</strong>:
-<pre><code class="language-sh">ssh root@&lt;worker&gt;.thesteamedcrab.com '
+<pre><code class="language-sh">ssh root@&lt;worker&gt;.${SECRET_DOMAIN} '
   # Drop the legacy crio.conf / .rpmnew. Order matters: only do
   # this RIGHT BEFORE the upgrade succeeds — leaving cri-o
   # without a config will trigger the "unsafe procfs detected"
@@ -340,16 +340,16 @@ to actually take the pods down before draining.</p>
 </code></pre>
 </li>
 <li><strong>Smoke-test before uncordon</strong>:
-<pre><code class="language-sh">ssh root@&lt;worker&gt;.thesteamedcrab.com '
+<pre><code class="language-sh">ssh root@&lt;worker&gt;.${SECRET_DOMAIN} '
   systemctl is-active crio kubelet
   crictl info | grep -E "CgroupManagerName|DefaultRuntime"
   ls /etc/crio/crio.conf.d/   # should exist; legacy crio.conf should be gone
 '
-kubectl get node &lt;worker&gt;.thesteamedcrab.com -o wide   # version + cri-o version match expected
+kubectl get node &lt;worker&gt;.${SECRET_DOMAIN} -o wide   # version + cri-o version match expected
 </code></pre>
 </li>
 <li><strong>Uncordon</strong>:
-<pre><code class="language-sh">kubectl uncordon &lt;worker&gt;.thesteamedcrab.com
+<pre><code class="language-sh">kubectl uncordon &lt;worker&gt;.${SECRET_DOMAIN}
 </code></pre>
 Rook auto-clears any host noout flag on its own a few seconds
 after uncordon — don't manually unset it.</li>
@@ -364,7 +364,7 @@ replacement.</p>
 <li>Pre-flight checks (same as above).</li>
 <li><strong>Drain</strong> (same as above).</li>
 <li><strong>Fresh-install via dnf</strong> (overwrites the un-tracked binaries):
-<pre><code class="language-sh">ssh root@&lt;worker&gt;.thesteamedcrab.com '
+<pre><code class="language-sh">ssh root@&lt;worker&gt;.${SECRET_DOMAIN} '
   # Stop services so we can replace running binaries cleanly
   systemctl stop kubelet
   systemctl stop crio
@@ -403,7 +403,7 @@ replacement.</p>
 </ol>
 <h3 id="worker8-nvidia-extra-steps"><a class="header" href="#worker8-nvidia-extra-steps">Worker8 (NVIDIA) extra steps</a></h3>
 <p>After the standard procedure:</p>
-<pre><code class="language-sh">ssh root@worker8.thesteamedcrab.com 'cat &gt; /etc/crio/crio.conf.d/20-nvidia.conf &lt;&lt;EOF
+<pre><code class="language-sh">ssh root@worker8.${SECRET_DOMAIN} 'cat &gt; /etc/crio/crio.conf.d/20-nvidia.conf &lt;&lt;EOF
 [crio.runtime.runtimes.nvidia]
 runtime_path = "/usr/bin/nvidia-container-runtime"
 runtime_root = "/run/nvidia"
@@ -413,7 +413,7 @@ systemctl restart crio'
 </code></pre>
 <p>Smoke-test before resuming ollama / comfyui:</p>
 <pre><code class="language-sh">kubectl run nvidia-smoke --rm -i --restart=Never \
-  --overrides='{"spec":{"runtimeClassName":"nvidia","nodeName":"worker8.thesteamedcrab.com"}}' \
+  --overrides='{"spec":{"runtimeClassName":"nvidia","nodeName":"worker8.${SECRET_DOMAIN}"}}' \
   --image=nvidia/cuda:12.0-base-ubuntu22.04 -- nvidia-smi
 </code></pre>
 <h3 id="failure-modes-seen-during-the-1342--1347-2026-05-02-and-1347--1354-2026-05-03-upgrades"><a class="header" href="#failure-modes-seen-during-the-1342--1347-2026-05-02-and-1347--1354-2026-05-03-upgrades">Failure modes seen during the 1.34.2 → 1.34.7 (2026-05-02) and 1.34.7 → 1.35.4 (2026-05-03) upgrades</a></h3>
@@ -473,7 +473,7 @@ enabled=1
 EOF'
 
 # etcd snapshot (off-cluster)
-kubectl exec -n kube-system etcd-master1.thesteamedcrab.com -- etcdctl ... snapshot save /var/lib/etcd/snapshot-prephase3-$(date +%Y%m%d).db
+kubectl exec -n kube-system etcd-master1.${SECRET_DOMAIN} -- etcdctl ... snapshot save /var/lib/etcd/snapshot-prephase3-$(date +%Y%m%d).db
 scp root@master1:/var/lib/etcd/snapshot-prephase3-*.db ~/cluster-backups/etcd-prephase3/
 
 # Suspend descheduler (commit `new: disable-descheduler` + scale to 0)
@@ -485,9 +485,9 @@ ssh root@master1 'dnf install -y kubeadm-1.35.4 &amp;&amp; kubeadm upgrade plan 
 <pre><code class="language-sh"># Pre-flight: CNPG primaries failover, set Longhorn evictionRequested=true
 # (see standard worker procedure)
 
-kubectl drain master1.thesteamedcrab.com --ignore-daemonsets --delete-emptydir-data
+kubectl drain master1.${SECRET_DOMAIN} --ignore-daemonsets --delete-emptydir-data
 
-ssh root@master1.thesteamedcrab.com '
+ssh root@master1.${SECRET_DOMAIN} '
   set -eu
   kubeadm upgrade apply v1.35.4 --yes
   dnf install -y kubelet-1.35.4 kubectl-1.35.4

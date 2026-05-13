@@ -151,8 +151,8 @@
 <p>End-to-end procedure for converting a bare-metal worker into a third
 (or replacement) control-plane node, while removing an existing
 control plane (typically a VM master that needs to retire).</p>
-<p>The worked example below promotes <code>worker2.thesteamedcrab.com</code> and
-retires the VM <code>master2.thesteamedcrab.com</code>. Substitute names freely —
+<p>The worked example below promotes <code>worker2.${SECRET_DOMAIN}</code> and
+retires the VM <code>master2.${SECRET_DOMAIN}</code>. Substitute names freely —
 nothing in the procedure is specific to those hosts.</p>
 <h2 id="why-this-exists"><a class="header" href="#why-this-exists">Why this exists</a></h2>
 <p>The control plane in this cluster runs three etcd voters. When two of
@@ -181,10 +181,10 @@ control-plane endpoints. Old members must be removed from it.</li>
 <p>"Convert worker2 to master2" can mean two things. <strong>Default to (a)</strong>
 unless you have a concrete reason to rename:</p>
 <ul>
-<li><strong>(a) Promote in place.</strong> Keep the hostname (<code>worker2.thesteamedcrab.com</code>).
+<li><strong>(a) Promote in place.</strong> Keep the hostname (<code>worker2.${SECRET_DOMAIN}</code>).
 The <code>master</code>/<code>worker</code> prefix is purely cosmetic; the
 <code>node-role.kubernetes.io/control-plane</code> label is what matters.</li>
-<li><strong>(b) Rename to <code>masterN.thesteamedcrab.com</code>.</strong> Requires
+<li><strong>(b) Rename to <code>masterN.${SECRET_DOMAIN}</code>.</strong> Requires
 regenerating client certs, a new etcd member name, a new kube-vip
 pod identity, and DNS coordination. High risk, no functional gain.</li>
 </ul>
@@ -239,7 +239,7 @@ firewalld silently drops kubelet traffic post-reboot).</li>
 <h2 id="etcd-snapshot"><a class="header" href="#etcd-snapshot">Etcd snapshot</a></h2>
 <p>Take from a healthy member (typically the leader; identify with
 <code>etcdctl endpoint status --cluster</code>):</p>
-<pre><code class="language-sh">kubectl -n kube-system exec etcd-master1.thesteamedcrab.com -- \
+<pre><code class="language-sh">kubectl -n kube-system exec etcd-master1.${SECRET_DOMAIN} -- \
   etcdctl --endpoints=https://127.0.0.1:2379 \
   --cacert=/etc/kubernetes/pki/etcd/ca.crt \
   --cert=/etc/kubernetes/pki/etcd/peer.crt \
@@ -272,14 +272,14 @@ before drain.</li>
 node automatically, but cluster runs at 2/3 mons in the gap.</li>
 </ul>
 <p>Capture the worker's labels:</p>
-<pre><code class="language-sh">kubectl get node worker2.thesteamedcrab.com -o yaml &gt; /tmp/worker2-pre-drain.yaml
+<pre><code class="language-sh">kubectl get node worker2.${SECRET_DOMAIN} -o yaml &gt; /tmp/worker2-pre-drain.yaml
 </code></pre>
 <h2 id="phase-1--retire-the-outgoing-control-plane"><a class="header" href="#phase-1--retire-the-outgoing-control-plane">Phase 1 — Retire the outgoing control plane</a></h2>
 <p>Skip this phase if you're adding a 4th control plane and removing the
 old one later.</p>
 <ol>
 <li>Drain the outgoing master:
-<pre><code class="language-sh">kubectl drain master2.thesteamedcrab.com --ignore-daemonsets --delete-emptydir-data
+<pre><code class="language-sh">kubectl drain master2.${SECRET_DOMAIN} --ignore-daemonsets --delete-emptydir-data
 </code></pre>
 </li>
 <li>Reset kubeadm state on the host:
@@ -294,7 +294,7 @@ etcdctl ... member remove &lt;member-id&gt;
 </li>
 <li>Update kubeadm bookkeeping:
 <pre><code class="language-sh">kubectl -n kube-system edit cm kubeadm-config   # drop master2 endpoint
-kubectl delete node master2.thesteamedcrab.com
+kubectl delete node master2.${SECRET_DOMAIN}
 </code></pre>
 </li>
 <li>Power down the VM. Keep the VM image around for 24h as rollback.</li>
@@ -308,7 +308,7 @@ re-reconciling mid-drain:
 <pre><code class="language-sh">flux suspend kustomization &lt;name&gt;
 </code></pre>
 </li>
-<li>Cordon: <code>kubectl cordon worker2.thesteamedcrab.com</code></li>
+<li>Cordon: <code>kubectl cordon worker2.${SECRET_DOMAIN}</code></li>
 <li>Out the OSD and wait for Ceph to rebalance:
 <pre><code class="language-sh">kubectl -n rook-ceph patch deploy rook-ceph-osd-N --replicas=0 \
   --type=merge -p '{"spec":{"replicas":0}}'
@@ -322,12 +322,12 @@ ceph -w   # wait for HEALTH_OK and PGs active+clean
 </code></pre>
 Or accept the brief failover window during drain.</li>
 <li>Drain:
-<pre><code class="language-sh">kubectl drain worker2.thesteamedcrab.com \
+<pre><code class="language-sh">kubectl drain worker2.${SECRET_DOMAIN} \
   --ignore-daemonsets --delete-emptydir-data --force
 </code></pre>
 </li>
 <li>Remove from the cluster:
-<pre><code class="language-sh">kubectl delete node worker2.thesteamedcrab.com
+<pre><code class="language-sh">kubectl delete node worker2.${SECRET_DOMAIN}
 </code></pre>
 </li>
 <li>On the host, reset kubeadm state but <strong>preserve Longhorn data</strong>:
@@ -372,7 +372,7 @@ check anyway):
 <h2 id="phase-4--make-it-schedulable--restore-roles"><a class="header" href="#phase-4--make-it-schedulable--restore-roles">Phase 4 — Make it schedulable + restore roles</a></h2>
 <ol>
 <li>Remove the control-plane NoSchedule taint:
-<pre><code class="language-sh">kubectl taint nodes worker2.thesteamedcrab.com \
+<pre><code class="language-sh">kubectl taint nodes worker2.${SECRET_DOMAIN} \
   node-role.kubernetes.io/control-plane:NoSchedule-
 </code></pre>
 </li>
@@ -380,7 +380,7 @@ check anyway):
 <a href="#audit-what-the-worker-is-carrying">Audit</a>. NFD will re-publish
 hardware feature labels on its own; you only need to re-apply the
 manual ones:
-<pre><code class="language-sh">kubectl label nodes worker2.thesteamedcrab.com \
+<pre><code class="language-sh">kubectl label nodes worker2.${SECRET_DOMAIN} \
   node.longhorn.io/create-default-disk=true \
   node.network/vlan-iot=true \
   node.network/vlan-security=true

@@ -1,0 +1,129 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app immich-pet-tagger
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 30m
+  dependsOn:
+    - name: immich
+      namespace: media
+  values:
+    controllers:
+      immich-pet-tagger:
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        type: deployment
+
+        pod:
+          nodeSelector:
+            nvidia.com/gpu.present: "true"
+          runtimeClassName: nvidia
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            fsGroupChangePolicy: OnRootMismatch
+
+        containers:
+          app:
+            image:
+              repository: ghcr.io/rwlove/immich-pet-tagger
+              tag: v1.0.0@sha256:1413acb0162b2496fba25d084fa15959751b881c6626767a54c5809eefcd5422
+            env:
+              IMMICH_URL: http://immich-server.media.svc.cluster.local:2283
+              POLL_INTERVAL: "300"
+              THRESHOLD: "0.8"
+              GPU_WORKERS: "2"
+              DATA_DIR: /data
+            envFrom:
+              - secretRef:
+                  name: *app
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /health
+                    port: 8000
+                  periodSeconds: 30
+                  failureThreshold: 3
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /health
+                    port: 8000
+                  periodSeconds: 15
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /health
+                    port: 8000
+                  periodSeconds: 10
+                  failureThreshold: 60
+            resources:
+              requests:
+                cpu: 200m
+                memory: 2Gi
+                nvidia.com/gpu: 1
+              limits:
+                memory: 4Gi
+                nvidia.com/gpu: 1
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+
+    service:
+      app:
+        controller: immich-pet-tagger
+        ports:
+          http:
+            port: &httpPort 8000
+
+    route:
+      app:
+        annotations:
+          glance/name: "Immich Pet Tagger"
+          glance/show: "true"
+          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/immich.png"
+          glance/id: "Media"
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: *httpPort
+
+    persistence:
+      data:
+        existingClaim: immich-pet-tagger-data-pvc
+        globalMounts:
+          - path: /data
+      home:
+        type: emptyDir
+        globalMounts:
+          - path: /home/appuser
+      tmp:
+        type: emptyDir
+        globalMounts:
+          - path: /tmp

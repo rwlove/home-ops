@@ -2,9 +2,11 @@
 
 # $1 = path-to-file
 
-export SECRET_NFS_HOST_0="brain.thesteamedcrab.com"
-export SECRET_NFS_HOST_2="beast.thesteamedcrab.com"
-export SECRET_NFS_HOST_SECURITY="security-storage.thesteamedcrab.com"
+: "${SECRET_DOMAIN:?SECRET_DOMAIN must be set}"
+
+export SECRET_NFS_HOST_0="brain.${SECRET_DOMAIN}"
+export SECRET_NFS_HOST_2="beast.${SECRET_DOMAIN}"
+export SECRET_NFS_HOST_SECURITY="security-storage.${SECRET_DOMAIN}"
 
 envsubst < ./$1 > ./$1-hardcoded
 

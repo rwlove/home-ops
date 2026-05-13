@@ -4,8 +4,8 @@ End-to-end procedure for converting a bare-metal worker into a third
 (or replacement) control-plane node, while removing an existing
 control plane (typically a VM master that needs to retire).
 
-The worked example below promotes `worker2.thesteamedcrab.com` and
-retires the VM `master2.thesteamedcrab.com`. Substitute names freely —
+The worked example below promotes `worker2.${SECRET_DOMAIN}` and
+retires the VM `master2.${SECRET_DOMAIN}`. Substitute names freely —
 nothing in the procedure is specific to those hosts.
 
 ## Why this exists
@@ -40,10 +40,10 @@ Stream. Relevant facts:
 "Convert worker2 to master2" can mean two things. **Default to (a)**
 unless you have a concrete reason to rename:
 
-- **(a) Promote in place.** Keep the hostname (`worker2.thesteamedcrab.com`).
+- **(a) Promote in place.** Keep the hostname (`worker2.${SECRET_DOMAIN}`).
   The `master`/`worker` prefix is purely cosmetic; the
   `node-role.kubernetes.io/control-plane` label is what matters.
-- **(b) Rename to `masterN.thesteamedcrab.com`.** Requires
+- **(b) Rename to `masterN.${SECRET_DOMAIN}`.** Requires
   regenerating client certs, a new etcd member name, a new kube-vip
   pod identity, and DNS coordination. High risk, no functional gain.
 
@@ -102,7 +102,7 @@ Take from a healthy member (typically the leader; identify with
 `etcdctl endpoint status --cluster`):
 
 ```sh
-kubectl -n kube-system exec etcd-master1.thesteamedcrab.com -- \
+kubectl -n kube-system exec etcd-master1.${SECRET_DOMAIN} -- \
   etcdctl --endpoints=https://127.0.0.1:2379 \
   --cacert=/etc/kubernetes/pki/etcd/ca.crt \
   --cert=/etc/kubernetes/pki/etcd/peer.crt \
@@ -140,7 +140,7 @@ single-replica:
 Capture the worker's labels:
 
 ```sh
-kubectl get node worker2.thesteamedcrab.com -o yaml > /tmp/worker2-pre-drain.yaml
+kubectl get node worker2.${SECRET_DOMAIN} -o yaml > /tmp/worker2-pre-drain.yaml
 ```
 
 ## Phase 1 — Retire the outgoing control plane
@@ -150,7 +150,7 @@ old one later.
 
 1. Drain the outgoing master:
    ```sh
-   kubectl drain master2.thesteamedcrab.com --ignore-daemonsets --delete-emptydir-data
+   kubectl drain master2.${SECRET_DOMAIN} --ignore-daemonsets --delete-emptydir-data
    ```
 2. Reset kubeadm state on the host:
    ```sh
@@ -166,7 +166,7 @@ old one later.
 4. Update kubeadm bookkeeping:
    ```sh
    kubectl -n kube-system edit cm kubeadm-config   # drop master2 endpoint
-   kubectl delete node master2.thesteamedcrab.com
+   kubectl delete node master2.${SECRET_DOMAIN}
    ```
 5. Power down the VM. Keep the VM image around for 24h as rollback.
 
@@ -180,7 +180,7 @@ fails writes. Don't dawdle.
    ```sh
    flux suspend kustomization <name>
    ```
-2. Cordon: `kubectl cordon worker2.thesteamedcrab.com`
+2. Cordon: `kubectl cordon worker2.${SECRET_DOMAIN}`
 3. Out the OSD and wait for Ceph to rebalance:
    ```sh
    kubectl -n rook-ceph patch deploy rook-ceph-osd-N --replicas=0 \
@@ -196,12 +196,12 @@ fails writes. Don't dawdle.
    Or accept the brief failover window during drain.
 5. Drain:
    ```sh
-   kubectl drain worker2.thesteamedcrab.com \
+   kubectl drain worker2.${SECRET_DOMAIN} \
      --ignore-daemonsets --delete-emptydir-data --force
    ```
 6. Remove from the cluster:
    ```sh
-   kubectl delete node worker2.thesteamedcrab.com
+   kubectl delete node worker2.${SECRET_DOMAIN}
    ```
 7. On the host, reset kubeadm state but **preserve Longhorn data**:
    ```sh
@@ -246,7 +246,7 @@ fails writes. Don't dawdle.
 
 1. Remove the control-plane NoSchedule taint:
    ```sh
-   kubectl taint nodes worker2.thesteamedcrab.com \
+   kubectl taint nodes worker2.${SECRET_DOMAIN} \
      node-role.kubernetes.io/control-plane:NoSchedule-
    ```
 2. Re-apply node labels you captured in
@@ -254,7 +254,7 @@ fails writes. Don't dawdle.
    hardware feature labels on its own; you only need to re-apply the
    manual ones:
    ```sh
-   kubectl label nodes worker2.thesteamedcrab.com \
+   kubectl label nodes worker2.${SECRET_DOMAIN} \
      node.longhorn.io/create-default-disk=true \
      node.network/vlan-iot=true \
      node.network/vlan-security=true

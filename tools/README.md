@@ -34,7 +34,7 @@ flow — they're for ad-hoc operator work.
 | Script | Purpose |
 |---|---|
 | `replace-and-apply-pvc.sh` | `envsubst` NFS host placeholders into a PVC file then apply. |
-| `stop-NFS_HOST_0-volumes.sh` | Scale workloads off NFS volumes served by `brain.thesteamedcrab.com`. |
+| `stop-NFS_HOST_0-volumes.sh` | Scale workloads off NFS volumes served by `brain.${SECRET_DOMAIN}`. |
 
 ## Networking & debugging
 

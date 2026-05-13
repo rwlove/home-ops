@@ -1,3 +1,5 @@
 #!/bin/bash
 
-curl -L jellyfin-internal.thesteamedcrab.com:8096
+: "${SECRET_DOMAIN:?SECRET_DOMAIN must be set}"
+
+curl -L jellyfin-internal.${SECRET_DOMAIN}:8096

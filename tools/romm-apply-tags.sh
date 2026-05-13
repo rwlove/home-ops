@@ -23,7 +23,7 @@
 #   2. 1Password: op read 'op://kubernetes/romm/username|API_KEY'
 #
 # Other env:
-#   ROMM_BASE_URL — default: https://romm.${SECRET_DOMAIN:-thesteamedcrab.com}
+#   ROMM_BASE_URL — default: https://romm.${SECRET_DOMAIN}
 
 set -euo pipefail
 
@@ -52,7 +52,8 @@ DEFAULT_PLATFORM=$(grep -E '^# platform: ' "$MANIFEST" | head -1 | sed 's/^# pla
 [[ -z "$TAG" ]] && TAG=$(grep -E '^# tag: ' "$MANIFEST" | head -1 | sed 's/^# tag: //')
 [[ -n "$TAG" ]] || { echo "no --tag given and no '# tag:' header in manifest" >&2; exit 1; }
 
-: "${ROMM_BASE_URL:=https://romm.${SECRET_DOMAIN:-thesteamedcrab.com}}"
+: "${SECRET_DOMAIN:?SECRET_DOMAIN must be set}"
+: "${ROMM_BASE_URL:=https://romm.${SECRET_DOMAIN}}"
 if [[ -z "${ROMM_USERNAME:-}" ]]; then
   ROMM_USERNAME=$(op read 'op://kubernetes/romm/username' 2>/dev/null || true)
 fi

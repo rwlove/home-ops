@@ -1,5 +1,7 @@
 #!/bin/bash
 
+: "${SECRET_DOMAIN:?SECRET_DOMAIN must be set}"
+
 pvs=`kubectl get pv -l type=nfs -o jsonpath='{.items[*].metadata.name}'`
 
 # pass in pv name
@@ -74,10 +76,10 @@ function remove_pv()
 for pv in $pvs ; do
     server=`kubectl get pv $pv -o jsonpath='{..server}'`
 
-    [ "$server" != "brain.thesteamedcrab.com" ] && continue
+    [ "$server" != "brain.${SECRET_DOMAIN}" ] && continue
     #echo "evaluating - pv: $pv, server: $server"
 
-    #if [ "$server" != "brain.thesteamedcrab.com" ] ; then
+    #if [ "$server" != "brain.${SECRET_DOMAIN}" ] ; then
     #    echo "rejecting - pv: $pv, server: $server"
     #    continue
     #fi

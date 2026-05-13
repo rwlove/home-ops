@@ -1,5 +1,7 @@
 #!/bin/bash
 
+: "${SECRET_DOMAIN:?SECRET_DOMAIN must be set (export SECRET_DOMAIN=<your-cluster-domain>)}"
+
 reset_cmd='kubeadm reset -f'
 
 flux -n rook-ceph suspend hr rook-ceph-cluster
@@ -19,17 +21,13 @@ kubectl -n rook-ceph wait --for=delete cephcluster rook-ceph
 kubectl -n rook-ceph delete hr rook-ceph-cluster
 kubectl -n rook-ceph delete hr rook-ceph-operator
 
-for node in worker2.thesteamedcrab.com \
-	worker3.thesteamedcrab.com \
-        worker4.thesteamedcrab.com \
-        worker5.thesteamedcrab.com \
-        worker6.thesteamedcrab.com \
-        worker7.thesteamedcrab.com \
-        worker8.thesteamedcrab.com \
-        master3.thesteamedcrab.com \
-        master2.thesteamedcrab.com \
-        master1.thesteamedcrab.com \
-          ; do
+CLUSTER_NODES=(
+    worker2 worker3 worker4 worker5 worker6 worker7 worker8
+    master3 master2 master1
+)
+
+for short in "${CLUSTER_NODES[@]}" ; do
+    node="${short}.${SECRET_DOMAIN}"
     echo "## $node ## kubectl drain $node --delete-emptydir-data --force --ignore-daemonsets --grace-period=0"
     kubectl drain $node --delete-emptydir-data --force --ignore-daemonsets --grace-period=0
 
@@ -37,17 +35,8 @@ for node in worker2.thesteamedcrab.com \
     kubectl delete node $node
 done
 
-for node in worker2.thesteamedcrab.com \
-	  worker3.thesteamedcrab.com \
-          worker4.thesteamedcrab.com \
-          worker5.thesteamedcrab.com \
-          worker6.thesteamedcrab.com \
-          worker7.thesteamedcrab.com \
-          worker8.thesteamedcrab.com \
-          master3.thesteamedcrab.com \
-          master2.thesteamedcrab.com \
-          master1.thesteamedcrab.com \
-          ; do
+for short in "${CLUSTER_NODES[@]}" ; do
+    node="${short}.${SECRET_DOMAIN}"
     echo "## $node ## ${reset_cmd} ##"
     ssh root@$node "$reset_cmd"
 

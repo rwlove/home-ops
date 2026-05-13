@@ -1,7 +1,7 @@
 # Per-Route Cert Migration Runbook
 
 This runbook covers migrating from one shared wildcard ACME certificate
-(`thesteamedcrab.com` covering `*.thesteamedcrab.com`) to per-listener
+(`${SECRET_DOMAIN}` covering `*.${SECRET_DOMAIN}`) to per-listener
 fine-grained short-term certificates, using cert-manager's Gateway API
 shim to auto-provision a Certificate per HTTPRoute hostname.
 
@@ -10,7 +10,7 @@ no reflector dependency for new namespaces, faster rotation.
 
 **Why this needs to be paced**: Let's Encrypt limits issuance to 50
 certificates per Registered Domain per rolling 7-day window. The
-cluster has ~70 HTTPRoutes under `thesteamedcrab.com` — too many to
+cluster has ~70 HTTPRoutes under `${SECRET_DOMAIN}` — too many to
 flag-day onto ACME without breaching the limit and locking out *all*
 issuance for ~7 days.
 
@@ -18,8 +18,8 @@ issuance for ~7 days.
 
 | Aspect | Reality |
 |--------|---------|
-| Cert manifest | One `Certificate` (`thesteamedcrab.com`) producing `thesteamedcrab-com-tls` |
-| Cert SANs | apex, `*.thesteamedcrab.com`, `*.app.…`, `*.mcp.…` |
+| Cert manifest | One `Certificate` (`${SECRET_DOMAIN}`) producing `${SECRET_DOMAIN/./-}-tls` |
+| Cert SANs | apex, `*.${SECRET_DOMAIN}`, `*.app.…`, `*.mcp.…` |
 | Reflection | Secret reflected to `network`, `istio-system`, `mcp-system` |
 | Issuer | `letsencrypt-production` (DNS01 via Cloudflare) |
 | Gateways | 4 — `external` (network), `internal` (network), `istio` (istio-system), `mcp-gateway` (mcp-system) |
@@ -89,7 +89,7 @@ If absent, set it in the chart values and roll out cert-manager *first*.
 
 ### 2. The reflector pattern fights the gateway-shim across namespaces
 
-This cluster mirrors `network/thesteamedcrab-com-tls` to `istio-system`
+This cluster mirrors `network/${SECRET_DOMAIN/./-}-tls` to `istio-system`
 and `mcp-system` via reflector. The gateway-shim is **per-namespace**:
 it creates a Certificate in the same namespace as the Gateway. So
 annotating the istio Gateway whose listener references the
@@ -133,8 +133,8 @@ Certificate), it creates one. When an in-namespace Certificate already
 owns the Secret, the shim is a no-op.
 
 For this cluster, that means it's **safe** to annotate Gateways in the
-`network` namespace (which holds the manual `thesteamedcrab.com`
-Certificate that owns `thesteamedcrab-com-tls`), and **unsafe** to
+`network` namespace (which holds the manual `${SECRET_DOMAIN}`
+Certificate that owns `${SECRET_DOMAIN/./-}-tls`), and **unsafe** to
 annotate Gateways in `istio-system` or `mcp-system` while they still
 reference the reflector-mirrored Secret.
 
@@ -167,7 +167,7 @@ spec:
     - name: https
       protocol: HTTPS
       port: 443
-      hostname: bar.shim-test.thesteamedcrab.com
+      hostname: bar.shim-test.${SECRET_DOMAIN}
       allowedRoutes: { namespaces: { from: Same } }
       tls:
         certificateRefs: [{ kind: Secret, name: bar-shim-tls }]
@@ -260,7 +260,7 @@ metadata:
   namespace: cert-manager
 spec:
   isCA: true
-  commonName: thesteamedcrab.com Internal CA
+  commonName: ${SECRET_DOMAIN} Internal CA
   secretName: cluster-internal-ca-tls
   duration: 87600h  # 10y root
   renewBefore: 720h
@@ -294,7 +294,7 @@ kubectl get secret -n cert-manager cluster-internal-ca-tls \
 ```
 
 Don't proceed past 1.2 until you've imported and verified the root on
-at least your primary device. (Open `https://glance.thesteamedcrab.com`
+at least your primary device. (Open `https://glance.${SECRET_DOMAIN}`
 post-migration and confirm no cert warning.)
 
 ### 1.3 Migrate the internal Gateway
@@ -365,8 +365,8 @@ new listener picks them up automatically. cert-manager will create a
 kubectl get certificate -n network -w
 
 # Confirm the SAN is just the one hostname and duration ≈ 7d
-echo | openssl s_client -connect <app>.thesteamedcrab.com:443 \
-  -servername <app>.thesteamedcrab.com 2>/dev/null \
+echo | openssl s_client -connect <app>.${SECRET_DOMAIN}:443 \
+  -servername <app>.${SECRET_DOMAIN} 2>/dev/null \
   | openssl x509 -noout -subject -ext subjectAltName -dates
 ```
 
@@ -499,7 +499,7 @@ After all istio HTTPRoutes are migrated:
 ### 4.1 Verify no consumers reference the wildcard Secret
 
 ```sh
-grep -rn 'thesteamedcrab-com-tls\|${SECRET_DOMAIN/./-}-tls' kubernetes/
+grep -rn '${SECRET_DOMAIN/./-}-tls\|${SECRET_DOMAIN/./-}-tls' kubernetes/
 ```
 
 Anything still referencing the wildcard Secret needs to migrate first.
@@ -544,7 +544,7 @@ kubectl get certificate -A -o json | \
   jq -r '.items[] | "\(.metadata.namespace)/\(.metadata.name) duration=\(.spec.duration // "unset")"'
 
 # Smoke test from outside (public) and from a CA-trusting device (internal)
-for host in glance.thesteamedcrab.com photos.thesteamedcrab.com ... ; do
+for host in glance.${SECRET_DOMAIN} photos.${SECRET_DOMAIN} ... ; do
   echo "$host:"
   echo | openssl s_client -connect "$host:443" -servername "$host" 2>/dev/null \
     | openssl x509 -noout -subject -dates
@@ -576,7 +576,7 @@ So don't enter Phase 4 unless you're confident in the new state.
   exist transiently during issuance/renewal)
 - `kubectl describe clusterissuer letsencrypt-production` — surfaces
   ACME backoff messages if rate-limited
-- ACME audit log at <https://crt.sh/?Identity=thesteamedcrab.com> —
+- ACME audit log at <https://crt.sh/?Identity=${SECRET_DOMAIN}> —
   external counter you don't control, useful sanity check
 
 ## When to stop and ask
@@ -595,7 +595,7 @@ If managing a private CA root on every client device is unacceptable:
 - All ~70 routes go through ACME
 - Wave size still 5/day; total elapsed ~14 days
 - Internal hostnames will appear in public CT logs
-  (<https://crt.sh/?Identity=thesteamedcrab.com>) — anyone can
+  (<https://crt.sh/?Identity=${SECRET_DOMAIN}>) — anyone can
   enumerate your service catalog from the cert transparency feed.
   Mitigate with hostnames that don't betray service identity if this
   matters.

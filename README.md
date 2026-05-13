@@ -6,23 +6,9 @@
 
 _Managed by Flux, Renovate and GitHub Actions_ :robot:
 
-[![Kubernetes](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thesteamedcrab.com%2Fquery%3Fformat%3Dendpoint%26metric%3Dkubernetes_version&style=for-the-badge&logo=kubernetes&logoColor=white&color=blue&label=%20)](https://github.com/kashalls/kromgo/)&nbsp;&nbsp;
 [![Renovate](https://img.shields.io/github/actions/workflow/status/rwlove/home-ops/renovate.yaml?branch=main&label=&logo=renovatebot&style=for-the-badge&color=blue)](https://github.com/rwlove/home-ops/actions/workflows/renovate.yaml)&nbsp;&nbsp;
 [![Documentation](https://img.shields.io/badge/documentation-blue?&style=for-the-badge)](https://rwlove.github.io/home-ops/)&nbsp;&nbsp;
-
-Kubernetes Cluster Information
-
-[![Age-Days](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thesteamedcrab.com%2Fquery%3Fformat%3Dendpoint%26metric%3Dcluster_age_days&style=flat-square&label=Age)](https://github.com/kashalls/kromgo/)&nbsp;
-[![Node-Count](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thesteamedcrab.com%2Fquery%3Fformat%3Dendpoint%26metric%3Dcluster_node_count&style=flat-square&label=Nodes)](https://github.com/kashalls/kromgo/)&nbsp;
-[![Pod-Count](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thesteamedcrab.com%2Fquery%3Fformat%3Dendpoint%26metric%3Dcluster_pod_count&style=flat-square&label=Pods)](https://github.com/kashalls/kromgo/)&nbsp;
-[![CPU-Usage](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thesteamedcrab.com%2Fquery%3Fformat%3Dendpoint%26metric%3Dcluster_cpu_usage&style=flat-square&label=CPU)](https://github.com/kashalls/kromgo/)&nbsp;
-[![Memory-Usage](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thesteamedcrab.com%2Fquery%3Fformat%3Dendpoint%26metric%3Dcluster_memory_usage&style=flat-square&label=Memory)](https://github.com/kashalls/kromgo/)&nbsp;
 [![Check Links](https://github.com/rwlove/home-ops/actions/workflows/lychee.yaml/badge.svg)](https://github.com/rwlove/home-ops/actions/workflows/lychee.yaml)&nbsp;
-[![Alerts](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thesteamedcrab.com%2Fcluster_alert_count&style=flat-square&label=Alerts)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-
-Infrastructure Information
-
-[![Power-Usage](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thesteamedcrab.com%2Fcluster_power_usage&style=flat-square&label=Power)](https://github.com/kashalls/kromgo)&nbsp;
 
 </div>
 <br><br>

@@ -28,21 +28,27 @@ spec:
       name: zulip-secret
       valuesKey: ZULIP_ADMINISTRATOR
       targetPath: zulip.environment.SETTING_ZULIP_ADMINISTRATOR
-    # The chart wires SECRETS_rabbitmq_password from rabbitmq.auth.password,
-    # so feed RABBITMQ_PASS there. (At initial install on 2026-05-14 this
-    # subchart-path substitution silently dropped because zulip-secret had
-    # not yet populated RABBITMQ_PASS — the configDigest then stuck and the
-    # subsequent runs never re-evaluated. Now that the Secret is in steady
-    # state, the substitution works on the upgrade path. If you hit the
-    # silent-drop scenario again, see project_flux_valuesfrom_subchart_drop.)
-    - kind: Secret
-      name: zulip-secret
-      valuesKey: RABBITMQ_PASS
-      targetPath: rabbitmq.auth.password
-    - kind: Secret
-      name: zulip-secret
-      valuesKey: RABBITMQ_ERLANG_COOKIE
-      targetPath: rabbitmq.auth.erlangCookie
+    # CAVEAT: Flux helm-controller's valuesFrom does NOT reliably
+    # substitute into Bitnami subchart paths like `rabbitmq.auth.password`.
+    # The substitution drops to "" at install AND on subsequent upgrades
+    # (configDigest stays in-sync). The chart consequently auto-derives an
+    # empty SECRETS_rabbitmq_password env on the zulip container, and the
+    # rabbitmq subchart auto-generates a random password into the
+    # zulip-rabbitmq Secret. The Bitnami chart also REGENERATES that
+    # password on subsequent upgrades — its lookup-based preservation
+    # didn't survive on 2026-05-14.
+    #
+    # Post-deploy manual steps (apply after any HelmRelease upgrade that
+    # bumps a helm rev):
+    #   1. Patch zulip-rabbitmq Secret rabbitmq-password key to match
+    #      zulip-secret RABBITMQ_PASS.
+    #   2. `rabbitmqctl change_password zulip <RABBITMQ_PASS>` to align
+    #      mnesia state.
+    #   3. Bounce zulip-rabbitmq-0 so it reads the patched Secret.
+    #   4. Patch STS env SECRETS_rabbitmq_password to a valueFrom
+    #      secretKeyRef referencing zulip-secret/RABBITMQ_PASS, then
+    #      bounce zulip-0.
+    # See project_flux_valuesfrom_subchart_drop in memory.
 
   values:
     image:

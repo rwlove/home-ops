@@ -121,16 +121,16 @@ specific filesystem semantics. NFS servers in use:
   failure).
 - **`brain`** (`NFS_HOST_0`) — secondary storage: downloads
   (`/mnt/downloads`, `/mnt/downloads-nvme`), Television media.
-  `/mnt/mass_storage` is **RAID5** (tolerates 1-disk failure) —
-  TODO: verify on next LAN session. Brain is also the home
-  router/gateway.
+  `/mnt/mass_storage` is **RAID6** (md1, 6 disks, tolerates 2-disk
+  failure) — verified 2026-05-14 (`/dev/md1`, level 6, [6/6]
+  [UUUUUU]). Brain is also the home router/gateway.
 - **`security-storage`** — Frigate camera data only (clips +
   recordings, with XFS project quotas).
 
-RAID level matters for placement: anything irreplaceable goes on
-beast (RAID6). Downloads and TV on brain (RAID5) are appropriately
-placed since both are reacquirable. Don't move irreplaceable data
-onto brain `/mnt/mass_storage` without bumping it to RAID6 first.
+Both beast and brain `/mnt/mass_storage` are RAID6 — durable enough
+for any tier. Server choice is workload-driven: route media (movies
++ pictures + MP3s + app data) to beast, downloads + TV episodes to
+brain.
 
 Server choice is workload-driven — match the existing path layout
 rather than introducing a new mount on a new server unprompted.

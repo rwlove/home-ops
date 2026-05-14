@@ -28,16 +28,21 @@ spec:
       name: zulip-secret
       valuesKey: ZULIP_ADMINISTRATOR
       targetPath: zulip.environment.SETTING_ZULIP_ADMINISTRATOR
-    # The zulip Django process reads the RabbitMQ password from the
-    # SECRETS_rabbitmq_password env var, so feed it from zulip-secret
-    # at the umbrella-chart path. (Subchart paths like
-    # `rabbitmq.auth.password` silently fail at install time if the
-    # source Secret isn't populated yet — see
-    # project_flux_valuesfrom_subchart_drop in memory.)
+    # The chart wires SECRETS_rabbitmq_password from rabbitmq.auth.password,
+    # so feed RABBITMQ_PASS there. (At initial install on 2026-05-14 this
+    # subchart-path substitution silently dropped because zulip-secret had
+    # not yet populated RABBITMQ_PASS — the configDigest then stuck and the
+    # subsequent runs never re-evaluated. Now that the Secret is in steady
+    # state, the substitution works on the upgrade path. If you hit the
+    # silent-drop scenario again, see project_flux_valuesfrom_subchart_drop.)
     - kind: Secret
       name: zulip-secret
       valuesKey: RABBITMQ_PASS
-      targetPath: zulip.environment.SECRETS_rabbitmq_password
+      targetPath: rabbitmq.auth.password
+    - kind: Secret
+      name: zulip-secret
+      valuesKey: RABBITMQ_ERLANG_COOKIE
+      targetPath: rabbitmq.auth.erlangCookie
 
   values:
     image:

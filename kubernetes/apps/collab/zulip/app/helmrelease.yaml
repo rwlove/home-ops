@@ -28,14 +28,16 @@ spec:
       name: zulip-secret
       valuesKey: ZULIP_ADMINISTRATOR
       targetPath: zulip.environment.SETTING_ZULIP_ADMINISTRATOR
+    # The zulip Django process reads the RabbitMQ password from the
+    # SECRETS_rabbitmq_password env var, so feed it from zulip-secret
+    # at the umbrella-chart path. (Subchart paths like
+    # `rabbitmq.auth.password` silently fail at install time if the
+    # source Secret isn't populated yet — see
+    # project_flux_valuesfrom_subchart_drop in memory.)
     - kind: Secret
       name: zulip-secret
       valuesKey: RABBITMQ_PASS
-      targetPath: rabbitmq.auth.password
-    - kind: Secret
-      name: zulip-secret
-      valuesKey: RABBITMQ_ERLANG_COOKIE
-      targetPath: rabbitmq.auth.erlangCookie
+      targetPath: zulip.environment.SECRETS_rabbitmq_password
 
   values:
     image:
@@ -111,10 +113,17 @@ spec:
       port: 6379
       password: ""
 
-    # Bundled RabbitMQ (Bitnami subchart). Password + erlang cookie
-    # injected via valuesFrom. NOTE: chart pins bitnamilegacy/rabbitmq —
-    # upstream notes the image is no longer updated; revisit if security
-    # flags it.
+    # Bundled RabbitMQ (Bitnami subchart). Password is rendered by the
+    # subchart's `lookup`-based template: on first install with empty
+    # auth.password it auto-generates and writes the zulip-rabbitmq
+    # Secret; on subsequent upgrades it preserves whatever's in the
+    # existing Secret. The zulip Django side reads the password from
+    # SECRETS_rabbitmq_password (umbrella-chart valuesFrom above) — the
+    # two must agree. If they ever drift: `rabbitmqctl change_password
+    # zulip <RABBITMQ_PASS>` + kubectl patch the zulip-rabbitmq Secret's
+    # rabbitmq-password key to match.
+    # NOTE: chart pins bitnamilegacy/rabbitmq — upstream notes the image
+    # is no longer updated; revisit if security flags it.
     rabbitmq:
       enabled: true
       persistence:
@@ -123,9 +132,6 @@ spec:
         size: 4Gi
       auth:
         username: zulip
-        # password + erlangCookie injected via HelmRelease.spec.valuesFrom
-        # (empty strings here satisfy chart schema; real values are
-        # merged from zulip-secret before helm render)
         password: ""
         erlangCookie: ""
 

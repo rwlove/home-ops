@@ -28,27 +28,17 @@ spec:
       name: zulip-secret
       valuesKey: ZULIP_ADMINISTRATOR
       targetPath: zulip.environment.SETTING_ZULIP_ADMINISTRATOR
-    # CAVEAT: Flux helm-controller's valuesFrom does NOT reliably
-    # substitute into Bitnami subchart paths like `rabbitmq.auth.password`.
-    # The substitution drops to "" at install AND on subsequent upgrades
-    # (configDigest stays in-sync). The chart consequently auto-derives an
-    # empty SECRETS_rabbitmq_password env on the zulip container, and the
-    # rabbitmq subchart auto-generates a random password into the
-    # zulip-rabbitmq Secret. The Bitnami chart also REGENERATES that
-    # password on subsequent upgrades — its lookup-based preservation
-    # didn't survive on 2026-05-14.
+    # RabbitMQ password + erlang cookie come from `zulip-secret` via the
+    # Bitnami `existingPasswordSecret` / `existingErlangSecret` features
+    # (configured in spec.values.rabbitmq.auth below). The chart's
+    # _helpers.tpl renders SECRETS_rabbitmq_password as a valueFrom
+    # secretKeyRef when those values are set — so the env wiring is
+    # native, no manual STS patches needed.
     #
-    # Post-deploy manual steps (apply after any HelmRelease upgrade that
-    # bumps a helm rev):
-    #   1. Patch zulip-rabbitmq Secret rabbitmq-password key to match
-    #      zulip-secret RABBITMQ_PASS.
-    #   2. `rabbitmqctl change_password zulip <RABBITMQ_PASS>` to align
-    #      mnesia state.
-    #   3. Bounce zulip-rabbitmq-0 so it reads the patched Secret.
-    #   4. Patch STS env SECRETS_rabbitmq_password to a valueFrom
-    #      secretKeyRef referencing zulip-secret/RABBITMQ_PASS, then
-    #      bounce zulip-0.
-    # See project_flux_valuesfrom_subchart_drop in memory.
+    # We can't use Flux valuesFrom with `targetPath: rabbitmq.auth.password`
+    # because the substitution silently drops to "" on Bitnami subchart
+    # paths at install AND on subsequent upgrades (configDigest sticks
+    # in-sync). See project_flux_valuesfrom_subchart_drop in memory.
 
   values:
     image:
@@ -124,15 +114,12 @@ spec:
       port: 6379
       password: ""
 
-    # Bundled RabbitMQ (Bitnami subchart). Password is rendered by the
-    # subchart's `lookup`-based template: on first install with empty
-    # auth.password it auto-generates and writes the zulip-rabbitmq
-    # Secret; on subsequent upgrades it preserves whatever's in the
-    # existing Secret. The zulip Django side reads the password from
-    # SECRETS_rabbitmq_password (umbrella-chart valuesFrom above) — the
-    # two must agree. If they ever drift: `rabbitmqctl change_password
-    # zulip <RABBITMQ_PASS>` + kubectl patch the zulip-rabbitmq Secret's
-    # rabbitmq-password key to match.
+    # Bundled RabbitMQ (Bitnami subchart). Auth password + erlang cookie
+    # come from the existing `zulip-secret` ExternalSecret-managed
+    # Secret — both the Bitnami subchart and zulip's umbrella-chart
+    # SECRETS_rabbitmq_password env render via these `existingSecret`
+    # references. Single source of truth, no chart-managed secret to
+    # drift / regenerate, no manual STS patches.
     # NOTE: chart pins bitnamilegacy/rabbitmq — upstream notes the image
     # is no longer updated; revisit if security flags it.
     rabbitmq:
@@ -143,8 +130,10 @@ spec:
         size: 4Gi
       auth:
         username: zulip
-        password: ""
-        erlangCookie: ""
+        existingPasswordSecret: zulip-secret
+        existingSecretPasswordKey: RABBITMQ_PASS
+        existingErlangSecret: zulip-secret
+        existingSecretErlangKey: RABBITMQ_ERLANG_COOKIE
 
     # Bundled Memcached (Bitnami subchart). Ephemeral cache — no
     # persistence needed. NOTE: same bitnamilegacy concern as rabbitmq.

@@ -1,0 +1,135 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: zulip
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: zulip
+
+  interval: 30m
+  install:
+    # Zulip first-boot runs schema bootstrap + migrations; the chart
+    # startupProbe gives 5 minutes (failureThreshold 30 × periodSeconds 10),
+    # which can still race helm-controller. See
+    # project_helmrelease_disablewait.md.
+    disableWait: true
+  upgrade:
+    disableWait: true
+
+  valuesFrom:
+    - kind: Secret
+      name: zulip-secret
+      valuesKey: SECRET_KEY
+      targetPath: zulip.environment.SECRETS_secret_key
+    - kind: Secret
+      name: zulip-secret
+      valuesKey: ZULIP_ADMINISTRATOR
+      targetPath: zulip.environment.SETTING_ZULIP_ADMINISTRATOR
+    - kind: Secret
+      name: zulip-secret
+      valuesKey: RABBITMQ_PASS
+      targetPath: rabbitmq.auth.password
+    - kind: Secret
+      name: zulip-secret
+      valuesKey: RABBITMQ_ERLANG_COOKIE
+      targetPath: rabbitmq.auth.erlangCookie
+
+  values:
+    image:
+      repository: ghcr.io/zulip/zulip-server
+      tag: 12.0-0
+
+    service:
+      type: ClusterIP
+      port: 80
+
+    ingress:
+      enabled: false  # using a sibling HTTPRoute on the external Gateway
+
+    resources:
+      requests:
+        cpu: 200m
+        memory: 1Gi
+      limits:
+        memory: 2Gi
+
+    # docker-zulip / zulip-server runs supervisord as root and writes
+    # to / at boot; can't honor cluster-default non-root + RO rootfs.
+    podSecurityContext:
+      fsGroup: 0
+      runAsUser: 0
+      runAsGroup: 0
+    securityContext:
+      runAsNonRoot: false
+      runAsUser: 0
+      readOnlyRootFilesystem: false
+
+    zulip:
+      environment:
+        SETTING_EXTERNAL_HOST: chat.${SECRET_DOMAIN}
+        # SETTING_ZULIP_ADMINISTRATOR + SECRETS_secret_key injected via valuesFrom
+        SETTING_ZULIP_ADMINISTRATOR: placeholder@example.com
+        SECRETS_secret_key: placeholder
+        TRUST_GATEWAY_IP: true
+      persistence:
+        enabled: true
+        accessMode: ReadWriteOnce
+        size: 40Gi
+        storageClass: ceph-block
+
+    # External Postgres (CNPG). Credentials come from the CNPG-managed
+    # postgres-zulip-app Secret, populated when CNPG's initdb runs with
+    # owner=zulip, database=zulip.
+    postgresql:
+      enabled: false
+    externalPostgresql:
+      host: postgres-zulip-rw.databases.svc.cluster.local
+      port: 5432
+      user: zulip
+      database: zulip
+      password:
+        valueFrom:
+          secretKeyRef:
+            name: postgres-zulip-app
+            key: password
+
+    # External Redis (shared dragonfly, no auth)
+    redis:
+      enabled: false
+    externalRedis:
+      host: dragonfly.databases.svc.cluster.local
+      port: 6379
+      password: ""
+
+    # Bundled RabbitMQ (Bitnami subchart). Password + erlang cookie
+    # injected via valuesFrom. NOTE: chart pins bitnamilegacy/rabbitmq —
+    # upstream notes the image is no longer updated; revisit if security
+    # flags it.
+    rabbitmq:
+      enabled: true
+      persistence:
+        enabled: true
+        storageClass: ceph-block
+        size: 4Gi
+      auth:
+        username: zulip
+        # password + erlangCookie injected via HelmRelease.spec.valuesFrom
+        # (empty strings here satisfy chart schema; real values are
+        # merged from zulip-secret before helm render)
+        password: ""
+        erlangCookie: ""
+
+    # Bundled Memcached (Bitnami subchart). Ephemeral cache — no
+    # persistence needed. NOTE: same bitnamilegacy concern as rabbitmq.
+    memcached:
+      enabled: true
+
+    # Required by chart when bundled postgres is disabled (otherwise the
+    # global.security.allowInsecureImages flag gates the bundled-postgres
+    # image override; harmless when external).
+    global:
+      security:
+        allowInsecureImages: true

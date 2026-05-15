@@ -1,0 +1,79 @@
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: mcp-gateway-jwt-rotator
+spec:
+  # Daily rotation. Token lifespan is 7d (set on the Authelia 'mcp-gateway'
+  # client via the 'mcp-gateway' custom lifespan policy); a daily refresh
+  # gives ~6d of overlap so a laptop shell that captured the previous
+  # token at startup keeps working until its next shell init.
+  schedule: "30 4 * * *"
+  timeZone: "Etc/UTC"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      template:
+        spec:
+          serviceAccountName: mcp-gateway-jwt-rotator
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+          containers:
+            - name: rotator
+              image: docker.io/alpine/k8s:1.31.7
+              command:
+                - /bin/sh
+                - -ceu
+                - |
+                  RESPONSE=$(curl -fsSL -X POST "${OIDC_TOKEN_ENDPOINT}" \
+                    -H "Content-Type: application/x-www-form-urlencoded" \
+                    --data-urlencode "grant_type=client_credentials" \
+                    --data-urlencode "client_id=${OIDC_CLIENT_ID}" \
+                    --data-urlencode "client_secret=${OIDC_CLIENT_SECRET}" \
+                    --data-urlencode "scope=openid" \
+                    --data-urlencode "audience=mcp-gateway")
+                  TOKEN=$(printf '%s' "${RESPONSE}" | jq -er '.access_token')
+                  EXPIRES_IN=$(printf '%s' "${RESPONSE}" | jq -er '.expires_in // 604800')
+                  EXPIRES_AT=$(( $(date +%s) + EXPIRES_IN ))
+                  kubectl create secret generic mcp-gateway-jwt-current \
+                    --from-literal=token="${TOKEN}" \
+                    --from-literal=expires_at="${EXPIRES_AT}" \
+                    --dry-run=client -o yaml | kubectl apply -f -
+                  echo "Rotated mcp-gateway JWT; expires_at=${EXPIRES_AT} (in ${EXPIRES_IN}s)"
+              envFrom:
+                - secretRef:
+                    name: mcp-gateway-authelia-client
+              env:
+                - name: OIDC_TOKEN_ENDPOINT
+                  value: "https://auth.${SECRET_DOMAIN}/api/oidc/token"
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+                limits:
+                  memory: 128Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+                - name: kube
+                  mountPath: /.kube
+          volumes:
+            - name: tmp
+              emptyDir: {}
+            - name: kube
+              emptyDir: {}

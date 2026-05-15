@@ -41,6 +41,15 @@ spec:
               ENABLE_RAG_WEB_SEARCH: true
               RAG_EMBEDDING_ENGINE: ollama
               RAG_EMBEDDING_MODEL: nomic-embed-text
+              # Cross-encoder reranker — runs in-process via sentence-transformers
+              # on CPU. Adds ~2.5GiB to the pod's resident set (model weights);
+              # latency is ~hundreds of ms per batch which is fine for homelab
+              # RAG volume. v0.9.5 also supports external rerank (TEI etc.) via
+              # RAG_RERANKING_ENGINE=external + RAG_EXTERNAL_RERANKER_URL — but
+              # the P40 is Pascal (sm_61) so no prebuilt TEI image fits without
+              # a custom Pascal build. Revisit if Spark lands.
+              RAG_RERANKING_MODEL: BAAI/bge-reranker-v2-m3
+              RAG_TOP_K_RERANKER: "5"
               RAG_WEB_SEARCH_ENGINE: searxng
               QDRANT_URI: http://qdrant.databases.svc.cluster.local:6333
               SEARXNG_QUERY_URL: http://searxng.collab.svc.cluster.local:8080/search?q=<query>
@@ -93,9 +102,9 @@ spec:
             resources:
               requests:
                 cpu: 15m
-                memory: 3Gi
+                memory: 6Gi
               limits:
-                memory: 3Gi
+                memory: 6Gi
 
     service:
       app:

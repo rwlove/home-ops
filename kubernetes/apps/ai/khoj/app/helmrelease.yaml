@@ -27,21 +27,17 @@ spec:
       khoj:
         annotations:
           reloader.stakater.com/auto: "true"
-        # khoj-ai/khoj's Dockerfile has no USER directive (runs as root) and
-        # the app hardcodes paths under /root/.khoj (config) and /root/.cache
-        # (HF/torch embedding model downloads, ~200 MB on first run with the
-        # default gte-small + mxbai-rerank-xsmall stack — research 2026-05-15).
-        # Try non-root first: fsGroup chowns the two PVCs so UID 1000 can
-        # write under /root/* (homedir contents, not the homedir itself).
-        # If startup fails, drop runAsNonRoot/runAsUser/runAsGroup back to
-        # 0/0/false — document the reason if you do.
+        # khoj-ai/khoj hardcodes paths under /root/.khoj (config) and
+        # /root/.cache (embedding model downloads). UID 1000 can write *into*
+        # the PVCs (fsGroup), but Python's `~/.khoj` resolution still fails
+        # because /root itself is mode 0700 root:root. Falling back to root
+        # is the upstream-supported path; readOnlyRootFilesystem stays off
+        # for Django collectstatic + /tmp scratch.
         pod:
           securityContext:
-            fsGroup: 1000
-            fsGroupChangePolicy: OnRootMismatch
-            runAsGroup: 1000
-            runAsNonRoot: true
-            runAsUser: 1000
+            runAsGroup: 0
+            runAsNonRoot: false
+            runAsUser: 0
         type: deployment
         replicas: 1
         strategy: Recreate  # single-replica, RWO PVCs

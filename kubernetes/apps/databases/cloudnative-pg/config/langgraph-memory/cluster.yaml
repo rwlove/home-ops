@@ -1,0 +1,73 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/postgresql.cnpg.io/cluster_v1.json
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres-langgraph-memory
+spec:
+  instances: 3
+
+  # vectorchord = pgvector + vchord (HNSW + IVF + multi-vector). Same image
+  # immich uses for its CLIP retrieval; mature in this cluster.
+  imageName: ghcr.io/tensorchord/cloudnative-vectorchord:14.17-0.3.0@sha256:9bc4f201e463e735389a89b87662e82a711a9ba0bcbc11b590195bcde17d11af
+
+  primaryUpdateStrategy: unsupervised
+
+  failoverDelay: 30
+
+  replicationSlots:
+    highAvailability:
+      enabled: true
+
+  postgresql:
+    shared_preload_libraries: ["vchord.so"]
+    parameters:
+      timezone: "America/New_York"
+
+  storage:
+    size: 10Gi
+    storageClass: ceph-block
+
+  walStorage:
+    size: 4Gi
+    storageClass: ceph-block
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+  enableSuperuserAccess: true
+  superuserSecret:
+    name: cloudnative-pg
+
+  bootstrap:
+    initdb:
+      database: langgraph_memory
+      owner: langgraph
+      postInitApplicationSQL:
+        - "CREATE EXTENSION IF NOT EXISTS vector;"
+        - "CREATE EXTENSION IF NOT EXISTS vchord;"
+
+  monitoring:
+    enablePodMonitor: true
+
+  plugins:
+    - enabled: true
+      isWALArchiver: true
+      name: barman-cloud.cloudnative-pg.io
+      parameters:
+        barmanObjectName: garage-langgraph-memory
+        serverName: postgres-langgraph-memory-backup
+
+  externalClusters:
+    - name: postgres-langgraph-memory-backup
+      plugin:
+        enabled: true
+        isWALArchiver: false
+        name: barman-cloud.cloudnative-pg.io
+        parameters:
+          barmanObjectName: garage-langgraph-memory
+          serverName: postgres-langgraph-memory-backup

@@ -147,16 +147,40 @@ spec:
                 port: *httpPort
 
     persistence:
-      vault:
+      # Vault content is split into two PVCs (pvc.yaml).
+      #
+      # `vault-rw` provides the writable surface mounted at /vault; agents
+      # write drafts/reports/activity logs here. It's small (2Gi) since
+      # it holds only agent outputs.
+      #
+      # `vault-ro` is the persona content sync-receiver pulls from laptop.
+      # It overlays onto /vault/agents/{workspaces,skills} via subPath
+      # mounts so the agent code sees one unified /vault tree without
+      # knowing about the split.
+      vault-rw:
+        existingClaim: langgraph-vault-rw
+        advancedMounts:
+          langgraph-agents:
+            app:
+              - path: /vault
+
+      vault-ro-workspaces:
         existingClaim: langgraph-vault
         advancedMounts:
           langgraph-agents:
             app:
-              # Agents read personas + skills from this PVC AND write drafts
-              # to /vault/inbox/drafts/ + research findings to /vault/reports/.
-              # readOnly:true was the initial conservative default; revisit
-              # post-deploy when the agent fleet's write footprint is bounded.
-              - path: /vault
+              - path: /vault/agents/workspaces
+                subPath: agents/workspaces
+                readOnly: true
+
+      vault-ro-skills:
+        existingClaim: langgraph-vault
+        advancedMounts:
+          langgraph-agents:
+            app:
+              - path: /vault/agents/skills
+                subPath: agents/skills
+                readOnly: true
 
       # Writable tmp because the rootfs is read-only.
       tmp:

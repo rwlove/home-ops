@@ -1,7 +1,19 @@
 ---
-# Shared vault PVC. sync-receiver pod writes (rsync push from laptop);
-# langgraph-agents reads (loads persona + skill markdown at runtime).
-# RWX so both pods can mount concurrently.
+# Vault content split into two PVCs:
+#
+# langgraph-vault    — persona content written by sync-receiver (laptop push);
+#                      mounted RO by langgraph-agents at /vault/agents/{workspaces,skills}.
+#                      Owns agents/workspaces/ and agents/skills/ subdirs.
+#
+# langgraph-vault-rw — output content written by langgraph-agents (drafts,
+#                      reports, per-agent activity logs). Mounted RW at /vault.
+#                      Owns inbox/, reports/, and agents/<id>/memory/ subdirs.
+#                      Sync-receiver does NOT touch this PVC — outputs flow
+#                      laptop-ward via separate (future) pull mechanism.
+#
+# The nested mount layout lets the application code stay path-agnostic: it
+# sees a single /vault tree, but writes to inbox/reports land on vault-rw
+# while reads from workspaces/skills come from vault.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -13,3 +25,15 @@ spec:
   resources:
     requests:
       storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: langgraph-vault-rw
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ceph-filesystem
+  resources:
+    requests:
+      storage: 2Gi

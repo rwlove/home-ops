@@ -73,9 +73,13 @@ spec:
     zulip:
       environment:
         SETTING_EXTERNAL_HOST: chat.${SECRET_DOMAIN}
-        # SETTING_ZULIP_ADMINISTRATOR + SECRETS_secret_key injected via valuesFrom
-        SETTING_ZULIP_ADMINISTRATOR: placeholder@example.com
-        SECRETS_secret_key: placeholder
+        # SETTING_ZULIP_ADMINISTRATOR + SECRETS_secret_key are populated by
+        # spec.valuesFrom from the zulip-secret. Do NOT add inline placeholders
+        # here — empirically they pinned SETTING_ZULIP_ADMINISTRATOR to the
+        # placeholder value even after the Secret was correct, while
+        # SECRETS_secret_key happened to render the real Secret value. Same
+        # mechanism, inconsistent merge behavior — safest path is to omit
+        # the inline keys entirely so valuesFrom is the sole source.
         TRUST_GATEWAY_IP: true
         # Trust the cilium pod CIDR (where envoy gateway pods live) and the
         # node CIDR (where kubelet HTTP probes originate). The chart's
@@ -94,6 +98,12 @@ spec:
         SETTING_EMAIL_HOST_USER: ""
         SETTING_DEFAULT_FROM_EMAIL: Zulip <zulip@${SECRET_DOMAIN}>
         SETTING_NOREPLY_EMAIL_ADDRESS: zulip@${SECRET_DOMAIN}
+        # Disable Zulip's per-email token-on-noreply feature. Without this,
+        # Zulip rewrites the noreply From to noreply-<token>@chat.${SECRET_DOMAIN},
+        # which the upstream relay's SPF/DKIM doesn't cover → spam folder /
+        # bounces. Tokens enable in-reply parsing (replying to a notification
+        # posts back to Zulip); we don't use that flow.
+        SETTING_ADD_TOKENS_TO_NOREPLY_ADDRESS: false
       persistence:
         enabled: true
         accessMode: ReadWriteOnce

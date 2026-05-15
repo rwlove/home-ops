@@ -42,7 +42,11 @@ spec:
             - name: TZ
               value: America/New_York
             - name: PUBLIC_KEY_FILE
-              value: /run/secrets/authorized_keys
+              # Avoid /run/secrets — Kubernetes auto-mounts the service
+              # account token tree at /run/secrets/kubernetes.io/..., which
+              # shadows a Secret volume mounted at /run/secrets so its files
+              # are invisible to the application. /etc/lgsync avoids that.
+              value: /etc/lgsync/authorized_keys
             - name: USER_NAME
               # NOT "sync" — that collides with a stock user in the base image
               # and halts s6-overlay init before sshd starts (silent: pod
@@ -63,7 +67,7 @@ spec:
               mountPath: /vault-rw
               readOnly: true
             - name: authorized-keys
-              mountPath: /run/secrets
+              mountPath: /etc/lgsync
               readOnly: true
             # linuxserver/openssh-server writes its host keys, sshd_config
             # template, and the in-container user's ~/.ssh into /config.

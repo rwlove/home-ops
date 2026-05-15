@@ -16,7 +16,8 @@ holds JSON exports so they survive a postgres rebuild.
      credential ID created in step 1.
 
 3. Import via API:
-   ```
+
+   ```sh
    PT=$(op read "op://Kubernetes/Pushover/userkey")
    sed -i "s|<REPLACE_FROM_OP_AT_IMPORT_TIME>|$PT|" alertmanager-holmesgpt-pushover.json
    curl -X POST -H "X-N8N-API-KEY: $N8N_KEY" -H "Content-Type: application/json" \
@@ -30,7 +31,7 @@ holds JSON exports so they survive a postgres rebuild.
 
 When you edit a workflow in the n8n UI, re-export to keep git in sync:
 
-```
+```sh
 kubectl exec -n mcp-system deploy/n8n-mcp -c app -- node -e "
 fetch(process.env.N8N_API_URL + '/api/v1/workflows/<workflow-id>', {
   headers: { 'X-N8N-API-KEY': process.env.N8N_API_KEY }

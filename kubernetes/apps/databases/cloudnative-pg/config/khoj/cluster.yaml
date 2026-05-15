@@ -1,0 +1,72 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/postgresql.cnpg.io/cluster_v1.json
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres-khoj
+spec:
+  instances: 3
+
+  # Khoj stores embeddings via pgvector. Reuse the same vectorchord image
+  # langgraph-memory + immich use (mature in this cluster, ships pgvector).
+  imageName: ghcr.io/tensorchord/cloudnative-vectorchord:14.17-0.3.0@sha256:9bc4f201e463e735389a89b87662e82a711a9ba0bcbc11b590195bcde17d11af
+
+  primaryUpdateStrategy: unsupervised
+
+  failoverDelay: 30
+
+  replicationSlots:
+    highAvailability:
+      enabled: true
+
+  postgresql:
+    shared_preload_libraries: ["vchord.so"]
+    parameters:
+      timezone: "America/New_York"
+
+  storage:
+    size: 10Gi
+    storageClass: ceph-block
+
+  walStorage:
+    size: 8Gi
+    storageClass: ceph-block
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+  enableSuperuserAccess: true
+  superuserSecret:
+    name: cloudnative-pg
+
+  bootstrap:
+    initdb:
+      database: khoj
+      owner: khoj
+      postInitApplicationSQL:
+        - "CREATE EXTENSION IF NOT EXISTS vector;"
+
+  monitoring:
+    enablePodMonitor: true
+
+  plugins:
+    - enabled: true
+      isWALArchiver: true
+      name: barman-cloud.cloudnative-pg.io
+      parameters:
+        barmanObjectName: garage-khoj
+        serverName: postgres-khoj-backup
+
+  externalClusters:
+    - name: postgres-khoj-backup
+      plugin:
+        enabled: true
+        isWALArchiver: false
+        name: barman-cloud.cloudnative-pg.io
+        parameters:
+          barmanObjectName: garage-khoj
+          serverName: postgres-khoj-backup

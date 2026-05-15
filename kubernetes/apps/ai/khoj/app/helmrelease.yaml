@@ -1,0 +1,119 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app khoj
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 30m
+  install:
+    # First start downloads sentence-transformers + HF embedding models
+    # (~500MB) into khoj-models PVC; helm-controller's 5-min wait can
+    # outlast this. Match the pattern in project_helmrelease_disablewait.md.
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+      strategy: rollback
+  values:
+    controllers:
+      khoj:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        # khoj-ai/khoj's Dockerfile has no USER directive (runs as root) and
+        # the app hardcodes paths under /root/.khoj (config) and /root/.cache
+        # (HF/torch embedding model downloads, ~200 MB on first run with the
+        # default gte-small + mxbai-rerank-xsmall stack — research 2026-05-15).
+        # Try non-root first: fsGroup chowns the two PVCs so UID 1000 can
+        # write under /root/* (homedir contents, not the homedir itself).
+        # If startup fails, drop runAsNonRoot/runAsUser/runAsGroup back to
+        # 0/0/false — document the reason if you do.
+        pod:
+          securityContext:
+            fsGroup: 1000
+            fsGroupChangePolicy: OnRootMismatch
+            runAsGroup: 1000
+            runAsNonRoot: true
+            runAsUser: 1000
+        type: deployment
+        replicas: 1
+        strategy: Recreate  # single-replica, RWO PVCs
+        containers:
+          app:
+            image:
+              repository: ghcr.io/khoj-ai/khoj
+              tag: 2.0.0-beta.28
+            # First-run superuser bootstrap is automatic when KHOJ_ADMIN_EMAIL
+              # + KHOJ_ADMIN_PASSWORD are set; --non-interactive skips the
+              # TTY prompt that would otherwise CrashLoop the pod.
+            args:
+              - --non-interactive
+            env:
+              KHOJ_DOMAIN: khoj.${SECRET_DOMAIN}
+              KHOJ_ALLOWED_DOMAIN: khoj.${SECRET_DOMAIN}
+              KHOJ_NO_HTTPS: "true"  # TLS terminates at Envoy Gateway
+              KHOJ_TELEMETRY_DISABLE: "true"
+              KHOJ_DEBUG: "false"
+              KHOJ_SEARXNG_URL: http://searxng.collab.svc.cluster.local:8080
+              # --- model providers (Ollama via OpenAI-compatible API) ---
+              # Embedding model is configured post-bootstrap in /server/admin
+              # → SearchModelConfig; default `thenlper/gte-small` (~130 MB)
+              # pulls from HuggingFace into the models PVC on first run.
+              # To route embeddings to ollama nomic-embed-text instead, set
+              # api_type=OPENAI in the admin UI.
+              OPENAI_BASE_URL: http://ollama.ai.svc.cluster.local:11434/v1
+              KHOJ_DEFAULT_CHAT_MODEL: qwen2.5:7b
+              # KHOJ_OPERATOR_ENABLED + KHOJ_TERRARIUM_URL left unset; both
+              # gated off-by-default via is_*_enabled() helpers.
+            envFrom:
+              - secretRef:
+                  name: khoj-secret
+            resources:
+              requests:
+                cpu: 100m
+                memory: 1Gi
+              limits:
+                memory: 4Gi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+              # readOnlyRootFilesystem omitted: khoj's startup writes to /tmp
+              # for Django collectstatic + cache fragments. The two PVCs cover
+              # durable state; rest is acceptable as writable rootfs given
+              # the app's behavior. Revisit with RO + tmpfs /tmp if needed.
+              seccompProfile:
+                type: RuntimeDefault
+    service:
+      app:
+        controller: khoj
+        ports:
+          http:
+            port: 42110
+    persistence:
+      config:
+        existingClaim: khoj-config
+        advancedMounts:
+          khoj:
+            app:
+              - path: /root/.khoj
+      models:
+        existingClaim: khoj-models
+        advancedMounts:
+          khoj:
+            app:
+              - path: /root/.cache
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          khoj:
+            app:
+              - path: /tmp

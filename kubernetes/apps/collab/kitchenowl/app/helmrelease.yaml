@@ -1,0 +1,70 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app kitchenowl
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+
+  interval: 30m
+  values:
+    controllers:
+      kitchenowl:
+        type: statefulset
+
+        containers:
+          app:
+            image:
+              repository: docker.io/tombursch/kitchenowl
+              tag: v0.7.8@sha256:9f8d7e7849c68b3b516c92938b0489dc6173568f266c48e429556de0cb9d8d82
+
+            env:
+              FRONT_URL: https://kitchenowl.${SECRET_DOMAIN}
+              # OIDC SSO via Authelia
+              OIDC_ISSUER: https://auth.${SECRET_DOMAIN}
+              OIDC_CLIENT_ID: kitchenowl
+              # JWT_SECRET_KEY + OIDC_CLIENT_SECRET via envFrom secret
+            envFrom:
+              - secretRef:
+                  name: kitchenowl-secret
+
+            resources:
+              requests:
+                cpu: 50m
+                memory: 256Mi
+              limits:
+                memory: 512Mi
+
+    service:
+      app:
+        controller: kitchenowl
+        ports:
+          http:
+            port: &httpPort 8080
+
+    route:
+      app:
+        annotations:
+          glance/name: "KitchenOwl"
+          glance/show: "true"
+          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/kitchenowl.png"
+          glance/id: "Collaboration"
+
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: *httpPort
+    persistence:
+      data:
+        existingClaim: kitchenowl-data-pvc
+        globalMounts:
+          - path: /data

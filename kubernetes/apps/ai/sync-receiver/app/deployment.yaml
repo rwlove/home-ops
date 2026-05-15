@@ -24,10 +24,12 @@ spec:
         app.kubernetes.io/name: sync-receiver
     spec:
       securityContext:
-        # Match the langgraph-agents "app" user (uid 1000) so files written
-        # by rsync are readable by the agent pod.
-        runAsUser: 1000
-        runAsGroup: 1000
+        # fsGroup=1000 so ceph PVC contents are group-readable by uid 1000
+        # (the user the linuxserver image drops to via PUID/PGID after its
+        # root-side init runs useradd/chown). Do NOT set runAsUser here — the
+        # linuxserver/openssh-server image must start as root to create the
+        # USER_NAME account, chown /config, and write sshd_config. It drops
+        # to PUID after init.
         fsGroup: 1000
       containers:
         - name: sshd
@@ -63,6 +65,16 @@ spec:
             - name: authorized-keys
               mountPath: /run/secrets
               readOnly: true
+            # linuxserver/openssh-server writes its host keys, sshd_config
+            # template, and the in-container user's ~/.ssh into /config.
+            # Without this mount the init script fails at "touch /config/.ssh/
+            # authorized_keys: No such file or directory" and sshd never
+            # starts. emptyDir is sufficient — losing host keys across pod
+            # restarts is fine since the laptop reconnects with a new
+            # known_hosts entry anyway (StrictHostKeyChecking=no is OK for
+            # a cluster-internal port-forward target).
+            - name: config
+              mountPath: /config
           resources:
             requests:
               cpu: 10m
@@ -89,3 +101,5 @@ spec:
               - key: authorized_keys
                 path: authorized_keys
                 mode: 0400
+        - name: config
+          emptyDir: {}

@@ -1,0 +1,253 @@
+{
+    "name": "LangGraph → Awaiting-user sweep",
+    "nodes": [
+        {
+            "name": "Every 5 min",
+            "type": "n8n-nodes-base.scheduleTrigger",
+            "typeVersion": 1.2,
+            "position": [
+                240,
+                300
+            ],
+            "parameters": {
+                "rule": {
+                    "interval": [
+                        {
+                            "field": "minutes",
+                            "minutesInterval": 5
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "name": "List in-flight tasks",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                460,
+                300
+            ],
+            "parameters": {
+                "method": "GET",
+                "url": "http://langgraph-agents.ai.svc.cluster.local:8765/admin/tasks",
+                "options": {
+                    "timeout": 30000
+                }
+            }
+        },
+        {
+            "name": "Classify by tier",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                680,
+                300
+            ],
+            "parameters": {
+                "language": "javaScript",
+                "jsCode": "// Bucket interrupted tasks by how long they've been paused.\n// 30min: secondary Pushover\n// 4h: persist as cold, no further action\n// 7d: auto-cancel (except per-agent overrides like errand-runner Class C cost>$100\n//     and health-tracker which never auto-cancels).\n\nconst now = Date.now();\nconst tasks = $input.first().json || [];\nconst paused = (Array.isArray(tasks) ? tasks : []).filter(t => t.interrupts && t.interrupts.length > 0);\n\nconst MIN_30 = 30 * 60 * 1000;\nconst HR_4 = 4 * 60 * 60 * 1000;\nconst DAY_7 = 7 * 24 * 60 * 60 * 1000;\n\nconst out = [];\nfor (const t of paused) {\n  const since = t.awaiting_user_since ? new Date(t.awaiting_user_since).getTime() : null;\n  if (!since) continue;\n  const age = now - since;\n  let tier = null;\n  if (age > DAY_7) tier = '7d';\n  else if (age > HR_4) tier = '4h';\n  else if (age > MIN_30) tier = '30min';\n  if (tier) {\n    out.push({ json: { task_id: t.task_id, tier, age_ms: age, agent: t.target_agent || 'unknown' } });\n  }\n}\nreturn out;"
+            }
+        },
+        {
+            "name": "Tier switch",
+            "type": "n8n-nodes-base.switch",
+            "typeVersion": 3,
+            "position": [
+                900,
+                300
+            ],
+            "parameters": {
+                "rules": {
+                    "values": [
+                        {
+                            "conditions": {
+                                "combinator": "and",
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $json.tier }}",
+                                        "rightValue": "30min",
+                                        "operator": { "type": "string", "operation": "equals" }
+                                    }
+                                ]
+                            },
+                            "outputKey": "30min"
+                        },
+                        {
+                            "conditions": {
+                                "combinator": "and",
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $json.tier }}",
+                                        "rightValue": "4h",
+                                        "operator": { "type": "string", "operation": "equals" }
+                                    }
+                                ]
+                            },
+                            "outputKey": "4h"
+                        },
+                        {
+                            "conditions": {
+                                "combinator": "and",
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $json.tier }}",
+                                        "rightValue": "7d",
+                                        "operator": { "type": "string", "operation": "equals" }
+                                    }
+                                ]
+                            },
+                            "outputKey": "7d"
+                        }
+                    ]
+                },
+                "options": {
+                    "fallbackOutput": "none"
+                }
+            }
+        },
+        {
+            "name": "Pushover 30min escalation",
+            "type": "n8n-nodes-base.pushover",
+            "typeVersion": 1,
+            "position": [
+                1120,
+                100
+            ],
+            "credentials": {
+                "pushoverApi": {
+                    "id": "Z7h0S0bfR7deJcvB",
+                    "name": "Pushover - alertmanager"
+                }
+            },
+            "parameters": {
+                "userKey": "<REPLACE_FROM_OP_AT_IMPORT_TIME>",
+                "title": "={{ '⏰ Task awaiting you (30m): ' + $json.task_id }}",
+                "message": "={{ 'Agent ' + $json.agent + ' is paused, age ' + Math.round($json.age_ms / 60000) + 'm. Reply in Zulip #approvals.' }}",
+                "priority": 1,
+                "additionalFields": {
+                    "sound": "gamelan"
+                }
+            }
+        },
+        {
+            "name": "Mark cold (4h)",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                1120,
+                300
+            ],
+            "parameters": {
+                "method": "POST",
+                "url": "=http://langgraph-agents.ai.svc.cluster.local:8765/admin/tasks/{{ $json.task_id }}/timeout-tier",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "specifyBody": "json",
+                "jsonBody": "={{ JSON.stringify({ tier: '4h' }) }}",
+                "options": {
+                    "timeout": 30000
+                }
+            }
+        },
+        {
+            "name": "Auto-cancel (7d)",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                1120,
+                500
+            ],
+            "parameters": {
+                "method": "POST",
+                "url": "=http://langgraph-agents.ai.svc.cluster.local:8765/admin/tasks/{{ $json.task_id }}/cancel",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "specifyBody": "json",
+                "jsonBody": "={{ JSON.stringify({ reason: '7-day timeout; auto-cancelled by awaiting-user sweep' }) }}",
+                "options": {
+                    "timeout": 30000
+                }
+            }
+        }
+    ],
+    "connections": {
+        "Every 5 min": {
+            "main": [
+                [
+                    {
+                        "node": "List in-flight tasks",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "List in-flight tasks": {
+            "main": [
+                [
+                    {
+                        "node": "Classify by tier",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Classify by tier": {
+            "main": [
+                [
+                    {
+                        "node": "Tier switch",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Tier switch": {
+            "main": [
+                [
+                    {
+                        "node": "Pushover 30min escalation",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Mark cold (4h)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Auto-cancel (7d)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "settings": {
+        "executionOrder": "v1"
+    }
+}

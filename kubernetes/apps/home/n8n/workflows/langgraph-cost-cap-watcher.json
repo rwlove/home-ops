@@ -1,0 +1,201 @@
+{
+    "name": "LangGraph → Cost cap watcher",
+    "nodes": [
+        {
+            "name": "Every 4h",
+            "type": "n8n-nodes-base.scheduleTrigger",
+            "typeVersion": 1.2,
+            "position": [
+                240,
+                300
+            ],
+            "parameters": {
+                "rule": {
+                    "interval": [
+                        {
+                            "field": "hours",
+                            "hoursInterval": 4
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "name": "Get cost summary",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                460,
+                300
+            ],
+            "parameters": {
+                "method": "GET",
+                "url": "http://langgraph-agents.ai.svc.cluster.local:8765/admin/costs/today",
+                "options": {
+                    "timeout": 30000
+                }
+            }
+        },
+        {
+            "name": "Classify utilization",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                680,
+                300
+            ],
+            "parameters": {
+                "language": "javaScript",
+                "jsCode": "// /admin/costs/today response shape (planned):\n//   { spent_usd: number, daily_cap_usd: number, per_agent: { <id>: usd } }\n//\n// TODO: this endpoint isn't implemented in langgraph-agents yet (phase 5+).\n// When Langfuse is deployed, it sources the per-task costs. Until then,\n// this workflow will skip gracefully when the endpoint returns 404/501.\n\nconst body = $input.first().json || {};\nconst spent = Number(body.spent_usd || 0);\nconst cap = Number(body.daily_cap_usd || 30);\nconst pct = cap > 0 ? (spent / cap) * 100 : 0;\n\nlet tier = 'ok';\nif (pct >= 100) tier = 'hit';\nelse if (pct >= 80) tier = 'warn';\n\nreturn [{ json: { spent, cap, pct: Math.round(pct), tier } }];"
+            }
+        },
+        {
+            "name": "Tier?",
+            "type": "n8n-nodes-base.switch",
+            "typeVersion": 3,
+            "position": [
+                900,
+                300
+            ],
+            "parameters": {
+                "rules": {
+                    "values": [
+                        {
+                            "conditions": {
+                                "combinator": "and",
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $json.tier }}",
+                                        "rightValue": "hit",
+                                        "operator": { "type": "string", "operation": "equals" }
+                                    }
+                                ]
+                            },
+                            "outputKey": "hit"
+                        },
+                        {
+                            "conditions": {
+                                "combinator": "and",
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $json.tier }}",
+                                        "rightValue": "warn",
+                                        "operator": { "type": "string", "operation": "equals" }
+                                    }
+                                ]
+                            },
+                            "outputKey": "warn"
+                        }
+                    ]
+                },
+                "options": {
+                    "fallbackOutput": "none"
+                }
+            }
+        },
+        {
+            "name": "Tier 1 cap hit",
+            "type": "n8n-nodes-base.pushover",
+            "typeVersion": 1,
+            "position": [
+                1120,
+                200
+            ],
+            "credentials": {
+                "pushoverApi": {
+                    "id": "Z7h0S0bfR7deJcvB",
+                    "name": "Pushover - alertmanager"
+                }
+            },
+            "parameters": {
+                "userKey": "<REPLACE_FROM_OP_AT_IMPORT_TIME>",
+                "title": "={{ '💥 Daily cost cap HIT ($' + $json.spent + ' / $' + $json.cap + ')' }}",
+                "message": "={{ 'langgraph-agents will refuse Claude-API-eligible specialists for the rest of the day.' }}",
+                "priority": 1,
+                "additionalFields": {
+                    "sound": "siren"
+                }
+            }
+        },
+        {
+            "name": "Tier 2 warn",
+            "type": "n8n-nodes-base.pushover",
+            "typeVersion": 1,
+            "position": [
+                1120,
+                400
+            ],
+            "credentials": {
+                "pushoverApi": {
+                    "id": "Z7h0S0bfR7deJcvB",
+                    "name": "Pushover - alertmanager"
+                }
+            },
+            "parameters": {
+                "userKey": "<REPLACE_FROM_OP_AT_IMPORT_TIME>",
+                "title": "={{ '⚠️ Daily cost cap 80%+ ($' + $json.spent + ' / $' + $json.cap + ')' }}",
+                "message": "={{ 'Approaching the daily limit. Consider deferring non-urgent Claude-API tasks.' }}",
+                "priority": 0,
+                "additionalFields": {
+                    "sound": "intermission"
+                }
+            }
+        }
+    ],
+    "connections": {
+        "Every 4h": {
+            "main": [
+                [
+                    {
+                        "node": "Get cost summary",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Get cost summary": {
+            "main": [
+                [
+                    {
+                        "node": "Classify utilization",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Classify utilization": {
+            "main": [
+                [
+                    {
+                        "node": "Tier?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Tier?": {
+            "main": [
+                [
+                    {
+                        "node": "Tier 1 cap hit",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Tier 2 warn",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "settings": {
+        "executionOrder": "v1"
+    }
+}

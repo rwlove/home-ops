@@ -1,0 +1,149 @@
+{
+    "name": "LangGraph → Approval post to Zulip",
+    "nodes": [
+        {
+            "name": "Approval Request Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 2,
+            "position": [
+                240,
+                300
+            ],
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "langgraph-approval-post",
+                "responseMode": "onReceived",
+                "options": {}
+            }
+        },
+        {
+            "name": "Build Zulip topic + content",
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.4,
+            "position": [
+                460,
+                300
+            ],
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "t1",
+                            "name": "topic",
+                            "value": "={{ $json.body.task_id + ' — Class ' + $json.body.paused_for.approval_request.action_class + ': ' + $json.body.paused_for.approval_request.target }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "t2",
+                            "name": "content",
+                            "value": "={{ '**Task:** `' + $json.body.task_id + '`\\n' + '**Proposed by:** ' + $json.body.paused_for.approval_request.proposed_by + '\\n' + '**Action class:** ' + $json.body.paused_for.approval_request.action_class + '\\n' + '**Target:** `' + $json.body.paused_for.approval_request.target + '`\\n' + '**Summary:** ' + $json.body.paused_for.approval_request.payload_summary + '\\n' + '**Undo path:** ' + ($json.body.paused_for.approval_request.undo_path || '_(none — will escalate to Class D)_') + '\\n' + '**Cost estimate:** $' + ($json.body.paused_for.approval_request.cost_estimate_usd || 0) + '\\n\\n' + 'React: 👍 approve / 👎 reject / ⏸️ defer 4h' }}",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "includeOtherFields": false,
+                "options": {}
+            }
+        },
+        {
+            "name": "Post to Zulip #approvals",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                680,
+                300
+            ],
+            "parameters": {
+                "method": "POST",
+                "url": "https://chat.${SECRET_DOMAIN}/api/v1/messages",
+                "authentication": "genericCredentialType",
+                "genericAuthType": "httpBasicAuth",
+                "sendBody": true,
+                "contentType": "form-urlencoded",
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "type",
+                            "value": "stream"
+                        },
+                        {
+                            "name": "to",
+                            "value": "approvals"
+                        },
+                        {
+                            "name": "topic",
+                            "value": "={{ $json.topic }}"
+                        },
+                        {
+                            "name": "content",
+                            "value": "={{ $json.content }}"
+                        }
+                    ]
+                },
+                "options": {}
+            }
+        },
+        {
+            "name": "Pushover Tier 1 attention",
+            "type": "n8n-nodes-base.pushover",
+            "typeVersion": 1,
+            "position": [
+                900,
+                300
+            ],
+            "credentials": {
+                "pushoverApi": {
+                    "id": "Z7h0S0bfR7deJcvB",
+                    "name": "Pushover - alertmanager"
+                }
+            },
+            "parameters": {
+                "userKey": "<REPLACE_FROM_OP_AT_IMPORT_TIME>",
+                "title": "={{ '🔔 Approval needed: Class ' + $('Approval Request Webhook').first().json.body.paused_for.approval_request.action_class }}",
+                "message": "={{ $('Approval Request Webhook').first().json.body.paused_for.approval_request.target + '\\n' + $('Approval Request Webhook').first().json.body.paused_for.approval_request.payload_summary + '\\n\\nReact in Zulip: chat.${SECRET_DOMAIN}' }}",
+                "priority": 1,
+                "additionalFields": {
+                    "sound": "gamelan"
+                }
+            }
+        }
+    ],
+    "connections": {
+        "Approval Request Webhook": {
+            "main": [
+                [
+                    {
+                        "node": "Build Zulip topic + content",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Build Zulip topic + content": {
+            "main": [
+                [
+                    {
+                        "node": "Post to Zulip #approvals",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Post to Zulip #approvals": {
+            "main": [
+                [
+                    {
+                        "node": "Pushover Tier 1 attention",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "settings": {
+        "executionOrder": "v1"
+    }
+}

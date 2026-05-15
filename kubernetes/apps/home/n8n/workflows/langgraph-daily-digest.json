@@ -1,0 +1,164 @@
+{
+    "name": "LangGraph → Daily digest",
+    "nodes": [
+        {
+            "name": "Daily 22:00 ET",
+            "type": "n8n-nodes-base.scheduleTrigger",
+            "typeVersion": 1.2,
+            "position": [
+                240,
+                300
+            ],
+            "parameters": {
+                "rule": {
+                    "interval": [
+                        {
+                            "field": "cronExpression",
+                            "expression": "0 22 * * *"
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "name": "Build inbox payload",
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.4,
+            "position": [
+                460,
+                300
+            ],
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "d1",
+                            "name": "task_id",
+                            "value": "={{ 'digest-' + $now.toFormat('yyyy-MM-dd') }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "d2",
+                            "name": "source",
+                            "value": "test",
+                            "type": "string"
+                        },
+                        {
+                            "id": "d3",
+                            "name": "content",
+                            "value": "Generate today's daily digest from the per-agent activity logs.",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "includeOtherFields": false,
+                "options": {}
+            }
+        },
+        {
+            "name": "POST /inbox (routes to reporter)",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                680,
+                300
+            ],
+            "parameters": {
+                "method": "POST",
+                "url": "http://langgraph-agents.ai.svc.cluster.local:8765/inbox",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "specifyBody": "json",
+                "jsonBody": "={{ JSON.stringify({ task_id: $json.task_id, source: $json.source, content: $json.content, user: 'rob' }) }}",
+                "options": {
+                    "timeout": 600000
+                }
+            }
+        },
+        {
+            "name": "Post digest summary to Zulip",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                900,
+                300
+            ],
+            "parameters": {
+                "method": "POST",
+                "url": "https://chat.${SECRET_DOMAIN}/api/v1/messages",
+                "authentication": "genericCredentialType",
+                "genericAuthType": "httpBasicAuth",
+                "sendBody": true,
+                "contentType": "form-urlencoded",
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "type",
+                            "value": "stream"
+                        },
+                        {
+                            "name": "to",
+                            "value": "digests"
+                        },
+                        {
+                            "name": "topic",
+                            "value": "={{ 'daily-' + $now.toFormat('yyyy-MM-dd') }}"
+                        },
+                        {
+                            "name": "content",
+                            "value": "={{ $json.output || 'Daily digest task complete; see vault/reports/daily-' + $now.toFormat('yyyy-MM-dd') + '.md' }}"
+                        }
+                    ]
+                },
+                "options": {}
+            }
+        }
+    ],
+    "connections": {
+        "Daily 22:00 ET": {
+            "main": [
+                [
+                    {
+                        "node": "Build inbox payload",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Build inbox payload": {
+            "main": [
+                [
+                    {
+                        "node": "POST /inbox (routes to reporter)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "POST /inbox (routes to reporter)": {
+            "main": [
+                [
+                    {
+                        "node": "Post digest summary to Zulip",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "settings": {
+        "executionOrder": "v1",
+        "timezone": "America/New_York"
+    }
+}

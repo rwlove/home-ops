@@ -1,0 +1,67 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/postgresql.cnpg.io/cluster_v1.json
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres-langgraph-checkpoints
+spec:
+  instances: 3
+
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.7
+
+  primaryUpdateStrategy: unsupervised
+
+  failoverDelay: 30
+
+  replicationSlots:
+    highAvailability:
+      enabled: true
+
+  postgresql:
+    parameters:
+      timezone: "America/New_York"
+
+  storage:
+    size: 8Gi
+    storageClass: ceph-block
+
+  walStorage:
+    size: 4Gi
+    storageClass: ceph-block
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+  enableSuperuserAccess: true
+  superuserSecret:
+    name: cloudnative-pg
+
+  bootstrap:
+    initdb:
+      database: langgraph_checkpoints
+      owner: langgraph
+
+  monitoring:
+    enablePodMonitor: true
+
+  plugins:
+    - enabled: true
+      isWALArchiver: true
+      name: barman-cloud.cloudnative-pg.io
+      parameters:
+        barmanObjectName: garage-langgraph-checkpoints
+        serverName: postgres-langgraph-checkpoints-backup
+
+  externalClusters:
+    - name: postgres-langgraph-checkpoints-backup
+      plugin:
+        enabled: true
+        isWALArchiver: false
+        name: barman-cloud.cloudnative-pg.io
+        parameters:
+          barmanObjectName: garage-langgraph-checkpoints
+          serverName: postgres-langgraph-checkpoints-backup

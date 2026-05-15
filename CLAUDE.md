@@ -3,6 +3,7 @@
 @.agents/instructions/helmfile.sorting.instructions.md
 @.agents/instructions/helmrelease.security.md
 @.agents/instructions/kustomize.config.sorting.instructions.md
+@.agents/instructions/persona.md
 @.agents/instructions/schema.correction.md
 @.agents/instructions/storage-class.instructions.md
 

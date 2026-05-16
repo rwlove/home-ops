@@ -233,7 +233,7 @@ def main() -> int:
     ko = KitchenOwl(env("KITCHENOWL_URL"), env("KITCHENOWL_USERNAME"),
                     pw, int(os.environ.get("KITCHENOWL_HOUSEHOLD") or "1"))
 
-    existing = {r["name"].strip().lower() for r in ko.list_recipes()}
+    existing = {clean(r["name"]).lower() for r in ko.list_recipes()}
     print(f"KitchenOwl already has {len(existing)} recipes in household "
           f"{ko.household}")
 
@@ -244,9 +244,9 @@ def main() -> int:
 
     created = skipped = failed = 0
     for s in to_process:
-        name = s["name"]
+        name = clean(s["name"])
         slug = s["slug"]
-        if name.strip().lower() in existing:
+        if name.lower() in existing:
             print(f"  SKIP  {name!r} (already exists)")
             skipped += 1
             continue

@@ -36,9 +36,6 @@ spec:
             image:
               repository: ghcr.io/rwlove/immich-pet-tagger
               tag: v1.0.0@sha256:1413acb0162b2496fba25d084fa15959751b881c6626767a54c5809eefcd5422
-            # image CMD is `python main.py` (relative); workingDir is /data,
-            # so resolve the entrypoint with an absolute path.
-            command: ["python", "/app/main.py"]
             env:
               IMMICH_URL: http://immich-server.media.svc.cluster.local:2283
               POLL_INTERVAL: "300"
@@ -85,15 +82,16 @@ spec:
                 nvidia.com/gpu: 1
             securityContext:
               allowPrivilegeEscalation: false
-              readOnlyRootFilesystem: true
+              # ultralytics downloads yolov8n.pt to cwd (/app) on first
+              # poll; can't honor a read-only rootfs. Long-term fix is to
+              # bundle the model in rwlove/containers/immich-pet-tagger
+              # (see project_immich_pet_tagger_yolo_weights.md).
+              readOnlyRootFilesystem: false
               capabilities:
                 drop:
                   - ALL
               seccompProfile:
                 type: RuntimeDefault
-            # ultralytics downloads YOLO weights to cwd by basename;
-            # /app is read-only, so point cwd at /data PVC instead.
-            workingDir: /data
 
     service:
       app:

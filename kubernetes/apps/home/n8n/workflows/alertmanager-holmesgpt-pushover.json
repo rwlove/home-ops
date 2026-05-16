@@ -74,11 +74,24 @@
       }
     },
     {
+      "name": "Format Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const src = $input.first().json;\nconst raw = String(src.analysis || src.response || '').trim();\nlet message;\nif (!raw) {\n  message = '⚠️ HolmesGPT returned no analysis. Check the n8n execution.';\n} else if (raw.length <= 1000) {\n  message = raw;\n} else {\n  const cut = raw.slice(0, 997);\n  const m = cut.match(/^[\\s\\S]*[.!?\\n](?=[^.!?\\n]*$)/);\n  message = ((m && m[0].length > 600) ? m[0] : cut).trimEnd() + '…';\n}\nreturn [{ json: { message } }];"
+      }
+    },
+    {
       "name": "Send Pushover",
       "type": "n8n-nodes-base.pushover",
       "typeVersion": 1,
       "position": [
-        900,
+        1120,
         300
       ],
       "credentials": {
@@ -90,7 +103,7 @@
       "parameters": {
         "userKey": "<REPLACE_FROM_OP_AT_IMPORT_TIME>",
         "title": "={{ '🔍 ' + $('Build HolmesGPT Prompt').first().json.alertname }}",
-        "message": "={{ ($json.analysis || $json.response || JSON.stringify($json)).slice(0, 1000) }}",
+        "message": "={{ $json.message }}",
         "priority": 0,
         "additionalFields": {
           "sound": "intermission"
@@ -122,6 +135,17 @@
       ]
     },
     "HolmesGPT Investigate": {
+      "main": [
+        [
+          {
+            "node": "Format Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Message": {
       "main": [
         [
           {

@@ -1,0 +1,82 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: time-mcp
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  values:
+    defaultPodOptions:
+      securityContext:
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+    controllers:
+      time-mcp:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        pod:
+          annotations:
+            sidecar.istio.io/inject: "true"
+        containers:
+          app:
+            image:
+              repository: docker.io/mekayelanik/time-mcp
+              tag: "1.0.6"
+            env:
+              PORT: "8060"
+              # streamable-HTTP transport at /mcp; image also exposes /sse + /message.
+              PROTOCOL: SHTTP
+              TZ: America/New_York
+              ENABLE_HTTPS: "false"
+            resources:
+              requests:
+                cpu: 10m
+                memory: 128Mi
+              # mekayelanik/time-mcp:1.0.6 leaks ~37 MiB/min; 2 GiB
+              # roughly doubles MTBR to ~28 min. Real fix is replacing
+              # the image.
+              limits:
+                memory: 2Gi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+              readOnlyRootFilesystem: true
+              seccompProfile:
+                type: RuntimeDefault
+    persistence:
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          time-mcp:
+            app:
+              - path: /tmp
+                subPath: tmp
+    service:
+      app:
+        controller: time-mcp
+        ports:
+          http:
+            port: 8060
+    route:
+      app:
+        hostnames:
+          - "time-mcp.mcp.local"
+        parentRefs:
+          - name: mcp-gateway
+            namespace: mcp-system
+            sectionName: mcps
+        rules:
+          - matches:
+              - path:
+                  type: PathPrefix
+                  value: /mcp
+            backendRefs:
+              - identifier: app
+                port: 8060

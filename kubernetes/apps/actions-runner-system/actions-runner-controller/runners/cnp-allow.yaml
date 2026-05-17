@@ -1,0 +1,40 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: arc-runner-set-home-ops-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: arc-runner-set-home-ops
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it. Selector matches both the long-running
+  # listener pod (arc-runner-set-home-ops-*-listener) AND ephemeral
+  # runner pods (arc-runner-set-home-ops-*-runner-*) — they share the
+  # gha-runner-scale-set chart's pod label.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # Conservative wildcard for the runner pods: these execute user-
+    # authored GitHub Actions workflows, which can `git clone`,
+    # `docker pull`, fetch artifacts from any URL, talk to
+    # registries, etc. Locking egress to a specific allow-list would
+    # break every workflow that introduces a new external dependency,
+    # so the trust boundary is the controller's GitHub-App scoping,
+    # not the network.
+    #
+    # TODO: tighten if/when a registry mirror (ZOT) becomes mandatory
+    # for runner pulls. As-is this matches the pre-default-deny baseline.
+    - toFQDNs:
+        - matchPattern: "*"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "80"
+              protocol: TCP
+    # The listener also opens a long-lived gRPC-over-HTTPS session to
+    # GitHub's runner service, which uses port 443 (covered by the
+    # wildcard above).

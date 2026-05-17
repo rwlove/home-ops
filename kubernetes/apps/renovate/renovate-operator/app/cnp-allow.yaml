@@ -1,0 +1,42 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: renovate-operator-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app: renovate-operator
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it. The renovate-operator chart uses a bare
+  # `app: renovate-operator` label (NOT `app.kubernetes.io/name`).
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on internal gateway → renovate-operator:8081 (named
+    # "http"). renovate.${SECRET_DOMAIN} is the webhook endpoint used
+    # by GitHub repository webhook deliveries that arrive via
+    # cloudflared → envoy → here. Port 8082 is the operator's metrics
+    # port; the baseline allow-monitoring-scrape covers Prometheus.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "8081"
+              protocol: TCP
+  egress:
+    # GitHub API: operator polls api.github.com for repo discovery and
+    # PR state. The operator itself does not clone repos — that's the
+    # spawned RenovateJob pods (covered by renovate-jobs-allow in
+    # ../jobs/).
+    - toFQDNs:
+        - matchName: "api.github.com"
+        - matchName: "github.com"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

@@ -22,18 +22,22 @@ spec:
       registry: quay.io
       repository: prometheus/node-exporter
 
-    # RAPL collector needs to read /sys/class/powercap/intel-rapl:*/energy_uj
-    # which on recent kernels is mode 400 root-only (Platypus side-channel
-    # mitigation). DAC_READ_SEARCH lets a non-root container bypass the
-    # file read permission check without escalating to full root. See
-    # https://github.com/prometheus/node_exporter/issues/2151
+    # RAPL collector needs to read /sys/class/powercap/intel-rapl:*/energy_uj,
+    # mode 400 root-only on recent kernels (Platypus side-channel mitigation).
+    # CAP_DAC_READ_SEARCH alone is insufficient: on a non-root UID the cap
+    # lands in the bounding set but effective/permitted/ambient stay empty
+    # (Linux capability model — needs file caps on the binary or the kernel
+    # ambient set, neither of which the chart provides). Simplest fix is
+    # runAsUser: 0. node-exporter mounts /proc, /sys, /root read-only so
+    # root inside the container isn't a meaningful trust escalation.
+    securityContext:
+      runAsUser: 0
+      runAsNonRoot: false
     containerSecurityContext:
       readOnlyRootFilesystem: true
       capabilities:
         drop:
           - ALL
-        add:
-          - DAC_READ_SEARCH
 
     prometheus:
       monitor:

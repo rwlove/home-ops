@@ -396,6 +396,46 @@ A single `rwlove/langgraph-agents` FastAPI service runs the fleet. Each agent is
 
 `health-tracker` and `errand-runner` are pinned local-only — they never escalate, even if quality suffers, because the data class isn't suitable for off-site inference.
 
+#### Voice-to-action: dictate on Android, act in the cluster
+
+The most common way work enters the agent fleet: dictate a note on the phone, watch it become an actioned outcome.
+
+```mermaid
+flowchart LR
+    Phone[📱 Android Obsidian<br/>voice-to-text dictation] -->|markdown into /inbox| CouchDB[(obsidian-couchdb<br/>self-hosted Obsidian sync)]
+    CouchDB --> Laptop[💻 Laptop Obsidian<br/>same vault]
+    CouchDB -->|new note in /inbox| Hook[n8n: langgraph-inbox<br/>webhook]
+    Hook -->|POST /inbox| LG[langgraph-agents]
+    LG --> Triage[triager classifies]
+    Triage -->|capture only| Note[note-maker<br/>files to vault]
+    Triage -->|plan + act| Spec[specialist agent<br/>drafts action plan]
+    Spec -->|needs input| Zulip[💬 Zulip approval<br/>+ Pushover ping]
+    Zulip -->|reply| Receive[langgraph-approval-receive]
+    Receive --> Spec
+    Spec -->|executes via MCP| Done[outcome → vault<br/>→ reporter digest]
+    Note --> Done
+    Done --> CouchDB
+```
+
+1. **Dictate** — Open Obsidian on Android, drop a note into the inbox folder, tap the mic, talk. The phone's voice-to-text handles transcription; no cluster-side STT in this loop.
+2. **Sync** — Obsidian Self-hosted LiveSync replicates the new note through `obsidian-couchdb` in the cluster. Cloudflare rate-limits the auth endpoint to blunt credential stuffing.
+3. **Pick-up** — a new file in `/inbox/` triggers a POST to the `langgraph-inbox` n8n webhook with `{ source: "voice", user, content }`. n8n normalizes the payload and calls `langgraph-agents` `/inbox`.
+4. **Triage** — `triager` classifies: research question, household errand, homelab change, property task, or note-to-self. The classification picks the specialist agent.
+5. **Plan or just capture** —
+   - **Capture only** → `note-maker` files the note into the right vault folder. Pipeline ends.
+   - **Plan + act** → the specialist (`errand-runner`, `homelab-engineer`, `property-coordinator`, `smart-home-engineer`, etc.) drafts an action plan: goal, steps, tool calls, expected cost. Plan is persisted to Postgres + a draft in `/vault/outputs/`.
+6. **HITL — pause and ask** — the agent pauses and asks for input whenever:
+   - Intent is ambiguous (multiple plausible interpretations of the dictation)
+   - The plan needs a decision the agent can't make alone (which vendor, which date, which file)
+   - Estimated cost exceeds the per-task cap
+   - The action touches a flagged-irreversible system (anything in the operational pillars list)
+
+   `langgraph-approval-post` packages the plan into a signed Zulip message + Pushover ping. The operator replies in-thread on whatever device is closest. `langgraph-approval-receive` parses the reply back into structured input; `langgraph-awaiting-user-sweep` nudges anything that's been stuck too long. The signing key (rotated daily via the same machinery as the MCP gateway) prevents anyone else in the realm from impersonating an approval.
+7. **Execute** — agent resumes with the operator's input, runs tool calls through the MCP gateway, honors per-task and global cost caps.
+8. **Report back to the same surface** — outcome lands as a markdown file under `/vault/outputs/{drafts,finals}/` and syncs back through `obsidian-couchdb` — so the result reaches the phone in the same vault the dictation came from. The `reporter` agent rolls completed items into the daily Zulip digest.
+
+The loop closes locally and on a single surface: an idea spoken into the phone in a parking lot comes back as a finished draft, a completed errand, or an action plan awaiting confirmation — all inside the Obsidian vault that started it, with Zulip as the side-channel only when input is needed.
+
 #### Alert triage (production today)
 
 HolmesGPT is the one agent already running in production:

@@ -1,0 +1,30 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: actions-runner-controller-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: gha-rs-controller
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it. The Helm chart uses
+  # `app.kubernetes.io/name: gha-rs-controller` (not "actions-runner-controller").
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # GitHub API: the operator authenticates as a GitHub App, polls for
+    # the registration token, and reconciles runner-scale-set state.
+    # api.github.com resolves to Azure IPs (e.g. 20.85.130.105 in
+    # observed Hubble flows). The codeload.github.com hostname is not
+    # used by the controller itself (only by runners), but allow it
+    # here too for symmetry / future webhook subscriptions.
+    - toFQDNs:
+        - matchName: "api.github.com"
+        - matchName: "github.com"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

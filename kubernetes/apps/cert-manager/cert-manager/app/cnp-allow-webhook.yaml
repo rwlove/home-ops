@@ -1,0 +1,31 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: cert-manager-webhook-allow
+spec:
+  # Webhook pods carry `app.kubernetes.io/name: webhook` (distinct
+  # from controller/cainjector which use cert-manager/cainjector).
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: webhook
+  # Additive — default-deny is what triggers the lockdown; this rule
+  # punches a hole for kube-apiserver → webhook callback. Egress is
+  # apiserver-only and already covered by the baseline.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # kube-apiserver calls the admission webhook on port 10250 ("https"
+    # named port; svc 443 → containerPort 10250). Cilium policy
+    # matches on the pod's container port. The apiserver carries the
+    # reserved:kube-apiserver identity (not a pod identity), so use
+    # fromEntities — same reason allow-apiserver in baseline uses
+    # toEntities for egress (see project_cilium_ipblock_apiserver).
+    - fromEntities:
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - port: "10250"
+              protocol: TCP

@@ -75,14 +75,22 @@ spec:
         # PoE delivered per Omada switch
         - record: power:omada_poe:watts
           expr: sum by (device_name) (omada_port_power_watts)
-        # CPU package power across the 4 physical workers (master1, worker2,
-        # worker3, worker4). The other 6 cluster nodes are KVM guests on
-        # beast and have no /sys/class/powercap exposed — beast's iDRAC
-        # already accounts for their power. RAPL captures ~60-70% of true
-        # system power on M910x (CPU package only; RAM, NIC, disk, board
-        # not measured).
+        # CPU package power across the 4 physical cluster nodes (master1,
+        # worker2, worker3, worker4). Filter on `kubernetes_node` label
+        # which the cluster ServiceMonitor relabel injects — brain's
+        # external scrape config doesn't set it, so brain is excluded.
+        # The other 6 cluster nodes are KVM guests on beast and have no
+        # /sys/class/powercap exposed — beast's iDRAC already accounts
+        # for their power. RAPL captures ~60-70% of true system power
+        # on M910x (CPU package only; RAM, NIC, disk, board not measured).
         - record: power:workers_cpu:watts
-          expr: sum(rate(node_rapl_package_joules_total[2m]))
+          expr: sum(rate(node_rapl_package_joules_total{kubernetes_node!=""}[2m]))
+        # brain CPU package power. brain runs as systemd node-exporter
+        # with a User=root drop-in to read RAPL (mode 400 root-only since
+        # Platypus mitigation). Captured in lovenet-network-configuration
+        # repo systemd/ dir.
+        - record: power:brain_cpu:watts
+          expr: rate(node_rapl_package_joules_total{instance="brain.thesteamedcrab.com:9100"}[2m])
     # Anomaly alerts on the recording rules above.
     - name: power.alerts
       rules:

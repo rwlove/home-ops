@@ -1,0 +1,45 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: envoy-gateway-allow
+spec:
+  # The envoy-gateway operator pod (control plane). Distinct from the
+  # data-plane envoy pods which use app.kubernetes.io/name=envoy and
+  # are covered by `envoy-proxy-allow`.
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: gateway-helm
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # xDS / extension-server gRPC ports — data-plane envoy pods
+    # connect back to envoy-gateway for config (xds 18000, ratelimit
+    # 18001, oidc 18002, metrics 19001, webhook 9443). Selecting by
+    # cluster covers data-plane pods in the same ns plus the
+    # kube-apiserver admission webhook calls (host) — see below.
+    - fromEntities:
+        - cluster
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "18000"
+              protocol: TCP
+            - port: "18001"
+              protocol: TCP
+            - port: "18002"
+              protocol: TCP
+            - port: "19001"
+              protocol: TCP
+            - port: "9443"
+              protocol: TCP
+  # No additional egress needed beyond baseline — flows covered by:
+  #   - baseline allow-apiserver (kube-apiserver status updates)
+  #   - baseline allow-dns (CoreDNS for service discovery)
+  #   - baseline allow-intra-namespace (data-plane envoy connecting *to* the
+  #     operator for xDS is an ingress on this pod, not an egress)

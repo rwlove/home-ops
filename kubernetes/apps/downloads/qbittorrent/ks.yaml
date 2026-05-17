@@ -3,6 +3,33 @@
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
+  name: &app qbittorrent-secrets
+spec:
+  commonMetadata:
+    labels:
+      app.kubernetes.io/name: *app
+  targetNamespace: downloads
+  path: ./kubernetes/apps/downloads/qbittorrent/secrets
+  interval: 30m
+  timeout: 5m
+  prune: true
+  wait: true
+  sourceRef:
+    kind: GitRepository
+    name: home-ops-kubernetes
+    namespace: flux-system
+  dependsOn:
+    - name: onepassword-connect
+      namespace: external-secrets
+  healthCheckExprs:
+    - apiVersion: external-secrets.io/v1
+      kind: ExternalSecret
+      current: status.conditions.exists(c, c.type == 'Ready' && c.status == 'True')
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/kustomization-kustomize-v1.json
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
   name: &app qbittorrent
 spec:
   commonMetadata:
@@ -22,6 +49,11 @@ spec:
       namespace: vpn
     - name: longhorn
       namespace: longhorn-system
+    - name: qbittorrent-secrets
+      namespace: downloads
   postBuild:
     substitute:
       APP: *app
+    substituteFrom:
+      - kind: Secret
+        name: qbittorrent-secret

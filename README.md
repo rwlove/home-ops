@@ -101,7 +101,7 @@ Storage tiers are picked deliberately per workload — see [`storage-class.instr
 | 💪   | worker7   | VM on **beast**     | 10  | 30 GB | CentOS 9   | NVMe (Longhorn + Ceph OSD)   |                                       |
 | 🎮   | worker8   | VM on **beast**     | 10  | 55 GB | CentOS 9   | NVMe (Longhorn + Ceph OSD)   | NVIDIA **P40** (24 GB VRAM)           |
 
-**Off-cluster infrastructure**
+### Off-cluster infrastructure
 
 | Host    | Role                                                                                          |
 |---------|-----------------------------------------------------------------------------------------------|
@@ -357,7 +357,7 @@ flowchart TB
     LG --> DB
 ```
 
-#### Agent fleet (LangGraph)
+### Agent fleet (LangGraph)
 
 A single `rwlove/langgraph-agents` FastAPI service runs the fleet. Each agent is a LangGraph graph with its own persona, tool set, and cost cap. Postgres-checkpointed state lets long-running plans survive restarts.
 
@@ -377,7 +377,7 @@ A single `rwlove/langgraph-agents` FastAPI service runs the fleet. Each agent is
 | `property-coordinator` | 3532 Foxhall workstreams (contractors, deck, pool)         |
 | `health-tracker`       | Local-only — never escalated to Claude API                 |
 
-#### Pipeline stages
+### Pipeline stages
 
 1. **Inbox** — `langgraph-inbox.json` workflow ingests requests from chat, AlertManager, or scheduled triggers.
 2. **Triage** — `triager` classifies and assigns to a specialist agent.
@@ -386,7 +386,7 @@ A single `rwlove/langgraph-agents` FastAPI service runs the fleet. Each agent is
 5. **Execute** — agent runs tool calls through the MCP gateway. Cost caps enforced by `langgraph-cost-cap-watcher` ($5/task, $10/agent/day, $30/global/day).
 6. **Report** — output written to `langgraph-vault` (drafts / finals), summarized into the `reporter` agent's daily Zulip digest (`langgraph-daily-digest`).
 
-#### Local-first by design
+### Local-first by design
 
 | Tier | Backend                       | When used                                                  |
 |------|-------------------------------|------------------------------------------------------------|
@@ -396,7 +396,7 @@ A single `rwlove/langgraph-agents` FastAPI service runs the fleet. Each agent is
 
 `health-tracker` and `errand-runner` are pinned local-only — they never escalate, even if quality suffers, because the data class isn't suitable for off-site inference.
 
-#### Voice-to-action: power button → HA Assist → agents → Obsidian
+### Voice-to-action: power button → HA Assist → agents → Obsidian
 
 The most common way work enters the fleet — hold the phone's power button, say "inbox &lt;whatever I'm thinking&gt;", and the cluster takes it from there.
 
@@ -424,7 +424,7 @@ flowchart LR
     Couch -->|LiveSync| Phone[📱 Obsidian on phone<br/>same vault]
 ```
 
-##### The path
+#### The path
 
 1. **Hold power button.** Pixel's "Hold for Assistant" gesture is bound to the HA Companion app as the default digital assistant. The Assist UI opens with the mic hot.
 2. **Speak.** Audio streams to the cluster — no on-phone STT. The trigger phrase is `inbox <body>`; everything after `inbox` is the note.
@@ -439,7 +439,7 @@ flowchart LR
 
 The loop closes locally and on one surface: power-button → speak → outcome appears in the vault. Whisper, Ollama, n8n, and the agents all run in the cluster; the only off-site dependency is `claude.com` if the local fleet escalates a task.
 
-#### Alert triage (production today)
+### Alert triage (production today)
 
 HolmesGPT is the one agent already running in production:
 
@@ -447,7 +447,7 @@ HolmesGPT is the one agent already running in production:
 - HolmesGPT queries Prometheus, Loki, and the cluster directly to build a root-cause hypothesis
 - Result posted back as a Pushover message + Zulip thread; n8n sanitizes raw tool-call descriptors out of the agent text before delivery
 
-#### Current state (2026-05-16)
+### Current state (2026-05-16)
 
 - **HolmesGPT** — live, handling cluster alerts daily.
 - **LangGraph fleet** — plumbed but cold (`ENABLE_CLAUDE_API: false`, no production triggers). Gated on NVIDIA Spark / Ascent GX10 arrival (~2026-05-20), which becomes the primary Ollama backend before the fleet goes hot.
@@ -472,25 +472,32 @@ HolmesGPT is the one agent already running in production:
 
 ## 🛡️ Operational pillars
 
-#### 💾 Tiered storage durability
+### 💾 Tiered storage durability
+
 Four tiers, picked by what the data has to survive — node loss, Ceph loss, cluster loss, or full site loss. Databases get `ceph-block` + Barman→Garage; irreplaceable state goes to Longhorn with NFS-shipped weekly + monthly backups; S3-shaped workloads use Garage; bulk media rides direct NFS. Full decision tree: [`.agents/instructions/storage-class.instructions.md`](.agents/instructions/storage-class.instructions.md).
 
-#### 🔐 Secrets — zero plain-text in Git
+### 🔐 Secrets — zero plain-text in Git
+
 All 109 ExternalSecrets resolve through External Secrets Operator from 1Password. Application credentials are templated into `ExternalSecret` resources and never live in YAML. Cross-namespace mirrors use the reflector pattern when consumer charts hard-code secret names.
 
-#### 🪪 Authentication — single sign-on everywhere
+### 🪪 Authentication — single sign-on everywhere
+
 Authelia (with LLDAP) is the OIDC identity provider; per-app oauth2-proxy instances enforce auth at Envoy Gateway. 24 apps sit behind SSO today. The mcp-gateway validates Authelia-issued JWTs with a daily-rotated signing key for MCP tooling.
 
-#### 🔭 Observability — metrics, logs, AI triage
+### 🔭 Observability — metrics, logs, AI triage
+
 kube-prometheus-stack scrapes everything; Loki ingests pod logs; Grafana stitches the dashboards. AlertManager fans alerts to Pushover and to **HolmesGPT**, which runs LLM-driven root-cause investigation against the cluster and posts findings back via n8n.
 
-#### 🎮 GPU workloads
+### 🎮 GPU workloads
+
 A single NVIDIA P40 (24 GB VRAM) on worker8 drives Ollama (local LLM), ComfyUI (image gen), Whisper STT, Immich's CLIP face/pet recognition, and the immich-pet-tagger fork pinned to a P40-compatible PyTorch build. Driver lifecycle is handled by the NVIDIA GPU Operator.
 
-#### 🛟 Disaster recovery
+### 🛟 Disaster recovery
+
 Per-app rclone CronJobs ship Immich originals and Paperless documents — plus their Garage-stored Postgres backups — to encrypted AWS S3 with a 1-day Glacier Deep Archive transition. Recovery procedure is documented at [`docs/src/offsite_recovery.md`](docs/src/offsite_recovery.md) and was last validated 2026-05-05.
 
-#### 🌪️ Strict GitOps
+### 🌪️ Strict GitOps
+
 Every change reaches the cluster through Git. Flux suspends are a deliberate manual signal — paused Kustomizations are not "broken," they're intentional pauses for in-flight maintenance and are documented in conventions, not reverted on sight.
 
 ---

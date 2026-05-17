@@ -36,9 +36,11 @@ run `destroy-cluster.sh`.
 2. **Confirm a recent CNPG backup exists** for every cluster you care
    about. Either inspect `s3://postgres-*-backup/<serverName>/base/`
    in the Garage WebUI, or run an immediate backup first:
-   ```
+
+   ```bash
    ./tools/onetime-cnpg-backup.sh        # uses postgres cluster name
    ```
+
    For per-app, edit `kubernetes/apps/databases/cloudnative-pg/config/onetimebackup.yaml`
    to target the cluster (e.g. `postgres-immich`) and apply.
 3. **Confirm 1Password Connect creds are current** — the `kubernetes`
@@ -57,7 +59,7 @@ run `destroy-cluster.sh`.
 
 Only needed if reusing the same hardware. Skip on a fresh fleet.
 
-```
+```bash
 ./init/destroy-cluster.sh    # from your laptop, NOT a control plane
 ```
 
@@ -68,17 +70,21 @@ This drains every node, runs `kubeadm reset`, wipes Ceph devices via
 ## Bootstrap
 
 1. **Create the cluster** (run on `master1`):
-   ```
+
+   ```bash
    ./init/create-cluster.sh
    ```
+
    Sets up kube-vip, runs `kubeadm init`, joins masters 2/3 and all
    workers, labels Longhorn-eligible nodes, makes `master1`
    schedulable.
 
 2. **Initialize the cluster** (run on your laptop):
-   ```
+
+   ```bash
    ./init/initialize-cluster.sh
    ```
+
    Pulls the kubeconfig from `master1`, creates the bootstrap
    namespaces, runs `just -f bootstrap/mod.just resources` (renders
    1Password-backed secrets), applies CRDs from
@@ -87,9 +93,11 @@ This drains every node, runs `kubeadm reset`, wipes Ceph devices via
    1Password Connect, Flux operator + instance).
 
 3. **Remove the static kube-vip manifest** (run on your laptop):
-   ```
+
+   ```bash
    ssh root@master1 rm /etc/kubernetes/manifests/kube-vip.yaml
    ```
+
    Once Flux brings up the in-cluster kube-vip, the static pod is
    redundant and will fight for the VIP.
 
@@ -98,7 +106,7 @@ This drains every node, runs `kubeadm reset`, wipes Ceph devices via
 Flux should now be reconciling everything under `kubernetes/`. Watch
 for the bootstrap chain:
 
-```
+```bash
 flux get sources git -A
 flux get ks -A          # kustomizations should turn Ready=True
 flux get hr -A
@@ -106,6 +114,7 @@ kubectl get events -A --sort-by=.lastTimestamp | tail -50
 ```
 
 Order to expect things to come up:
+
 1. `flux-system` → cilium, coredns, cert-manager, external-secrets, 1Password Connect
 2. `rook-ceph` → operator, then `rook-ceph-cluster` (slow; wait for OSDs to form)
 3. `databases/cloudnative-pg` (operator + barman-cloud plugin)
@@ -196,7 +205,7 @@ this in advance on a branch and merge right before destroy.)
 
 Watch one cluster at a time:
 
-```
+```bash
 kubectl -n databases get cluster -w
 kubectl -n databases describe cluster postgres-immich | tail -50
 kubectl cnpg -n databases status postgres-immich
@@ -223,7 +232,7 @@ default to "restore latest".
 
 ### Verifying a recovery
 
-```
+```bash
 kubectl cnpg -n databases status <cluster-name>
 kubectl cnpg -n databases psql <cluster-name> -- -c '\l'
 kubectl cnpg -n databases psql <cluster-name> -- -c 'SELECT pg_is_in_recovery(), now();'
@@ -274,9 +283,11 @@ NFS, *not* in CNPG. Recovery for those:
 1. **Update `KUBECONFIG` GitHub Actions secret**:
    GitHub → repo Settings → Secrets and Variables → Actions → edit
    `KUBECONFIG`:
-   ```
+
+   ```bash
    cat ~/.kube/config | base64 -w0
    ```
+
 2. **Re-comment any `bootstrap.recovery` blocks you uncommented**
    for the rebuild, in a follow-up commit. They're no-ops once the
    cluster exists, but leaving an explicit recovery source in Git
@@ -285,9 +296,11 @@ NFS, *not* in CNPG. Recovery for those:
 3. **Re-suspend any Flux resources** that were suspended pre-rebuild
    (suspension state is not in Git).
 4. **Verify the Ceph dashboard password**:
-   ```
+
+   ```bash
    ./tools/get-ceph-password.sh
    ```
+
 5. **Watch one full backup cycle complete** for each CNPG cluster
    before considering the rebuild done. `kubectl -n databases get
    backup` should show a new entry per cluster.

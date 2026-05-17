@@ -1,0 +1,69 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: garage-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: garage
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # External S3 traffic enters via envoy (s3.thesteamedcrab.com →
+    # internal Envoy gateway → garage:3900). Also covers garage-webui
+    # → garage admin path (3903) when fronted by envoy.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "3900" # S3 API
+              protocol: TCP
+            - port: "3903" # Admin API
+              protocol: TCP
+    # In-cluster S3 clients reach garage directly via the cluster-DNS
+    # Service (garage.storage.svc.cluster.local:3900) — no envoy hop.
+    # Known consumers as of 2026-05-17:
+    #   databases/<cnpg-instance-manager>  — CNPG Barman ObjectStore
+    #     (20+ clusters; pod names rotate per backup, ns-level select)
+    #   media/immich-offsite-backup        — rclone CronJob (no labels
+    #     on pod template; auto-generated job-name churns)
+    #   collab/paperless-offsite-backup    — same pattern
+    # Selecting full namespaces is appropriate because CronJob and
+    # CNPG instance-manager pods rotate names; the cross-ns boundary
+    # is the meaningful gate, and these three namespaces are already
+    # default-deny locked-down themselves.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+        - matchLabels:
+            io.kubernetes.pod.namespace: media
+        - matchLabels:
+            io.kubernetes.pod.namespace: collab
+      toPorts:
+        - ports:
+            - port: "3900" # S3 API
+              protocol: TCP
+    # Garage RPC port (3901) — peer-to-peer cluster gossip. Currently
+    # single-replica (replication_factor=1) so no peers, but allow
+    # intra-ns to future-proof against the multi-node Garage path.
+    # Covered by the baseline allow-intra-namespace; no extra rule needed.
+  egress:
+    # Garage substrate is NFS on brain (NFS_HOST_0 -
+    # /mnt/kubernetes/garage/{data,meta}). The volumes are mounted via
+    # PVC, but Garage opens lmdb metadata files and writes data blobs
+    # directly to those NFS-backed PVs. The NFS RPC originates from the
+    # kubelet (not the pod), so this isn't a pod-level egress concern —
+    # the baseline allow-host-probes + the kernel NFS client handle it
+    # at the host level.
+    #
+    # Pod-level egress here is the application-level S3-protocol
+    # surface; garage doesn't make outbound HTTP except for the
+    # metadata_auto_snapshot which writes locally.
+    # DNS + apiserver covered by baseline.

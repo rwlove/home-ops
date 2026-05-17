@@ -1,0 +1,45 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: garage-webui-oauth2-proxy-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: garage-webui-oauth2-proxy
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on internal gateway (garage.${SECRET_DOMAIN}) →
+    # garage-webui-oauth2-proxy:4180 → upstream garage-webui:3909.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "4180"
+              protocol: TCP
+  egress:
+    # OIDC discovery + token exchange against Authelia.
+    # auth.${SECRET_DOMAIN} resolves to the internal Envoy gateway VIP,
+    # which then routes to the auth namespace.
+    # Upstream → garage-webui.storage.svc.cluster.local:3909. Same-ns;
+    # the baseline allow-intra-namespace already covers that path.
+    #
+    # Cilium 1.19's toFQDNs.matchName doesn't match through Kubernetes
+    # pod DNS search-domain augmentation (pod queries
+    # `auth.thesteamedcrab.com.storage.svc.cluster.local.` and the
+    # FQDN cache stores the augmented name; matchName misses it). The
+    # bare + `.*` dual-form matchPattern covers both un-augmented and
+    # search-domain-augmented forms — see PR #11492 for the canonical
+    # example.
+    - toFQDNs:
+        - matchPattern: "auth.thesteamedcrab.com"
+        - matchPattern: "auth.thesteamedcrab.com.*"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

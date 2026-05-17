@@ -1,0 +1,620 @@
+# NetworkPolicy Rollout Plan
+
+Status: **APPROVED — Phase 0 in flight.**
+Owner: home-ops
+Last updated: 2026-05-17
+
+## Decisions (locked)
+
+1. **`flux-system` and `kube-system` are out of scope.** Neither
+   namespace gets a default-deny. Documented in "Out of scope" below.
+   Rationale: blast radius of breaking either is loss of the rollback
+   mechanism itself; the perimeter (1P/SSO/CF tunnel/firewalld zones)
+   already provides the meaningful threat boundary for these namespaces.
+2. **One PR per namespace.** Branch `netpol/<ns>`. The
+   default-deny ships as a *separate* PR after the allow-policies
+   have soaked ≥24h with zero unexplained Hubble drops.
+3. **Audit mode first.** Every default-deny lands with
+   `policy.cilium.io/audit-mode: enabled` on a single canary pod
+   (Phase 1) or the whole namespace (Phase 2+); flip to enforce only
+   after Hubble shows zero unexplained `DROPPED-AUDITED` verdicts
+   for the per-phase window (48h–2 weeks depending on phase).
+4. **`policy-cidr-match-mode` left at default.** All node /
+   apiserver flows use entity selectors (`reserved:host`,
+   `reserved:remote-node`, `reserved:kube-apiserver`). No `ipBlock`
+   for node IPs anywhere.
+
+## Goal
+
+Lock the cluster down with deny-by-default `CiliumNetworkPolicy`
+(CNP) so pod-to-pod and pod-to-egress traffic is permitted only by
+explicit allow rules. Keep the cluster fully operational during the
+rollout: no app outage, no Flux reconciliation stall, no apiserver
+isolation, no DNS isolation.
+
+## Current state (snapshot)
+
+- Cilium 1.19, `enable-policy=default`, `policy-cidr-match-mode=""`
+  (this is the precondition for the apiserver footgun — see Risks).
+- Hubble enabled cluster-wide, `hubble-network-policy-correlation-enabled=true`,
+  metrics on `:9965` already scraped. We have flow visibility today.
+- Existing policies are sparse and intentional:
+  - `vpn/downloads-gateway-pod-gateway` + reflected copy in `default`
+    (pod-gateway VXLAN/WireGuard allow).
+  - `flux-system/allow-webhooks-from-gateway` + `flux-operator-web`.
+  - A handful of chart-shipped K8s `NetworkPolicy` resources
+    (zulip-memcached/rabbitmq, pgadmin, kiali, grafana-image-renderer).
+- Flux's bundled NetworkPolicies are **disabled** in
+  `flux-instance` values (`cluster.networkPolicy: false`) — Flux
+  controller egress is currently unrestricted, which simplifies
+  rollout (we don't risk source-controller losing GitHub access on
+  day one).
+- DNS = CoreDNS in `kube-system`, selector
+  `{k8s-app: kube-dns, app.kubernetes.io/name: coredns}`.
+- Ingress = Envoy Gateway pods in `network` ns
+  (`external` LB 10.45.0.13, `internal` 10.45.0.12).
+- Nodes are spread across `192.168.1.x` (trusted LAN) and
+  `192.168.4.x` (VLAN 20, also trusted at the cluster layer).
+- Gateway = brain at `192.168.6.1` (router) and `192.168.6.66`
+  (BIND/pihole) — both reachable as `reserved:host` from pods'
+  perspective via Cilium identity.
+
+This means **today** we have flow visibility, a working pod-gateway
+allow, and zero default-deny. Good starting position.
+
+---
+
+## Guiding principles
+
+1. **Standardize on `CiliumNetworkPolicy`, not vanilla K8s
+   `NetworkPolicy`.** Cilium's identity-based selectors
+   (`reserved:kube-apiserver`, `reserved:host`, `fromEntities`,
+   `toFQDNs`, `toServices`) are the only way to safely allow some
+   flows in this cluster. Mixing the two forms makes precedence and
+   debugging painful.
+2. **No `toCIDR: 0.0.0.0/0` for cluster-internal targets.** Per
+   `project_cilium_ipblock_apiserver.md`, `0.0.0.0/0` does **not**
+   match `kube-apiserver` (host-network identity). Use entity
+   selectors. The pod-gateway egress is the documented exception
+   (WireGuard UDP/51820 to true world).
+3. **Allow before deny.** Every namespace gets the baseline
+   allow-policies merged and Hubble-verified *before* the
+   default-deny policy lands in the same PR. Default-deny is the
+   *last* manifest applied in a namespace, never the first.
+4. **One namespace per PR.** Blast radius capped at one namespace,
+   one Flux Kustomization, one revert.
+5. **System namespaces last.** `kube-system`, `flux-system`,
+   `cilium-secrets`, `rook-ceph`, `longhorn-system`,
+   `external-secrets`, `cert-manager`, `network` — these get
+   default-deny *after* every app namespace is locked down and
+   stable. Breaking one of these breaks the cluster.
+6. **Suspended Kustomizations are not in scope.** If a Flux
+   Kustomization is `spec.suspend: true`, skip its namespace until
+   it's unsuspended. Don't touch suspended state.
+
+---
+
+## Baseline policies (per-namespace)
+
+These four CNPs ship together as a reusable component at
+`kubernetes/components/network-policy/baseline/` and get added to
+each namespace's `kustomization.yaml` as the namespace enters the
+rollout. The default-deny is in a **separate** Kustomization
+applied *after* the allow-policies have soaked for at least 24h.
+
+### 1. allow-dns.yaml
+
+```yaml
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-dns
+spec:
+  endpointSelector: {}            # all pods in namespace
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+```
+
+The L7 DNS rule is critical — it enables Cilium's DNS-FQDN cache
+so we can later write `toFQDNs:` rules for external egress
+(GitHub, Cloudflare, etc.).
+
+### 2. allow-apiserver.yaml
+
+```yaml
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-apiserver
+spec:
+  endpointSelector: {}
+  egress:
+    - toEntities:
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - port: "6443"
+              protocol: TCP
+```
+
+**Do not** use `toCIDR` for this. The `reserved:kube-apiserver`
+entity is the only form that works given our current
+`policy-cidr-match-mode=""`.
+
+### 3. allow-intra-namespace.yaml
+
+```yaml
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-intra-namespace
+spec:
+  endpointSelector: {}
+  ingress:
+    - fromEndpoints:
+        - matchLabels: {}
+  egress:
+    - toEndpoints:
+        - matchLabels: {}
+```
+
+Permits the common "deployment X talks to its sidecar/companion
+deployment Y in the same namespace" pattern without per-app rules.
+
+### 4. allow-monitoring-scrape.yaml
+
+```yaml
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-monitoring-scrape
+spec:
+  endpointSelector: {}
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+```
+
+Prometheus and Hubble metrics scraping work without enumerating
+every `/metrics` port.
+
+### 5. default-deny.yaml (applied LAST, separate Kustomization)
+
+```yaml
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: default-deny
+spec:
+  endpointSelector: {}
+  ingressDeny:
+    - {}
+  egressDeny:
+    - {}
+```
+
+Use Cilium's `ingressDeny`/`egressDeny` (1.14+) instead of the
+empty-allow pattern — it's explicit and composable. With
+`enable-non-default-deny-policies=true` already set (confirmed in
+cilium-config), this is the right primitive.
+
+---
+
+## App-specific allow patterns
+
+Each pattern below is a template overlay that sits *next to* the
+baseline in the app's namespace. The endpointSelector should
+target the specific app's pod label (typically
+`app.kubernetes.io/name`).
+
+### Pattern A: ingress-only web app (Authelia, Glance, public web UIs)
+
+```yaml
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-ingress-from-gateway
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: <app>
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+```
+
+### Pattern B: web app + CNPG database (same cluster, cross-namespace)
+
+Add to Pattern A:
+
+```yaml
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            cnpg.io/cluster: <pg-cluster-name>
+      toPorts:
+        - ports: [{port: "5432", protocol: TCP}]
+```
+
+CNPG pods carry the `cnpg.io/cluster: <name>` label — leverage it
+instead of `app.kubernetes.io/name`.
+
+### Pattern C: CNPG cluster (the database itself) + Garage backup target
+
+Allow apiserver (baseline), allow ingress from any same-cluster
+consumer namespace, allow egress to Garage's LB IP via FQDN:
+
+```yaml
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-garage-s3
+spec:
+  endpointSelector:
+    matchLabels:
+      cnpg.io/cluster: <name>
+  egress:
+    - toFQDNs:
+        - matchName: "s3.thesteamedcrab.com"
+      toPorts:
+        - ports: [{port: "443", protocol: TCP}]
+```
+
+`toFQDNs` resolves via the L7 DNS rule in the baseline. Garage's
+LB IP (10.45.0.x range, advertised via BGP) is reachable; Cilium
+matches the resolved IP against the FQDN cache.
+
+### Pattern D: *arr stack internal deps (Sonarr → Prowlarr, etc.)
+
+Same as Pattern B but with `app.kubernetes.io/name` selectors for
+peer apps in the same `media` namespace — Pattern 3 (intra-ns
+allow) in the baseline already covers this. The extra rule needed
+is **egress to indexers** via toFQDNs (or, where indexers rotate
+IPs aggressively, a wider `toEntities: [world]` rule scoped to the
+single pod):
+
+```yaml
+  egress:
+    - toFQDNs:
+        - matchPattern: "*.indexer.example.com"
+      toPorts:
+        - ports: [{port: "443", protocol: TCP}]
+```
+
+### Pattern E: VPN-routed app (pod-gateway client)
+
+These already work via the existing `downloads-gateway-pod-gateway`
+CNP in the routed namespaces. **Do not** add a default-deny to
+those namespaces (`downloads`, parts of `default`) until the
+pod-gateway interaction is re-verified with Hubble — the VXLAN
+encapsulation makes flow inspection trickier. Plan: pod-gateway
+namespaces get default-deny in a dedicated Phase 5b sub-step.
+
+### Pattern F: Camera ingress (Frigate → Reolink on iot VLAN 192.168.4/5)
+
+```yaml
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-cameras
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: frigate
+  egress:
+    - toCIDR:
+        - 192.168.5.0/24    # camera VLAN, adjust to actual prefix
+      toPorts:
+        - ports:
+            - {port: "554", protocol: TCP}    # RTSP
+            - {port: "80",  protocol: TCP}    # ONVIF
+            - {port: "443", protocol: TCP}
+```
+
+CIDR is fine here — cameras are not on host network, so
+`policy-cidr-match-mode` quirk doesn't apply.
+
+### Pattern G: Egress to LB IP on same cluster (Mealie → Garage, etc.)
+
+Prefer `toFQDNs` (Pattern C). If FQDN is unavailable, use
+`toEntities: [cluster]` scoped to the specific port — this matches
+any in-cluster identity including LB-targeted pods.
+
+### Pattern H: external-dns, external-secrets, cert-manager egress
+
+Single dedicated rule per controller, allow specific FQDNs:
+`api.cloudflare.com`, the 1Password Connect operator's in-cluster
+Service, `acme-v02.api.letsencrypt.org`. These ship as part of the
+system-namespace lockdown in Phase 6.
+
+---
+
+## Cilium gotchas (read before writing any policy)
+
+1. **`reserved:kube-apiserver`** — only safe form for apiserver
+   egress. See `project_cilium_ipblock_apiserver.md`. Re-check
+   before merging any CNP that touches port 6443.
+2. **`reserved:host` vs `reserved:remote-node`** — `host` matches
+   only the local node's IP from the pod's perspective; use it for
+   things like node-local readiness probes. `remote-node` covers
+   *other* cluster nodes. Both differ from `kube-apiserver` (which
+   is identity-based on the apiserver pod, even when host-networked).
+3. **`fromEntities: [cluster]` is broad.** It matches any
+   in-cluster identity. Use only when you can't tighten further.
+4. **DNS L7 rule required for `toFQDNs`.** No L7 DNS rule → FQDN
+   cache empty → FQDN egress silently drops. The baseline DNS
+   policy includes `rules.dns.matchPattern: "*"` precisely for
+   this.
+5. **`enableDefaultDeny: false` escape valve.** Setting this on a
+   CNP makes it additive-only (won't trigger default-deny behavior
+   even if it's the only policy on those endpoints). Use this for
+   the *baseline allow* policies so they don't accidentally
+   default-deny a namespace before the explicit default-deny
+   policy lands.
+6. **Hubble flow correlation.** With
+   `hubble-network-policy-correlation-enabled=true` (already on),
+   Hubble flows include the matching policy name in
+   `policy_match_type` and `egress_allowed_by`. Use this:
+   ```
+   hubble observe --namespace <ns> --verdict DROPPED --last 100
+   hubble observe --namespace <ns> --verdict DROPPED -f
+   ```
+7. **`policy-enforcement: audit` mode.** Cilium supports a
+   per-endpoint audit mode via the `policy.cilium.io/audit-mode`
+   annotation. We will **use audit mode for one rollout cycle per
+   namespace** (apply baseline + default-deny with audit annotation,
+   tail Hubble for `DROPPED-AUDITED` verdicts for 48h, then flip
+   the annotation off). Cluster-wide
+   `policy-enforcement-mode: audit` is **not** proposed — too
+   coarse, and we'd have no signal of what's actually enforced
+   anywhere.
+
+---
+
+## Cross-cluster / external dependencies
+
+These flows must remain working throughout the rollout. Each row
+notes whether it falls inside NetworkPolicy scope.
+
+| Flow | Source | Destination | In CNP scope? | Handling |
+|---|---|---|---|---|
+| BGP node ↔ brain | cilium-agent (host net) | 192.168.6.1:179 | No — host network | n/a |
+| Pod DNS → CoreDNS | pods | kube-system kube-dns | Yes | baseline `allow-dns` |
+| Pod DNS → brain BIND | pods (rare, direct) | 192.168.6.66:53 | Yes (if any app does this) | per-app `toCIDR: 192.168.6.66/32` |
+| Apiserver | pods using k8s clients | reserved:kube-apiserver | Yes | baseline `allow-apiserver` |
+| Garage S3 | CNPG, immich, paperless, rclone | s3.${SECRET_DOMAIN} LB IP | Yes | Pattern C `toFQDNs` |
+| external-dns → Cloudflare | external-dns pod | api.cloudflare.com:443 | Yes | Phase 6 per-namespace allow |
+| external-secrets → 1P Connect | external-secrets pod | 1p Connect Service (in cluster) | Yes | Phase 6 intra-cluster allow |
+| Flux → GitHub | source-controller | github.com:443 (via DNS) | Yes | Phase 6 `toFQDNs: github.com, codeload.github.com, *.githubusercontent.com` |
+| cert-manager → Let's Encrypt | cert-manager | acme-v02.api.letsencrypt.org | Yes | Phase 6 `toFQDNs` |
+| Envoy Gateway → backend pods | network ns envoy pods | app pods | Yes | every app namespace adds Pattern A |
+| Hubble metrics scrape | observability prom | port 9965 on every node | Mixed — node-level, but baseline `allow-monitoring-scrape` covers pod-level |
+| pod-gateway WireGuard | downloads-gateway pod | 0.0.0.0/0:51820 UDP | Yes — existing CNP preserved |
+
+---
+
+## Phasing
+
+### Phase 0 — Audit & instrumentation (1 week)
+
+- Stand up a Grafana dashboard sourced from Hubble metrics
+  filtering on `verdict=DROPPED` and `verdict=DROPPED-AUDITED`,
+  bucketed by source/destination namespace. This is the rollout's
+  primary feedback loop.
+- Write a Hubble query cheat-sheet into `docs/src/` for the
+  per-phase verification step.
+- Add `kubernetes/components/network-policy/baseline/` with the
+  five baseline policies (allow-dns, allow-apiserver,
+  allow-intra-namespace, allow-monitoring-scrape, default-deny),
+  the first four with `enableDefaultDeny: false`, the fifth as a
+  separate file that the per-namespace Kustomization opts into
+  explicitly.
+- **No policy applied to any namespace in this phase.**
+
+Exit criteria: Hubble drop dashboard live and trusted; baseline
+component built and `kustomize build` clean.
+
+### Phase 1 — Canary namespace: `selfhosted` (1 week)
+
+Why `selfhosted`: contains low-criticality apps with mixed
+ingress/DB/external-egress patterns; user-visible but not on the
+critical path; not a system namespace.
+
+Steps:
+
+1. PR 1: merge baseline allow-policies into `selfhosted` ns
+   (allow-dns, allow-apiserver, allow-intra-namespace,
+   allow-monitoring-scrape). Watch Hubble drops for 24h — there
+   should be **none** caused by these policies (they're additive
+   with `enableDefaultDeny: false`).
+2. PR 2: per-app overlays — Pattern A for each ingressed app,
+   Pattern B for any app with a CNPG dep, Pattern C/G for any app
+   touching Garage.
+3. PR 3: apply `default-deny` with
+   `policy.cilium.io/audit-mode: enabled` annotation on a single
+   pod first (the lowest-risk app, e.g. `glance`). Tail Hubble for
+   48h for `DROPPED-AUDITED` verdicts. Add allow rules for any
+   legitimate flow surfaced.
+4. PR 4: remove audit annotation, expand `default-deny` to the
+   whole namespace.
+
+Exit criteria: full namespace under default-deny, zero unexplained
+drops over 24h, all apps respond to smoke tests.
+
+### Phase 2 — Stateless app namespaces (2-3 weeks)
+
+Order by criticality, low-to-high: `ai`, `actions-runner-system`,
+`renovate`, `mcp-system`, `home`, `collab`, `media`.
+
+Same 4-PR pattern per namespace. Audit mode for each first app per
+namespace; once the pattern catalog stabilizes, audit mode becomes
+optional for low-risk additions.
+
+### Phase 3 — Stateful & ingress-critical namespaces (1-2 weeks)
+
+`auth` (Authelia — breaking this locks the user out of every
+OIDC app), `databases` (CNPG control plane), `downloads` (VPN
+clients).
+
+For `auth`: explicit pre-flight check that LLDAP, Authelia, and
+every OIDC client's redirect URL still resolves and authenticates
+*before* default-deny lands.
+
+For `databases`: every CNPG cluster needs an explicit allow rule
+from its consumer namespace(s). Audit mode mandatory; tail for
+72h.
+
+For `downloads` (pod-gateway clients): special handling — the
+VXLAN tunnel between client pods and gateway is the load-bearing
+flow. The existing `downloads-gateway-pod-gateway` CNP on the
+gateway pod plus a *new* baseline-with-pod-gateway-allow on the
+client side. Audit for 1 week.
+
+### Phase 4 — Storage namespaces (1 week)
+
+`storage` (Garage), `longhorn-system`, `rook-ceph`. These mostly
+need:
+
+- Intra-namespace allow (baseline).
+- Apiserver allow (baseline).
+- Specific allow from any consumer namespace (CNPG → Garage S3,
+  apps → Longhorn CSI, etc.).
+- Node-port reachability — verify Longhorn engine ↔ replica TCP
+  reachability via Hubble before default-deny lands.
+
+### Phase 5 — Gateway / cert / secrets namespaces (1 week)
+
+`network` (Envoy Gateway), `cert-manager`, `external-secrets`.
+
+- `network` ingress is from `world` (LoadBalancer) — must allow
+  `fromEntities: [world]` on Envoy listeners explicitly.
+- `cert-manager` needs egress to `acme-v02.api.letsencrypt.org`
+  and to in-cluster Envoy for HTTP-01 challenges.
+- `external-secrets` needs egress to the 1P Connect Service.
+
+### Phase 6 — Remaining system namespaces (last, with extra care)
+
+`observability`, `kuadrant`, `istio-system`, `cilium-secrets`.
+
+`flux-system` and `kube-system` are explicitly out of scope (see
+"Decisions" and "Out of scope"). Skip them entirely.
+
+For `observability`: Prometheus needs egress to every namespace
+on metrics ports — this is the *opposite* direction from baseline
+`allow-monitoring-scrape`. Add an explicit
+`toEndpoints: matchLabels: {}` rule with the metrics ports
+enumerated.
+
+For `cilium-secrets`: minimal workload (mostly Secret consumers).
+Baseline + intra-namespace should suffice; audit 1 week.
+
+---
+
+## Rollout mechanics
+
+- **Branch + PR per namespace.** Branch name `netpol/<ns>`. Each
+  PR adds the baseline component to the namespace's
+  `kustomization.yaml`, plus per-app overlays.
+- **Default-deny is its own PR**, after the allow PR has soaked
+  ≥24h with zero unexplained Hubble drops.
+- **Pre-merge checklist (in PR template):**
+  - [ ] Hubble flow-tail for the target namespace shows allowed
+        traffic matches an expected baseline or per-app rule.
+  - [ ] `kubectl get cnp -n <ns>` shows only expected policies.
+  - [ ] App smoke test (curl ingress URL, check ready endpoints).
+  - [ ] `flux get all -n <ns>` clean.
+- **Vanilla `NetworkPolicy` in target namespace:** if a chart ships
+  a vanilla `kind: NetworkPolicy` (the 8 known cases: zulip-memcached,
+  zulip-rabbitmq, pgadmin-pgadmin4, kiali, grafana-image-renderer,
+  the two flux-system policies, vpn pod-gateway), convert it to
+  `CiliumNetworkPolicy` in the same per-namespace PR. Decision
+  locked 2026-05-17: convert per-namespace as we reach them rather
+  than batching upfront.
+- **Rollback (fast):**
+  1. `flux suspend kustomization -n flux-system <ns>-app`.
+  2. `kubectl delete cnp -n <ns> default-deny`.
+  3. Confirm traffic restored via Hubble.
+  4. Revert the PR, `flux resume`.
+- **Rollback (full namespace):**
+  1. `flux suspend kustomization -n flux-system <ns>-app`.
+  2. `kubectl delete cnp -n <ns> --all` (excluding pre-existing
+     allow-policies you want to keep — check before nuking).
+  3. Revert the PR.
+
+---
+
+## Risk register
+
+| # | Risk | Likelihood | Impact | Mitigation |
+|---|---|---|---|---|
+| 1 | Apiserver isolation via wrong egress rule (ipBlock footgun) | Medium | Critical (controller manager, kubelet, every operator wedges) | Use only `reserved:kube-apiserver` entity; baseline policy reviewed against `project_cilium_ipblock_apiserver.md`; audit mode for every first-pass policy |
+| 2 | DNS isolation (CoreDNS unreachable from a pod) | Medium | Critical (every name resolution fails, cascading app failures) | Baseline `allow-dns` ships with every namespace before default-deny; Hubble verify CoreDNS traffic flowing post-apply |
+| 3 | Ingress break for user-facing apps (Authelia, Immich, public-app stack) | Medium | High (user locked out of OIDC apps, external services down) | Phase 3 dedicated step for `auth`, audit mode mandatory, pre-flight smoke test of Authelia + 2 dependent OIDC clients |
+| 4 | CNPG → Garage backup target broken | Medium | High (no CNPG backups, but apps still serve) | Pattern C uses `toFQDNs`; verify `barman-cloud` log post-apply shows successful upload; Phase 4 audit window 72h |
+| 5 | VPN-gateway double-policy conflict | Medium | Medium (downloads stack offline, but easily reverted) | Phase 3 sub-step, audit for 1 week; preserve existing `downloads-gateway-pod-gateway` CNP unchanged |
+| 6 | Flux controllers lose GitHub/apiserver egress | Low (Phase 6) | Critical (no GitOps reconciliation, including the very revert that fixes it) | Phase 6 last; never enable Flux chart NPs; ship own CNP with `toFQDNs: github.com`; pre-validate with audit mode 2 weeks |
+| 7 | External-secrets loses 1P Connect → secret rotation/refresh stalls | Low | Medium (existing secrets keep working; new/rotated ones fail to materialize) | Phase 5; explicit allow to 1P Connect Service in same cluster |
+| 8 | Hubble drop volume overwhelms metrics pipeline | Low | Low (dashboard signal degraded, not cluster impact) | Tune `hubble-metrics` sampling if needed; the `enable-non-default-deny-policies=true` setting reduces double-counting |
+| 9 | `toFQDNs` cache miss on first request → intermittent failures | Medium | Low (one retry resolves) | Baseline DNS L7 rule with `matchPattern: "*"`; long DNS TTL respected; document in runbook |
+| 10 | Chart-shipped NetworkPolicy (vanilla K8s kind) conflicts with our CNP | Low | Medium (silently more-restrictive intersection) | Audit chart-shipped NPs in scope namespaces during Phase 0; either disable via chart value or document the merge intent in the per-app overlay |
+
+---
+
+## Estimated timeline
+
+| Week | Phase | Deliverable |
+|---|---|---|
+| 1 | Phase 0 | Hubble dashboard, baseline component, runbook |
+| 2 | Phase 1 | `selfhosted` namespace fully default-deny |
+| 3-5 | Phase 2 | `ai`, `actions-runner-system`, `renovate`, `mcp-system`, `home`, `collab`, `media` |
+| 6-7 | Phase 3 | `auth`, `databases`, `downloads` |
+| 8 | Phase 4 | `storage`, `longhorn-system`, `rook-ceph` |
+| 9 | Phase 5 | `network`, `cert-manager`, `external-secrets` |
+| 10-11 | Phase 6 | `observability`, `kuadrant`, `istio-system`, `cilium-secrets` |
+
+User sets pace. Any phase can park indefinitely without affecting
+prior phases — namespaces locked down stay locked down.
+
+---
+
+## Out of scope
+
+- **`flux-system` namespace.** Decision locked 2026-05-17. Flux
+  egress to GitHub + apiserver is the rollback mechanism for this
+  whole rollout; the perimeter (1P/SSO/CF-tunnel) handles the
+  meaningful threat boundary. Revisit only if perimeter assumptions
+  change.
+- **`kube-system` namespace.** Decision locked 2026-05-17. CoreDNS,
+  apiserver, etcd, kubelet — host-network or control-plane
+  components where CNP adds risk disproportionate to benefit.
+- Host firewalld rules on nodes (brain, masters, workers).
+- BGP filtering (Cilium peers freely with brain today).
+- Mesh-layer policy (Istio AuthorizationPolicy) — only being
+  rolled out where Kiali already shows it; not part of this CNP
+  rollout.
+- Audit/SIEM integration for drop events — Hubble metrics +
+  Grafana is the cluster's tool for this rollout.

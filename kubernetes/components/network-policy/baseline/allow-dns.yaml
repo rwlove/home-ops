@@ -1,0 +1,35 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-dns
+  annotations:
+    # Audit mode: drops are logged as DROPPED-AUDITED but NOT enforced.
+    # Remove this annotation to flip the namespace into enforce mode.
+    # Lifecycle documented in this component's README.
+    policy.cilium.io/audit-mode: "enabled"
+spec:
+  # All pods in this namespace.
+  endpointSelector: {}
+  # additive-only — does not by itself trigger default-deny for selected pods.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          # L7 DNS rule populates Cilium's FQDN cache so that
+          # later `toFQDNs:` rules in app-specific overlays work.
+          # Removing the L7 rule silently breaks all FQDN egress.
+          rules:
+            dns:
+              - matchPattern: "*"

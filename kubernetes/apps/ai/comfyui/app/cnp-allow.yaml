@@ -24,24 +24,19 @@ spec:
             - port: "8188"
               protocol: TCP
   egress:
-    # Provisioning script fetches model weights + custom nodes from the
-    # ai-dock provisioning URL on first start and on AUTO_UPDATE runs.
-    # ai-dock/comfyui pulls from raw.githubusercontent.com, HuggingFace,
-    # CivitAI, and PyPI mirrors. Allow HTTPS to those plus the broader
-    # GitHub release surface.
-    - toFQDNs:
-        - matchName: "raw.githubusercontent.com"
-        - matchName: "github.com"
-        - matchName: "codeload.github.com"
-        - matchPattern: "*.githubusercontent.com"
-        - matchName: "huggingface.co"
-        - matchPattern: "*.huggingface.co"
-        - matchName: "cdn-lfs.huggingface.co"
-        - matchPattern: "*.hf.co"
-        - matchName: "civitai.com"
-        - matchPattern: "*.civitai.com"
-        - matchName: "pypi.org"
-        - matchName: "files.pythonhosted.org"
+    # External HTTPS for provisioning. Was a toFQDNs allow-list (
+    # raw.githubusercontent.com, github.com, codeload.github.com,
+    # *.githubusercontent.com, huggingface.co, *.huggingface.co,
+    # cdn-lfs.huggingface.co, *.hf.co, civitai.com, *.civitai.com,
+    # pypi.org, files.pythonhosted.org) but Cilium 1.19 matchName
+    # doesn't match through Kubernetes pod DNS search-domain
+    # augmentation (pods query e.g. `huggingface.co.ai.svc.cluster.local.`
+    # and the FQDN cache stores the augmented name). Broadened to
+    # toEntities:world:443 so it actually works. Tighten when FQDN
+    # matching is fixed.
+    # The ai-dock/comfyui provisioning script pulls model weights +
+    # custom nodes from these hosts on first start and on AUTO_UPDATE.
+    - toEntities: [world]
       toPorts:
         - ports:
             - port: "443"

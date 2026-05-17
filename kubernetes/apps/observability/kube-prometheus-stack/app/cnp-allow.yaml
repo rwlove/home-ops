@@ -29,22 +29,27 @@ spec:
   egress:
     # Prometheus scrapes every namespace's metrics endpoints, plus
     # kubelet/cAdvisor on every node, plus the kubeApiServer endpoints
-    # listed in the chart values (192.168.{1,4}.{9,10}). Enumerating
-    # all scrape targets is impossible at the policy layer — they
-    # span every pod CIDR, every node, every static endpoint in the
-    # SNMP/blackbox/probe configs.
+    # listed in the chart values (192.168.{1,4}.{9,10}), plus
+    # off-cluster LAN node-exporters on beast/brain/security-storage:9100
+    # (static_configs in additional-scrape-configs). Enumerating all
+    # scrape targets is impossible at the policy layer — they span
+    # every pod CIDR, every node, and every static LAN endpoint.
     #
     # cluster: any pod identity in the k8s cluster (covers all
     #   ServiceMonitor + PodMonitor + Probe targets that resolve to
     #   pods).
-    # remote-node: cross-node kubelet :10250 + node-exporter :9100 via
-    #   nodeIP path on workers other than the prom pod's host.
-    # host: same as remote-node but for the pod's own node (kubelet
-    #   on localhost).
+    # host + remote-node: kubelet :10250 + per-node DaemonSet exporters
+    #   (node-exporter :9100 in-cluster via nodeIP path) on the prom
+    #   pod's own node + every other node.
+    # world: off-cluster LAN hosts (beast/brain/security-storage
+    #   node-exporters; identified as separate from `host` because they
+    #   are not Kubernetes nodes — verified post-lockdown that these
+    #   three node-exporter targets went down without world egress).
     - toEntities:
         - cluster
         - host
         - remote-node
+        - world
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
 apiVersion: cilium.io/v2

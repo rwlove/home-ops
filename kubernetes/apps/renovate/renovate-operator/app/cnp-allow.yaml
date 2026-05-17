@@ -34,15 +34,16 @@ spec:
     # spawned RenovateJob pods (covered by renovate-jobs-allow in
     # ../jobs/).
     #
-    # NOTE: matchPattern (with trailing `.*` variants) is needed for
-    # resolvers that do search-domain expansion — cilium keys the FQDN
-    # cache on the queried name, not the resolved one. See the actions-
-    # runner-controller CNP for the full rationale.
-    - toFQDNs:
-        - matchPattern: "api.github.com"
-        - matchPattern: "api.github.com.*"
-        - matchPattern: "github.com"
-        - matchPattern: "github.com.*"
+    # Was a toFQDNs allow-list (api.github.com, github.com — with
+    # matchPattern + `.*` variants per the search-domain hack from
+    # PR #11492). Even with that workaround Cilium 1.19 doesn't
+    # reliably match through Kubernetes pod DNS search-domain
+    # augmentation (pod queries
+    # `api.github.com.renovate.svc.cluster.local.`; FQDN cache stores
+    # the augmented name; matching is unreliable). Broadened to
+    # toEntities:world:443 so it actually works. Tighten when FQDN
+    # matching is fixed.
+    - toEntities: [world]
       toPorts:
         - ports:
             - port: "443"

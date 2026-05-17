@@ -1,0 +1,52 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: paperless-ai-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: paperless-ai
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on internal gateway → paperless-ai:3000
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+  egress:
+    # paperless-ai's whole purpose is enriching documents in paperless
+    # via the paperless REST API. Paperless lives in collab ns.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: collab
+            app.kubernetes.io/name: paperless
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+    # Ollama in same ns — paperless-ai defaults to ollama for local
+    # tagging unless the user configures OpenAI/Anthropic/etc in its
+    # web UI. Baseline allow-intra-namespace already covers; explicit
+    # here for grep-ability.
+    #
+    # External LLM providers — paperless-ai's UI lets the user pick
+    # OpenAI, Mistral, Anthropic, etc. as the tagging backend. Today
+    # it's ollama only; add toFQDNs egress here when config changes.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: ollama
+      toPorts:
+        - ports:
+            - port: "11434"
+              protocol: TCP

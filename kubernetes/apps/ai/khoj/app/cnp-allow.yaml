@@ -1,0 +1,48 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: khoj-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: khoj
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  # No ingress rules needed: khoj-oauth2-proxy is the only door, and the
+  # baseline allow-intra-namespace already permits oauth2-proxy → khoj.
+  # No external clients hit khoj directly.
+  egress:
+    # CNPG cluster `postgres-khoj` in databases ns (Pattern B).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            cnpg.io/cluster: postgres-khoj
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    # Searxng in collab ns (KHOJ_SEARXNG_URL).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: collab
+            app.kubernetes.io/name: searxng
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # HuggingFace model downloads (embedding/search models cached to
+    # khoj-models PVC on first run + on model config changes).
+    - toFQDNs:
+        - matchName: "huggingface.co"
+        - matchPattern: "*.huggingface.co"
+        - matchName: "cdn-lfs.huggingface.co"
+        - matchPattern: "*.hf.co"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

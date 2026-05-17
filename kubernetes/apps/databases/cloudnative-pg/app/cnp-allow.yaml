@@ -1,0 +1,31 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: cloudnative-pg-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: cloudnative-pg
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # kube-apiserver → cnpg admission webhook on container port 9443.
+    # cnpg-webhook-service exposes svc:443 → targetPort: webhook-server
+    # (containerPort 9443). Cilium L4 matches the pod container port.
+    # ValidatingWebhookConfiguration `cnpg-validating-webhook-configuration`
+    # + mutating counterpart drive the call from apiserver.
+    - fromEntities:
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - port: "9443"
+              protocol: TCP
+  # Egress: intra-namespace (CNPG instances + plugin-barman-cloud
+  # sidecar GRPC) is covered by baseline allow-intra-namespace.
+  # kube-apiserver (cluster watches + status patches) is covered by
+  # baseline allow-apiserver. DNS by allow-dns. Nothing else needed.

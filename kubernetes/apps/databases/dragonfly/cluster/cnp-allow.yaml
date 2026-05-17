@@ -1,0 +1,42 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: dragonfly-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: dragonfly
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # Known consumers (`dragonfly.databases.svc.cluster.local:6379`):
+    #   auth/authelia         — session store
+    #   collab/nametag        — caching backend
+    #   collab/paperless      — broker / cache
+    #   collab/searxng        — redis cache (db=10)
+    #   collab/zulip          — broker / cache
+    #   collab/pump           — broker
+    #   home/netbox           — caching + django-q broker
+    #   media/immich          — task queue
+    #   media/romm            — task queue
+    #   renovate/renovate     — caching
+    # Enumerating each per-pod selector across 6 namespaces is fragile.
+    # Use fromEntities: cluster on port 6379 — the cross-cluster /
+    # default-deny boundary is what matters; missing a consumer here
+    # would take its primary cache/broker offline. Tighten in a
+    # follow-up PR once hubble flow data confirms the actual edge.
+    - fromEntities:
+        - cluster
+      toPorts:
+        - ports:
+            - port: "6379"
+              protocol: TCP
+  # Peer dragonfly replication (intra-ns 3-replica StatefulSet) covered
+  # by baseline allow-intra-namespace. Dragonfly-operator probes covered
+  # by allow-intra-namespace. Egress only goes to apiserver (baseline)
+  # and DNS (baseline).

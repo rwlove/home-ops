@@ -1,0 +1,45 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: cert-manager-allow
+spec:
+  # Controller pods carry `app.kubernetes.io/name: cert-manager`
+  # (cainjector pods carry `app.kubernetes.io/name: cainjector`,
+  # webhook pods carry `app.kubernetes.io/name: webhook`). One label
+  # is enough to disambiguate from the other two cert-manager
+  # workloads in this namespace.
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: cert-manager
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it. Baseline covers kube-apiserver, DNS, host
+  # probes, intra-namespace (cainjector + webhook), monitoring scrape.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # ACME directory endpoints (Let's Encrypt prod + staging) and the
+    # Cloudflare API (DNS-01 solver — see
+    # ./issuers/letsencrypt-production.yaml + letsencrypt-staging.yaml,
+    # both use the cloudflare DNS-01 solver against `cloudflare-token-secret`).
+    #
+    # Cilium 1.19's toFQDNs.matchName doesn't match through Kubernetes
+    # pod DNS search-domain augmentation (pod queries e.g.
+    # `acme-v02.api.letsencrypt.org.cert-manager.svc.cluster.local.`;
+    # the FQDN cache stores the augmented name; matchName misses it).
+    # The bare + `.*` dual-form matchPattern covers both un-augmented
+    # and search-domain-augmented forms — see PR #11492 for the
+    # canonical example.
+    - toFQDNs:
+        - matchPattern: "acme-v02.api.letsencrypt.org"
+        - matchPattern: "acme-v02.api.letsencrypt.org.*"
+        - matchPattern: "acme-staging-v02.api.letsencrypt.org"
+        - matchPattern: "acme-staging-v02.api.letsencrypt.org.*"
+        - matchPattern: "api.cloudflare.com"
+        - matchPattern: "api.cloudflare.com.*"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

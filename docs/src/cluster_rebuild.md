@@ -147,24 +147,36 @@ first-creation on the way back up.
 
 ### State of the bootstrap blocks
 
-Some clusters keep `bootstrap.recovery` permanently un-commented
-(it's a no-op once the cluster exists, but it's pre-armed for
-rebuild):
+CNPG clusters fall into three groups today. Verify with:
 
-- atuin, home-assistant, immich, lldap, paperless
+```sh
+for f in kubernetes/apps/databases/cloudnative-pg/config/*/cluster.yaml; do
+  name=$(basename "$(dirname "$f")")
+  if   grep -qE '^[^#]*recovery:' "$f"; then echo "PRE-ARMED:  $name"
+  elif grep -qE '^\s*#\s*recovery:' "$f"; then echo "COMMENTED:  $name"
+  else                                       echo "NO_RECOVERY:$name"
+  fi
+done
+```
 
-Others have it commented out and require an edit before rebuild:
+**Pre-armed** — `bootstrap.recovery` is un-commented. No-op while the cluster exists; ready to recover on next bootstrap:
 
-- authelia, cutvideo, medikeep, nametag, netbox, nextcloud,
-  romm, sparkyfitness, videodupfinder, workoutdiary
+- `atuin`, `home-assistant`, `immich`, `lldap`, `paperless`
 
-For the commented set, before initialize-cluster.sh runs the
-relevant Flux Kustomization, uncomment in `cluster.yaml`:
+**Commented** — block exists in the file but is commented out. Uncomment before the relevant Flux Kustomization runs on rebuild:
+
+- `cutvideo`, `lidarr`, `medikeep`, `netbox`, `prowlarr`, `pump`, `radarr`, `romm`, `sonarr`, `sparkyfitness`
+
+**No recovery block at all** — these clusters have never been wired for Barman recovery. **Add a `bootstrap.recovery` block (and confirm an `ObjectStore` + `ScheduledBackup` exist) before any rebuild that needs them to survive:**
+
+- `authelia`, `av1corrector`, `khoj`, `langgraph-checkpoints`, `langgraph-memory`, `n8n`, `nametag`, `videodupfinder`, `zulip`
+
+For commented and no-recovery sets, edit `cluster.yaml` to include:
 
 ```yaml
-  bootstrap:
-    recovery:
-      source: source
+bootstrap:
+  recovery:
+    source: source
 ```
 
 Commit and push so Flux sees it. (For a planned rebuild you can do
@@ -255,9 +267,7 @@ NFS, *not* in CNPG. Recovery for those:
 - **Longhorn `numberOfReplicas: 2+`** → also gone after a full
   destroy; the wipe runs on every node. Restore from external backup.
 
-There is currently **no offsite backup for the Immich photo
-library** (see open project memory). A full-site loss means photo
-loss. Set this up before you need it.
+**Offsite-backed apps** (Immich photo library and Paperless documents) ship encrypted to AWS S3 Glacier Deep Archive via per-app rclone CronJobs — files **and** Garage-stored Postgres backups. Recovery procedure is in [`offsite_recovery.md`](offsite_recovery.md). For everything else (media, Jellyfin libraries, etc.) there is no offsite layer today — that data is rebuildable from upstream or lost in a full-site loss.
 
 ## Post-rebuild tasks
 

@@ -1,0 +1,27 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: omada-mcp-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: omada-mcp
+  # Additive — default-deny is what triggers the lockdown.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # Omada controller on brain (192.168.1.1) port 8043. Env:
+    # OMADA_BASE_URL = https://brain:8043. Brain runs the controller
+    # on the host network, so this is a CIDR egress not a pod
+    # selector. Per project_cilium_ipblock_apiserver.md: CIDR rules
+    # are safe for non-apiserver targets; only `reserved:kube-apiserver`
+    # needs entity matching.
+    - toCIDR:
+        - "192.168.1.1/32"
+      toPorts:
+        - ports:
+            - port: "8043"
+              protocol: TCP

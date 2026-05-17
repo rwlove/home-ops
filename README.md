@@ -72,6 +72,7 @@ Storage tiers are picked deliberately per workload — see [`storage-class.instr
 | **Automation**   | Renovate + GitHub Actions           | Dependency PRs, link checks, self-hosted runners     |
 | **CNI**          | Cilium (eBPF)                       | Networking, BGP peering, LoadBalancer pool            |
 | **Ingress**      | Envoy Gateway                       | L7 gateway / HTTPRoute                                |
+| **Service mesh** | Istio + Kiali                       | mTLS + traffic mgmt for mcp-system; Kiali UI for topology |
 | **DNS**          | external-dns                        | Cloudflare + bind9 split-horizon                      |
 | **TLS**          | cert-manager                        | Let's Encrypt + internal CA                           |
 | **Tunnel**       | cloudflared                         | Public ingress without exposing home WAN              |
@@ -178,15 +179,14 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 
 | App | Purpose |
 |-----|---------|
-| **Ollama** | Local LLM serving on the P40 (Qwen, DeepSeek-R1, etc.) |
+| **Ollama** | Local LLM serving on the P40 (Qwen 2.5 7b/14b, DeepSeek-R1, etc.) |
 | **ComfyUI** | Image generation workflows |
 | **Khoj** | Personal AI assistant over notes + docs |
-| **LangGraph Agents** | Custom multi-agent framework (errand_runner et al.) |
-| **KubeClaw** | Multi-agent platform (in development) |
-| **MCP Inspector** | Model Context Protocol debugger |
-| **HolmesGPT** | AI-driven alert triage (AlertManager webhook → root cause) |
+| **LangGraph Agents** | Custom multi-agent runtime (`rwlove/langgraph-agents`); Postgres-checkpointed; MCP-gateway client. See **AI agent pipeline** section below. |
+| **KubeClaw** | Workflow agent platform w/ browser automation (upstream chart); being phased out in favor of LangGraph |
+| **MCP Inspector** | Model Context Protocol debugger UI |
 | **Paperless-AI** | Auto-tagging for paperless-ngx |
-| **sync-receiver** | Cross-host AI state sync |
+| **sync-receiver** | Cross-host AI state sync endpoint |
 
 </details>
 
@@ -233,7 +233,8 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 | **cert-manager** | TLS certificate lifecycle |
 | **external-dns** | Cloudflare + bind9 record sync |
 | **cloudflared** | Public tunnel without exposed WAN |
-| **Authelia** | OIDC identity provider (LLDAP backend) |
+| **Authelia** | OIDC identity provider |
+| **LLDAP** | Lightweight LDAP directory backing Authelia |
 | **oauth2-proxy** | 24 instances gating per-app SSO |
 | **wg-easy** | Primary OOB WireGuard access |
 | **External Secrets Operator** | 1Password-backed secret materialization |
@@ -246,16 +247,168 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 </details>
 
 <details>
-<summary>🗂️ <b>Documents & Collaboration</b> — Personal knowledge stack</summary>
+<summary>🗂️ <b>Documents & Collaboration</b> — Personal knowledge stack + self-hosted tools</summary>
 
 | App | Purpose |
 |-----|---------|
 | **Paperless-ngx** | Document scanning, OCR, tagging (CNPG-backed, offsite-backed) |
 | **Obsidian** + **obsidian-couchdb** | Notes sync (CouchDB w/ Cloudflare rate-limiting) |
-| **Zulip** | Self-hosted team chat |
-| **Mealie** | Recipe management |
+| **Zulip** | Self-hosted team chat (also wired into agent pipeline approvals) |
+| **Kitchenowl** | Shopping lists + recipe / meal management |
+| **Open WebUI** | Self-hosted LLM frontend (Ollama + MCP servers as tool servers) |
+| **SearXNG** | Privacy-respecting metasearch engine |
+| **Glance** | Personal dashboard / start page |
+| **Atuin** | Encrypted shell-history sync across machines |
+| **IT-Tools** | Self-hosted developer toolbox |
+| **MediKeep** | Personal medical records |
+| **Nametag** | Name tag / badge generator |
+| **Pump** + **Pump-cv** | Custom personal apps (`rwlove`-built) |
 
 </details>
+
+<details>
+<summary>🔌 <b>MCP Servers</b> — 14 Model Context Protocol servers behind an Authelia-gated gateway</summary>
+
+| Server | Exposes |
+|--------|---------|
+| **mcp-gateway** | Aggregating gateway; Envoy SecurityPolicy validates Authelia-issued JWTs (daily-rotated key) |
+| **ha-mcp** | Home Assistant entities + service calls |
+| **immich-mcp** | Immich library search + asset metadata |
+| **kubectl-mcp** | Cluster introspection + safe `kubectl` ops |
+| **grafana-mcp** | Grafana dashboards + Loki/Prom queries |
+| **prometheus-mcp** | Direct PromQL access |
+| **paperless-mcp** | Paperless-ngx document search |
+| **netbox-mcp** | NetBox IPAM / DCIM |
+| **github-mcp** | GitHub repo + PR ops |
+| **n8n-mcp** | n8n workflow control |
+| **omada-mcp** | TP-Link Omada controller |
+| **searxng-mcp** | Privacy search through SearXNG |
+| **arr-mcp** | Library-search interface to *arr apps |
+| **time-mcp** | Time / timezone utilities (`rwlove/time-mcp` native-SHTTP build) |
+
+</details>
+
+---
+
+## 🧠 AI agent pipeline
+
+How local AI agents run, get work, ask for human approval, and produce reports — all without putting data in someone else's cloud unless a task genuinely needs it.
+
+```mermaid
+flowchart TB
+    subgraph Inputs[Inputs]
+        AM[AlertManager alerts]
+        Op[Operator chat / voice]
+        Cron[n8n cron + webhooks]
+    end
+
+    subgraph Frontends[Frontends]
+        OWUI[Open WebUI]
+        HA[Home Assistant<br/>voice + conversation]
+        N8N[n8n workflows]
+    end
+
+    subgraph Orchestration[Orchestration]
+        Holmes[HolmesGPT<br/>alert RCA]
+        LG[LangGraph Agents<br/>agent fleet]
+        KC[KubeClaw<br/>retiring]
+    end
+
+    subgraph Inference[Inference]
+        Ollama[Ollama on P40<br/>qwen2.5:7b/14b]
+        Claude[Claude API<br/>escalation only]
+    end
+
+    subgraph Tools[Tools]
+        Gw[MCP Gateway<br/>Authelia-gated JWT]
+        Servers[14× MCP servers<br/>HA · Immich · k8s · Grafana · …]
+    end
+
+    subgraph Outputs[Outputs]
+        Z[Zulip<br/>approvals + chat]
+        P[Pushover<br/>high-priority alerts]
+        V[(langgraph-vault<br/>drafts + reports)]
+        DB[(Postgres CNPG<br/>checkpoints + memory)]
+    end
+
+    AM --> Holmes
+    Op --> OWUI
+    Op --> HA
+    Cron --> N8N
+
+    OWUI --> Ollama
+    HA --> Ollama
+    N8N --> LG
+
+    Holmes --> Ollama
+    LG --> Ollama
+    LG -.-> Claude
+    KC --> Ollama
+
+    Holmes --> N8N
+    LG --> Gw
+    KC --> Gw
+    OWUI --> Gw
+    Gw --> Servers
+
+    N8N --> Z
+    N8N --> P
+    LG --> V
+    LG --> DB
+```
+
+#### Agent fleet (LangGraph)
+
+A single `rwlove/langgraph-agents` FastAPI service runs the fleet. Each agent is a LangGraph graph with its own persona, tool set, and cost cap. Postgres-checkpointed state lets long-running plans survive restarts.
+
+| Agent                  | Role                                                       |
+|------------------------|------------------------------------------------------------|
+| `supervisor`           | Routes work to specialist agents; opens approvals         |
+| `researcher`           | Web + repo + vault research                                |
+| `coder`                | Code reading, drafting, PR descriptions                    |
+| `reviewer`             | Reviews drafts before they reach the operator              |
+| `triager`              | Classifies inbound items, assigns owner agent              |
+| `reporter`             | Daily digests, summaries, status rollups                   |
+| `note-maker`           | Captures decisions + facts back into the vault             |
+| `homelab-engineer`     | Cluster ops, HelmRelease drafting, PR-shaped output        |
+| `smart-home-engineer`  | Home Assistant entities, automations, ESPHome configs      |
+| `ml-tuner`             | Frigate, Immich CLIP, model tuning                         |
+| `errand-runner`        | One-shot real-world tasks (purchases, lookups, scheduling) |
+| `property-coordinator` | 3532 Foxhall workstreams (contractors, deck, pool)         |
+| `health-tracker`       | Local-only — never escalated to Claude API                 |
+
+#### Pipeline stages
+
+1. **Inbox** — `langgraph-inbox.json` workflow ingests requests from chat, AlertManager, or scheduled triggers.
+2. **Triage** — `triager` classifies and assigns to a specialist agent.
+3. **Plan** — agent drafts an action plan (goals, steps, tool calls, expected cost) into Postgres state.
+4. **Approval (HITL)** — for anything non-trivial, `langgraph-approval-post` sends a signed Zulip message + Pushover ping with the plan summary; `langgraph-approval-receive` waits on the reply; `langgraph-awaiting-user-sweep` chases stuck tasks.
+5. **Execute** — agent runs tool calls through the MCP gateway. Cost caps enforced by `langgraph-cost-cap-watcher` ($5/task, $10/agent/day, $30/global/day).
+6. **Report** — output written to `langgraph-vault` (drafts / finals), summarized into the `reporter` agent's daily Zulip digest (`langgraph-daily-digest`).
+
+#### Local-first by design
+
+| Tier | Backend                       | When used                                                  |
+|------|-------------------------------|------------------------------------------------------------|
+| 1    | `qwen2.5:7b` on Ollama (P40)  | Fast / simple agents (`triager`, `note-maker` drafts)      |
+| 2    | `qwen2.5:14b` on Ollama (P40) | Default for everything else                                |
+| 3    | Claude API (escalation)       | Only on explicit uncertainty markers, repeated local-retry failure, novel/long-context work, or `requires_cloud` tag |
+
+`health-tracker` and `errand-runner` are pinned local-only — they never escalate, even if quality suffers, because the data class isn't suitable for off-site inference.
+
+#### Alert triage (production today)
+
+HolmesGPT is the one agent already running in production:
+
+- **AlertManager → HolmesGPT** webhook (via `alertmanager-holmesgpt-pushover.json`) on every firing alert
+- HolmesGPT queries Prometheus, Loki, and the cluster directly to build a root-cause hypothesis
+- Result posted back as a Pushover message + Zulip thread; n8n sanitizes raw tool-call descriptors out of the agent text before delivery
+
+#### Current state (2026-05-16)
+
+- **HolmesGPT** — live, handling cluster alerts daily.
+- **LangGraph fleet** — plumbed but cold (`ENABLE_CLAUDE_API: false`, no production triggers). Gated on NVIDIA Spark / Ascent GX10 arrival (~2026-05-20), which becomes the primary Ollama backend before the fleet goes hot.
+- **KubeClaw** — running in parallel during the LangGraph transition; scheduled for retirement once LangGraph is validated.
 
 ---
 

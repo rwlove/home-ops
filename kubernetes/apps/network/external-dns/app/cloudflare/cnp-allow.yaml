@@ -1,0 +1,34 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: external-dns-cloudflare-allow
+spec:
+  # Chart sets fullnameOverride: externaldns-cloudflare which becomes
+  # both the resource prefix and the app.kubernetes.io/instance value;
+  # app.kubernetes.io/name comes from the upstream chart and is
+  # `external-dns`.
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: external-dns
+      app.kubernetes.io/instance: external-dns-cloudflare
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  # Ingress :7979 (metrics) covered by baseline allow-monitoring-scrape
+  # + allow-host-probes.
+  egress:
+    # api.cloudflare.com (DNS record sync). Canonical FQDN — Cilium
+    # matchPattern is unreliable for non-CNAME FQDNs (see
+    # project_cilium_matchpattern_fqdn_limits.md), so use
+    # `toEntities: [world]` + 443/TCP. external-dns also fetches the
+    # Cloudflare API at /client/v4/* exclusively over HTTPS.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

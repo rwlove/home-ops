@@ -1,0 +1,76 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: envoy-proxy-allow
+spec:
+  # Both `external` and `internal` Gateway data planes share this label;
+  # envoy-gateway labels every proxy pod with app.kubernetes.io/name=envoy.
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: envoy
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # Listener ports 80/443 (HTTP/HTTPS) + 443/UDP (QUIC/HTTP3) on both
+    # `external` and `internal` Gateways. Envoy is the cluster ingress
+    # proxy: it terminates traffic from the entire world (cloudflared
+    # tunnel + LAN clients direct to the LoadBalancer IPs) and from
+    # in-cluster pods that resolve `*.${SECRET_DOMAIN}` to the LB IP.
+    # Be inclusive — every entity that could legitimately send a
+    # request to a published HTTPRoute:
+    #   - world: cloudflared (external tunnel egress) + LAN browsers
+    #   - cluster: in-cluster pods hitting public hostnames
+    #   - host: node-local probes, kubelet-side, host-network pods
+    #   - remote-node: cross-node hairpin
+    - fromEntities:
+        - world
+        - cluster
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+            - port: "443"
+              protocol: TCP
+            - port: "443"
+              protocol: UDP
+  egress:
+    # Backend dispatch — envoy proxies traffic to HTTPRoute backends
+    # in ~17 namespaces across the cluster (auth, ai, collab, downloads,
+    # home, media, mcp-system, observability, kube-system, longhorn-system,
+    # databases, selfhosted, storage, rook-ceph, renovate, flux-system,
+    # and intra-ns to itself). `toEntities: [cluster]` covers every
+    # pod identity; we deliberately leave the port-list open because
+    # backends listen on a wide variety of ports (4180 oauth2-proxy,
+    # 8080, 5000, 9000, 11434, custom app ports). Restricting by port
+    # here would require enumerating every backend port across the
+    # whole cluster and would inevitably break a future HTTPRoute.
+    - toEntities:
+        - cluster
+    # Some backends run on the host network (e.g. node_exporter,
+    # potentially host-mode dashboards). Include host + remote-node
+    # so envoy can dispatch to those without surprise drops.
+    - toEntities:
+        - host
+        - remote-node
+    # External backends — at present envoy has no toServiceImport-style
+    # external upstream, but EnvoyExtensionPolicy/SecurityPolicy can
+    # reference external URIs (e.g. Authelia JWKS fetch, ExtAuth,
+    # OIDC discovery to issuer URLs). Permit world egress on HTTPS
+    # so future SecurityPolicy / EnvoyExtensionPolicy backends keep
+    # working. No DNS/FQDN list — these are control-plane URIs that
+    # change, and envoy is too critical to risk an FQDN cache miss.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "80"
+              protocol: TCP

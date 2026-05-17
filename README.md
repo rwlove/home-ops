@@ -72,7 +72,7 @@ Storage tiers are picked deliberately per workload — see [`storage-class.instr
 | **Automation**   | Renovate + GitHub Actions           | Dependency PRs, link checks, self-hosted runners     |
 | **CNI**          | Cilium (eBPF)                       | Networking, BGP peering, LoadBalancer pool            |
 | **Ingress**      | Envoy Gateway                       | L7 gateway / HTTPRoute                                |
-| **Service mesh** | Istio + Kiali                       | mTLS + traffic mgmt for mcp-system; Kiali UI for topology |
+| **Service mesh** | Istio                               | mTLS + traffic mgmt for mcp-system                    |
 | **DNS**          | external-dns                        | Cloudflare + bind9 split-horizon                      |
 | **TLS**          | cert-manager                        | Let's Encrypt + internal CA                           |
 | **Tunnel**       | cloudflared                         | Public ingress without exposing home WAN              |

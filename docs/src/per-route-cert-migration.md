@@ -461,11 +461,11 @@ and soaked for 7+ days.
 ### 4.0 istio Gateway migration (prerequisite)
 
 The istio Gateway was excluded from Phase 0 / Phase 3 because its
-listener references the reflector-mirrored Secret. Migrate its
-HTTPRoutes (~2: kiali and one redirect) *before* deleting the
-wildcard Certificate.
+listener references the reflector-mirrored Secret. Migrate any
+remaining HTTPRoutes on it *before* deleting the wildcard
+Certificate.
 
-For each istio HTTPRoute (`<app>` = e.g. `kiali`):
+For each istio HTTPRoute (`<app>` = the HTTPRoute name):
 
 1. Create a manual Certificate in `istio-system` (no shim
    involvement — the istio Gateway is still un-annotated):

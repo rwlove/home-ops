@@ -1,0 +1,48 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: comfyui-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: comfyui
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on internal gateway → comfyui:8188
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "8188"
+              protocol: TCP
+  egress:
+    # Provisioning script fetches model weights + custom nodes from the
+    # ai-dock provisioning URL on first start and on AUTO_UPDATE runs.
+    # ai-dock/comfyui pulls from raw.githubusercontent.com, HuggingFace,
+    # CivitAI, and PyPI mirrors. Allow HTTPS to those plus the broader
+    # GitHub release surface.
+    - toFQDNs:
+        - matchName: "raw.githubusercontent.com"
+        - matchName: "github.com"
+        - matchName: "codeload.github.com"
+        - matchPattern: "*.githubusercontent.com"
+        - matchName: "huggingface.co"
+        - matchPattern: "*.huggingface.co"
+        - matchName: "cdn-lfs.huggingface.co"
+        - matchPattern: "*.hf.co"
+        - matchName: "civitai.com"
+        - matchPattern: "*.civitai.com"
+        - matchName: "pypi.org"
+        - matchName: "files.pythonhosted.org"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

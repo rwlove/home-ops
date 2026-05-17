@@ -1,0 +1,87 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: langgraph-agents-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: langgraph-agents
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on internal gateway → langgraph-agents:8765
+    # (agents.${SECRET_DOMAIN}). n8n's approval-receive workflow also
+    # POSTs here, but that traffic still arrives via the internal
+    # Envoy gateway (n8n → HTTPRoute → envoy → langgraph-agents).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "8765"
+              protocol: TCP
+  egress:
+    # Two CNPG clusters in databases ns: checkpoints + memory (Pattern B).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            cnpg.io/cluster: postgres-langgraph-checkpoints
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            cnpg.io/cluster: postgres-langgraph-memory
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    # Ollama in same ns (baseline allow-intra-namespace covers this,
+    # but explicit for grep-ability — OLLAMA_BASE_URL is the agents'
+    # primary model backend).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: ollama
+      toPorts:
+        - ports:
+            - port: "11434"
+              protocol: TCP
+    # MCP gateway (mcp-system ns). The agent fleet talks to every MCP
+    # tool via this gateway; per project_mcp_gateway_auth_done the
+    # gateway is the only ingress point. Use the istio-managed gateway
+    # service which langgraph-agents addresses by name.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # Zulip in collab ns — the agent fleet posts updates / receives
+    # commands via the Zulip bot API.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: collab
+            app.kubernetes.io/name: zulip
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+    # External APIs:
+    #   - api.pushover.net    — Tier-1 alert escalations
+    #   - api.anthropic.com   — Claude API (gated on ENABLE_CLAUDE_API)
+    # Langfuse: user intends self-hosted in-cluster. LANGFUSE_HOST is
+    # currently empty so the client doesn't instantiate. When the
+    # in-cluster Langfuse lands, add a toEndpoints rule here for the
+    # langfuse ns + app label.
+    - toFQDNs:
+        - matchName: "api.pushover.net"
+        - matchName: "api.anthropic.com"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

@@ -91,6 +91,11 @@ spec:
         # repo systemd/ dir.
         - record: power:brain_cpu:watts
           expr: rate(node_rapl_package_joules_total{instance="brain.thesteamedcrab.com:9100"}[2m])
+        # GPU power (NVIDIA P40, passed through to worker8 VM on beast).
+        # Captured by dcgm-exporter. Total across all GPUs in the cluster
+        # in case more are added later.
+        - record: power:gpu:watts
+          expr: sum(DCGM_FI_DEV_POWER_USAGE)
     # Anomaly alerts on the recording rules above.
     - name: power.alerts
       rules:
@@ -125,3 +130,37 @@ spec:
           for: 10m
           labels:
             severity: warning
+        # BGE bill forecast tripped >20% above typical month.
+        # hass_sensor_monetary_usd is the HA prometheus exporter's
+        # form of sensor.elec_account_*_*_cost.
+        - alert: BGEForecastOverTypical
+          annotations:
+            summary: BGE forecast bill is {{ $value | humanizePercentage }} of typical
+            description: |
+              This billing cycle is on track above your typical month.
+              Forecast/typical ratio: {{ $value | humanize }}.
+              Check the Power Overview Grafana dashboard for which loads
+              are running heavier than usual.
+          expr: |
+            (
+              hass_sensor_monetary_usd{entity="sensor.elec_account_4632757682_current_bill_electric_forecasted_cost"}
+              /
+              hass_sensor_monetary_usd{entity="sensor.elec_account_4632757682_typical_monthly_electric_cost"}
+            ) > 1.20
+          for: 6h
+          labels:
+            severity: warning
+        # GPU power sustained high — runaway ollama / immich-pet-tagger /
+        # other GPU workload. P40 max TDP is 250W; 200W sustained is
+        # heavy active load.
+        - alert: GPUPowerSustainedHigh
+          annotations:
+            summary: GPU power sustained above 200W
+            description: |
+              GPU (P40) has been pulling {{ $value }}W for 30+ minutes.
+              Likely an active ollama inference or immich-pet-tagger run.
+              If unexpected, check workloads on worker8.
+          expr: power:gpu:watts > 200
+          for: 30m
+          labels:
+            severity: info

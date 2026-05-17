@@ -36,15 +36,24 @@ spec:
             - port: "8080"
               protocol: TCP
     # HuggingFace model downloads (embedding/search models cached to
-    # khoj-models PVC on first run + on model config changes). Was a
-    # toFQDNs allow-list (huggingface.co, *.huggingface.co,
-    # cdn-lfs.huggingface.co, *.hf.co). Cilium 1.19 matchName doesn't
-    # match through Kubernetes pod DNS search-domain augmentation
-    # (pod queries `huggingface.co.ai.svc.cluster.local.` and the FQDN
-    # cache stores the augmented name). Broadened to
-    # toEntities:world:443 so it actually works. Tighten when FQDN
-    # matching is fixed.
-    - toEntities: [world]
+    # khoj-models PVC on first run + on model config changes).
+    #
+    # Cilium 1.19's toFQDNs.matchName doesn't match through Kubernetes
+    # pod DNS search-domain augmentation (pod queries
+    # `huggingface.co.ai.svc.cluster.local.` and the FQDN cache stores
+    # the augmented name; matchName misses it). The bare + `.*`
+    # dual-form matchPattern covers both un-augmented and
+    # search-domain-augmented forms — see PR #11492 for the canonical
+    # example.
+    - toFQDNs:
+        - matchPattern: "huggingface.co"
+        - matchPattern: "huggingface.co.*"
+        - matchPattern: "*.huggingface.co"
+        - matchPattern: "*.huggingface.co.*"
+        - matchPattern: "cdn-lfs.huggingface.co"
+        - matchPattern: "cdn-lfs.huggingface.co.*"
+        - matchPattern: "*.hf.co"
+        - matchPattern: "*.hf.co.*"
       toPorts:
         - ports:
             - port: "443"

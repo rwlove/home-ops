@@ -24,19 +24,42 @@ spec:
             - port: "8188"
               protocol: TCP
   egress:
-    # External HTTPS for provisioning. Was a toFQDNs allow-list (
-    # raw.githubusercontent.com, github.com, codeload.github.com,
-    # *.githubusercontent.com, huggingface.co, *.huggingface.co,
-    # cdn-lfs.huggingface.co, *.hf.co, civitai.com, *.civitai.com,
-    # pypi.org, files.pythonhosted.org) but Cilium 1.19 matchName
-    # doesn't match through Kubernetes pod DNS search-domain
-    # augmentation (pods query e.g. `huggingface.co.ai.svc.cluster.local.`
-    # and the FQDN cache stores the augmented name). Broadened to
-    # toEntities:world:443 so it actually works. Tighten when FQDN
-    # matching is fixed.
-    # The ai-dock/comfyui provisioning script pulls model weights +
-    # custom nodes from these hosts on first start and on AUTO_UPDATE.
-    - toEntities: [world]
+    # External HTTPS for provisioning. The ai-dock/comfyui provisioning
+    # script pulls model weights + custom nodes from these hosts on
+    # first start and on AUTO_UPDATE.
+    #
+    # Cilium 1.19's toFQDNs.matchName doesn't match through Kubernetes
+    # pod DNS search-domain augmentation (pods query e.g.
+    # `huggingface.co.ai.svc.cluster.local.` and the FQDN cache stores
+    # the augmented name; matchName misses it). The bare + `.*`
+    # dual-form matchPattern covers both un-augmented and
+    # search-domain-augmented forms — see PR #11492 for the canonical
+    # example.
+    - toFQDNs:
+        - matchPattern: "github.com"
+        - matchPattern: "github.com.*"
+        - matchPattern: "codeload.github.com"
+        - matchPattern: "codeload.github.com.*"
+        - matchPattern: "raw.githubusercontent.com"
+        - matchPattern: "raw.githubusercontent.com.*"
+        - matchPattern: "*.githubusercontent.com"
+        - matchPattern: "*.githubusercontent.com.*"
+        - matchPattern: "huggingface.co"
+        - matchPattern: "huggingface.co.*"
+        - matchPattern: "*.huggingface.co"
+        - matchPattern: "*.huggingface.co.*"
+        - matchPattern: "cdn-lfs.huggingface.co"
+        - matchPattern: "cdn-lfs.huggingface.co.*"
+        - matchPattern: "*.hf.co"
+        - matchPattern: "*.hf.co.*"
+        - matchPattern: "civitai.com"
+        - matchPattern: "civitai.com.*"
+        - matchPattern: "*.civitai.com"
+        - matchPattern: "*.civitai.com.*"
+        - matchPattern: "pypi.org"
+        - matchPattern: "pypi.org.*"
+        - matchPattern: "files.pythonhosted.org"
+        - matchPattern: "files.pythonhosted.org.*"
       toPorts:
         - ports:
             - port: "443"

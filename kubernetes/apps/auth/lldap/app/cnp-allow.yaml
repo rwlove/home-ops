@@ -1,0 +1,53 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: lldap-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: lldap
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on internal gateway → lldap:8080 (web UI for user/group
+    # management). Both `external` and `internal` envoy deployments
+    # share app.kubernetes.io/name: envoy.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+  # LDAP (3893) from authelia is intra-ns and is covered by the baseline
+  # allow-intra-namespace policy. No other in-cluster LDAP clients
+  # (confirmed via repo grep — zulip helmrelease only mentions LLDAP in
+  # a comment).
+  egress:
+    # CNPG cluster `postgres-lldap` in databases ns (Pattern B).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            cnpg.io/cluster: postgres-lldap
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    # SMTP relay for password-reset emails — Maddy in home ns on port
+    # 2525 (Pattern E). LLDAP_SMTP_OPTIONS__ENABLE_PASSWORD_RESET=true
+    # in helmrelease.yaml; LLDAP_SMTP_OPTIONS__SERVER points at
+    # smtp-relay.home.svc.cluster.local.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: smtp-relay
+      toPorts:
+        - ports:
+            - port: "2525"
+              protocol: TCP

@@ -1,0 +1,105 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: open-webui-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: open-webui
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on internal gateway → open-webui:8080. OIDC SSO is
+    # handled in-app against Authelia (no oauth2-proxy sidecar).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+  egress:
+    # ai/ollama — primary LLM backend (OLLAMA_BASE_URL).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: ollama
+      toPorts:
+        - ports:
+            - port: "11434"
+              protocol: TCP
+    # ai/langgraph-agents — OpenAI-compatible surface, each agent id
+    # exposed as a model (OPENAI_API_BASE_URLS).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: langgraph-agents
+      toPorts:
+        - ports:
+            - port: "8765"
+              protocol: TCP
+    # databases/qdrant — vector store (VECTOR_DB=qdrant, QDRANT_URI).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            app.kubernetes.io/name: qdrant
+      toPorts:
+        - ports:
+            - port: "6333"
+              protocol: TCP
+    # mcp-system/mcp-gateway — TOOL_SERVER_CONNECTIONS includes the
+    # gateway at mcp-gateway.mcp-system:8080/mcp. Select the whole ns
+    # (matches the langgraph-agents convention) — the mcp-system ns
+    # is itself default-deny locked-down.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # observability/holmesgpt — second tool server (cluster diagnostics).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: holmesgpt
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # OIDC discovery + token exchange against Authelia, and TTS via
+    # piper.${SECRET_DOMAIN} — both resolve to the internal Envoy
+    # gateway VIP.
+    #
+    # Cilium 1.19 search-domain augmentation quirk — bare + `.*`
+    # matchPattern covers both forms. See PR #11492.
+    - toFQDNs:
+        - matchPattern: "auth.thesteamedcrab.com"
+        - matchPattern: "auth.thesteamedcrab.com.*"
+        - matchPattern: "piper.thesteamedcrab.com"
+        - matchPattern: "piper.thesteamedcrab.com.*"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    # External tool egress: open-webui's web-search backend (searxng,
+    # in-cluster — covered intra-ns via baseline), plus an open list
+    # of user-configured external integrations (image gen APIs, image
+    # fetches for RAG citations, model registry pulls, OpenAI/Mistral/
+    # Anthropic if the user wires them in via the UI). Config lives in
+    # the open-webui SQLite DB (not in git), so the surface is broad
+    # by design. Err on the side of permitting HTTPS world egress.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    # Intra-ns to searxng:8080 (SEARXNG_QUERY_URL) is covered by
+    # baseline allow-intra-namespace.

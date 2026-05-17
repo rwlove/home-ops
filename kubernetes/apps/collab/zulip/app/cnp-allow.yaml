@@ -1,0 +1,78 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: zulip-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: zulip
+      app.kubernetes.io/instance: zulip
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it. Intra-ns to zulip-rabbitmq (5672) +
+  # zulip-memcached (11211) is covered by baseline allow-intra-namespace.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on external gateway (chat.${SECRET_DOMAIN} via
+    # cloudflared) → zulip:80. Both external and internal envoy pods
+    # carry app.kubernetes.io/name=envoy.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+    # ai/langgraph-agents posts to zulip's bot API on port 80 (see
+    # langgraph-agents/cnp-allow.yaml's matching egress rule).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: langgraph-agents
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+  egress:
+    # CNPG cluster postgres-zulip in databases ns (Pattern B).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            cnpg.io/cluster: postgres-zulip
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    # Redis via shared dragonfly (externalRedis.host).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            app.kubernetes.io/name: dragonfly
+      toPorts:
+        - ports:
+            - port: "6379"
+              protocol: TCP
+    # SMTP via internal Maddy relay in home ns (Pattern E).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: smtp-relay
+      toPorts:
+        - ports:
+            - port: "2525"
+              protocol: TCP
+    # Mobile push notifications via the Zulip-operated PNS at
+    # push.zulipchat.com (SETTING_ZULIP_SERVICE_PUSH_NOTIFICATIONS=true).
+    # Bare + `.*` matchPattern covers both forms (Cilium 1.19
+    # search-domain quirk — see PR #11492).
+    - toFQDNs:
+        - matchPattern: "push.zulipchat.com"
+        - matchPattern: "push.zulipchat.com.*"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

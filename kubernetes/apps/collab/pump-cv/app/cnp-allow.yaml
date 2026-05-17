@@ -1,0 +1,46 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: pump-cv-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: pump-cv
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it. Ingress on :8080 from pump (same ns) for
+  # the /api/cv/* admin proxy is covered by baseline
+  # allow-intra-namespace.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # RTSP/TCP pulls from the two Reolink cameras on the security VLAN:
+    #   gym-front  10.10.40.26
+    #   gym-back   10.10.40.27
+    # OPENCV_FFMPEG_CAPTURE_OPTIONS forces rtsp_transport=tcp so the
+    # only port we need to allow is TCP/554 (control + interleaved
+    # media). Limit by /24 CIDR to the security VLAN.
+    - toCIDR:
+        - 10.10.40.0/24
+      toPorts:
+        - ports:
+            - port: "554"
+              protocol: TCP
+    # Ultralytics YOLOv8 model download from github releases on first
+    # run (then cached to ceph-block under /cache). Subsequent restarts
+    # use the cached weights. Bare + `.*` matchPattern covers both
+    # un-augmented and search-domain-augmented FQDN forms (Cilium 1.19
+    # search-domain quirk — see PR #11492).
+    - toFQDNs:
+        - matchPattern: "github.com"
+        - matchPattern: "github.com.*"
+        - matchPattern: "*.githubusercontent.com"
+        - matchPattern: "*.githubusercontent.com.*"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    # Intra-ns pump-api:8851 (PUMP_API_BASE_URL) is covered by baseline
+    # allow-intra-namespace.

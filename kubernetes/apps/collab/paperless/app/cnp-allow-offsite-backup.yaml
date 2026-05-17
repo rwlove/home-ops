@@ -1,0 +1,39 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: paperless-offsite-backup-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: paperless-offsite-backup
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  # No ingress — CronJob is purely outbound.
+  egress:
+    # In-cluster S3 to Garage (CNPG/Barman DB backup snapshots). The
+    # garage CNP's ingress already permits collab → garage:3900 at the
+    # ns level (see storage/garage/app/cnp-allow.yaml). This rule is
+    # the egress side from the CronJob's perspective.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: storage
+            app.kubernetes.io/name: garage
+      toPorts:
+        - ports:
+            - port: "3900"
+              protocol: TCP
+    # External S3 (AWS Glacier Deep Archive) via rclone's crypt remote.
+    # The crypt remote wraps an s3 remote whose endpoint is AWS S3
+    # (s3.amazonaws.com / s3-<region>.amazonaws.com), so this is true
+    # internet egress, not the internal Garage gateway. Use world:443.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

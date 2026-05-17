@@ -16,15 +16,19 @@ spec:
     egress: false
     ingress: false
   egress:
-    # 1Password Cloud (sync container only). Confirmed via Cilium FQDN
-    # cache 2026-05-17: only `my.1password.com` is resolved. The bare
-    # + `.*` dual-form matchPattern covers both un-augmented and
-    # search-domain-augmented forms (Cilium 1.19 matchName misses the
-    # augmented `my.1password.com.external-secrets.svc.cluster.local.`
-    # form per PR #11492 / #11499).
-    - toFQDNs:
-        - matchPattern: "my.1password.com"
-        - matchPattern: "my.1password.com.*"
+    # 1Password Cloud (sync container only). Was a toFQDNs allow-list
+    # for `my.1password.com`. Cilium 1.19 matchPattern's `.*` token
+    # expands to `[-a-zA-Z0-9_]*` (single DNS label) in the generated
+    # regex, so the dual-form `my.1password.com` + `my.1password.com.*`
+    # pattern doesn't match the search-domain-augmented form actually
+    # cached in this cluster:
+    #   `my.1password.com.external-secrets.svc.cluster.local.`
+    # (four trailing labels — see PR #11512 follow-up). Broadened to
+    # toEntities:world:443 so it actually works. Tighten when FQDN
+    # search-domain augmentation in Cilium policy is fixed upstream
+    # (track PR #11498 / mcp-system precedent).
+    - toEntities:
+        - world
       toPorts:
         - ports:
             - port: "443"

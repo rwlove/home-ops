@@ -31,7 +31,7 @@ _Production-grade Kubernetes for a household._
 
 This is the live configuration for a multi-node Kubernetes cluster that runs a household — home automation, security cameras, media, document management, AI workloads, and the operational tooling required to keep it all up. Every change lands in Git first; Flux reconciles the cluster from there, and Renovate keeps dependencies current via PRs.
 
-The repo is GitOps-strict: applications are declared as `HelmRelease` resources, secrets are pulled from 1Password through External Secrets Operator, and clusters are mostly identical except for app selection and sizing. Operational quirks, durability tiers, and security defaults live alongside the manifests in [`.agents/instructions/`](.agents/instructions/) so the conventions are enforceable, not folklore.
+The repo is GitOps-strict: applications are declared as `HelmRelease` resources, secrets are pulled from 1Password through External Secrets Operator, and clusters are mostly identical except for app selection and sizing. Operational quirks, durability tiers, and security defaults live alongside the manifests in [`.agents/instructions/`](https://github.com/rwlove/home-ops/tree/main/.agents/instructions) so the conventions are enforceable, not folklore.
 
 ---
 
@@ -56,7 +56,7 @@ flowchart LR
     class Ceph,LH,Garage,NFS,AWS store
 ```
 
-Storage tiers are picked deliberately per workload — see [`storage-class.instructions.md`](.agents/instructions/storage-class.instructions.md) for the decision tree.
+Storage tiers are picked deliberately per workload — see [`storage-class.instructions.md`](https://github.com/rwlove/home-ops/blob/main/.agents/instructions/storage-class.instructions.md) for the decision tree.
 
 ---
 
@@ -475,7 +475,7 @@ HolmesGPT is the one agent already running in production:
 
 ### 💾 Tiered storage durability
 
-Four tiers, picked by what the data has to survive — node loss, Ceph loss, cluster loss, or full site loss. Databases get `ceph-block` + Barman→Garage; irreplaceable state goes to Longhorn with NFS-shipped weekly + monthly backups; S3-shaped workloads use Garage; bulk media rides direct NFS. Full decision tree: [`.agents/instructions/storage-class.instructions.md`](.agents/instructions/storage-class.instructions.md).
+Four tiers, picked by what the data has to survive — node loss, Ceph loss, cluster loss, or full site loss. Databases get `ceph-block` + Barman→Garage; irreplaceable state goes to Longhorn with NFS-shipped weekly + monthly backups; S3-shaped workloads use Garage; bulk media rides direct NFS. Full decision tree: [`.agents/instructions/storage-class.instructions.md`](https://github.com/rwlove/home-ops/blob/main/.agents/instructions/storage-class.instructions.md).
 
 ### 🔐 Secrets — zero plain-text in Git
 
@@ -495,7 +495,7 @@ A single NVIDIA P40 (24 GB VRAM) on worker8 drives Ollama (local LLM), ComfyUI (
 
 ### 🛟 Disaster recovery
 
-Per-app rclone CronJobs ship Immich originals and Paperless documents — plus their Garage-stored Postgres backups — to encrypted AWS S3 with a 1-day Glacier Deep Archive transition. Recovery procedure is documented at [`docs/src/offsite_recovery.md`](docs/src/offsite_recovery.md) and was last validated 2026-05-05.
+Per-app rclone CronJobs ship Immich originals and Paperless documents — plus their Garage-stored Postgres backups — to encrypted AWS S3 with a 1-day Glacier Deep Archive transition. Recovery procedure is documented at [Offsite recovery](https://rwlove.github.io/home-ops/offsite_recovery.html) and was last validated 2026-05-05.
 
 ### 🌪️ Strict GitOps
 
@@ -521,7 +521,7 @@ Frequently referenced pages:
 - [master1 etcd disk swap](https://rwlove.github.io/home-ops/master1_etcd_disk_swap.html)
 - [GitHub webhook](https://rwlove.github.io/home-ops/github_webhook.html)
 
-Repo-local conventions (auto-loaded by AI agents from [`.agents/instructions/`](.agents/instructions/)):
+Repo-local conventions (auto-loaded by AI agents from [`.agents/instructions/`](https://github.com/rwlove/home-ops/tree/main/.agents/instructions)):
 
 - Storage class selection · HelmRelease security defaults · ConfigMap layout · Sorting rules · Schema correction · Persona
 

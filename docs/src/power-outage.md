@@ -27,7 +27,7 @@ Within ~60 seconds, `kube-vip` pods should come up and you can delete the tempor
 ## Why it happens
 
 - `kube-vip` runs as a static pod on each control-plane node, managed by kubelet, not by the apiserver.
-- It uses [BGP ECMP via Cilium](../../kubernetes/apps/network/cilium/) in this cluster, but during cold boot the VIP attach can race against kubelet bringing up the static pod.
+- It uses [BGP ECMP via Cilium](https://github.com/rwlove/home-ops/tree/main/kubernetes/apps/network/cilium) in this cluster, but during cold boot the VIP attach can race against kubelet bringing up the static pod.
 - Once the VIP is up *anywhere*, every node's kubelet can talk to the apiserver and the rest cascades.
 
 ## Related

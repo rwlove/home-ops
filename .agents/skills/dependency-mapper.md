@@ -100,7 +100,6 @@ Longhorn (longhorn-system)
 - istio-base (no deps)
 - istio-istiod (depends on istio-base)
 - istio-gateway (depends on istio-istiod)
-- kiali (depends on istio-istiod, prometheus)
 
 ## Dependency Validation Rules
 

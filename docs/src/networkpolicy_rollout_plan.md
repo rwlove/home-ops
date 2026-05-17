@@ -43,7 +43,7 @@ isolation, no DNS isolation.
     (pod-gateway VXLAN/WireGuard allow).
   - `flux-system/allow-webhooks-from-gateway` + `flux-operator-web`.
   - A handful of chart-shipped K8s `NetworkPolicy` resources
-    (zulip-memcached/rabbitmq, pgadmin, kiali, grafana-image-renderer).
+    (zulip-memcached/rabbitmq, pgadmin, grafana-image-renderer).
 - Flux's bundled NetworkPolicies are **disabled** in
   `flux-instance` values (`cluster.networkPolicy: false`) — Flux
   controller egress is currently unrestricted, which simplifies
@@ -570,8 +570,8 @@ not the same per-namespace PR pattern as the rest.
   - [ ] App smoke test (curl ingress URL, check ready endpoints).
   - [ ] `flux get all -n <ns>` clean.
 - **Vanilla `NetworkPolicy` in target namespace:** if a chart ships
-  a vanilla `kind: NetworkPolicy` (the 8 known cases: zulip-memcached,
-  zulip-rabbitmq, pgadmin-pgadmin4, kiali, grafana-image-renderer,
+  a vanilla `kind: NetworkPolicy` (the 7 known cases: zulip-memcached,
+  zulip-rabbitmq, pgadmin-pgadmin4, grafana-image-renderer,
   the two flux-system policies, vpn pod-gateway), convert it to
   `CiliumNetworkPolicy` in the same per-namespace PR. Decision
   locked 2026-05-17: convert per-namespace as we reach them rather
@@ -635,8 +635,7 @@ prior phases — namespaces locked down stay locked down.
   components where CNP adds risk disproportionate to benefit.
 - Host firewalld rules on nodes (brain, masters, workers).
 - BGP filtering (Cilium peers freely with brain today).
-- Mesh-layer policy (Istio AuthorizationPolicy) — only being
-  rolled out where Kiali already shows it; not part of this CNP
-  rollout.
+- Mesh-layer policy (Istio AuthorizationPolicy) — not part of this
+  CNP rollout.
 - Audit/SIEM integration for drop events — Hubble metrics +
   Grafana is the cluster's tool for this rollout.

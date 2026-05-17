@@ -33,7 +33,7 @@ home-ops/
 | CI            | Renovate + GitHub Actions    | Dependency updates, automation                   |
 | Networking    | Cilium (eBPF)                | CNI, BGP peering, LoadBalancer pool              |
 | Ingress       | Envoy Gateway                | L7 gateway / HTTPRoute                           |
-| Service mesh  | Istio + Kiali                | mTLS + traffic mgmt for mcp-system               |
+| Service mesh  | Istio                        | mTLS + traffic mgmt for mcp-system               |
 | DNS           | external-dns                 | Cloudflare + bind9 split-horizon                 |
 | Tunnel        | cloudflared                  | Public ingress without exposing home WAN         |
 | AuthN/Z       | Authelia + oauth2-proxy      | OIDC SSO; ~24 oauth2-proxy instances             |

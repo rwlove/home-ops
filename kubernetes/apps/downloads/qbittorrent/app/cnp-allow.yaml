@@ -1,0 +1,56 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: qbittorrent-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: qbittorrent
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it. Ingress on :8080 from qbittorrent-oauth2-proxy
+  # (same ns) is covered by baseline allow-intra-namespace.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # Cross-ns *arr download-client callers. Each *arr posts torrents +
+    # polls download status against the qbittorrent WebUI API.
+    #   media/sonarr / radarr / lidarr → qbittorrent.downloads:8080
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: media
+            app.kubernetes.io/name: sonarr
+        - matchLabels:
+            io.kubernetes.pod.namespace: media
+            app.kubernetes.io/name: radarr
+        - matchLabels:
+            io.kubernetes.pod.namespace: media
+            app.kubernetes.io/name: lidarr
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+  egress:
+    # VPN egress. ALL torrent traffic (peer connections, tracker
+    # announces, DHT) routes through the VXLAN tunnel to the gateway
+    # pod, then out via WireGuard. The Mullvad port-forward delivers
+    # inbound BT peer connections through the same WireGuard tunnel,
+    # which arrives at vxlan0 on this pod (so it's the same flow's
+    # return path — no separate ingress rule needed).
+    #
+    # The qbittorrent-bittorrent LoadBalancer Service (10.45.0.14:24589)
+    # exists in the chart for legacy reasons but has no endpoints
+    # because the pod listens on vxlan0, not eth0 (verified
+    # 2026-05-17). External BT ingress flows via VPN, NOT via LB.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: vpn
+            app.kubernetes.io/instance: downloads-gateway
+            app.kubernetes.io/name: pod-gateway
+            app.kubernetes.io/controller: main
+      toPorts:
+        - ports:
+            - port: "4789"
+              protocol: UDP

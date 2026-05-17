@@ -1,0 +1,38 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: downloads-gateway-webhook-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/instance: downloads-gateway
+      app.kubernetes.io/name: pod-gateway
+      app.kubernetes.io/controller: webhook
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # MutatingWebhookConfiguration `gateway-admision-controller` is
+    # called by kube-apiserver on pod creation in any namespace
+    # labeled `routed-gateway`. Apiserver source carries the reserved
+    # `kube-apiserver` identity (NOT a pod identity), so a CIDR rule
+    # would silently drop in Cilium 1.19; use the entity selector.
+    # See: memory project_cilium_ipblock_apiserver.md
+    - fromEntities:
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+# NOTE: the existing CNP `downloads-gateway-pod-gateway` (in
+# ./networkpolicy.yaml) is the load-bearing policy for the pod-gateway
+# StatefulSet (main pod). It allows ingress from `fromEntities: cluster`
+# (covers VXLAN/4789 UDP from downloads/* clients) and egress on
+# UDP/51820 to 0.0.0.0/0 (WireGuard handshake to Mullvad). It is
+# explicitly NOT modified here — the existing rules + the baseline
+# allow-* CNPs (DNS, apiserver, host-probes, intra-ns, monitoring)
+# are sufficient for the gateway pod under default-deny.

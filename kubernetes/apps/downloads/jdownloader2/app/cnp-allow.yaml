@@ -1,0 +1,36 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: jdownloader2-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: jdownloader2
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it. Ingress on :5800 from
+  # jdownloader2-oauth2-proxy (same ns) is covered by baseline
+  # allow-intra-namespace.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # VPN egress. The pod-gateway webhook injected `setGateway=true`
+    # routing into this pod's iptables, so ALL non-cluster traffic
+    # exits via the VXLAN tunnel (UDP/4789) to the gateway pod, which
+    # in turn forwards via WireGuard. From Cilium's perspective the
+    # only egress packet is the encapsulated VXLAN UDP/4789 to the
+    # gateway pod's endpoint identity. DNS (172.16.1.1) and ALL
+    # external connectivity (hoster HTTPS, etc.) are tunneled inside
+    # this single VXLAN flow.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: vpn
+            app.kubernetes.io/instance: downloads-gateway
+            app.kubernetes.io/name: pod-gateway
+            app.kubernetes.io/controller: main
+      toPorts:
+        - ports:
+            - port: "4789"
+              protocol: UDP

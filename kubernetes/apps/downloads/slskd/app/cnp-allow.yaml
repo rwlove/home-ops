@@ -1,0 +1,42 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: slskd-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: slskd
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it. Ingress on :5030 from slskd-oauth2-proxy
+  # (same ns) is covered by baseline allow-intra-namespace.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # Cross-ns: soularr in media ns polls the slskd API to orchestrate
+    # Lidarr → Soulseek searches. Env in soularr config.ini:
+    #   host_url = http://slskd.downloads.svc.cluster.local:5030
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: media
+            app.kubernetes.io/name: soularr
+      toPorts:
+        - ports:
+            - port: "5030"
+              protocol: TCP
+  egress:
+    # VPN egress. ALL Soulseek P2P traffic (peer connections to the
+    # Soulseek network on port 50300) routes through the VXLAN tunnel
+    # to the gateway pod, then out via WireGuard.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: vpn
+            app.kubernetes.io/instance: downloads-gateway
+            app.kubernetes.io/name: pod-gateway
+            app.kubernetes.io/controller: main
+      toPorts:
+        - ports:
+            - port: "4789"
+              protocol: UDP

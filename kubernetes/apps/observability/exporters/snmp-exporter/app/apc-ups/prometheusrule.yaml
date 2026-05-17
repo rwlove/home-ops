@@ -91,6 +91,12 @@ spec:
         # repo systemd/ dir.
         - record: power:brain_cpu:watts
           expr: rate(node_rapl_package_joules_total{instance="brain.thesteamedcrab.com:9100"}[2m])
+        # GPU power (NVIDIA P40, passed through to worker8 VM on beast).
+        # Captured by dcgm-exporter. Total across all GPUs in the cluster
+        # in case more are added later. Single number rolls up paperless-ai,
+        # immich-pet-tagger, any other ollama consumer.
+        - record: power:gpu:watts
+          expr: sum(DCGM_FI_DEV_POWER_USAGE)
     # Anomaly alerts on the recording rules above.
     - name: power.alerts
       rules:
@@ -125,3 +131,32 @@ spec:
           for: 10m
           labels:
             severity: warning
+        # BGE bill forecast tripped >20% above typical month.
+        - alert: BGEForecastOverTypical
+          annotations:
+            summary: BGE forecast bill is {{ $value | humanize }}x typical month
+            description: |
+              This billing cycle's projected cost is on track above the
+              typical month. Check Power Overview dashboard for which
+              loads are running heavier than usual.
+          expr: |
+            (
+              hass_sensor_monetary_usd{entity="sensor.elec_account_4632757682_current_bill_electric_forecasted_cost"}
+              /
+              hass_sensor_monetary_usd{entity="sensor.elec_account_4632757682_typical_monthly_electric_cost"}
+            ) > 1.20
+          for: 6h
+          labels:
+            severity: warning
+        # P40 max TDP is 250W; 200W sustained 30m = heavy active load.
+        - alert: GPUPowerSustainedHigh
+          annotations:
+            summary: GPU power sustained above 200W
+            description: |
+              GPU (P40) has been pulling {{ $value }}W for 30+ minutes.
+              Likely active ollama inference (paperless-ai, immich-pet-tagger,
+              etc.) or a stuck workload. If unexpected, check pods on worker8.
+          expr: power:gpu:watts > 200
+          for: 30m
+          labels:
+            severity: info

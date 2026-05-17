@@ -13,7 +13,7 @@ This is a **Home Kubernetes cluster monorepo** managed with GitOps (Flux, Renova
 
 ## Repository Structure
 
-```
+```text
 home-ops/
 ├── kubernetes/          # Kubernetes configurations (Flux-managed)
 │   ├── apps/            # Application configs
@@ -21,26 +21,31 @@ home-ops/
 │   └── flux/            # Flux cluster definitions
 ├── bootstrap/           # Bootstrap templates (helmfile.d, templates)
 ├── docs/                # mdBook documentation
-├── init/		 # Cluster initialization scripts
-└── tools/		 # Helper scripts
+├── init/                # Cluster initialization scripts
+└── tools/                # Helper scripts
 ```
 
 ## Key Technologies
 
-| Category   | Tool                         | Purpose                           |
-|------------|------------------------------|-----------------------------------|
-| GitOps     | Flux                         | Deploys configs from Git to k8s   |
-| CI         | Renovate + GitHub Actions    | Dependency updates, automation    |
-| Networking | cilium (eBPF)                | CNI, BGP, service mesh            |
-| Ingress    | Envoy Gateway                | L7 proxy, ingress controller      |
-| DNS        | external-dns                 | Syncs ingress to Cloudflare/bind  |
-| Secrets    | external-secrets + 1Password | Secret management                 |
-| Storage    | Rook/Ceph, Longhorn, Garage  | Distributed storage + backups     |
-| Images     | ZOT                          | Local container cache             |
+| Category      | Tool                         | Purpose                                          |
+|---------------|------------------------------|--------------------------------------------------|
+| GitOps        | Flux                         | Deploys configs from Git to k8s                  |
+| CI            | Renovate + GitHub Actions    | Dependency updates, automation                   |
+| Networking    | Cilium (eBPF)                | CNI, BGP peering, LoadBalancer pool              |
+| Ingress       | Envoy Gateway                | L7 gateway / HTTPRoute                           |
+| Service mesh  | Istio + Kiali                | mTLS + traffic mgmt for mcp-system               |
+| DNS           | external-dns                 | Cloudflare + bind9 split-horizon                 |
+| Tunnel        | cloudflared                  | Public ingress without exposing home WAN         |
+| AuthN/Z       | Authelia + oauth2-proxy      | OIDC SSO; ~24 oauth2-proxy instances             |
+| Secrets       | external-secrets + 1Password | Secret management (109 ExternalSecrets)          |
+| Storage       | Rook/Ceph, Longhorn, Garage  | Tiered durable storage; see `storage-class` instr |
+| Databases     | CloudNative-PG               | 24+ Postgres clusters with Garage Barman backup  |
+| Observability | kube-prometheus-stack, Loki, Grafana, HolmesGPT | Metrics, logs, AI alert triage |
+| Images        | ZOT                          | Pull-through registry cache                      |
 
 ## GitOps Flow
 
-```
+```text
 Git push → Flux source sync → Kustomization → HelmRelease → k8s resources
 ```
 
@@ -48,7 +53,7 @@ Flux recursively searches `kubernetes/apps/` for `kustomization.yaml` files. Eac
 
 ## Conventions
 
-- Component READMEs stay with components (e.g., `kubernetes/apps/base/cilium/README.md`)
+- Component READMEs stay with components (e.g., `kubernetes/components/network-policy/baseline/README.md`)
 - Secrets stored in 1Password, referenced via `external-secrets`
 - Apps use `HelmRelease` via Flux, rarely raw manifests
 - Clusters are mostly identical except for app selections and sizing
@@ -74,22 +79,27 @@ True` status shows up unexpectedly, ask before touching it.
 
 ## Documentation
 
-- Main docs: `/docs/src/` (mdBook)
+- Main docs: `/docs/src/` (mdBook, rendered at <https://rwlove.github.io/home-ops/>)
+- Repo-wide README: `/README.md` (the home-ops landing page)
 - Component docs: README files co-located with components
-#- Personal notes: `/docs/src/notes/`
+- Agent-loaded conventions: `/.agents/instructions/` (auto-imported via this CLAUDE.md)
+- Agent skills: `/.agents/skills/` (invoked on demand)
 
 ## Adding Documentation
 
 When adding architecture or operational docs, consider:
-1. Put user-facing docs in `/docs/src/`
-2. Keep component-specific docs with the component
-3. Personal notes go in `/docs/src/notes/`
+
+1. **Operator runbooks** → `/docs/src/` (mdBook chapters listed in `SUMMARY.md`)
+2. **Component-specific** → README next to the component (e.g. `kubernetes/components/network-policy/baseline/README.md`)
+3. **Conventions every AI session should auto-load** → `/.agents/instructions/` plus an `@`-import line in this file
+4. **One-shot agent workflows** → `/.agents/skills/` (not auto-loaded; invoked explicitly)
 
 ## PR Review Standards
 
 When reviewing Renovate PRs, enforce these criteria:
 
 ### HelmRelease Requirements
+
 - All applications MUST use `HelmRelease` via Flux, not raw manifests
 - Must include `spec.chart.spec.version` for pinned chart versions outside of `app-template`
 - Must include `spec.interval` for reconciliation frequency
@@ -97,11 +107,13 @@ When reviewing Renovate PRs, enforce these criteria:
 - `valuesFrom` should reference ConfigMaps/Secrets, not inline values
 
 ### Secret Management Rules
+
 - **NEVER** commit plain-text secrets or credentials in Git
 - All secrets MUST use `external-secrets` with 1Password backend
 - If a PR introduces a new secret, verify it's external-secrets backed
 
 ### Image & Digest Policy
+
 - Prefer `@sha256:` digests over version tags for reproducibility
 - For tag-only updates, verify OCI metadata (revision/source/created)
 - If revision changes between digests, ensure it's intentional
@@ -110,10 +122,13 @@ When reviewing Renovate PRs, enforce these criteria:
 - Avoid Docker Hub for critical infrastructure components
 
 ### Cluster-Specific Policies
+
 - Strict validation - all standards must be met
 
 ### Breaking Change Detection
+
 Always `request_changes` if:
+
 - API version changes (e.g., `apiVersion: apps/v1beta1` → `apps/v1`)
 - Deprecated field usage introduced
 - Major version bumps without justification
@@ -121,7 +136,9 @@ Always `request_changes` if:
 - Network policy or security context relaxations
 
 ### Required Evidence for Approval
+
 Before approving, verify:
+
 1. Release notes/changelog mention the upgrade
 2. GitHub compare shows expected changes
 3. Version aligns with what Renovate reported

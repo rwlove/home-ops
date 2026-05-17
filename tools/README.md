@@ -70,10 +70,17 @@ flow — they're for ad-hoc operator work.
 | `restart-k8s-service.sh` | Scale a Deployment to 0, wait, scale back up. |
 | `enable-disable-hr.sh` | Pause/unpause a HelmRelease via the `disable-<app>` commit pattern. |
 
-## Miscellaneous
+## Auth + registry helpers
+
+| Script | Purpose |
+|---|---|
+| `gen-oauth-client-secret.sh` | Generate an Authelia OAuth2 client secret + matching argon2 hash (paste both into `clients.yaml` / 1Password). |
+| `check-image-registry.sh` | Verify image registries used in the repo against the allowlist (renovate / PR-review aid). |
+
+## App-specific
 
 | Script | Purpose |
 |---|---|
 | `frigate_copy_speed.sh` | Tail Frigate logs and print recording copy throughput. |
 | `ollama-pull-models.sh` | Pull a predefined set of models into the Ollama instance. |
-| `start-fullykiosk.sh` | adb-trigger Fully Kiosk on the `frameo` display. |
+| `romm-apply-tags.sh` | Apply per-ROM tags in the RomM database after a scan. |

@@ -12,11 +12,14 @@ context window space on every turn.
 
 | File | What it does |
 |------|--------------|
+| `configmap.resources.instructions.md` | ConfigMap source files live under `app/resources/`; file names match the in-container basename. |
 | `flux.sorting.instructions.md` | Field ordering for Flux-managed YAML (Kustomization, dependsOn, sourceRef). |
 | `helmfile.sorting.instructions.md` | Field ordering for HelmRelease YAML, especially app-template-based releases. |
+| `helmrelease.security.md` | Pod-securityContext defaults (runAsNonRoot, readOnlyRootFilesystem, etc.) for new HelmReleases. |
 | `kustomize.config.sorting.instructions.md` | Field ordering for kustomize `kustomization.yaml` files. |
+| `persona.md` | Repo-specific persona — role framing, tone, decision bias. |
 | `schema.correction.md` | apiVersion + kind → `# yaml-language-server: $schema=…` mappings used in this repo. |
-| `storage-class.instructions.md` | When to pick Rook/Ceph vs Longhorn vs Garage for new PVCs. |
+| `storage-class.instructions.md` | When to pick Rook/Ceph vs Longhorn vs Garage vs direct NFS. |
 
 When you add a new instructions file, also add an `@`-import line at
 the top of `CLAUDE.md` so it gets loaded.

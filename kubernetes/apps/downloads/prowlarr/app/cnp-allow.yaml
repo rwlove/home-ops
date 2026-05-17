@@ -1,0 +1,96 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: prowlarr-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: prowlarr
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it. Ingress on :9696 from prowlarr-oauth2-proxy
+  # (same ns) is covered by baseline allow-intra-namespace.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # Cross-ns *arr callers hitting the prowlarr indexer API directly
+    # (NOT via oauth2-proxy — internal service URL).
+    #   media/sonarr   — http://prowlarr.downloads.svc.cluster.local:9696
+    #   media/radarr   — http://prowlarr.downloads.svc.cluster.local:9696
+    #   media/lidarr   — http://prowlarr.downloads.svc.cluster.local:9696
+    #   mcp-system/arr-mcp — PROWLARR_URL env (see arr-mcp/cnp-allow.yaml)
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: media
+            app.kubernetes.io/name: sonarr
+        - matchLabels:
+            io.kubernetes.pod.namespace: media
+            app.kubernetes.io/name: radarr
+        - matchLabels:
+            io.kubernetes.pod.namespace: media
+            app.kubernetes.io/name: lidarr
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+            app.kubernetes.io/name: arr-mcp
+      toPorts:
+        - ports:
+            - port: "9696"
+              protocol: TCP
+  egress:
+    # VPN egress. The pod-gateway webhook injected `setGateway=true`
+    # routing, so ALL non-cluster traffic (indexer probes, FlareSolverr
+    # if configured to point outside the cluster, etc.) exits via the
+    # VXLAN tunnel (UDP/4789) to the gateway pod. From Cilium's
+    # perspective the only egress packet is encapsulated VXLAN UDP/4789.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: vpn
+            app.kubernetes.io/instance: downloads-gateway
+            app.kubernetes.io/name: pod-gateway
+            app.kubernetes.io/controller: main
+      toPorts:
+        - ports:
+            - port: "4789"
+              protocol: UDP
+    # Cross-ns: FlareSolverr in media ns proxies Cloudflare-protected
+    # indexer fetches for prowlarr. Same-cluster Service call:
+    # http://flaresolverr.media.svc.cluster.local:8191
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: media
+            app.kubernetes.io/name: flaresolverr
+      toPorts:
+        - ports:
+            - port: "8191"
+              protocol: TCP
+    # Cross-ns: *arr API push-backs. Prowlarr sync-app feature pushes
+    # indexer config to each *arr instance over its API.
+    #   media/sonarr:8989
+    #   media/radarr:7878
+    #   media/lidarr:8686
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: media
+            app.kubernetes.io/name: sonarr
+      toPorts:
+        - ports:
+            - port: "8989"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: media
+            app.kubernetes.io/name: radarr
+      toPorts:
+        - ports:
+            - port: "7878"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: media
+            app.kubernetes.io/name: lidarr
+      toPorts:
+        - ports:
+            - port: "8686"
+              protocol: TCP

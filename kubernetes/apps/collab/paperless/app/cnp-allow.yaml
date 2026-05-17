@@ -70,3 +70,17 @@ spec:
         - ports:
             - port: "443"
               protocol: TCP
+    # OIDC token exchange + userinfo: paperless (django-allauth) calls
+    # authelia server-side after user redirect. The toFQDNs rule above
+    # resolves to envoy's LB IP via split-horizon DNS but that hop
+    # times out (yields HTTP 500 at the OIDC login). Direct in-cluster
+    # path to authelia bypasses the envoy roundtrip entirely
+    # (Pattern E).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: auth
+            app.kubernetes.io/name: authelia
+      toPorts:
+        - ports:
+            - port: "9091"
+              protocol: TCP

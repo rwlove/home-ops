@@ -1,0 +1,32 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: external-secrets-webhook-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: external-secrets-webhook
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # kube-apiserver → ValidatingWebhookConfiguration callback to the
+    # external-secrets-webhook Service (port 443 → containerPort 10250)
+    # for ExternalSecret / ClusterSecretStore admission. Without this
+    # apiserver loses ability to admit ES CRs once default-deny lands.
+    # Kubelet readiness/startup probes (host-network → :8081) +
+    # Prometheus scrape (:8080) are covered by baseline allow-host-probes
+    # and allow-monitoring-scrape respectively.
+    - fromEntities:
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - port: "10250"
+              protocol: TCP
+  # Egress: external-secrets-webhook is a leaf service (no upstreams
+  # beyond the apiserver, already covered by the baseline
+  # allow-apiserver policy). No explicit egress rules required.

@@ -1,0 +1,29 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: zwave-js-ui-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: zwave-js-ui
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # Internal HTTPRoute (envoy → zwave-js-ui:8091) — zwave-js UI.
+    # home-assistant connects to the websocket on :3000 — intra-ns,
+    # covered by baseline allow-intra-namespace.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "8091"
+              protocol: TCP
+  # No egress holes needed: Z-Wave dongle is on a host /dev path, no
+  # network egress.

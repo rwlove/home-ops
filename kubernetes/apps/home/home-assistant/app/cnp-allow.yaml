@@ -1,0 +1,83 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: home-assistant-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: home-assistant
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on EXTERNAL gateway (via cloudflared tunnel) →
+    # home-assistant:8123. Also reached directly on LAN via the
+    # LoadBalancer VIP (SVC_HOME_ASSISTANT_ADDR).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "8123"
+              protocol: TCP
+    # LAN clients hitting the LoadBalancer VIP for the HA UI / native
+    # app, and the in-cluster prometheus scrape config that uses the
+    # HA REST API (not the standard /metrics endpoint, so the baseline
+    # allow-monitoring-scrape may not match — explicit here).
+    - fromEntities:
+        - world
+        - host
+        - remote-node
+        - cluster
+      toPorts:
+        - ports:
+            - port: "8123"
+              protocol: TCP
+  egress:
+    # Postgres recorder backend (Pattern B — CNPG cluster in databases).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            cnpg.io/cluster: postgres-home-assistant
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    # smtp-relay in same ns for HA notifications. Intra-namespace, but
+    # listed for grep-ability.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: smtp-relay
+      toPorts:
+        - ports:
+            - port: "2525"
+              protocol: TCP
+    # Home Assistant integrations call out to an unbounded set of cloud
+    # APIs (weather, Pushover, OpenAI, voice cloud services, Frigate
+    # MQTT/HTTP, calendar, etc.) plus arbitrary user-installed HACS
+    # integrations. The set is user-driven and changes per-config;
+    # toEntities:world is the only practical option. Documented as
+    # intentional per the rollout-plan design decisions.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "80"
+              protocol: TCP
+            - port: "8883"
+              protocol: TCP # external MQTT-TLS brokers
+            - port: "1883"
+              protocol: TCP # external MQTT plain (Mosquitto.org test broker, etc)
+    # NOTE: Home Assistant has multus-attached secondary NICs on the
+    # IoT and SECURITY VLANs (hass-iot-static, hass-security-static).
+    # Discovery (mDNS, broadcasts, device polling) over those NICs
+    # bypasses Cilium entirely; only eth0 (apiserver, DNS, cross-ns,
+    # external) is governed here.

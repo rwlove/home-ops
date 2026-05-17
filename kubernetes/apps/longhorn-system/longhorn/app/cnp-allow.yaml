@@ -1,0 +1,229 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+# longhorn-manager (DaemonSet, every node)
+# - Heavy networking: peer managers cross-node, admission/recovery
+#   webhooks from kube-apiserver, instance-manager / engine-image /
+#   share-manager spawning + control, NFS backup target on host.
+# - NFS to the backup target (beast:/mnt/mass_storage/longhorn-backups)
+#   is mounted in the host kernel network namespace by the node's
+#   `mount.nfs`, NOT from inside the manager pod — so no pod-level egress
+#   rule for that flow is required.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: longhorn-manager-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app: longhorn-manager
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it. Baseline covers kube-apiserver, DNS, host
+  # probes, intra-namespace, monitoring scrape.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # Admission + recovery webhooks (9502 admission, 9503 recovery) and
+    # the manager REST API (9500) — apiserver hits webhooks, CSI sidecars
+    # + UI hit the REST API. Sister manager pods on other nodes also
+    # need broad reach for HA/clustered manager work.
+    - fromEntities:
+        - cluster
+        - host
+        - remote-node
+        - kube-apiserver
+  egress:
+    # Manager talks to: peer managers cross-node, instance-managers /
+    # engine-image / share-manager pods, the apiserver (baseline covers
+    # apiserver), and the kubelet/CSI on every node. Broad
+    # cluster+host+remote-node egress matches Longhorn's "everything
+    # talks to everything for storage liveness" model.
+    - toEntities:
+        - cluster
+        - host
+        - remote-node
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+# longhorn-ui (Deployment) — fronted by HTTPRoute
+# longhorn.thesteamedcrab.com on the internal Envoy Gateway. UI talks to
+# longhorn-backend:9500 (covered by intra-ns baseline).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: longhorn-ui-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app: longhorn-ui
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # Pattern A: HTTPRoute longhorn.thesteamedcrab.com → longhorn-ui:8000
+    # (Service maps :80 → :8000). Source is the internal Envoy Gateway.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+# longhorn-csi-plugin (DaemonSet, every node) — the CSI node plugin.
+# Talks to the kubelet on the local node and to longhorn-manager /
+# instance-manager for volume attach/detach + mount operations.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: longhorn-csi-plugin-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app: longhorn-csi-plugin
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # kubelet on the local node calls the CSI node plugin via the unix
+    # socket bind-mounted into the host plugin dir; gRPC over loopback
+    # within the node — host identity covers it.
+    - fromEntities:
+        - host
+        - remote-node
+  egress:
+    # CSI plugin needs to reach longhorn-manager (intra-ns covered by
+    # baseline) and the instance-managers wherever they run. Broad
+    # cluster + host + remote-node matches the same "talks to
+    # everything" pattern as longhorn-manager.
+    - toEntities:
+        - cluster
+        - host
+        - remote-node
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+# CSI sidecar Deployments (external-attacher, external-provisioner,
+# external-resizer, external-snapshotter). These pods talk to the
+# apiserver (baseline covers it) and to longhorn-manager via the
+# longhorn-backend Service (intra-ns covered by baseline). They don't
+# receive cross-namespace traffic.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: longhorn-csi-sidecars-allow
+spec:
+  endpointSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values:
+          - csi-attacher
+          - csi-provisioner
+          - csi-resizer
+          - csi-snapshotter
+          - longhorn-driver-deployer
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  # CNP schema requires at least one of ingress/egress/*Deny — these
+  # sidecars only need apiserver + intra-ns (both covered by baseline),
+  # so this rule is a structural no-op that allows nothing
+  # cross-namespace beyond what intra-ns already permits.
+  ingress:
+    - fromEndpoints:
+        - matchLabels: {}
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+# instance-manager + engine-image (per-node, Longhorn data plane).
+# - instance-manager runs the SPDK / TGT processes that back every
+#   Longhorn engine + replica. Replicas on one node connect to the
+#   engine on the attaching node over TCP in the 8500-8600 range
+#   (nominal) plus dynamically-assigned ports above 10000 — Longhorn's
+#   dynamic port allocation makes precise port-level filtering brittle
+#   and a misstep here detaches volumes cluster-wide. ALL TCP between
+#   nodes is the conservative, recover-fastest choice.
+# - engine-image pods publish the engine binary onto each node's host
+#   filesystem so the instance-manager can exec it; the pod's network
+#   surface is minimal but it still needs apiserver + intra-ns reach.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: longhorn-data-plane-allow
+spec:
+  endpointSelector:
+    matchExpressions:
+      - key: longhorn.io/component
+        operator: In
+        values:
+          - instance-manager
+          - engine-image
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    - fromEntities:
+        - cluster
+        - host
+        - remote-node
+  egress:
+    - toEntities:
+        - cluster
+        - host
+        - remote-node
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+# share-manager (per-RWX-volume NFS exporter). Currently 3 pods:
+# esphome-config-xfs, home-assistant-config-xfs, home-assistant-media-xfs;
+# the cluster also has 23+ Longhorn-CSI RWX PVCs in media/ and
+# downloads/ namespaces that will spawn share-managers on attach.
+#
+# RWX volumes are mounted by the NODE's `mount.nfs` (in the host
+# network namespace, not the consuming pod), so NFS:2049 traffic
+# arrives with `reserved:host` (local) or `reserved:remote-node`
+# (cross-node) identity. Pod-identity ingress would never match. The
+# `cluster` entity is added defensively for any in-cluster NFS clients
+# that hit the share-manager Service directly.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: longhorn-share-manager-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      longhorn.io/component: share-manager
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    - fromEntities:
+        - cluster
+        - host
+        - remote-node
+  egress:
+    - toEntities:
+        - cluster
+        - host
+        - remote-node
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+# Longhorn recurring-job Jobs (daily-snapshots, weekly-backups,
+# weekly-filesystem-trim, monthly-backups). The pods are labeled
+# `longhorn.io/managed-by=longhorn-manager` and exist only long enough
+# to drive the manager API. They need apiserver (baseline) + intra-ns
+# (baseline) — covered. No additional rules are required, but selecting
+# them here ensures the per-Job pods are explicitly accounted for in
+# audit / Hubble views.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: longhorn-recurring-jobs-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      longhorn.io/managed-by: longhorn-manager
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  # CNP schema requires at least one of ingress/egress/*Deny — these
+  # job pods only need apiserver + intra-ns (manager API), both covered
+  # by baseline. Structural no-op.
+  ingress:
+    - fromEndpoints:
+        - matchLabels: {}

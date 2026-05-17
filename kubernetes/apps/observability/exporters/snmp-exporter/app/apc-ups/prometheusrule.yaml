@@ -50,3 +50,62 @@ spec:
           for: 10s
           labels:
             severity: critical
+    # Derived/aggregated power metrics. Single source of truth for the
+    # Grafana Power dashboard, the HA SNMP-derived sensors, and the
+    # power-anomaly alerts below.
+    - name: power.recording-rules
+      interval: 30s
+      rules:
+        - record: power:beast:watts
+          expr: amperageProbeReading{job="snmp-exporter-dell-idrac", amperageProbeIndex="3"}
+        - record: power:ups_1500:watts
+          expr: upsAdvOutputActivePower{target="apc-ups-1500"}
+        - record: power:ups_3000:watts
+          expr: upsAdvOutputActivePower{target="apc-ups-3000"}
+        - record: power:ups_total:watts
+          expr: sum(upsAdvOutputActivePower)
+        # UPS-3000 draw minus measured devices (currently just beast)
+        - record: power:ups_3000_other:watts
+          expr: |
+            scalar(upsAdvOutputActivePower{target="apc-ups-3000"})
+            - scalar(amperageProbeReading{job="snmp-exporter-dell-idrac", amperageProbeIndex="3"})
+        # Whole-house from EM16 (sum of all measured circuits)
+        - record: power:house_em16:watts
+          expr: sum(hass_sensor_power_w{entity=~"sensor.em16_.+_power"})
+        # PoE delivered per Omada switch
+        - record: power:omada_poe:watts
+          expr: sum by (device_name) (omada_port_power_watts)
+    # Anomaly alerts on the recording rules above.
+    - name: power.alerts
+      rules:
+        - alert: BeastPowerSustainedHigh
+          annotations:
+            summary: Beast power draw sustained above 500W
+            description: |
+              Beast (R730xd) has been pulling >{{ $value }}W for 10+ minutes.
+              Check for runaway workloads (Frigate model inference loop, ML jobs)
+              or a hot-running disk array.
+          expr: power:beast:watts > 500
+          for: 10m
+          labels:
+            severity: warning
+        - alert: UPS1500LoadHigh
+          annotations:
+            summary: UPS 1500 load above 80%
+            description: |
+              UPS 1500 has been at {{ $value }}% of nominal load for 10+ minutes.
+              Reduce load or move equipment to UPS 3000.
+          expr: upsAdvOutputLoad{target="apc-ups-1500"} > 80
+          for: 10m
+          labels:
+            severity: warning
+        - alert: UPS3000LoadHigh
+          annotations:
+            summary: UPS 3000 load above 80%
+            description: |
+              UPS 3000 has been at {{ $value }}% of nominal load for 10+ minutes.
+              Consider load balancing or investigating new draw.
+          expr: upsAdvOutputLoad{target="apc-ups-3000"} > 80
+          for: 10m
+          labels:
+            severity: warning

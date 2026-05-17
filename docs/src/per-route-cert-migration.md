@@ -294,6 +294,7 @@ spec:
 
 This is the non-zero operational cost. Export the CA cert and import
 it into:
+
 - Each laptop / desktop browser (or system trust store)
 - Each phone / tablet
 - Any in-cluster client that calls internal hostnames over TLS
@@ -405,13 +406,16 @@ For each batch of 5:
 3. Commit + push. One PR per wave. Title: `feat(network): per-app TLS
    migration wave N (X/Y)`.
 4. Watch issuance:
+
    ```sh
    kubectl get certificate -A -w
    ```
+
    All 5 should reach Ready within ~2 min. Anything stuck → check
    `kubectl describe certificate <name> -n network` and the Order /
    Challenge resources.
 5. Soak ~12h between waves. Watch the issuer for rate-limit warnings:
+
    ```sh
    kubectl describe clusterissuer letsencrypt-production
    kubectl get challenge -A
@@ -440,6 +444,7 @@ kubectl describe order -n network <order>
 ```
 
 If hit:
+
 - **Stop the next wave immediately.**
 - **Don't delete failing Certificates** — that doesn't reset the
   counter and can cause cert-manager to retry, eating more budget.
@@ -491,15 +496,15 @@ For each istio HTTPRoute (`<app>` = e.g. `kiali`):
 
 After all istio HTTPRoutes are migrated:
 
-5. Remove the wildcard listener from the istio Gateway.
+1. Remove the wildcard listener from the istio Gateway.
 
-6. Remove `istio-system` from the wildcard Certificate's
+2. Remove `istio-system` from the wildcard Certificate's
    `reflector...reflection-allowed-namespaces` annotation list (in
    `kubernetes/apps/network/envoy-gateway/config/certificate.yaml`).
    This stops new mirroring; existing Secret in istio-system can be
    deleted manually if desired (no consumers).
 
-7. Now the istio Gateway has no reflector-mirrored Secret. Add the
+3. Now the istio Gateway has no reflector-mirrored Secret. Add the
    `cert-manager.io/cluster-issuer` annotations from Phase 0. The
    shim is now safe — every listener's referenced Secret is owned by
    an in-namespace manual Certificate. (Optionally, delete the manual

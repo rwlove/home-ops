@@ -1,0 +1,53 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: renovate-jobs-allow
+spec:
+  # Selector covers both `executor` and `discovery` Job pods spawned
+  # by the operator from the RenovateJob CRs in this directory. They
+  # carry `renovate-operator.mogenius.com/job-type` but no
+  # `app.kubernetes.io/name`. Matching the label key without a value
+  # is not supported in CNP, so list both known values.
+  endpointSelector:
+    matchExpressions:
+      - key: renovate-operator.mogenius.com/job-type
+        operator: In
+        values: ["executor", "discovery"]
+  # Additive — default-deny is what triggers the lockdown.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # Dragonfly (Redis) in databases ns — RENOVATE_REDIS_URL is set to
+    # `redis://dragonfly.databases.svc.cluster.local:6379` for the
+    # repository cache shared across runs.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            app.kubernetes.io/name: dragonfly
+      toPorts:
+        - ports:
+            - port: "6379"
+              protocol: TCP
+    # Conservative wildcard for renovate scanning: discovery + executor
+    # pods clone GitHub repos, query every registry mentioned by every
+    # tracked dependency (ghcr.io, registry.k8s.io, docker.io, quay.io,
+    # gcr.io, mcr.microsoft.com, etc.), pull npm/pypi/crates/maven
+    # metadata, fetch helm chart indexes from arbitrary hosts, and call
+    # api.github.com to open PRs. The set of upstream registries grows
+    # every time a new dependency lands in the repo, so an allow-list
+    # would silently break renovate runs on dependency churn.
+    #
+    # TODO: tighten once a registry mirror (ZOT) or HTTP forward proxy
+    # mediates all renovate egress. As-is this matches pre-default-deny
+    # behavior.
+    - toFQDNs:
+        - matchPattern: "*"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "80"
+              protocol: TCP

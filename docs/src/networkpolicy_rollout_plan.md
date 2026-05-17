@@ -379,10 +379,12 @@ system-namespace lockdown in Phase 6.
    `hubble-network-policy-correlation-enabled=true` (already on),
    Hubble flows include the matching policy name in
    `policy_match_type` and `egress_allowed_by`. Use this:
-   ```
+
+   ```bash
    hubble observe --namespace <ns> --verdict DROPPED --last 100
    hubble observe --namespace <ns> --verdict DROPPED -f
    ```
+
 7. **`policy-enforcement: audit` mode.** Cilium supports a
    per-endpoint audit mode via the `policy.cilium.io/audit-mode`
    annotation. We will **use audit mode for one rollout cycle per
@@ -412,8 +414,8 @@ notes whether it falls inside NetworkPolicy scope.
 | Flux → GitHub | source-controller | github.com:443 (via DNS) | Yes | Phase 6 `toFQDNs: github.com, codeload.github.com, *.githubusercontent.com` |
 | cert-manager → Let's Encrypt | cert-manager | acme-v02.api.letsencrypt.org | Yes | Phase 6 `toFQDNs` |
 | Envoy Gateway → backend pods | network ns envoy pods | app pods | Yes | every app namespace adds Pattern A |
-| Hubble metrics scrape | observability prom | port 9965 on every node | Mixed — node-level, but baseline `allow-monitoring-scrape` covers pod-level |
-| pod-gateway WireGuard | downloads-gateway pod | 0.0.0.0/0:51820 UDP | Yes — existing CNP preserved |
+| Hubble metrics scrape | observability prom | port 9965 on every node | Mixed | baseline `allow-monitoring-scrape` covers pod-level; host-net scrape is out of scope |
+| pod-gateway WireGuard | downloads-gateway pod | 0.0.0.0/0:51820 UDP | Yes | existing CNP preserved |
 
 ---
 

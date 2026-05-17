@@ -1,0 +1,44 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: istiod-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app: istiod
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it. Egress to kube-apiserver is covered by the
+  # baseline allow-apiserver CNP; DNS by allow-dns.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # XDS (mTLS, port 15012) — every Istio sidecar in the cluster
+    # connects here for config + secret distribution. Today the only
+    # consumer is mcp-system/mcp-gateway-istio, but new sidecars can
+    # appear in any namespace, so scope is fromEntities: cluster.
+    - fromEntities:
+        - cluster
+      toPorts:
+        - ports:
+            - port: "15012"
+              protocol: TCP
+    # XDS legacy plaintext (15010) — left open at cluster scope for
+    # legacy clients / debug. Sidecars use 15012 by default.
+    - fromEntities:
+        - cluster
+      toPorts:
+        - ports:
+            - port: "15010"
+              protocol: TCP
+    # Admission webhooks (sidecar-injector mutating + istio validators)
+    # — apiserver calls istiod:443 to inject sidecars and validate
+    # Istio CR submissions. Source identity is reserved:kube-apiserver.
+    - fromEntities:
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

@@ -442,9 +442,17 @@ component built and `kustomize build` clean.
 
 ### Phase 1 — Canary namespace: `selfhosted` (1 week)
 
-Why `selfhosted`: contains low-criticality apps with mixed
-ingress/DB/external-egress patterns; user-visible but not on the
-critical path; not a system namespace.
+Why `selfhosted`: lowest-risk namespace in the repo — currently
+contains exactly one app (`webhook`, 2 replicas) with no live
+traffic per the Phase 0 Hubble survey. Not a system namespace.
+
+**Scope note (2026-05-17):** This canary proves the *mechanic* —
+the baseline component applies cleanly, CNPs land in the right
+namespace, audit-mode soak surfaces no surprises. It does **not**
+exercise the Pattern A/B/C overlay surface meaningfully because
+`webhook` is idle. Real pattern coverage starts in Phase 2 across
+7 namespaces; don't gate the Phase 2 start on Phase 1 surfacing
+allow-pattern needs that won't appear here.
 
 Steps:
 
@@ -479,8 +487,8 @@ optional for low-risk additions.
 ### Phase 3 — Stateful & ingress-critical namespaces (1-2 weeks)
 
 `auth` (Authelia — breaking this locks the user out of every
-OIDC app), `databases` (CNPG control plane), `downloads` (VPN
-clients).
+OIDC app), `databases` (CNPG control plane), `vpn` (pod-gateway
+server), `downloads` (pod-gateway clients).
 
 For `auth`: explicit pre-flight check that LLDAP, Authelia, and
 every OIDC client's redirect URL still resolves and authenticates
@@ -490,11 +498,16 @@ For `databases`: every CNPG cluster needs an explicit allow rule
 from its consumer namespace(s). Audit mode mandatory; tail for
 72h.
 
-For `downloads` (pod-gateway clients): special handling — the
-VXLAN tunnel between client pods and gateway is the load-bearing
-flow. The existing `downloads-gateway-pod-gateway` CNP on the
-gateway pod plus a *new* baseline-with-pod-gateway-allow on the
-client side. Audit for 1 week.
+For `vpn` + `downloads` (pod-gateway server + clients) — these
+two namespaces must be locked down together as one sub-step.
+`vpn` runs `downloads-gateway-pod-gateway-main-0` (the actual
+WireGuard egress pod, host-net + VXLAN-terminating); `downloads`
+runs the client pods that route through it. The existing
+`downloads-gateway-pod-gateway` CNP on the gateway side must be
+preserved; the client side gets a *new* baseline-with-pod-gateway-allow.
+VXLAN encapsulation makes Hubble flow inspection trickier — audit
+for 1 full week before flipping enforce. Added 2026-05-17 after
+the original plan missed `vpn` as a distinct namespace.
 
 ### Phase 4 — Storage namespaces (1 week)
 
@@ -532,7 +545,14 @@ on metrics ports — this is the *opposite* direction from baseline
 enumerated.
 
 For `cilium-secrets`: minimal workload (mostly Secret consumers).
-Baseline + intra-namespace should suffice; audit 1 week.
+Baseline + intra-namespace should suffice; audit 1 week. **Mechanic
+note (2026-05-17):** this namespace is auto-managed by the cilium
+chart — there is no `kubernetes/apps/cilium-secrets/` directory.
+Adding policies requires either (a) cilium chart values that drop
+CNPs into the namespace, or (b) a new dedicated Flux Kustomization
+under `kubernetes/apps/kube-system/cilium/` that targets
+`cilium-secrets`. Decide the mechanism when we get there;
+not the same per-namespace PR pattern as the rest.
 
 ---
 
@@ -593,7 +613,7 @@ Baseline + intra-namespace should suffice; audit 1 week.
 | 1 | Phase 0 | Hubble dashboard, baseline component, runbook |
 | 2 | Phase 1 | `selfhosted` namespace fully default-deny |
 | 3-5 | Phase 2 | `ai`, `actions-runner-system`, `renovate`, `mcp-system`, `home`, `collab`, `media` |
-| 6-7 | Phase 3 | `auth`, `databases`, `downloads` |
+| 6-7 | Phase 3 | `auth`, `databases`, `vpn`, `downloads` |
 | 8 | Phase 4 | `storage`, `longhorn-system`, `rook-ceph` |
 | 9 | Phase 5 | `network`, `cert-manager`, `external-secrets` |
 | 10-11 | Phase 6 | `observability`, `kuadrant`, `istio-system`, `cilium-secrets` |

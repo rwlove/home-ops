@@ -376,6 +376,7 @@ A single `rwlove/langgraph-agents` FastAPI service runs the fleet. Each agent is
 | `errand-runner`        | One-shot real-world tasks (purchases, lookups, scheduling) |
 | `property-coordinator` | 3532 Foxhall workstreams (contractors, deck, pool)         |
 | `health-tracker`       | Local-only — never escalated to Claude API                 |
+| `doc-writer` (Scribner) | Sweeps repos for stale docs; drafts README + `docs/` patches as diffs when commits land |
 
 ### Pipeline stages
 

@@ -1,0 +1,35 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: loki-allow
+spec:
+  # Loki SingleBinary pods carry `app.kubernetes.io/name: loki`.
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: loki
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  # No ingress rules needed: Loki is internal-only. Vector aggregator
+  # pushes to loki:3100 and Grafana queries loki:3100 — both intra-ns,
+  # covered by baseline allow-intra-namespace. No HTTPRoute exposes
+  # Loki publicly.
+  egress:
+    # Chunk + index storage on Rook Ceph RGW (S3 API). Loki's S3
+    # endpoint comes from the `loki-chunks-bucket-v1` ConfigMap which
+    # points at `rook-ceph-rgw-ceph-objectstore.rook-ceph.svc`. Use
+    # Pattern E (cross-ns endpoint match) rather than FQDN — the
+    # rook-ceph-rgw selector is stable.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: rook-ceph
+            app.kubernetes.io/name: ceph-rgw
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+    # Ruler alerting target — Loki rule evaluations fire alerts at
+    # alertmanager-operated:9093 (intra-ns; baseline covers).
+    # No external egress required.

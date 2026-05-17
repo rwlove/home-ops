@@ -1,0 +1,65 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: grafana-allow
+spec:
+  # Grafana Deployment pods carry `app.kubernetes.io/name: grafana`.
+  # The image-renderer Deployment carries `app.kubernetes.io/name:
+  # grafana-image-renderer` — fronted via grafana intra-ns, so no
+  # separate ingress rule needed for it.
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: grafana
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on internal gateway → grafana:3000 (web UI).
+    # Anonymous-admin is enabled; gateway terminates TLS.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+  egress:
+    # Postgres datasource: home_assistant DB via CNPG cluster
+    # `postgres-home-assistant` in databases ns (Pattern B).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            cnpg.io/cluster: postgres-home-assistant
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    # Dashboard provisioning from external URLs at startup +
+    # provisioner reconcile (cert-manager, cnpg, flux, dcgm, repo's
+    # own raw.githubusercontent.com home_assistant + power JSONs).
+    # Also covers grafana.com plugin downloads, grafana.com gnetId
+    # dashboard fetches, and grafana.com news feed (disabled in
+    # values but the client still ranges over default URLs at boot).
+    #
+    # Cilium 1.19's toFQDNs.matchName doesn't match through Kubernetes
+    # pod DNS search-domain augmentation — bare + `.*` dual-form
+    # matchPattern handles both un-augmented and search-domain-
+    # augmented forms.
+    - toFQDNs:
+        - matchPattern: "raw.githubusercontent.com"
+        - matchPattern: "raw.githubusercontent.com.*"
+        - matchPattern: "grafana.com"
+        - matchPattern: "grafana.com.*"
+        - matchPattern: "*.grafana.com"
+        - matchPattern: "*.grafana.com.*"
+        - matchPattern: "grafana.net"
+        - matchPattern: "grafana.net.*"
+        - matchPattern: "storage.googleapis.com"
+        - matchPattern: "storage.googleapis.com.*"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

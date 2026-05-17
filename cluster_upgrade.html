@@ -84,7 +84,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded affix "><li class="part-title">Welcome</li><li class="chapter-item expanded "><a href="introduction.html">👋 Introduction</a></li><li class="chapter-item expanded "><a href="power-outage.html">Power Outage Recovery</a></li><li class="chapter-item expanded "><a href="coral.html">Coral</a></li><li class="chapter-item expanded "><a href="p40.html">nVidia Tesla P40</a></li><li class="chapter-item expanded "><a href="cluster_rebuild.html">Cluster Rebuild Actions</a></li><li class="chapter-item expanded "><a href="cluster_upgrade.html">Cluster Upgrade Runbook</a></li><li class="chapter-item expanded "><a href="promote_worker_to_control_plane.html">Promote Worker to Control Plane</a></li><li class="chapter-item expanded "><a href="per-route-cert-migration.html">Per-Route Cert Migration</a></li><li class="chapter-item expanded "><a href="init_teardown.html">Initialization and Teardown</a></li><li class="chapter-item expanded "><a href="immich_cnpg.html">Immich restore to new CNPG database</a></li><li class="chapter-item expanded "><a href="offsite_recovery.html">Offsite Recovery — Immich and Paperless</a></li><li class="chapter-item expanded "><a href="master1_etcd_disk_swap.html">master1 etcd Disk Swap</a></li><li class="chapter-item expanded "><a href="github_webhook.html">Github Webhook</a></li><li class="chapter-item expanded "><a href="limits.html">Resources: Limits and Requests Philosophy</a></li><li class="chapter-item expanded "><a href="debugging.html">Debugging</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded affix "><li class="part-title">Welcome</li><li class="chapter-item expanded "><a href="introduction.html">👋 Introduction</a></li><li class="chapter-item expanded "><a href="power-outage.html">Power Outage Recovery</a></li><li class="chapter-item expanded "><a href="coral.html">Coral</a></li><li class="chapter-item expanded "><a href="p40.html">nVidia Tesla P40</a></li><li class="chapter-item expanded "><a href="cluster_rebuild.html">Cluster Rebuild Actions</a></li><li class="chapter-item expanded "><a href="cluster_upgrade.html">Cluster Upgrade Runbook</a></li><li class="chapter-item expanded "><a href="promote_worker_to_control_plane.html">Promote Worker to Control Plane</a></li><li class="chapter-item expanded "><a href="per-route-cert-migration.html">Per-Route Cert Migration</a></li><li class="chapter-item expanded "><a href="init_teardown.html">Initialization and Teardown</a></li><li class="chapter-item expanded "><a href="immich_cnpg.html">Immich restore to new CNPG database</a></li><li class="chapter-item expanded "><a href="offsite_recovery.html">Offsite Recovery — Immich and Paperless</a></li><li class="chapter-item expanded "><a href="master1_etcd_disk_swap.html">master1 etcd Disk Swap</a></li><li class="chapter-item expanded "><a href="networkpolicy_rollout_plan.html">NetworkPolicy Rollout Plan</a></li><li class="chapter-item expanded "><a href="github_webhook.html">Github Webhook</a></li><li class="chapter-item expanded "><a href="limits.html">Resources: Limits and Requests Philosophy</a></li><li class="chapter-item expanded "><a href="debugging.html">Debugging</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -148,6 +148,13 @@
                 <div id="content" class="content">
                     <main>
                         <h1 id="cluster-upgrade-runbook"><a class="header" href="#cluster-upgrade-runbook">Cluster Upgrade Runbook</a></h1>
+<blockquote>
+<p><strong>This is a retrospective.</strong> The 1.34 → 1.34.7 patch + 1.34 → 1.35 minor
+upgrades were executed 2026-05-02 / 2026-05-03 and the cluster is now on
+v1.35.4 across all nodes. Phase 3 (per-node procedure) is the reusable
+part — apply it verbatim for future minor bumps. The "Phase 0 preflight"
+checklist and "Failure modes" table are the load-bearing references.</p>
+</blockquote>
 <p>This runbook covers an in-place rolling upgrade of the cluster, planned
 in May 2026 to bring all nodes to a single k8s 1.34 patch + cri-o 1.34,
 then to k8s 1.35.</p>
@@ -314,13 +321,17 @@ to actually take the pods down before draining.</p>
 <h3 id="standard-per-worker-procedure-rpm-tracked-nodes"><a class="header" href="#standard-per-worker-procedure-rpm-tracked-nodes">Standard per-worker procedure (RPM-tracked nodes)</a></h3>
 <p>For workers with RPM entries (rpm-qa returns 4 packages):</p>
 <ol>
-<li>Pre-flight checks above.</li>
-<li><strong>Drain</strong>:
+<li>
+<p>Pre-flight checks above.</p>
+</li>
+<li>
+<p><strong>Drain</strong>:</p>
 <pre><code class="language-sh">kubectl drain &lt;worker&gt;.${SECRET_DOMAIN} \
   --ignore-daemonsets --delete-emptydir-data
 </code></pre>
 </li>
-<li><strong>Package upgrade and kubelet config refresh</strong>:
+<li>
+<p><strong>Package upgrade and kubelet config refresh</strong>:</p>
 <pre><code class="language-sh">ssh root@&lt;worker&gt;.${SECRET_DOMAIN} '
   # Drop the legacy crio.conf / .rpmnew. Order matters: only do
   # this RIGHT BEFORE the upgrade succeeds — leaving cri-o
@@ -339,7 +350,8 @@ to actually take the pods down before draining.</p>
 '
 </code></pre>
 </li>
-<li><strong>Smoke-test before uncordon</strong>:
+<li>
+<p><strong>Smoke-test before uncordon</strong>:</p>
 <pre><code class="language-sh">ssh root@&lt;worker&gt;.${SECRET_DOMAIN} '
   systemctl is-active crio kubelet
   crictl info | grep -E "CgroupManagerName|DefaultRuntime"
@@ -348,22 +360,31 @@ to actually take the pods down before draining.</p>
 kubectl get node &lt;worker&gt;.${SECRET_DOMAIN} -o wide   # version + cri-o version match expected
 </code></pre>
 </li>
-<li><strong>Uncordon</strong>:
+<li>
+<p><strong>Uncordon</strong>:</p>
 <pre><code class="language-sh">kubectl uncordon &lt;worker&gt;.${SECRET_DOMAIN}
 </code></pre>
-Rook auto-clears any host noout flag on its own a few seconds
-after uncordon — don't manually unset it.</li>
-<li><strong>Wait for <code>ceph -s</code> HEALTH_OK</strong> (no OSDs down, no degraded PGs)
-before the next node. Do not skip this. Typically ~1–3 minutes.</li>
+<p>Rook auto-clears any host noout flag on its own a few seconds
+after uncordon — don't manually unset it.</p>
+</li>
+<li>
+<p><strong>Wait for <code>ceph -s</code> HEALTH_OK</strong> (no OSDs down, no degraded PGs)
+before the next node. Do not skip this. Typically ~1–3 minutes.</p>
+</li>
 </ol>
 <h3 id="alternate-procedure-for-manual-install-nodes-worker5-worker6"><a class="header" href="#alternate-procedure-for-manual-install-nodes-worker5-worker6">Alternate procedure for manual-install nodes (worker5, worker6)</a></h3>
 <p>These nodes have kubelet/cri-o binaries in <code>/usr/bin/</code> not tracked by
 RPM. <code>dnf upgrade</code> cannot upgrade what it cannot see, and <code>rm crio.conf</code> will break the node since the dnf step provides no
 replacement.</p>
 <ol>
-<li>Pre-flight checks (same as above).</li>
-<li><strong>Drain</strong> (same as above).</li>
-<li><strong>Fresh-install via dnf</strong> (overwrites the un-tracked binaries):
+<li>
+<p>Pre-flight checks (same as above).</p>
+</li>
+<li>
+<p><strong>Drain</strong> (same as above).</p>
+</li>
+<li>
+<p><strong>Fresh-install via dnf</strong> (overwrites the un-tracked binaries):</p>
 <pre><code class="language-sh">ssh root@&lt;worker&gt;.${SECRET_DOMAIN} '
   # Stop services so we can replace running binaries cleanly
   systemctl stop kubelet
@@ -399,7 +420,9 @@ replacement.</p>
 '
 </code></pre>
 </li>
-<li>Smoke-test, uncordon, wait for <code>HEALTH_OK</code> — same as above.</li>
+<li>
+<p>Smoke-test, uncordon, wait for <code>HEALTH_OK</code> — same as above.</p>
+</li>
 </ol>
 <h3 id="worker8-nvidia-extra-steps"><a class="header" href="#worker8-nvidia-extra-steps">Worker8 (NVIDIA) extra steps</a></h3>
 <p>After the standard procedure:</p>

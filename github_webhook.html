@@ -84,7 +84,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded affix "><li class="part-title">Welcome</li><li class="chapter-item expanded "><a href="introduction.html">👋 Introduction</a></li><li class="chapter-item expanded "><a href="power-outage.html">Power Outage Recovery</a></li><li class="chapter-item expanded "><a href="coral.html">Coral</a></li><li class="chapter-item expanded "><a href="p40.html">nVidia Tesla P40</a></li><li class="chapter-item expanded "><a href="cluster_rebuild.html">Cluster Rebuild Actions</a></li><li class="chapter-item expanded "><a href="cluster_upgrade.html">Cluster Upgrade Runbook</a></li><li class="chapter-item expanded "><a href="promote_worker_to_control_plane.html">Promote Worker to Control Plane</a></li><li class="chapter-item expanded "><a href="per-route-cert-migration.html">Per-Route Cert Migration</a></li><li class="chapter-item expanded "><a href="init_teardown.html">Initialization and Teardown</a></li><li class="chapter-item expanded "><a href="immich_cnpg.html">Immich restore to new CNPG database</a></li><li class="chapter-item expanded "><a href="offsite_recovery.html">Offsite Recovery — Immich and Paperless</a></li><li class="chapter-item expanded "><a href="master1_etcd_disk_swap.html">master1 etcd Disk Swap</a></li><li class="chapter-item expanded "><a href="github_webhook.html">Github Webhook</a></li><li class="chapter-item expanded "><a href="limits.html">Resources: Limits and Requests Philosophy</a></li><li class="chapter-item expanded "><a href="debugging.html">Debugging</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded affix "><li class="part-title">Welcome</li><li class="chapter-item expanded "><a href="introduction.html">👋 Introduction</a></li><li class="chapter-item expanded "><a href="power-outage.html">Power Outage Recovery</a></li><li class="chapter-item expanded "><a href="coral.html">Coral</a></li><li class="chapter-item expanded "><a href="p40.html">nVidia Tesla P40</a></li><li class="chapter-item expanded "><a href="cluster_rebuild.html">Cluster Rebuild Actions</a></li><li class="chapter-item expanded "><a href="cluster_upgrade.html">Cluster Upgrade Runbook</a></li><li class="chapter-item expanded "><a href="promote_worker_to_control_plane.html">Promote Worker to Control Plane</a></li><li class="chapter-item expanded "><a href="per-route-cert-migration.html">Per-Route Cert Migration</a></li><li class="chapter-item expanded "><a href="init_teardown.html">Initialization and Teardown</a></li><li class="chapter-item expanded "><a href="immich_cnpg.html">Immich restore to new CNPG database</a></li><li class="chapter-item expanded "><a href="offsite_recovery.html">Offsite Recovery — Immich and Paperless</a></li><li class="chapter-item expanded "><a href="master1_etcd_disk_swap.html">master1 etcd Disk Swap</a></li><li class="chapter-item expanded "><a href="networkpolicy_rollout_plan.html">NetworkPolicy Rollout Plan</a></li><li class="chapter-item expanded "><a href="github_webhook.html">Github Webhook</a></li><li class="chapter-item expanded "><a href="limits.html">Resources: Limits and Requests Philosophy</a></li><li class="chapter-item expanded "><a href="debugging.html">Debugging</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -147,22 +147,48 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h2 id="github-webhook"><a class="header" href="#github-webhook">Github Webhook</a></h2>
-<p><code>kubectl -n flux-system get receivers.notification.toolkit.fluxcd.io</code> generates token URL to be put into
-github.com -&gt; Settings -&gt; Webhooks -&gt; Payload URL</p>
+                        <h1 id="github-webhook--flux"><a class="header" href="#github-webhook--flux">GitHub Webhook → Flux</a></h1>
+<p>Configures GitHub to ping Flux on every push so reconciliation happens immediately instead of waiting for the next polling interval.</p>
+<h2 id="setup"><a class="header" href="#setup">Setup</a></h2>
+<ol>
+<li>
+<p>Get the webhook URL from the Flux <code>Receiver</code>:</p>
+<pre><code class="language-sh">kubectl -n flux-system get receivers.notification.toolkit.fluxcd.io
+</code></pre>
+<p>The <code>URL</code> column contains the public path (e.g. <code>/hook/&lt;token&gt;</code>); concatenate it with the public ingress (<code>https://flux-webhook.${SECRET_DOMAIN}</code>).</p>
+</li>
+<li>
+<p>Get the shared secret:</p>
+<pre><code class="language-sh">kubectl -n flux-system describe secret github-webhook-token
+</code></pre>
+</li>
+<li>
+<p>In GitHub → repo Settings → Webhooks → Add webhook:</p>
 <ul>
-<li>Content Type: application/json</li>
-<li>Secret: &lt;token from kubectl -n flux-system describe secrets github-webhook-token&gt;</li>
-<li>SSL: Enable SSL verification</li>
-<li>Which events would you like to trigger this webhook?: Just the push event.</li>
-<li>Active: <checked></li>
+<li><strong>Payload URL</strong>: <code>https://flux-webhook.${SECRET_DOMAIN}/hook/&lt;token&gt;</code></li>
+<li><strong>Content type</strong>: <code>application/json</code></li>
+<li><strong>Secret</strong>: paste the value from step 2</li>
+<li><strong>SSL verification</strong>: Enable</li>
+<li><strong>Which events</strong>: Just the push event</li>
+<li><strong>Active</strong>: checked</li>
+</ul>
+</li>
+</ol>
+<h2 id="verifying"><a class="header" href="#verifying">Verifying</a></h2>
+<p>After pushing a commit, the webhook delivery should show a <code>200 OK</code> in GitHub → Webhooks → Recent Deliveries. On the cluster side:</p>
+<pre><code class="language-sh">kubectl -n flux-system logs deploy/notification-controller --tail=50 | grep -i webhook
+</code></pre>
+<p>Successful trigger looks like <code>handling event ...source.toolkit.fluxcd.io/v1</code>. Failed deliveries usually mean the secret doesn't match or the public URL is wrong.</p>
+<h2 id="related"><a class="header" href="#related">Related</a></h2>
+<ul>
+<li><a href="cluster_rebuild.html">Cluster Rebuild</a> — among the post-rebuild tasks, the <code>KUBECONFIG</code> Actions secret also needs refreshing.</li>
 </ul>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="master1_etcd_disk_swap.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="networkpolicy_rollout_plan.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <i class="fa fa-angle-left"></i>
                             </a>
 
@@ -176,7 +202,7 @@ github.com -&gt; Settings -&gt; Webhooks -&gt; Payload URL</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="master1_etcd_disk_swap.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="networkpolicy_rollout_plan.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <i class="fa fa-angle-left"></i>
                     </a>
 

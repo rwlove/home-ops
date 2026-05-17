@@ -84,7 +84,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded affix "><li class="part-title">Welcome</li><li class="chapter-item expanded "><a href="introduction.html">👋 Introduction</a></li><li class="chapter-item expanded "><a href="power-outage.html">Power Outage Recovery</a></li><li class="chapter-item expanded "><a href="coral.html">Coral</a></li><li class="chapter-item expanded "><a href="p40.html">nVidia Tesla P40</a></li><li class="chapter-item expanded "><a href="cluster_rebuild.html">Cluster Rebuild Actions</a></li><li class="chapter-item expanded "><a href="cluster_upgrade.html">Cluster Upgrade Runbook</a></li><li class="chapter-item expanded "><a href="promote_worker_to_control_plane.html">Promote Worker to Control Plane</a></li><li class="chapter-item expanded "><a href="per-route-cert-migration.html">Per-Route Cert Migration</a></li><li class="chapter-item expanded "><a href="init_teardown.html">Initialization and Teardown</a></li><li class="chapter-item expanded "><a href="immich_cnpg.html">Immich restore to new CNPG database</a></li><li class="chapter-item expanded "><a href="offsite_recovery.html">Offsite Recovery — Immich and Paperless</a></li><li class="chapter-item expanded "><a href="master1_etcd_disk_swap.html">master1 etcd Disk Swap</a></li><li class="chapter-item expanded "><a href="github_webhook.html">Github Webhook</a></li><li class="chapter-item expanded "><a href="limits.html">Resources: Limits and Requests Philosophy</a></li><li class="chapter-item expanded "><a href="debugging.html">Debugging</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded affix "><li class="part-title">Welcome</li><li class="chapter-item expanded "><a href="introduction.html">👋 Introduction</a></li><li class="chapter-item expanded "><a href="power-outage.html">Power Outage Recovery</a></li><li class="chapter-item expanded "><a href="coral.html">Coral</a></li><li class="chapter-item expanded "><a href="p40.html">nVidia Tesla P40</a></li><li class="chapter-item expanded "><a href="cluster_rebuild.html">Cluster Rebuild Actions</a></li><li class="chapter-item expanded "><a href="cluster_upgrade.html">Cluster Upgrade Runbook</a></li><li class="chapter-item expanded "><a href="promote_worker_to_control_plane.html">Promote Worker to Control Plane</a></li><li class="chapter-item expanded "><a href="per-route-cert-migration.html">Per-Route Cert Migration</a></li><li class="chapter-item expanded "><a href="init_teardown.html">Initialization and Teardown</a></li><li class="chapter-item expanded "><a href="immich_cnpg.html">Immich restore to new CNPG database</a></li><li class="chapter-item expanded "><a href="offsite_recovery.html">Offsite Recovery — Immich and Paperless</a></li><li class="chapter-item expanded "><a href="master1_etcd_disk_swap.html">master1 etcd Disk Swap</a></li><li class="chapter-item expanded "><a href="networkpolicy_rollout_plan.html">NetworkPolicy Rollout Plan</a></li><li class="chapter-item expanded "><a href="github_webhook.html">Github Webhook</a></li><li class="chapter-item expanded "><a href="limits.html">Resources: Limits and Requests Philosophy</a></li><li class="chapter-item expanded "><a href="debugging.html">Debugging</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -189,23 +189,29 @@ own schedule.</p>
 <p>See conversation history for retailer links; pricing as of 2026-05-04.</p>
 <h2 id="preflight-before-ordering"><a class="header" href="#preflight-before-ordering">Preflight (before ordering)</a></h2>
 <ol>
-<li><strong>Confirm M.2 slot length on master1</strong>: SSH and run <code>lspci -vv</code>,
-or look at the board. 2280 vs 22110 changes the buy.</li>
-<li><strong>Confirm where <code>cs_master1-root</code> LVM actually sits</strong>:
+<li>
+<p><strong>Confirm M.2 slot length on master1</strong>: SSH and run <code>lspci -vv</code>,
+or look at the board. 2280 vs 22110 changes the buy.</p>
+</li>
+<li>
+<p><strong>Confirm where <code>cs_master1-root</code> LVM actually sits</strong>:</p>
 <pre><code class="language-sh">pvs &amp;&amp; vgs &amp;&amp; lvs &amp;&amp; lsblk
 </code></pre>
-This is to verify the hypothesis that <code>/var/lib/etcd</code> is on
+<p>This is to verify the hypothesis that <code>/var/lib/etcd</code> is on
 <code>nvme1n1</code>. If it turns out to be on <code>nvme0n1</code> (the WD Blue), the
 diagnosis changes — the issue would be NVMe contention with
 Longhorn/Ceph rather than a slow drive. The fix would then be
-different (move workloads, not the drive).</li>
-<li><strong>Identify what was on <code>/dev/sdb</code></strong>:
+different (move workloads, not the drive).</p>
+</li>
+<li>
+<p><strong>Identify what was on <code>/dev/sdb</code></strong>:</p>
 <pre><code class="language-sh">cat /etc/fstab | grep sdb
 blkid /dev/sdb              # may return nothing if device gone
 dmesg -T | grep -E 'sd[ab]|ata|sata'
 </code></pre>
-This is independent of the etcd fix but should be cleaned up
-eventually.</li>
+<p>This is independent of the etcd fix but should be cleaned up
+eventually.</p>
+</li>
 </ol>
 <h2 id="replacement-options"><a class="header" href="#replacement-options">Replacement options</a></h2>
 <p>Two paths once the drive arrives:</p>
@@ -232,13 +238,11 @@ preconditions — etcd voter health, Ceph HEALTH_OK, no in-flight
 long storage operations.</li>
 <li><strong>Etcd snapshot saved off-host.</strong> See the Etcd snapshot section of
 the same runbook.</li>
-<li><strong>Immich offsite seed has finished.</strong> As of 2026-05-04 21:11 UTC
-the seed was 80% through phase 1 of 2 (1.82/2.28 TiB at 55 MiB/s).
-Phase 2 (<code>/external</code>) hadn't started. <strong>Watch for the
-<code>===== Backup complete =====</code> line in <code>media/immich-backup-initial</code>
-pod logs before doing anything that drains worker2.</strong> This doesn't
-block the master1 swap directly, but you don't want to stack
-storage-touching operations.</li>
+<li><strong>Immich offsite seed finished 2026-05-05</strong> (5-file sample
+round-trip verified the same day). Paperless seed also finished
+2026-05-05 (778 MiB across docs + DB). This gating constraint is
+resolved — the drive swap no longer needs to coordinate around the
+initial seed. See <a href="offsite_recovery.html"><code>offsite_recovery.md</code></a>.</li>
 </ol>
 <h2 id="after-master1-is-fixed"><a class="header" href="#after-master1-is-fixed">After master1 is fixed</a></h2>
 <p>In order:</p>
@@ -265,7 +269,7 @@ three control planes live in independent failure domains.</li>
                                 <i class="fa fa-angle-left"></i>
                             </a>
 
-                            <a rel="next" href="github_webhook.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next" href="networkpolicy_rollout_plan.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <i class="fa fa-angle-right"></i>
                             </a>
 
@@ -279,7 +283,7 @@ three control planes live in independent failure domains.</li>
                         <i class="fa fa-angle-left"></i>
                     </a>
 
-                    <a rel="next" href="github_webhook.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next" href="networkpolicy_rollout_plan.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <i class="fa fa-angle-right"></i>
                     </a>
             </nav>

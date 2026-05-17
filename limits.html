@@ -84,7 +84,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded affix "><li class="part-title">Welcome</li><li class="chapter-item expanded "><a href="introduction.html">👋 Introduction</a></li><li class="chapter-item expanded "><a href="power-outage.html">Power Outage Recovery</a></li><li class="chapter-item expanded "><a href="coral.html">Coral</a></li><li class="chapter-item expanded "><a href="p40.html">nVidia Tesla P40</a></li><li class="chapter-item expanded "><a href="cluster_rebuild.html">Cluster Rebuild Actions</a></li><li class="chapter-item expanded "><a href="cluster_upgrade.html">Cluster Upgrade Runbook</a></li><li class="chapter-item expanded "><a href="promote_worker_to_control_plane.html">Promote Worker to Control Plane</a></li><li class="chapter-item expanded "><a href="per-route-cert-migration.html">Per-Route Cert Migration</a></li><li class="chapter-item expanded "><a href="init_teardown.html">Initialization and Teardown</a></li><li class="chapter-item expanded "><a href="immich_cnpg.html">Immich restore to new CNPG database</a></li><li class="chapter-item expanded "><a href="offsite_recovery.html">Offsite Recovery — Immich and Paperless</a></li><li class="chapter-item expanded "><a href="master1_etcd_disk_swap.html">master1 etcd Disk Swap</a></li><li class="chapter-item expanded "><a href="github_webhook.html">Github Webhook</a></li><li class="chapter-item expanded "><a href="limits.html">Resources: Limits and Requests Philosophy</a></li><li class="chapter-item expanded "><a href="debugging.html">Debugging</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded affix "><li class="part-title">Welcome</li><li class="chapter-item expanded "><a href="introduction.html">👋 Introduction</a></li><li class="chapter-item expanded "><a href="power-outage.html">Power Outage Recovery</a></li><li class="chapter-item expanded "><a href="coral.html">Coral</a></li><li class="chapter-item expanded "><a href="p40.html">nVidia Tesla P40</a></li><li class="chapter-item expanded "><a href="cluster_rebuild.html">Cluster Rebuild Actions</a></li><li class="chapter-item expanded "><a href="cluster_upgrade.html">Cluster Upgrade Runbook</a></li><li class="chapter-item expanded "><a href="promote_worker_to_control_plane.html">Promote Worker to Control Plane</a></li><li class="chapter-item expanded "><a href="per-route-cert-migration.html">Per-Route Cert Migration</a></li><li class="chapter-item expanded "><a href="init_teardown.html">Initialization and Teardown</a></li><li class="chapter-item expanded "><a href="immich_cnpg.html">Immich restore to new CNPG database</a></li><li class="chapter-item expanded "><a href="offsite_recovery.html">Offsite Recovery — Immich and Paperless</a></li><li class="chapter-item expanded "><a href="master1_etcd_disk_swap.html">master1 etcd Disk Swap</a></li><li class="chapter-item expanded "><a href="networkpolicy_rollout_plan.html">NetworkPolicy Rollout Plan</a></li><li class="chapter-item expanded "><a href="github_webhook.html">Github Webhook</a></li><li class="chapter-item expanded "><a href="limits.html">Resources: Limits and Requests Philosophy</a></li><li class="chapter-item expanded "><a href="debugging.html">Debugging</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -147,12 +147,45 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h3 id="resources-limits-and-requests-philosophy"><a class="header" href="#resources-limits-and-requests-philosophy">Resources: Limits and Requests Philosophy</a></h3>
-<p>In short, do set CPU requests, but don't set CPU limits and set the Memory limit to be the same as the Memory requests.</p>
+                        <h1 id="resources-limits-and-requests-philosophy"><a class="header" href="#resources-limits-and-requests-philosophy">Resources: Limits and Requests Philosophy</a></h1>
+<p>Cluster-wide convention for <code>resources.requests</code> and <code>resources.limits</code> on every workload.</p>
+<h2 id="tldr"><a class="header" href="#tldr">TL;DR</a></h2>
 <ul>
-<li><a href="https://home.robusta.dev/blog/stop-using-cpu-limits">CPU Guidance</a></li>
-<li><a href="https://home.robusta.dev/blog/kubernetes-memory-limit">Limits Guidance</a></li>
+<li><strong><code>resources.requests.cpu</code></strong>: set it (used by the scheduler).</li>
+<li><strong><code>resources.limits.cpu</code></strong>: don't set it.</li>
+<li><strong><code>resources.requests.memory</code></strong>: set it.</li>
+<li><strong><code>resources.limits.memory</code></strong>: set it equal to the request.</li>
 </ul>
+<pre><code class="language-yaml">resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 256Mi
+</code></pre>
+<h2 id="why"><a class="header" href="#why">Why</a></h2>
+<h3 id="cpu-request-without-limit"><a class="header" href="#cpu-request-without-limit">CPU: request without limit</a></h3>
+<p>CPU is <strong>compressible</strong> — when a node is under pressure, the kernel time-slices and everybody gets less. Setting a CPU limit caps the workload at that ceiling even when the node has idle headroom, which trades a fictional "guarantee" for real-world throttling.</p>
+<p><code>requests.cpu</code> is what the scheduler uses for bin-packing decisions; that's the number that matters. The limit is mostly downside.</p>
+<p>Reference: <a href="https://home.robusta.dev/blog/stop-using-cpu-limits">Stop using CPU limits — Robusta</a>.</p>
+<h3 id="memory-request--limit"><a class="header" href="#memory-request--limit">Memory: request == limit</a></h3>
+<p>Memory is <strong>incompressible</strong> — once allocated, the kernel can't claw it back. The kernel resolves memory pressure via the OOM killer, which evicts based on QoS class.</p>
+<p>Setting <code>requests.memory == limits.memory</code> puts the pod in the <strong><code>Guaranteed</code></strong> QoS class — last to be OOM-killed during node pressure. Splitting them (e.g. request 256 Mi, limit 1 Gi) puts the pod in <strong><code>Burstable</code></strong>, which the scheduler can pack more densely but which is OOM-killed sooner during contention.</p>
+<p>For predictable workloads (most of this cluster), <code>Guaranteed</code> beats <code>Burstable</code>. Pick a <code>memory</code> value that's "what the app actually uses + headroom" and use it for both.</p>
+<p>Reference: <a href="https://home.robusta.dev/blog/kubernetes-memory-limit">Kubernetes memory limits — Robusta</a>.</p>
+<h2 id="tools-in-this-cluster"><a class="header" href="#tools-in-this-cluster">Tools in this cluster</a></h2>
+<ul>
+<li><strong>Goldilocks</strong> (in <code>observability/</code>) — VPA-driven right-sizing recommendations. Cross-check against your hand-picked values periodically.</li>
+<li><strong>kube-prometheus-stack</strong> — <code>kube_pod_container_resource_requests</code> / <code>_limits</code> metrics; <code>container_memory_working_set_bytes</code> for actual usage.</li>
+<li><strong><code>kubectl top pods -A --sort-by=memory</code></strong> for a quick top-N look.</li>
+</ul>
+<h2 id="exceptions"><a class="header" href="#exceptions">Exceptions</a></h2>
+<p>Two patterns where the rule above doesn't apply cleanly:</p>
+<ul>
+<li><strong>GPU workloads</strong> under <code>nvidia.com/gpu</code> are governed by the time-slicing config, not CPU/memory ratios. See <a href="p40.html"><code>p40.md</code></a>.</li>
+<li><strong>Workloads with known memory leaks</strong> (e.g. Frigate's ffmpeg leak — see project memory) need a memory limit that's higher than steady-state to provide headroom before OOMKilled restarts kick in.</li>
+</ul>
+<p>When the exception is permanent, leave a comment in the manifest noting <em>why</em> the rule is being broken.</p>
 
                     </main>
 

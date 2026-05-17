@@ -130,8 +130,8 @@ specific filesystem semantics. NFS servers in use:
   recordings, with XFS project quotas).
 
 Both beast and brain `/mnt/mass_storage` are RAID6 — durable enough
-for any tier. Server choice is workload-driven: route media (movies
-+ pictures + MP3s + app data) to beast, downloads + TV episodes to
+for any tier. Server choice is workload-driven: route media (movies,
+pictures, MP3s, app data) to beast; downloads and TV episodes to
 brain.
 
 Server choice is workload-driven — match the existing path layout

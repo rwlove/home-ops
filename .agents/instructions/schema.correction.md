@@ -2,7 +2,7 @@
 
 Whenever requested to fix or correct schemas, follow these instructions:
 
-**Default rules**
+## Default rules
 
 - only apply schemas to yaml files
 - do not apply schemas to files in any directory named `resources`

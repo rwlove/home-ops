@@ -19,17 +19,24 @@ spec:
     # agent invokes the release tools. raw.githubusercontent.com and
     # codeload.github.com cover repo content access.
     #
-    # Was a toFQDNs allow-list (api.github.com, github.com,
-    # uploads.github.com, raw.githubusercontent.com, codeload.github.com
-    # — with matchPattern + `.*` variants per the search-domain hack
-    # from PR #11492). Even with that workaround Cilium 1.19 doesn't
-    # reliably match through Kubernetes pod DNS search-domain
-    # augmentation (pod queries
-    # `api.github.com.mcp-system.svc.cluster.local.`; FQDN cache
-    # stores the augmented name; matching is unreliable). Broadened
-    # to toEntities:world:443 so it actually works. Tighten when FQDN
-    # matching is fixed.
-    - toEntities: [world]
+    # Cilium 1.19's toFQDNs.matchName doesn't match through Kubernetes
+    # pod DNS search-domain augmentation (pod queries
+    # `api.github.com.mcp-system.svc.cluster.local.`; the FQDN cache
+    # stores the augmented name; matchName misses it). The bare +
+    # `.*` dual-form matchPattern covers both un-augmented and
+    # search-domain-augmented forms — see PR #11492 for the canonical
+    # example.
+    - toFQDNs:
+        - matchPattern: "api.github.com"
+        - matchPattern: "api.github.com.*"
+        - matchPattern: "graphql.github.com"
+        - matchPattern: "graphql.github.com.*"
+        - matchPattern: "uploads.github.com"
+        - matchPattern: "uploads.github.com.*"
+        - matchPattern: "codeload.github.com"
+        - matchPattern: "codeload.github.com.*"
+        - matchPattern: "*.githubusercontent.com"
+        - matchPattern: "*.githubusercontent.com.*"
       toPorts:
         - ports:
             - port: "443"

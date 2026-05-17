@@ -34,6 +34,7 @@ own schedule.
 **Micron 7450 PRO 480 GB M.2 2280** (MTFDKBA480TFR-1BC1ZABYYR), ~$200 USD.
 
 Why this one:
+
 - M.2 2280 fits the most common slot (verify before ordering).
 - 480 GB is plenty for `/` + etcd (etcd DB is ~340 MB).
 - 1 DWPD, 800 TBW endurance — etcd will not wear it out.
@@ -41,6 +42,7 @@ Why this one:
 - Gen4×4, negotiates down to Gen3.
 
 Alternatives if master1 has an M.2 22110 slot (longer 110 mm form factor):
+
 - Samsung PM9A3 960 GB M.2 22110 (~$230–280)
 - Micron 7450 PRO 960 GB M.2 22110 (~$270–370)
 
@@ -51,20 +53,24 @@ See conversation history for retailer links; pricing as of 2026-05-04.
 1. **Confirm M.2 slot length on master1**: SSH and run `lspci -vv`,
    or look at the board. 2280 vs 22110 changes the buy.
 2. **Confirm where `cs_master1-root` LVM actually sits**:
+
    ```sh
    pvs && vgs && lvs && lsblk
    ```
+
    This is to verify the hypothesis that `/var/lib/etcd` is on
    `nvme1n1`. If it turns out to be on `nvme0n1` (the WD Blue), the
    diagnosis changes — the issue would be NVMe contention with
    Longhorn/Ceph rather than a slow drive. The fix would then be
    different (move workloads, not the drive).
 3. **Identify what was on `/dev/sdb`**:
+
    ```sh
    cat /etc/fstab | grep sdb
    blkid /dev/sdb              # may return nothing if device gone
    dmesg -T | grep -E 'sd[ab]|ata|sata'
    ```
+
    This is independent of the etcd fix but should be cleaned up
    eventually.
 

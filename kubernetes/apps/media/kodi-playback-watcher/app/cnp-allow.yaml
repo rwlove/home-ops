@@ -1,0 +1,37 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: kodi-playback-watcher-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: kodi-playback-watcher
+  # Additive — default-deny is what triggers the lockdown. Egress to
+  # av1corrector (same ns, :8000) is covered by baseline
+  # allow-intra-namespace.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # External: kodi-familyroom is a LAN host (192.168.1.11).
+    # KPW reaches it via:
+    #   :9090 — Kodi JSON-RPC WebSocket (live playback events)
+    #   :22   — SSH for /storage/.kodi/temp/kodi.log tail fallback
+    # Allow toFQDNs against the DNS name `kodi-familyroom.thesteamedcrab.com`
+    # which resolves through external-dns to the LAN IP.
+    #
+    # Cilium 1.19 toFQDNs.matchName doesn't match search-domain
+    # augmentation — see PR #11492 for the bare + .* pattern.
+    - toFQDNs:
+        - matchPattern: "kodi-familyroom.thesteamedcrab.com"
+        - matchPattern: "kodi-familyroom.thesteamedcrab.com.*"
+        - matchPattern: "kodi-familyroom"
+        - matchPattern: "kodi-familyroom.*"
+      toPorts:
+        - ports:
+            - port: "9090"
+              protocol: TCP
+            - port: "22"
+              protocol: TCP

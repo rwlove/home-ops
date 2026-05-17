@@ -1,0 +1,26 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: theme-park-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: theme-park
+  # Additive — default-deny is what triggers the lockdown. Theme-park
+  # is a static-asset web server (CSS/JS/font themes for *arr apps);
+  # no DB, no upstream APIs, no oauth2-proxy.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on internal envoy gateway → theme-park:8080.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP

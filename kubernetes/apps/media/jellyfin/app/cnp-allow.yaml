@@ -1,0 +1,90 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: jellyfin-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: jellyfin
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # 1) HTTPRoute on internal envoy gateway → jellyfin:8096
+    #    (jellyfin.${SECRET_DOMAIN}).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "8096"
+              protocol: TCP
+    # 2) Cilium LoadBalancer Service at 10.45.0.11:8096. LAN Kodi
+    #    clients (kodi-familyroom 192.168.1.11, etc.) and other LAN
+    #    consumers connect directly to the LB IP — these arrive at
+    #    the pod as `reserved:world`. Renee's primary playback path —
+    #    must remain reachable.
+    - fromEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "8096"
+              protocol: TCP
+    # 3) In-cluster callers (janitorr → /Users/MediaSegments, etc.)
+    #    reach jellyfin via cluster-DNS Service.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: media
+            app.kubernetes.io/name: janitorr
+      toPorts:
+        - ports:
+            - port: "8096"
+              protocol: TCP
+  egress:
+    # Metadata providers. Jellyfin reaches out for movie/show artwork,
+    # season metadata, theme music, etc. *arr metadata writers are OFF
+    # in this cluster (see project_media_writers_plan.md), so jellyfin
+    # is the canonical fetcher.
+    #
+    # Cilium 1.19's toFQDNs.matchName doesn't match through Kubernetes
+    # pod DNS search-domain augmentation (pod queries
+    # `api.themoviedb.org.media.svc.cluster.local.` and the FQDN cache
+    # stores the augmented name; matchName misses it). Bare + `.*`
+    # matchPattern covers both forms — see PR #11492.
+    - toFQDNs:
+        # TheMovieDB
+        - matchPattern: "api.themoviedb.org"
+        - matchPattern: "api.themoviedb.org.*"
+        - matchPattern: "image.tmdb.org"
+        - matchPattern: "image.tmdb.org.*"
+        # Fanart.tv
+        - matchPattern: "webservice.fanart.tv"
+        - matchPattern: "webservice.fanart.tv.*"
+        - matchPattern: "assets.fanart.tv"
+        - matchPattern: "assets.fanart.tv.*"
+        # TheTVDB (jellyfin plugin)
+        - matchPattern: "api4.thetvdb.com"
+        - matchPattern: "api4.thetvdb.com.*"
+        - matchPattern: "artworks.thetvdb.com"
+        - matchPattern: "artworks.thetvdb.com.*"
+        # MusicBrainz / Cover Art Archive (music library)
+        - matchPattern: "musicbrainz.org"
+        - matchPattern: "musicbrainz.org.*"
+        - matchPattern: "coverartarchive.org"
+        - matchPattern: "coverartarchive.org.*"
+        # Jellyfin plugin manifest + repo
+        - matchPattern: "repo.jellyfin.org"
+        - matchPattern: "repo.jellyfin.org.*"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+  # NFS mounts (movies, music, television PVs on beast + brain) are
+  # opened by the kubelet at the host level, NOT by the pod. The
+  # underlying RPC traffic is host networking, so no pod-level egress
+  # rule is needed for NFS.

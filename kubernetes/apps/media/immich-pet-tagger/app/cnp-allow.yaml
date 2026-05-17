@@ -1,0 +1,39 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: immich-pet-tagger-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: immich-pet-tagger
+  # Additive — default-deny is what triggers the lockdown. Egress to
+  # immich-server (same ns, :2283) is covered by baseline. Local YOLO
+  # model — no external HF pulls at runtime once weights are persisted
+  # to the immich-pet-tagger-data PVC (downloaded once at first pod
+  # start). Allow world for that first-run + any future model refresh.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on internal envoy gateway → immich-pet-tagger:8000.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+  egress:
+    # ultralytics downloads yolov8n.pt from
+    # github.com/ultralytics/assets on first poll if missing from cwd.
+    # Allow world 443 to keep the first-run flow + future model refresh
+    # unblocked.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

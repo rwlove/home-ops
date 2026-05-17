@@ -1,0 +1,29 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: immichkiosk-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: immichkiosk
+  # Additive — default-deny is what triggers the lockdown. Egress to
+  # immich-server (same ns, :2283) covered by baseline.
+  # The sister CronJob `immichkiosk-transcode` is a raw batch/v1 (no
+  # app.kubernetes.io/* labels) and is covered by the
+  # immich-offsite-backup-allow CNP in immich/app/cnp-allow.yaml which
+  # matches all label-less Job pods in this namespace.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on internal envoy gateway → immichkiosk:3000.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP

@@ -1,0 +1,39 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: flaresolverr-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: flaresolverr
+  # Additive — default-deny is what triggers the lockdown. No
+  # HTTPRoute, no oauth2-proxy — only callers are cross-ns prowlarr in
+  # downloads ns (and same-ns *arr if any directly call it).
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # Cross-ns: prowlarr in downloads ns calls flaresolverr to solve CF
+    # challenges for indexer fetches.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: downloads
+            app.kubernetes.io/name: prowlarr
+      toPorts:
+        - ports:
+            - port: "8191"
+              protocol: TCP
+  egress:
+    # External: full headless-Chromium internet access to solve
+    # Cloudflare challenges on whatever indexer URLs prowlarr passes
+    # in. Target set is the entire CF-protected indexer corpus.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "80"
+              protocol: TCP

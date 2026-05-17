@@ -1,0 +1,28 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: av1corrector-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: av1corrector
+  # Additive — default-deny is what triggers the lockdown. Ingress
+  # from av1corrector-oauth2-proxy (same ns, :8000) and from
+  # kodi-playback-watcher (same ns, /jobs API) are covered by baseline
+  # allow-intra-namespace.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # CNPG: postgres-av1corrector in databases ns (Pattern B). The
+    # init-db postgres-init initContainer also needs this on cold start.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            cnpg.io/cluster: postgres-av1corrector
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP

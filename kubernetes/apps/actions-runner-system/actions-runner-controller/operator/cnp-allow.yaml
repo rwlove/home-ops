@@ -17,13 +17,23 @@ spec:
   egress:
     # GitHub API: the operator authenticates as a GitHub App, polls for
     # the registration token, and reconciles runner-scale-set state.
-    # api.github.com resolves to Azure IPs (e.g. 20.85.130.105 in
-    # observed Hubble flows). The codeload.github.com hostname is not
-    # used by the controller itself (only by runners), but allow it
-    # here too for symmetry / future webhook subscriptions.
+    # api.github.com resolves to Azure IPs (20.85.130.105) and GitHub
+    # IPs (140.82.112.0/20 — observed 140.82.112/113/114 .5/.6 in
+    # cilium-dbg fqdn cache).
+    #
+    # NOTE: matchPattern instead of matchName is REQUIRED because the
+    # arc controller's resolver does search-domain expansion (looks up
+    # `api.github.com.actions-runner-system.svc.cluster.local`). Cilium
+    # keys the FQDN cache on the queried name; matchName: "api.github.com"
+    # never matches the search-expanded form. The trailing wildcard
+    # catches both bare and search-expanded.
     - toFQDNs:
-        - matchName: "api.github.com"
-        - matchName: "github.com"
+        - matchPattern: "api.github.com"
+        - matchPattern: "api.github.com.*"
+        - matchPattern: "github.com"
+        - matchPattern: "github.com.*"
+        - matchPattern: "*.githubusercontent.com"
+        - matchPattern: "*.githubusercontent.com.*"
       toPorts:
         - ports:
             - port: "443"

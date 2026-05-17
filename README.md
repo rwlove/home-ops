@@ -396,45 +396,48 @@ A single `rwlove/langgraph-agents` FastAPI service runs the fleet. Each agent is
 
 `health-tracker` and `errand-runner` are pinned local-only — they never escalate, even if quality suffers, because the data class isn't suitable for off-site inference.
 
-#### Voice-to-action: dictate on Android, act in the cluster
+#### Voice-to-action: power button → HA Assist → agents → Obsidian
 
-The most common way work enters the agent fleet: dictate a note on the phone, watch it become an actioned outcome.
+The most common way work enters the fleet — hold the phone's power button, say "inbox &lt;whatever I'm thinking&gt;", and the cluster takes it from there.
 
 ```mermaid
 flowchart LR
-    Phone[📱 Android Obsidian<br/>voice-to-text dictation] -->|markdown into /inbox| CouchDB[(obsidian-couchdb<br/>self-hosted Obsidian sync)]
-    CouchDB --> Laptop[💻 Laptop Obsidian<br/>same vault]
-    CouchDB -->|new note in /inbox| Hook[n8n: langgraph-inbox<br/>webhook]
-    Hook -->|POST /inbox| LG[langgraph-agents]
+    Btn[📱 Hold power button<br/>Pixel: 'Hold for Assistant'] --> Assist[HA Companion app<br/>set as default assistant]
+    Assist -->|audio stream| HA[Home Assistant<br/>Assist pipeline]
+    HA --> Whisper[Whisper STT<br/>wyoming-services on P40]
+    Whisper --> Sentence[Sentence trigger:<br/>'inbox &#123;content&#125;']
+    Sentence --> Ollama[conversation.ollama_voice<br/>qwen3:8b]
+    Ollama --> Rest[HA rest_command<br/>POST + Authelia JWT]
+    Rest --> Hook[n8n: langgraph-inbox]
+    Hook --> LG[langgraph-agents /inbox]
     LG --> Triage[triager classifies]
-    Triage -->|capture only| Note[note-maker<br/>files to vault]
-    Triage -->|plan + act| Spec[specialist agent<br/>drafts action plan]
+    Triage -->|capture only| Note[note-maker]
+    Triage -->|plan + act| Spec[specialist agent<br/>drafts plan]
     Spec -->|needs input| Zulip[💬 Zulip approval<br/>+ Pushover ping]
-    Zulip -->|reply| Receive[langgraph-approval-receive]
+    Zulip -->|reply| Receive[approval-receive]
     Receive --> Spec
-    Spec -->|executes via MCP| Done[outcome → vault<br/>→ reporter digest]
-    Note --> Done
-    Done --> CouchDB
+    Spec --> Done[outcome to vault]
+    Note --> Inbox[/vault/inbox/YYYY-MM-DD-…md/]
+    Done --> Outputs[/vault/outputs/&#123;drafts,finals&#125;//]
+    Inbox --> Couch[(obsidian-couchdb)]
+    Outputs --> Couch
+    Couch -->|LiveSync| Phone[📱 Obsidian on phone<br/>same vault]
 ```
 
-1. **Dictate** — Open Obsidian on Android, drop a note into the inbox folder, tap the mic, talk. The phone's voice-to-text handles transcription; no cluster-side STT in this loop.
-2. **Sync** — Obsidian Self-hosted LiveSync replicates the new note through `obsidian-couchdb` in the cluster. Cloudflare rate-limits the auth endpoint to blunt credential stuffing.
-3. **Pick-up** — a new file in `/inbox/` triggers a POST to the `langgraph-inbox` n8n webhook with `{ source: "voice", user, content }`. n8n normalizes the payload and calls `langgraph-agents` `/inbox`.
-4. **Triage** — `triager` classifies: research question, household errand, homelab change, property task, or note-to-self. The classification picks the specialist agent.
-5. **Plan or just capture** —
-   - **Capture only** → `note-maker` files the note into the right vault folder. Pipeline ends.
-   - **Plan + act** → the specialist (`errand-runner`, `homelab-engineer`, `property-coordinator`, `smart-home-engineer`, etc.) drafts an action plan: goal, steps, tool calls, expected cost. Plan is persisted to Postgres + a draft in `/vault/outputs/`.
-6. **HITL — pause and ask** — the agent pauses and asks for input whenever:
-   - Intent is ambiguous (multiple plausible interpretations of the dictation)
-   - The plan needs a decision the agent can't make alone (which vendor, which date, which file)
-   - Estimated cost exceeds the per-task cap
-   - The action touches a flagged-irreversible system (anything in the operational pillars list)
+##### The path
 
-   `langgraph-approval-post` packages the plan into a signed Zulip message + Pushover ping. The operator replies in-thread on whatever device is closest. `langgraph-approval-receive` parses the reply back into structured input; `langgraph-awaiting-user-sweep` nudges anything that's been stuck too long. The signing key (rotated daily via the same machinery as the MCP gateway) prevents anyone else in the realm from impersonating an approval.
-7. **Execute** — agent resumes with the operator's input, runs tool calls through the MCP gateway, honors per-task and global cost caps.
-8. **Report back to the same surface** — outcome lands as a markdown file under `/vault/outputs/{drafts,finals}/` and syncs back through `obsidian-couchdb` — so the result reaches the phone in the same vault the dictation came from. The `reporter` agent rolls completed items into the daily Zulip digest.
+1. **Hold power button.** Pixel's "Hold for Assistant" gesture is bound to the HA Companion app as the default digital assistant. The Assist UI opens with the mic hot.
+2. **Speak.** Audio streams to the cluster — no on-phone STT. The trigger phrase is `inbox <body>`; everything after `inbox` is the note.
+3. **STT in cluster.** The Assist pipeline routes the audio to **Whisper** (`wyoming-services`, GPU-accelerated on the P40).
+4. **Intent + LLM.** A sentence trigger matches `inbox {content}` and hands `{content}` to `conversation.ollama_voice` (qwen3:8b on Ollama, tool-calling enabled). The conversation agent's only job here is to confirm the intent and call the rest_command — it does not interpret the content.
+5. **Auth'd POST.** An HA `rest_command` POSTs to `https://langgraph-inbox.${SECRET_DOMAIN}/webhook` with `{ source:"voice", user:"rob", content:"<transcript>" }`. The request carries an **Authelia client_credentials JWT** issued to a dedicated `ha-voice-inbox` OIDC client — same daily-rotated signing-key machinery the MCP gateway already uses. Envoy's `SecurityPolicy` validates the JWT against Authelia's JWKS at the gateway.
+6. **n8n langgraph-inbox.** Normalizes the payload and POSTs to `/inbox` on `langgraph-agents`.
+7. **Triager classifies.** Research question, household errand, homelab change, property task, or note-to-self — and picks the specialist agent.
+8. **Capture path → note-maker writes the file** to `/vault/inbox/YYYY-MM-DD-HHMM-<slug>.md` on the `langgraph-vault-rw` PVC. Single writer, no race with the phone.
+9. **Plan-and-act path → specialist drafts a plan** into Postgres + a draft under `/vault/outputs/drafts/`. HITL approval via the existing Zulip + Pushover loop when needed (see triggers above).
+10. **Round-trip to the phone.** `obsidian-couchdb` watches the vault PVC and replicates new files through Self-hosted LiveSync — the note from step 8, plus any drafts/finals from step 9, appear in the Obsidian app on the phone within a sync cycle. Same surface the dictation started on.
 
-The loop closes locally and on a single surface: an idea spoken into the phone in a parking lot comes back as a finished draft, a completed errand, or an action plan awaiting confirmation — all inside the Obsidian vault that started it, with Zulip as the side-channel only when input is needed.
+The loop closes locally and on one surface: power-button → speak → outcome appears in the vault. Whisper, Ollama, n8n, and the agents all run in the cluster; the only off-site dependency is `claude.com` if the local fleet escalates a task.
 
 #### Alert triage (production today)
 

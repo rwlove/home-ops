@@ -1,0 +1,55 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: arr-mcp-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: arr-mcp
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it. Ingress from same-ns mcp-gateway broker is
+  # covered by baseline allow-intra-namespace.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # Sonarr / Radarr / Lidarr in media ns (Pattern E). Env vars set:
+    #   SONARR_URL: http://sonarr.media.svc.cluster.local:8989
+    #   RADARR_URL: http://radarr.media.svc.cluster.local:7878
+    #   LIDARR_URL: http://lidarr.media.svc.cluster.local:8686
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: media
+            app.kubernetes.io/name: sonarr
+      toPorts:
+        - ports:
+            - port: "8989"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: media
+            app.kubernetes.io/name: radarr
+      toPorts:
+        - ports:
+            - port: "7878"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: media
+            app.kubernetes.io/name: lidarr
+      toPorts:
+        - ports:
+            - port: "8686"
+              protocol: TCP
+    # Prowlarr in downloads ns. Env: PROWLARR_URL points to
+    # http://prowlarr.downloads.svc.cluster.local:9696
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: downloads
+            app.kubernetes.io/name: prowlarr
+      toPorts:
+        - ports:
+            - port: "9696"
+              protocol: TCP

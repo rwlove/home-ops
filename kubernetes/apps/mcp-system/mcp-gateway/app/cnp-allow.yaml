@@ -1,0 +1,129 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: mcp-gateway-broker-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: mcp-gateway
+  # Additive — default-deny is what triggers the lockdown. The broker
+  # is the central MCPRouter pod deployed by mcp-gateway-controller.
+  # Egress to per-namespace MCP servers in this ns is covered by
+  # baseline allow-intra-namespace.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # mcp-gateway-istio Service routes inbound mcp.${SECRET_DOMAIN}
+    # traffic to broker:8080. Same-ns label-selected.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+            gateway.networking.k8s.io/gateway-name: mcp-gateway
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+            - port: "50051"
+              protocol: TCP
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: mcp-gateway-controller-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: mcp-gateway-controller
+  # Additive — apiserver egress covered by baseline allow-apiserver;
+  # broker access (to push routing config + health-check) is same-ns
+  # so covered by baseline allow-intra-namespace.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: mcp-gateway-istio-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      gateway.networking.k8s.io/gateway-name: mcp-gateway
+      gateway.istio.io/managed: istio.io-gateway-controller
+  # Additive — egress to broker + MCP servers is same-ns (baseline).
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # Public entrypoint: external clients reach mcp.${SECRET_DOMAIN}
+    # via cloudflared → external envoy → mcp-gateway-istio → broker.
+    # The HTTPRoute mcp-gateway-internal targets internal envoy.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # Cluster-internal MCP clients (kubeclaw, langgraph-agents, etc.)
+    # hit the istio Service directly by DNS; their source pods live
+    # in various namespaces. Allow from any namespace on 8080 — these
+    # are MCP tool invocations gated by Authelia JWT at the envoy
+    # SecurityPolicy layer (per project_mcp_gateway_auth_done.md).
+    - fromEntities:
+        - cluster
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+  egress:
+    # Istio sidecar control-plane: istiod XDS on 15012, webhook on 15017.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: istio-system
+            app: istiod
+      toPorts:
+        - ports:
+            - port: "15012"
+              protocol: TCP
+            - port: "15014"
+              protocol: TCP
+            - port: "15017"
+              protocol: TCP
+            - port: "443"
+              protocol: TCP
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: mcp-gateway-jwt-rotator-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: mcp-gateway-jwt-rotator
+  # Additive — apiserver covered by baseline (rotator runs
+  # `kubectl create secret`); egress to Authelia goes via envoy.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # Authelia OIDC token endpoint:
+    # https://auth.${SECRET_DOMAIN}/api/oidc/token — routed via
+    # external envoy gateway, container port 10443.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "10443"
+              protocol: TCP
+            - port: "443"
+              protocol: TCP

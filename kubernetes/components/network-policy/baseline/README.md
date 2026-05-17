@@ -13,6 +13,7 @@ the first step of the NetworkPolicy rollout. See the full plan:
 | `allow-apiserver` | Egress to `reserved:kube-apiserver` entity, port 6443. **Entity selector, not CIDR** — Cilium 1.19 with `policy-cidr-match-mode=""` silently drops apiserver traffic from CIDR-only rules. |
 | `allow-intra-namespace` | Pods in the same namespace can talk to each other (ingress + egress). Covers the bjw-s init-container / sidecar / companion-deployment pattern without per-app rules. |
 | `allow-monitoring-scrape` | Ingress from the `observability` namespace's Prometheus pod (`app.kubernetes.io/name: prometheus`). |
+| `allow-host-probes` | Ingress from `reserved:host` + `reserved:remote-node` so kubelet liveness/readiness/startup probes work after default-deny lands. Without this, every pod under default-deny goes Unready and restarts in a loop. |
 
 All four ship with:
 

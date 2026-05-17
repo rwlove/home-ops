@@ -1,0 +1,32 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: glance-user-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: glance-user
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # Inbound rides via glance-user-oauth2-proxy → glance-user:8081
+    # (same-ns; baseline allow-intra-namespace).
+  egress:
+    # Family-dashboard widgets call out to whatever feeds the user
+    # configured (weather, news, sports, calendars, RSS, etc.). Same
+    # rationale as glance: widget set evolves outside this repo, so
+    # allow broad HTTPS egress. No kube-apiserver access (no
+    # k8s-extension sidecar on this instance).
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "80"
+              protocol: TCP

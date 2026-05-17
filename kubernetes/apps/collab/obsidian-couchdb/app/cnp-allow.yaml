@@ -1,0 +1,30 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: obsidian-couchdb-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: obsidian-couchdb
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on the EXTERNAL gateway (obsidian.${SECRET_DOMAIN}
+    # via cloudflared) → obsidian-couchdb:5984. Both internal and
+    # external envoy pods carry app.kubernetes.io/name=envoy in the
+    # network ns, so the selector covers both.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "5984"
+              protocol: TCP
+  # No egress holes needed — CouchDB is self-contained for this
+  # single-node setup. No remote replication peers configured.

@@ -1,0 +1,55 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: cloudflared-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: cloudflared
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  # Ingress :8080 (metrics + readiness probe) covered by:
+  #   - baseline allow-host-probes (kubelet)
+  #   - baseline allow-monitoring-scrape (Prometheus)
+  egress:
+    # Cloudflare Tunnel control + data planes. Uses QUIC (UDP/7844) by
+    # default with TCP/7844 fallback. Connects to many CF edge IPs —
+    # `toEntities: [world]` is the standard pattern here; CF's edge
+    # IP pool rotates and FQDN matching is unreliable for these
+    # connect-by-IP control endpoints. Also include 443/TCP for HTTP/2
+    # fallback transport mode and discovery (TUNNEL_TRANSPORT_PROTOCOL
+    # in helmrelease is `quic`, but cloudflared may use HTTPS for
+    # tunnel registration / config fetch).
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "7844"
+              protocol: TCP
+            - port: "7844"
+              protocol: UDP
+            - port: "443"
+              protocol: TCP
+    # Tunnel origin — cloudflared proxies inbound CF traffic to the
+    # `external` envoy data plane via the in-cluster Service
+    # (https://external.network.svc.cluster.local:443 → pod :10443).
+    # Cilium L4 matches the pod targetPort (10443), not the svc port
+    # (443) — see project_cilium_l4_port_targetport.md. This is an
+    # intra-namespace flow but envoy data planes get caught by their
+    # own pod selector under default-deny, so an explicit allow here
+    # plus a matching ingress on envoy-proxy-allow is the safe pattern.
+    # Baseline allow-intra-namespace covers it but be explicit so
+    # this rule is greppable.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "10443"
+              protocol: TCP

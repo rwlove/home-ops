@@ -1,0 +1,90 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: envoy-proxy-allow
+spec:
+  # Both `external` and `internal` Gateway data planes share this label;
+  # envoy-gateway labels every proxy pod with app.kubernetes.io/name=envoy.
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: envoy
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # Envoy listener ports — IMPORTANT: these are the POD's targetPorts,
+    # not the LoadBalancer Service ports. Cilium L4 enforcement happens
+    # after kube-proxy/Cilium-LB has rewritten the dest port from svc
+    # port to targetPort (memory: project_cilium_l4_port_targetport.md).
+    # The `external` + `internal` LB Services map:
+    #   80/TCP → 10080/TCP
+    #   443/TCP → 10443/TCP
+    #   443/UDP → 10443/UDP (QUIC/HTTP3)
+    # Using 80/443 here (svc port) was the root cause of iteration 1's
+    # silent ingress drop — packets arrived at the pod on 10080/10443
+    # and never matched the allow rule. Both `external` and `internal`
+    # Gateway data planes share the `app.kubernetes.io/name: envoy`
+    # label and bind the same targetPorts.
+    #
+    # Envoy is the cluster ingress proxy: be inclusive about source —
+    # every entity that could legitimately send a request to a
+    # published HTTPRoute:
+    #   - world: cloudflared (external tunnel egress) + LAN browsers
+    #            hitting LB IPs directly (externalTrafficPolicy: Local
+    #            preserves real source IP → reserved:world identity)
+    #   - cluster: in-cluster pods resolving *.${SECRET_DOMAIN} to LB IP
+    #   - host: node-local probes, kubelet-side, host-network pods
+    #   - remote-node: cross-node hairpin
+    - fromEntities:
+        - world
+        - cluster
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "10080"
+              protocol: TCP
+            - port: "10443"
+              protocol: TCP
+            - port: "10443"
+              protocol: UDP
+    # Metrics port (19001) covered by baseline allow-monitoring-scrape.
+    # Admin port (19003) is bound on localhost only.
+  egress:
+    # Backend dispatch — envoy proxies traffic to HTTPRoute backends
+    # in ~17 namespaces across the cluster (auth, ai, collab, downloads,
+    # home, media, mcp-system, observability, kube-system, longhorn-system,
+    # databases, selfhosted, storage, rook-ceph, renovate, flux-system,
+    # and intra-ns to itself). `toEntities: [cluster]` covers every
+    # pod identity; we deliberately leave the port-list open because
+    # backends listen on a wide variety of ports (4180 oauth2-proxy,
+    # 8080, 5000, 9000, 11434, custom app ports). Restricting by port
+    # here would require enumerating every backend port across the
+    # whole cluster and would inevitably break a future HTTPRoute.
+    - toEntities:
+        - cluster
+    # Some backends run on the host network (e.g. node_exporter,
+    # potentially host-mode dashboards). Include host + remote-node
+    # so envoy can dispatch to those without surprise drops.
+    - toEntities:
+        - host
+        - remote-node
+    # External backends — at present envoy has no toServiceImport-style
+    # external upstream, but EnvoyExtensionPolicy/SecurityPolicy can
+    # reference external URIs (e.g. Authelia JWKS fetch, ExtAuth,
+    # OIDC discovery to issuer URLs). Permit world egress on HTTPS
+    # so future SecurityPolicy / EnvoyExtensionPolicy backends keep
+    # working. No DNS/FQDN list — these are control-plane URIs that
+    # change, and envoy is too critical to risk an FQDN cache miss.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "80"
+              protocol: TCP

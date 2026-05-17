@@ -1,0 +1,51 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: wg-easy-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: wg-easy
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # WireGuard listener — UDP/51820 from anywhere (this IS the only
+    # OOB access path to the cluster per memory `feedback_vpn_gateway_
+    # migrations_lan_only.md`; over-restricting risks locking the
+    # operator out of remote management). LoadBalancer service routes
+    # external WG peers (mobile, laptop) here.
+    - fromEntities:
+        - world
+        - cluster
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "51820"
+              protocol: UDP
+    # Web UI :51821 via envoy `internal` Gateway (vpn.${SECRET_DOMAIN}
+    # is published on the internal LB).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "51821"
+              protocol: TCP
+  egress:
+    # WG peers terminate inside the pod and their decapsulated packets
+    # are forwarded into the cluster + LAN (admin connects from phone
+    # over WG, hits HA/Plex/etc.). The set of destinations is broad
+    # by design — a VPN gateway needs to reach everywhere a normal
+    # client could. Permit cluster + host + remote-node + world.
+    - toEntities:
+        - cluster
+        - host
+        - remote-node
+        - world

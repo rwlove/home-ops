@@ -116,14 +116,16 @@ Per-app PV + PVC pattern; pin `volumeName` and `nfs.server` /
 specific filesystem semantics. NFS servers in use:
 
 - **`beast`** (`NFS_HOST_2`) — primary bulk storage: media libraries
-  (MP3s, pictures, Movies), app data, Longhorn backup target, Garage
-  substrate. `/mnt/mass_storage` is **RAID6** (tolerates 2-disk
-  failure).
+  (MP3s, pictures, Movies), app data, **Longhorn backup target**
+  (`nfs://beast:/mnt/mass_storage/longhorn-backups` — see Longhorn
+  HelmRelease's `backupTarget`). `/mnt/mass_storage` is **RAID6**
+  (tolerates 2-disk failure).
 - **`brain`** (`NFS_HOST_0`) — secondary storage: downloads
-  (`/mnt/downloads`, `/mnt/downloads-nvme`), Television media.
+  (`/mnt/downloads`, `/mnt/downloads-nvme`), Television media,
+  **Garage substrate** (`/mnt/kubernetes/garage/{data,meta}` — see
+  `kubernetes/apps/storage/garage/app/nfs-pvc.yaml`).
   `/mnt/mass_storage` is **RAID6** (md1, 6 disks, tolerates 2-disk
-  failure) — verified 2026-05-14 (`/dev/md1`, level 6, [6/6]
-  [UUUUUU]). Brain is also the home router/gateway.
+  failure). Brain is also the home router/gateway.
 - **`security-storage`** — Frigate camera data only (clips +
   recordings, with XFS project quotas).
 

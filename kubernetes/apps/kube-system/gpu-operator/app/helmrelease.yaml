@@ -23,8 +23,30 @@ spec:
     operator:
       cleanupCRD: false
       upgradeCRD: true
+    # Per-node driver split. The operator deploys the driver daemonset
+    # to any GPU node that does NOT carry the label
+    # `nvidia.com/gpu.deploy.driver=false`. Two GPU nodes with different
+    # needs as of 2026-05-17:
+    #
+    #   worker8  — Tesla P40 (Pascal, sm_61) on CentOS Stream 9. NVIDIA
+    #              does not ship a precompiled driver container for
+    #              Stream 9, so the driver stays manually installed and
+    #              worker8 is opted out via the label above. Apply the
+    #              opt-out BEFORE this change reconciles, or the operator
+    #              will try and fail on worker8:
+    #
+    #                kubectl label node worker8.${SECRET_DOMAIN} \
+    #                  nvidia.com/gpu.deploy.driver=false --overwrite
+    #
+    #   Spark    — Blackwell GB10 on Ubuntu/DGX OS. Joins with no opt-out
+    #              label; operator manages its driver via open kernel
+    #              modules. `useOpenKernelModules: true` is for Spark;
+    #              the setting is a no-op on worker8 (which is opted out).
+    #
+    # See: docs/src/p40.md, project_todo_worker8_os_rebuild memory.
     driver:
-      enabled: false
+      enabled: true
+      useOpenKernelModules: true
     toolkit:
       enabled: true
       installDir: /usr/local/nvidia

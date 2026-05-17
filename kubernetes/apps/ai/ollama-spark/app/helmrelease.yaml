@@ -1,0 +1,125 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: ollama-spark
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 30m
+  values:
+    controllers:
+      backend:
+        pod:
+          # Hard-pin to Spark. The existing `ollama` Deployment serves
+          # smaller models on the P40 (worker8); this instance hosts the
+          # larger Spark-tier models. Both Deployments coexist.
+          #
+          # Update the nodeSelector hostname value when Spark joins
+          # with its final hostname (spark.${SECRET_DOMAIN} assumed).
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: kubernetes.io/hostname
+                        operator: In
+                        values:
+                          - "spark.thesteamedcrab.com"
+
+          nodeSelector:
+            kubernetes.io/hostname: "spark.thesteamedcrab.com"
+            nvidia.com/gpu.present: "true"
+
+          priorityClassName: ai-gpu-critical
+
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        type: statefulset
+
+        containers:
+          main:
+            image:
+              repository: docker.io/ollama/ollama
+              tag: 0.24.0@sha256:a6149234667efc71d37766d61c1a16f24c33e4cd7a0bf4125c44a7e47e2419c4
+
+            env:
+              OLLAMA_HOST: 0.0.0.0
+              OLLAMA_ORIGINS: "*"
+              OLLAMA_LOG_LEVEL: info
+              OLLAMA_MODELS: &pvc /models
+              OLLAMA_LOAD_TIMEOUT: 10m
+              OLLAMA_KV_CACHE_TYPE: q8_0
+              OLLAMA_FLASH_ATTENTION: 1
+              # Spark has ~128 GB unified memory; can carry larger
+              # context windows and multiple concurrent loaded models
+              # without the P40's constrained budget.
+              OLLAMA_CONTEXT_LENGTH: 32768
+              OLLAMA_NUM_PARALLEL: 4
+              # Drop the P40 single-model cap. Spark can hold the agent
+              # fleet's working set (primary 14b/30b + embedding +
+              # alternate) resident concurrently.
+              OLLAMA_MAX_LOADED_MODELS: 3
+
+            resources:
+              requests:
+                # Tune post-arrival once we see real Spark CPU/memory
+                # baselines under the agent fleet's load. Starting
+                # values are conservative for a Blackwell-class node.
+                memory: 16G
+                cpu: 4000m
+                nvidia.com/gpu: 1
+              limits:
+                memory: 16G
+                nvidia.com/gpu: 1
+
+            securityContext:
+              privileged: true
+
+    service:
+      backend:
+        controller: backend
+        ports:
+          http:
+            port: &httpPort 11434
+
+    route:
+      main:
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: backend
+                port: *httpPort
+
+    persistence:
+      data:
+        existingClaim: ollama-spark-data-pvc
+        advancedMounts:
+          backend:
+            main:
+              - path: /.ollama
+
+      # Models live on a Longhorn volume pinned strict-local to Spark
+      # (single replica + nodeSelector affinity above). Avoids cross-
+      # node IO during model loads. Same pattern as the P40 ollama PVC.
+      models:
+        existingClaim: ollama-spark-models-pvc
+        advancedMounts:
+          backend:
+            main:
+              - path: *pvc
+
+      tmp:
+        type: emptyDir
+        enabled: true
+        medium: Memory
+        globalMounts:
+          - path: /tmp

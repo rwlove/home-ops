@@ -1,0 +1,91 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/persistentvolumeclaim-v1.json
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-spark-data-pvc
+  labels:
+    type: longhorn
+spec:
+  accessModes:
+    - ReadWriteOnce
+  volumeMode: Filesystem
+  resources:
+    requests:
+      storage: 2Gi
+  volumeName: ollama-spark-data-pv
+  storageClassName: ollama-spark-data-storage-class
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ollama-spark-data-pv
+  labels:
+    type: longhorn
+    recurring-job-group.longhorn.io/weekly-backup: enabled
+    recurring-job-group.longhorn.io/daily-snapshot: enabled
+spec:
+  capacity:
+    storage: 2Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ollama-spark-data-storage-class
+  csi:
+    driver: driver.longhorn.io
+    fsType: xfs
+    volumeAttributes:
+      numberOfReplicas: "2"
+      staleReplicaTimeout: "2880"
+    volumeHandle: ollama-spark-data-xfs
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-spark-models-pvc
+  labels:
+    type: longhorn
+spec:
+  accessModes:
+    - ReadWriteOnce
+  volumeMode: Filesystem
+  resources:
+    requests:
+      # Spark hosts larger models — qwen2.5:14b is ~9 GB, qwen3:30b would
+      # be ~18 GB, plus alternates + embeddings. 200Gi gives room for a
+      # working set of 5–10 models with a buffer.
+      storage: 200Gi
+  volumeName: ollama-spark-models-pv
+  storageClassName: ollama-spark-models-storage-class
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ollama-spark-models-pv
+  labels:
+    type: longhorn
+    recurring-job-group.longhorn.io/monthly-backup: enabled
+    recurring-job-group.longhorn.io/weekly-snapshot: enabled
+spec:
+  capacity:
+    storage: 200Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ollama-spark-models-storage-class
+  csi:
+    driver: driver.longhorn.io
+    fsType: xfs
+    volumeAttributes:
+      # Strict-local with 1 replica — model loads need fast local IO.
+      # Same rationale as the P40 ollama PVC. Spark must be in the
+      # cluster (post-Phase-2 of the day-of checklist) before this
+      # PVC will bind.
+      numberOfReplicas: "1"
+      staleReplicaTimeout: "2880"
+    volumeHandle: ollama-spark-models-xfs

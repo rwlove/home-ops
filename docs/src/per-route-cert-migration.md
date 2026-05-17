@@ -1,5 +1,15 @@
 # Per-Route Cert Migration Runbook
 
+> **Status as of 2026-05-17:** plan-only; not yet executed. The cluster
+> still runs on the wildcard `${SECRET_DOMAIN}` Certificate reflected
+> into `network` / `istio-system` / `mcp-system`. HTTPRoute count under
+> `${SECRET_DOMAIN}` has grown from ~70 → ~100 since this runbook was
+> written, which makes the rate-limit math tighter; re-derive Wave size
+> before executing. The `istio` Gateway in `istio-system` has also been
+> retired since this was written — the live Gateway set is now
+> `external` + `internal` (both in `network`) + `mcp-gateway` (in
+> `mcp-system`), three Gateways total.
+
 This runbook covers migrating from one shared wildcard ACME certificate
 (`${SECRET_DOMAIN}` covering `*.${SECRET_DOMAIN}`) to per-listener
 fine-grained short-term certificates, using cert-manager's Gateway API

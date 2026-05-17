@@ -105,13 +105,11 @@ Before doing either replacement option, confirm:
    long storage operations.
 2. **Etcd snapshot saved off-host.** See the Etcd snapshot section of
    the same runbook.
-3. **Immich offsite seed has finished.** As of 2026-05-04 21:11 UTC
-   the seed was 80% through phase 1 of 2 (1.82/2.28 TiB at 55 MiB/s).
-   Phase 2 (`/external`) hadn't started. **Watch for the
-   `===== Backup complete =====` line in `media/immich-backup-initial`
-   pod logs before doing anything that drains worker2.** This doesn't
-   block the master1 swap directly, but you don't want to stack
-   storage-touching operations.
+3. **Immich offsite seed finished 2026-05-05** (5-file sample
+   round-trip verified the same day). Paperless seed also finished
+   2026-05-05 (778 MiB across docs + DB). This gating constraint is
+   resolved — the drive swap no longer needs to coordinate around the
+   initial seed. See [`offsite_recovery.md`](offsite_recovery.md).
 
 ## After master1 is fixed
 

@@ -19,7 +19,7 @@ _Production-grade Kubernetes for a household._
 ![apps](https://img.shields.io/badge/apps-168-blue?style=for-the-badge)
 ![helmreleases](https://img.shields.io/badge/HelmReleases-180-326CE5?style=for-the-badge&logo=helm&logoColor=white)
 ![nodes](https://img.shields.io/badge/k8s_nodes-10-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white)
-![cnpg](https://img.shields.io/badge/Postgres_clusters-25-336791?style=for-the-badge&logo=postgresql&logoColor=white)
+![cnpg](https://img.shields.io/badge/Postgres_clusters-24-336791?style=for-the-badge&logo=postgresql&logoColor=white)
 ![secrets](https://img.shields.io/badge/secrets-109-0572EC?style=for-the-badge&logo=1password&logoColor=white)
 ![age](https://img.shields.io/badge/cluster_age-5%2B_years-success?style=for-the-badge)
 
@@ -80,7 +80,7 @@ Storage tiers are picked deliberately per workload — see [`storage-class.instr
 | **Secrets**      | External Secrets Operator + 1Password | 109 ExternalSecrets, zero plain-text in Git         |
 | **VPN**          | wg-easy                             | Operator OOB WireGuard access                         |
 | **Storage**      | Rook-Ceph, Longhorn, Garage, direct NFS | Tiered by durability requirement                  |
-| **Databases**    | CloudNative-PG, Dragonfly, Qdrant   | 25 Postgres clusters, KV, vector                      |
+| **Databases**    | CloudNative-PG, Dragonfly, Qdrant   | 24 Postgres clusters, KV, vector                      |
 | **Observability**| kube-prometheus-stack, Loki, Grafana, HolmesGPT | Metrics, logs, dashboards, AI alert triage |
 | **Images**       | ZOT                                 | Pull-through registry / local cache                   |
 
@@ -213,7 +213,7 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 
 | App | Purpose |
 |-----|---------|
-| **CloudNative-PG** | 25 Postgres clusters with WAL archiving to Garage |
+| **CloudNative-PG** | 24 Postgres clusters with WAL archiving to Garage |
 | **Dragonfly** | Redis-compatible in-memory store |
 | **Qdrant** | Vector DB for embeddings / RAG |
 | **pgAdmin** | Postgres admin UI |

@@ -379,10 +379,12 @@ system-namespace lockdown in Phase 6.
    `hubble-network-policy-correlation-enabled=true` (already on),
    Hubble flows include the matching policy name in
    `policy_match_type` and `egress_allowed_by`. Use this:
-   ```
+
+   ```bash
    hubble observe --namespace <ns> --verdict DROPPED --last 100
    hubble observe --namespace <ns> --verdict DROPPED -f
    ```
+
 7. **`policy-enforcement: audit` mode.** Cilium supports a
    per-endpoint audit mode via the `policy.cilium.io/audit-mode`
    annotation. We will **use audit mode for one rollout cycle per
@@ -412,8 +414,8 @@ notes whether it falls inside NetworkPolicy scope.
 | Flux → GitHub | source-controller | github.com:443 (via DNS) | Yes | Phase 6 `toFQDNs: github.com, codeload.github.com, *.githubusercontent.com` |
 | cert-manager → Let's Encrypt | cert-manager | acme-v02.api.letsencrypt.org | Yes | Phase 6 `toFQDNs` |
 | Envoy Gateway → backend pods | network ns envoy pods | app pods | Yes | every app namespace adds Pattern A |
-| Hubble metrics scrape | observability prom | port 9965 on every node | Mixed — node-level, but baseline `allow-monitoring-scrape` covers pod-level |
-| pod-gateway WireGuard | downloads-gateway pod | 0.0.0.0/0:51820 UDP | Yes — existing CNP preserved |
+| Hubble metrics scrape | observability prom | port 9965 on every node | Mixed | baseline `allow-monitoring-scrape` covers pod-level; host-net scrape is out of scope |
+| pod-gateway WireGuard | downloads-gateway pod | 0.0.0.0/0:51820 UDP | Yes | existing CNP preserved |
 
 ---
 
@@ -440,9 +442,17 @@ component built and `kustomize build` clean.
 
 ### Phase 1 — Canary namespace: `selfhosted` (1 week)
 
-Why `selfhosted`: contains low-criticality apps with mixed
-ingress/DB/external-egress patterns; user-visible but not on the
-critical path; not a system namespace.
+Why `selfhosted`: lowest-risk namespace in the repo — currently
+contains exactly one app (`webhook`, 2 replicas) with no live
+traffic per the Phase 0 Hubble survey. Not a system namespace.
+
+**Scope note (2026-05-17):** This canary proves the *mechanic* —
+the baseline component applies cleanly, CNPs land in the right
+namespace, audit-mode soak surfaces no surprises. It does **not**
+exercise the Pattern A/B/C overlay surface meaningfully because
+`webhook` is idle. Real pattern coverage starts in Phase 2 across
+7 namespaces; don't gate the Phase 2 start on Phase 1 surfacing
+allow-pattern needs that won't appear here.
 
 Steps:
 
@@ -477,8 +487,8 @@ optional for low-risk additions.
 ### Phase 3 — Stateful & ingress-critical namespaces (1-2 weeks)
 
 `auth` (Authelia — breaking this locks the user out of every
-OIDC app), `databases` (CNPG control plane), `downloads` (VPN
-clients).
+OIDC app), `databases` (CNPG control plane), `vpn` (pod-gateway
+server), `downloads` (pod-gateway clients).
 
 For `auth`: explicit pre-flight check that LLDAP, Authelia, and
 every OIDC client's redirect URL still resolves and authenticates
@@ -488,11 +498,16 @@ For `databases`: every CNPG cluster needs an explicit allow rule
 from its consumer namespace(s). Audit mode mandatory; tail for
 72h.
 
-For `downloads` (pod-gateway clients): special handling — the
-VXLAN tunnel between client pods and gateway is the load-bearing
-flow. The existing `downloads-gateway-pod-gateway` CNP on the
-gateway pod plus a *new* baseline-with-pod-gateway-allow on the
-client side. Audit for 1 week.
+For `vpn` + `downloads` (pod-gateway server + clients) — these
+two namespaces must be locked down together as one sub-step.
+`vpn` runs `downloads-gateway-pod-gateway-main-0` (the actual
+WireGuard egress pod, host-net + VXLAN-terminating); `downloads`
+runs the client pods that route through it. The existing
+`downloads-gateway-pod-gateway` CNP on the gateway side must be
+preserved; the client side gets a *new* baseline-with-pod-gateway-allow.
+VXLAN encapsulation makes Hubble flow inspection trickier — audit
+for 1 full week before flipping enforce. Added 2026-05-17 after
+the original plan missed `vpn` as a distinct namespace.
 
 ### Phase 4 — Storage namespaces (1 week)
 
@@ -530,7 +545,14 @@ on metrics ports — this is the *opposite* direction from baseline
 enumerated.
 
 For `cilium-secrets`: minimal workload (mostly Secret consumers).
-Baseline + intra-namespace should suffice; audit 1 week.
+Baseline + intra-namespace should suffice; audit 1 week. **Mechanic
+note (2026-05-17):** this namespace is auto-managed by the cilium
+chart — there is no `kubernetes/apps/cilium-secrets/` directory.
+Adding policies requires either (a) cilium chart values that drop
+CNPs into the namespace, or (b) a new dedicated Flux Kustomization
+under `kubernetes/apps/kube-system/cilium/` that targets
+`cilium-secrets`. Decide the mechanism when we get there;
+not the same per-namespace PR pattern as the rest.
 
 ---
 
@@ -591,7 +613,7 @@ Baseline + intra-namespace should suffice; audit 1 week.
 | 1 | Phase 0 | Hubble dashboard, baseline component, runbook |
 | 2 | Phase 1 | `selfhosted` namespace fully default-deny |
 | 3-5 | Phase 2 | `ai`, `actions-runner-system`, `renovate`, `mcp-system`, `home`, `collab`, `media` |
-| 6-7 | Phase 3 | `auth`, `databases`, `downloads` |
+| 6-7 | Phase 3 | `auth`, `databases`, `vpn`, `downloads` |
 | 8 | Phase 4 | `storage`, `longhorn-system`, `rook-ceph` |
 | 9 | Phase 5 | `network`, `cert-manager`, `external-secrets` |
 | 10-11 | Phase 6 | `observability`, `kuadrant`, `istio-system`, `cilium-secrets` |

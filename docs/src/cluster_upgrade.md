@@ -1,5 +1,11 @@
 # Cluster Upgrade Runbook
 
+> **This is a retrospective.** The 1.34 → 1.34.7 patch + 1.34 → 1.35 minor
+> upgrades were executed 2026-05-02 / 2026-05-03 and the cluster is now on
+> v1.35.4 across all nodes. Phase 3 (per-node procedure) is the reusable
+> part — apply it verbatim for future minor bumps. The "Phase 0 preflight"
+> checklist and "Failure modes" table are the load-bearing references.
+
 This runbook covers an in-place rolling upgrade of the cluster, planned
 in May 2026 to bring all nodes to a single k8s 1.34 patch + cri-o 1.34,
 then to k8s 1.35.
@@ -102,6 +108,7 @@ them caused real damage on the first attempt at this phase.
      and you've uncordoned it**, otherwise replicas won't return.
 
    **Via kubectl** (equivalent):
+
    ```sh
    kubectl patch -n longhorn-system nodes.longhorn.io <node> \
      --type=merge -p '{"spec":{"allowScheduling":false,"evictionRequested":true}}'
@@ -131,9 +138,11 @@ them caused real damage on the first attempt at this phase.
    while another mon is also down.** Rook pins each mon to a
    specific node and recreates them under new letters as nodes drop
    in/out:
+
    ```sh
    kubectl get pod -n rook-ceph -l app=rook-ceph-mon -o jsonpath='{range .items[*]}{.metadata.labels.mon}{"\t"}{.spec.nodeSelector.kubernetes\.io/hostname}{"\n"}{end}'
    ```
+
    Re-check before every node — the mon names shift (we saw c,e,f →
    c,e,g → c,e,h over a single afternoon as nodes drained). Draining
    a node hosting a pinned mon strands that mon — it cannot
@@ -146,14 +155,17 @@ them caused real damage on the first attempt at this phase.
    nodes have `kubelet/kubeadm/kubectl/cri-o` installed via dnf
    (RPM-tracked). Others have manually-installed binaries (no RPM
    entries):
+
    ```sh
    ssh root@<node> 'rpm -qa | grep -cE "^(kubeadm|kubelet|kubectl|cri-o)-"'
    ```
+
    Returns 4 → standard procedure. Returns 0 → **alternate
    procedure** (don't `rm crio.conf`; use `dnf install` not `dnf
    upgrade`). Nodes known to be manual-install: worker5, worker6.
 
 5. **CNPG primary failover**:
+
    ```sh
    for c in $(kubectl get pod -n databases -l 'cnpg.io/instanceRole=primary' \
        --field-selector spec.nodeName=<node>.${SECRET_DOMAIN} \
@@ -163,6 +175,7 @@ them caused real damage on the first attempt at this phase.
      kubectl cnpg promote -n databases "$c" "$replica"
    done
    ```
+
    Then poll `kubectl get pod -n databases -l 'cnpg.io/instanceRole=primary' --field-selector spec.nodeName=<node>...`
    until empty.
 
@@ -178,11 +191,14 @@ For workers with RPM entries (rpm-qa returns 4 packages):
 
 1. Pre-flight checks above.
 2. **Drain**:
+
    ```sh
    kubectl drain <worker>.${SECRET_DOMAIN} \
      --ignore-daemonsets --delete-emptydir-data
    ```
+
 3. **Package upgrade and kubelet config refresh**:
+
    ```sh
    ssh root@<worker>.${SECRET_DOMAIN} '
      # Drop the legacy crio.conf / .rpmnew. Order matters: only do
@@ -201,7 +217,9 @@ For workers with RPM entries (rpm-qa returns 4 packages):
      systemctl restart kubelet
    '
    ```
+
 4. **Smoke-test before uncordon**:
+
    ```sh
    ssh root@<worker>.${SECRET_DOMAIN} '
      systemctl is-active crio kubelet
@@ -210,10 +228,13 @@ For workers with RPM entries (rpm-qa returns 4 packages):
    '
    kubectl get node <worker>.${SECRET_DOMAIN} -o wide   # version + cri-o version match expected
    ```
+
 5. **Uncordon**:
+
    ```sh
    kubectl uncordon <worker>.${SECRET_DOMAIN}
    ```
+
    Rook auto-clears any host noout flag on its own a few seconds
    after uncordon — don't manually unset it.
 6. **Wait for `ceph -s` HEALTH_OK** (no OSDs down, no degraded PGs)
@@ -229,6 +250,7 @@ replacement.
 1. Pre-flight checks (same as above).
 2. **Drain** (same as above).
 3. **Fresh-install via dnf** (overwrites the un-tracked binaries):
+
    ```sh
    ssh root@<worker>.${SECRET_DOMAIN} '
      # Stop services so we can replace running binaries cleanly
@@ -264,6 +286,7 @@ replacement.
      # rm /usr/bin/*.manual-pre-1.34.7    # only after smoke-test confirms success
    '
    ```
+
 4. Smoke-test, uncordon, wait for `HEALTH_OK` — same as above.
 
 ### Worker8 (NVIDIA) extra steps

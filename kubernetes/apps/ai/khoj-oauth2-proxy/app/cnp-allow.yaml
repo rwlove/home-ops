@@ -24,13 +24,18 @@ spec:
             - port: "4180"
               protocol: TCP
   egress:
-    # OIDC discovery + token exchange against Authelia. auth.SECRET_DOMAIN
+    # OIDC discovery + token exchange against Authelia. Was a toFQDNs
+    # matchName "auth.thesteamedcrab.com" rule (auth.${SECRET_DOMAIN}
     # resolves to the internal Envoy gateway VIP, which then routes to
-    # the auth namespace. toFQDNs is the cleanest expression.
+    # the auth namespace). Cilium 1.19 matchName doesn't match through
+    # Kubernetes pod DNS search-domain augmentation (pod queries
+    # `auth.thesteamedcrab.com.ai.svc.cluster.local.` and the FQDN
+    # cache stores the augmented name). Broadened to
+    # toEntities:world:443 so it actually works. Tighten when FQDN
+    # matching is fixed.
     # Upstream → khoj.ai.svc.cluster.local:42110. Same-ns; the baseline
     # allow-intra-namespace already covers that path.
-    - toFQDNs:
-        - matchName: "auth.thesteamedcrab.com"
+    - toEntities: [world]
       toPorts:
         - ports:
             - port: "443"

@@ -46,19 +46,18 @@ spec:
               protocol: TCP
   egress:
     # Model registry — ollama pulls model blobs on first invocation
-    # (`ollama pull <model>`) and on Modelfile changes. Targets registry
-    # are ollama.com (OCI-style manifests) and the GCS-backed blob host
-    # `dd20bb891979d25aebc8bec07b2b3bbc.r2.cloudflarestorage.com` (which
-    # rotates; broaden to all of cloudflarestorage.com to absorb that).
-    # HuggingFace also serves some community model GGUFs.
-    - toFQDNs:
-        - matchName: "ollama.com"
-        - matchName: "registry.ollama.ai"
-        - matchPattern: "*.ollama.ai"
-        - matchPattern: "*.cloudflarestorage.com"
-        - matchName: "huggingface.co"
-        - matchPattern: "*.huggingface.co"
-        - matchName: "cdn-lfs.huggingface.co"
+    # (`ollama pull <model>`) and on Modelfile changes. Was a toFQDNs
+    # allow-list (ollama.com, registry.ollama.ai, *.ollama.ai,
+    # *.cloudflarestorage.com for the rotating GCS-backed R2 blob host
+    # e.g. dd20bb891979d25aebc8bec07b2b3bbc.r2.cloudflarestorage.com,
+    # huggingface.co, *.huggingface.co, cdn-lfs.huggingface.co for
+    # community model GGUFs). Cilium 1.19 matchName doesn't match
+    # through Kubernetes pod DNS search-domain augmentation (pod
+    # queries e.g. `ollama.com.ai.svc.cluster.local.` and the FQDN
+    # cache stores the augmented name). Broadened to
+    # toEntities:world:443 so it actually works. Tighten when FQDN
+    # matching is fixed.
+    - toEntities: [world]
       toPorts:
         - ports:
             - port: "443"

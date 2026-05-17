@@ -1,0 +1,39 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: holmesgpt-oauth2-proxy-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: holmesgpt-oauth2-proxy
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on internal gateway → holmesgpt-oauth2-proxy:4180.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "4180"
+              protocol: TCP
+  egress:
+    # OIDC discovery + token exchange against Authelia.
+    # auth.${SECRET_DOMAIN} resolves to the internal Envoy gateway VIP,
+    # which then routes to the auth namespace.
+    # Upstream → holmesgpt.observability.svc.cluster.local:8080 is
+    # intra-ns; baseline allow-intra-namespace covers that path.
+    #
+    # Cilium 1.19's toFQDNs.matchName doesn't match through Kubernetes
+    # pod DNS search-domain augmentation — bare + `.*` dual-form.
+    - toFQDNs:
+        - matchPattern: "auth.thesteamedcrab.com"
+        - matchPattern: "auth.thesteamedcrab.com.*"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

@@ -1,0 +1,47 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: vector-aggregator-allow
+spec:
+  # Vector aggregator Deployment.
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: vector-aggregator
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # External LoadBalancer ingress on port 6002 — non-cluster Linux
+    # hosts (brain, beast, security-storage) ship journald to the
+    # aggregator via the Vector binary on the host. These are LAN
+    # hosts, not cluster identities, so the source is `world` from
+    # Cilium's perspective. Limited to port 6002 (vector→vector
+    # protocol, journald sink only).
+    - fromEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "6002"
+              protocol: TCP
+    # vector-agent → aggregator on 6000 (kubernetes_source) + 6002
+    # (journald_source) is intra-ns, covered by baseline
+    # allow-intra-namespace. Prometheus scrape of :8686 covered by
+    # allow-monitoring-scrape baseline.
+  egress:
+    # GeoIP DB updates via init container (geoipupdate from MaxMind).
+    # Runs only at pod start (`GEOIPUPDATE_FREQUENCY: "0"`) but the
+    # init container shares pod identity with `app`, so the policy
+    # has to permit it.
+    #
+    # Cilium 1.19's toFQDNs.matchName doesn't match through Kubernetes
+    # pod DNS search-domain augmentation — bare + `.*` dual-form.
+    - toFQDNs:
+        - matchPattern: "updates.maxmind.com"
+        - matchPattern: "updates.maxmind.com.*"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    # Sink → loki:3100 is intra-ns (covered by baseline).

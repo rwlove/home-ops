@@ -1,0 +1,31 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: blackbox-exporter-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus-blackbox-exporter
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  # No additional ingress: Prometheus scrapes blackbox at /metrics
+  # via the baseline allow-monitoring-scrape rule, and probe results
+  # are pulled from Prometheus (which calls /probe?target=… on the
+  # same port).
+  egress:
+    # Blackbox probes LAN hosts (~60 devices: cameras, UPSes, iDRAC,
+    # ESPHome devices, WLED, Roborock, Kodi, voice satellites, NFS
+    # servers, etc.) with ICMP + tcp_connect + http_2xx modules.
+    # Targets are short LAN hostnames resolved via DNS to RFC1918
+    # addresses scattered across the home LAN — `world` is the
+    # simplest correct identity here (LAN-only because there's no
+    # default route to public internet at the pod level after this
+    # policy). Future tightening could restrict to ICMP + a small
+    # TCP/HTTP port set but the surface is wide and stable.
+    - toEntities:
+        - world
+        - host
+        - remote-node

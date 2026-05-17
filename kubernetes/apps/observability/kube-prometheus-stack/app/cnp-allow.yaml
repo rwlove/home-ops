@@ -1,0 +1,124 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: prometheus-allow
+spec:
+  # Prometheus StatefulSet pods carry `app.kubernetes.io/name: prometheus`.
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it. Baseline covers kube-apiserver, DNS, host
+  # probes, intra-namespace, and the universal `allow-monitoring-scrape`
+  # ingress.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on internal gateway → prometheus:9090 (web UI / API).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "9090"
+              protocol: TCP
+  egress:
+    # Prometheus scrapes every namespace's metrics endpoints, plus
+    # kubelet/cAdvisor on every node, plus the kubeApiServer endpoints
+    # listed in the chart values (192.168.{1,4}.{9,10}). Enumerating
+    # all scrape targets is impossible at the policy layer — they
+    # span every pod CIDR, every node, every static endpoint in the
+    # SNMP/blackbox/probe configs.
+    #
+    # cluster: any pod identity in the k8s cluster (covers all
+    #   ServiceMonitor + PodMonitor + Probe targets that resolve to
+    #   pods).
+    # remote-node: cross-node kubelet :10250 + node-exporter :9100 via
+    #   nodeIP path on workers other than the prom pod's host.
+    # host: same as remote-node but for the pod's own node (kubelet
+    #   on localhost).
+    - toEntities:
+        - cluster
+        - host
+        - remote-node
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: alertmanager-allow
+spec:
+  # Alertmanager StatefulSet pods carry `app.kubernetes.io/name: alertmanager`.
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: alertmanager
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on internal gateway → alertmanager:9093 (web UI).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "9093"
+              protocol: TCP
+  egress:
+    # n8n webhook receiver for `n8n-investigate` route in
+    # alertmanagerconfig — enriches critical alerts via HolmesGPT
+    # before falling through to pushover.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: n8n
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # Pushover notification API.
+    #
+    # Cilium 1.19's toFQDNs.matchName doesn't match through Kubernetes
+    # pod DNS search-domain augmentation (pod queries e.g.
+    # `api.pushover.net.observability.svc.cluster.local.`; the FQDN
+    # cache stores the augmented name; matchName misses it). The bare
+    # + `.*` dual-form matchPattern covers both un-augmented and
+    # search-domain-augmented forms.
+    - toFQDNs:
+        - matchPattern: "api.pushover.net"
+        - matchPattern: "api.pushover.net.*"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: prometheus-operator-allow
+spec:
+  # Prometheus operator pod.
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: kube-prometheus-stack-prometheus-operator
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # kube-apiserver calls the admission webhook on port 10250.
+    # Cilium policy matches on the pod's container port; apiserver
+    # carries the reserved:kube-apiserver identity (not a pod
+    # identity), so use fromEntities — same reason allow-apiserver in
+    # baseline uses toEntities for egress.
+    - fromEntities:
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - port: "10250"
+              protocol: TCP

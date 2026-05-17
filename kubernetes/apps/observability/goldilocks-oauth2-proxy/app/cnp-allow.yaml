@@ -1,0 +1,36 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: goldilocks-oauth2-proxy-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: goldilocks-oauth2-proxy
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on internal gateway → goldilocks-oauth2-proxy:4180.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "4180"
+              protocol: TCP
+  egress:
+    # OIDC discovery + token exchange against Authelia.
+    # Upstream → goldilocks-dashboard:80 is intra-ns; baseline covers.
+    #
+    # Cilium 1.19's toFQDNs.matchName doesn't match through Kubernetes
+    # pod DNS search-domain augmentation — bare + `.*` dual-form.
+    - toFQDNs:
+        - matchPattern: "auth.thesteamedcrab.com"
+        - matchPattern: "auth.thesteamedcrab.com.*"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

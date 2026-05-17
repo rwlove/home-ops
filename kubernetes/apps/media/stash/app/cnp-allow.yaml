@@ -1,0 +1,37 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: stash-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: stash
+  # Additive — default-deny is what triggers the lockdown. Stash has
+  # native OIDC against Authelia (STASH_OIDC_ISSUER) — no oauth2-proxy
+  # sidecar.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on internal envoy gateway → stash:9999.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "9999"
+              protocol: TCP
+  egress:
+    # OIDC against Authelia. Plus stash-box/scrapers reach many
+    # external metadata providers — scraper plugin set rotates often.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "80"
+              protocol: TCP

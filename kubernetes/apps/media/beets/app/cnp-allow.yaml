@@ -1,0 +1,38 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: beets-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: beets
+  # Additive — default-deny is what triggers the lockdown. Beets runs
+  # as a CronJob (no long-running web UI in practice) but the chart
+  # exposes a Service+HTTPRoute on 8337 anyway.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on internal envoy gateway → beets:8337.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "8337"
+              protocol: TCP
+  egress:
+    # External: MusicBrainz lookups, Chromaprint AcoustID fingerprint
+    # service, Cover Art Archive, Discogs, etc. Plugin set + redirect
+    # CDNs change too often to enumerate per-FQDN.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "80"
+              protocol: TCP

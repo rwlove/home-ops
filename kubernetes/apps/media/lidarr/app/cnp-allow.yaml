@@ -1,0 +1,72 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: lidarr-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: lidarr
+  # Additive — default-deny is what triggers the lockdown. Ingress on
+  # :8686 from lidarr-oauth2-proxy and from lidarr-bridge / soularr
+  # (same ns) is covered by baseline allow-intra-namespace.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # Cross-ns: prowlarr sync-app pushes indexer config into lidarr.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: downloads
+            app.kubernetes.io/name: prowlarr
+      toPorts:
+        - ports:
+            - port: "8686"
+              protocol: TCP
+  egress:
+    # CNPG: postgres-lidarr in databases ns (Pattern B).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            cnpg.io/cluster: postgres-lidarr
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    # Cross-ns: download-client APIs in downloads ns (Pattern E).
+    #   sabnzbd:8080, qbittorrent:8080 (lidarr uses both depending on
+    #   release type — keep both even if currently sab-only).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: downloads
+            app.kubernetes.io/name: sabnzbd
+        - matchLabels:
+            io.kubernetes.pod.namespace: downloads
+            app.kubernetes.io/name: qbittorrent
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # Cross-ns: prowlarr indexer API in downloads ns.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: downloads
+            app.kubernetes.io/name: prowlarr
+      toPorts:
+        - ports:
+            - port: "9696"
+              protocol: TCP
+    # External metadata + indexer probes: lidarr fetches album metadata
+    # (MusicBrainz, lidarr-metadata API, etc.) and also probes/contacts
+    # indexers directly when prowlarr forwards search calls. Indexer
+    # surface is too large and rotates too often to enumerate per-FQDN
+    # — use `world` on 443/80.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "80"
+              protocol: TCP

@@ -1,0 +1,47 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: romm-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: romm
+  # Additive — default-deny is what triggers the lockdown.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on internal envoy gateway → romm:8080.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+  egress:
+    # CNPG: postgres-romm in databases ns (Pattern B). The init-db
+    # postgres-init initContainer also needs this on cold start.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            cnpg.io/cluster: postgres-romm
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    # External: 7+ ROM metadata providers (IGDB, TheGamesDB, Flashpoint,
+    # HLTB, Hasheous, Launchbox, PlayMatch, etc.), Switch titleDB
+    # updates, MAME XML feed. Provider set rotates; world keeps the
+    # policy maintenance-free.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "80"
+              protocol: TCP

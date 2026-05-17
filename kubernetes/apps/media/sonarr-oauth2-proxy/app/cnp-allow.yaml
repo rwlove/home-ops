@@ -1,0 +1,39 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: sonarr-oauth2-proxy-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: sonarr-oauth2-proxy
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on internal envoy gateway → sonarr-oauth2-proxy:4180
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "4180"
+              protocol: TCP
+  egress:
+    # OIDC discovery + token exchange against Authelia (auth.${SECRET_DOMAIN}
+    # resolves to the internal envoy gateway VIP).
+    # Upstream → sonarr.media:8989 is same-ns (baseline covers).
+    #
+    # Cilium 1.19's toFQDNs.matchName doesn't match through Kubernetes
+    # pod DNS search-domain augmentation — see PR #11492.
+    - toFQDNs:
+        - matchPattern: "auth.thesteamedcrab.com"
+        - matchPattern: "auth.thesteamedcrab.com.*"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

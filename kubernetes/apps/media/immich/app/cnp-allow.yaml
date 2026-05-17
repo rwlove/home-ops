@@ -1,0 +1,142 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: immich-server-allow
+spec:
+  # Immich charts use a non-standard label set:
+  #   app.kubernetes.io/instance: immich
+  #   app.kubernetes.io/name:     server
+  # (vs the per-app pattern most charts use).
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/instance: immich
+      app.kubernetes.io/name: server
+  # Additive — default-deny is what triggers the lockdown.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on internal envoy gateway → immich-server:2283
+    # (photos.${SECRET_DOMAIN}).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "2283"
+              protocol: TCP
+    # ServiceMonitor scrape from observability/prometheus is already
+    # covered by the baseline allow-monitoring-scrape — no rule needed.
+  egress:
+    # CNPG: postgres-immich in databases ns (Pattern B).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            cnpg.io/cluster: postgres-immich
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    # Dragonfly (Redis) in databases ns.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            app.kubernetes.io/name: dragonfly
+      toPorts:
+        - ports:
+            - port: "6379"
+              protocol: TCP
+    # Intra-ns: immich-server → immich-machine-learning:3003 is covered
+    # by baseline allow-intra-namespace.
+    # External: reverse-geocoding (Mapbox tile servers), Authelia OIDC
+    # discovery, version checks, app push (Firebase), thumbnail
+    # off-loads. Mapbox/tile FQDN set churns; world keeps it stable.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "80"
+              protocol: TCP
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: immich-machine-learning-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/instance: immich
+      app.kubernetes.io/name: machine-learning
+  # Additive — default-deny is what triggers the lockdown. Intra-ns
+  # ingress from immich-server (:3003) is covered by baseline.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # External: HuggingFace model downloads (CLIP ViT-SO400M-16-SigLIP2,
+    # antelopev2 face model) cached to immich-machine-learning-cache PVC
+    # on first run + on model config changes. Plus general HF CDN
+    # (cdn-lfs, huggingface.co).
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: immich-offsite-backup-allow
+spec:
+  # The immich-offsite-backup CronJob is a raw batch/v1 CronJob (NOT
+  # via app-template), so its Job-spawned pods carry only the
+  # auto-generated batch labels — no app.kubernetes.io/* labels.
+  # Cilium endpointSelector can't regex on label values, so we select
+  # the union of "is a Job pod" AND "has no app.kubernetes.io/name
+  # set". The only raw-CronJob pods in media that match this are
+  # immich-offsite-backup-* and immichkiosk-transcode-* — both need
+  # external egress (S3 and immich-server, respectively). All other
+  # Job-based workloads (beets, recyclarr, lidarr-bridge) ARE
+  # app-template-based and carry app.kubernetes.io/name, so they
+  # don't match here and instead get their own per-app CNP.
+  endpointSelector:
+    matchExpressions:
+      - key: job-name
+        operator: Exists
+      - key: app.kubernetes.io/name
+        operator: DoesNotExist
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # External: rclone sync to crypt:* on AWS S3 (encrypted backend
+    # over the public S3 endpoint). Plus immichkiosk-transcode hits
+    # immich-server intra-ns (covered by baseline allow-intra-namespace)
+    # and curl pulls alpine apk packages from dl-cdn.alpinelinux.org.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "80"
+              protocol: TCP
+    # In-cluster: rclone → garage S3 API via the cluster Service name
+    # garage.storage.svc.cluster.local:3900 (rclone.conf points at
+    # the in-cluster name, not the FQDN).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: storage
+            app.kubernetes.io/name: garage
+      toPorts:
+        - ports:
+            - port: "3900"
+              protocol: TCP

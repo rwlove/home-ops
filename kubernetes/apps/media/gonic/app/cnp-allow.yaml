@@ -1,0 +1,38 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: gonic-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: gonic
+  # Additive — default-deny is what triggers the lockdown. Gonic uses
+  # the EXTERNAL envoy gateway (public via cloudflared tunnel), but
+  # the source pod identity is the same `app.kubernetes.io/name: envoy`
+  # label (gateway distinction is on the listener, not the pod).
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on external envoy gateway → gonic:80 (target 4747).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "4747"
+              protocol: TCP
+  egress:
+    # Gonic scans NFS-mounted music library (kernel-level NFS, not a
+    # pod-egress concern). Optional last.fm scrobbling + cover-art
+    # fetches go to a small set of FQDNs; allow general 443 to keep
+    # plugin-evolution low-maintenance.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

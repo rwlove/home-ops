@@ -1,0 +1,37 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: immich-power-tools-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: immich-power-tools
+  # Additive — default-deny is what triggers the lockdown. Egress to
+  # immich-server (same ns, :2283) is covered by baseline
+  # allow-intra-namespace.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on internal envoy gateway → immich-power-tools:3000.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+  egress:
+    # CNPG: postgres-immich in databases ns (direct DB queries — uses
+    # the same DB as immich-server).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            cnpg.io/cluster: postgres-immich
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP

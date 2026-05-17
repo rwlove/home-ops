@@ -13,21 +13,30 @@ spec:
     annotations:
       lbipam.cilium.io/ips: "${SVC_MCPGATEWAY_ADDR}"
   listeners:
-    - name: mcp # gateway listener
-      hostname: "mcp.${SECRET_DOMAIN}" # public accessibly MCP host one used by client
+    # Public-facing broker entry. External clients reach this via the
+    # envoy internal Gateway (mcp-gateway-internal HTTPRoute) → the
+    # mcp-gateway-istio Service. Only mcp-gateway-broker (this ns)
+    # attaches here; restricting to Same prevents any other ns from
+    # creating a rogue HTTPRoute that would hijack mcp.${SECRET_DOMAIN}.
+    - name: mcp
+      hostname: "mcp.${SECRET_DOMAIN}"
       protocol: HTTP
       port: 8080
       allowedRoutes:
         namespaces:
-          from: All # TODO? Same like internal/external?
+          from: Same
+    # Internal MCP-server fan-out. The MCPRouter inside the gateway pod
+    # consumes routes attached to *.mcp.local. All MCP servers live in
+    # mcp-system today; if that changes, relax to Selector with a
+    # namespace label opt-in rather than going back to All.
     - name: mcps
+      hostname: "*.mcp.local"
       port: 8080
       protocol: HTTP
-      hostname: "*.mcp.local" # this hostname can be any wildcard. It is here to simplify routing, ensure the MCP Server routes attach to this listener only, can be protected by the AuthPolicy and routed to via envoy and the MCPRouter.
       # tls:
       #   certificateRefs:
       #     - kind: Secret
       #       name: "${SECRET_DOMAIN/./-}-tls"
       allowedRoutes:
         namespaces:
-          from: All # any namespace can register an MCP server route
+          from: Same

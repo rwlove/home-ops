@@ -14,23 +14,26 @@ spec:
     egress: false
     ingress: false
   ingress:
-    # Internal HTTPRoute (envoy → netbox:80) — netbox UI + REST API.
+    # Internal HTTPRoute (envoy → netbox via svc:80 → pod:8080). Cilium
+    # L4 policy is evaluated against the target port on the pod, not
+    # the service port, so this allows :8080 (the actual pod listener).
     - fromEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: network
             app.kubernetes.io/name: envoy
       toPorts:
         - ports:
-            - port: "80"
+            - port: "8080"
               protocol: TCP
-    # netbox-mcp in mcp-system queries the netbox REST API.
+    # netbox-mcp in mcp-system queries the netbox REST API via the same
+    # service:80 → pod:8080 path.
     - fromEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: mcp-system
             app.kubernetes.io/name: netbox-mcp
       toPorts:
         - ports:
-            - port: "80"
+            - port: "8080"
               protocol: TCP
     # Prometheus metrics port 9090 — baseline allow-monitoring-scrape
     # already covers prometheus → any-port for endpoints in this ns.

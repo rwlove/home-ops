@@ -1,0 +1,146 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: ceph-broad-allow
+spec:
+  # All Ceph daemons + operator + crashcollector + exporter + osd-prepare
+  # jobs. Selected by the `rook_cluster: rook-ceph` label which the
+  # operator stamps on every pod it manages, plus the operator pod
+  # itself (which carries `app: rook-ceph-operator`). The union via
+  # endpointSelector OR semantics doesn't exist in CNP — use a single
+  # selector that matches the rook_cluster label and add a sibling CNP
+  # for the operator pod.
+  endpointSelector:
+    matchLabels:
+      rook_cluster: rook-ceph
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it. Baseline already provides DNS, apiserver,
+  # intra-namespace, host probes, and prometheus scrape.
+  #
+  # Ceph is intentionally permissive here: ceph daemons talk to each
+  # other on a wide and version-dependent port range (3300, 6789,
+  # 6800-7568, etc.), CSI host-mode plugins on every node mount RBD
+  # and CephFS via the kernel and need to reach mons + OSDs from the
+  # node network, and OSD-to-OSD replication is essential to data
+  # availability. Enumerating ports here would require ongoing
+  # maintenance for zero security benefit (Ceph clients are
+  # authenticated via cephx). Use broad entity selectors and let any
+  # port through.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    - fromEntities:
+        - cluster
+        - host
+        - remote-node
+  egress:
+    - toEntities:
+        - cluster
+        - host
+        - remote-node
+        - kube-apiserver
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: ceph-operator-allow
+spec:
+  # Operator pod is not stamped with rook_cluster; selector targets it
+  # explicitly. Mirrors the ceph-broad-allow rules; operator drives
+  # mons + OSDs + RGW + MDS and needs free access to the cluster.
+  endpointSelector:
+    matchLabels:
+      app: rook-ceph-operator
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    - fromEntities:
+        - cluster
+        - host
+        - remote-node
+  egress:
+    - toEntities:
+        - cluster
+        - host
+        - remote-node
+        - kube-apiserver
+    # Operator may pull from upstream registries / GitHub on first
+    # reconcile; keep external HTTPS open to avoid breakage if it ever
+    # needs to talk out (e.g. CSI image pulls go via kubelet, but
+    # operator-side calls have historically existed).
+    - toFQDNs:
+        - matchPattern: "*"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: ceph-csi-allow
+spec:
+  # CSI provisioner controllers (cephfs + rbd) and the ceph-csi
+  # controller-manager. Node-plugin DaemonSets run with hostNetwork
+  # and are out of Cilium's per-pod policy scope (their traffic is
+  # node-network and is covered by the broad ingress/egress on the
+  # Ceph daemons above + host/remote-node entity allows).
+  endpointSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values:
+          - rook-ceph.cephfs.csi.ceph.com-ctrlplugin
+          - rook-ceph.rbd.csi.ceph.com-ctrlplugin
+          - rook-ceph.cephfs.csi.ceph.com-nodeplugin
+          - rook-ceph.rbd.csi.ceph.com-nodeplugin
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    - fromEntities:
+        - cluster
+        - host
+        - remote-node
+        - kube-apiserver
+  egress:
+    - toEntities:
+        - cluster
+        - host
+        - remote-node
+        - kube-apiserver
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: ceph-csi-controller-manager-allow
+spec:
+  # ceph-csi-controller-manager uses different label scheme than the
+  # rook-managed CSI plugins (helm.sh chart-managed). Carries
+  # `app.kubernetes.io/name: ceph-csi` + `control-plane:
+  # ceph-csi-op-controller-manager`.
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: ceph-csi
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    - fromEntities:
+        - cluster
+        - host
+        - remote-node
+        - kube-apiserver
+  egress:
+    - toEntities:
+        - cluster
+        - host
+        - remote-node
+        - kube-apiserver

@@ -33,6 +33,7 @@ kubectl get kustomization -n flux-system <name> -o yaml | yq '.spec.dependsOn'
 ### 2. Build Dependency Graph
 
 Create a directed graph where:
+
 - **Nodes**: Kustomization resources
 - **Edges**: `dependsOn` relationships
 - **Direction**: A → B means "B depends on A"
@@ -40,6 +41,7 @@ Create a directed graph where:
 ### 3. Validate Graph Properties
 
 Check for:
+
 - **Circular dependencies**: Invalid, will prevent reconciliation
 - **Missing dependencies**: Referenced Kustomization doesn't exist
 - **Cross-namespace references**: Valid but ensure namespace in `dependsOn`
@@ -48,6 +50,7 @@ Check for:
 ### 4. Calculate Reconciliation Order
 
 Use topological sort to determine:
+
 1. **Level 0**: No dependencies (can reconcile immediately)
 2. **Level 1**: Depends only on Level 0
 3. **Level N**: Depends on Level N-1 or lower
@@ -58,7 +61,7 @@ Resources at the same level can reconcile in parallel.
 
 ### Core Infrastructure Dependencies
 
-```
+```text
 cert-manager (network-system)
 └── Ingress Controllers
     └── Applications with Ingress
@@ -71,7 +74,7 @@ kube-prometheus-stack CRDs (observability)
 
 ### Storage Dependencies
 
-```
+```text
 Rook-Ceph Operator (rook-ceph)
 └── Rook-Ceph Cluster
     └── StorageClass/CephBlockPool
@@ -86,17 +89,20 @@ Longhorn (longhorn-system)
 ### Common Patterns by System
 
 **Network System:**
+
 - cert-manager (no deps)
 - external-dns (depends on cert-manager)
 - envoy (depends on cert-manager)
 
 **Observability:**
+
 - prometheus-operator-crds (no deps)
 - kube-prometheus-stack (depends on CRDs)
 - grafana (depends on prometheus)
 - loki (no deps, independent)
 
 **Istio:**
+
 - istio-base (no deps)
 - istio-istiod (depends on istio-base)
 - istio-gateway (depends on istio-istiod)
@@ -106,6 +112,7 @@ Longhorn (longhorn-system)
 ### Valid Dependencies
 
 ✅ **Namespace before resources:**
+
 ```yaml
 # Good: namespace created first
 dependsOn:
@@ -113,6 +120,7 @@ dependsOn:
 ```
 
 ✅ **CRDs before operators:**
+
 ```yaml
 # Good: CRDs installed first
 dependsOn:
@@ -120,6 +128,7 @@ dependsOn:
 ```
 
 ✅ **Operators before instances:**
+
 ```yaml
 # Good: operator ready before creating instances
 dependsOn:
@@ -129,6 +138,7 @@ dependsOn:
 ### Invalid Dependencies
 
 ❌ **Circular dependency:**
+
 ```yaml
 # App A depends on App B
 # App B depends on App A
@@ -136,6 +146,7 @@ dependsOn:
 ```
 
 ❌ **Missing dependency:**
+
 ```yaml
 # References non-existent Kustomization
 dependsOn:
@@ -143,6 +154,7 @@ dependsOn:
 ```
 
 ❌ **Wrong namespace:**
+
 ```yaml
 # Missing namespace field for cross-namespace dep
 dependsOn:
@@ -156,6 +168,7 @@ dependsOn:
 ### Unnecessary Dependencies
 
 ⚠️ **Over-specification:**
+
 ```yaml
 # Grafana doesn't need to depend on Loki
 # They can reconcile independently
@@ -192,7 +205,7 @@ kubectl get kustomization -A -o json | jq -r '.items[] | select(.status.conditio
 
 Provide dependency analysis in this format:
 
-```
+```text
 DEPENDENCY TREE: [namespace/system]
 ================================
 
@@ -310,6 +323,7 @@ kubectl get kustomization -n flux-system <dependency-name>
 ## Repository-Specific Context
 
 This repository:
+
 - Cluster entry point: `kubernetes/flux/cluster/ks.yaml` defines the
   `cluster-apps` Kustomization (path `./kubernetes/apps`) which Flux
   recurses into.

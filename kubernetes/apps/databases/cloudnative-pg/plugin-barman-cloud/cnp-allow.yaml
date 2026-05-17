@@ -1,0 +1,32 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: plugin-barman-cloud-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: plugin-barman-cloud
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  # Ingress: GRPC from cnpg operator + instance manager pods on
+  # container port 9090. All callers are intra-ns and are covered by
+  # the baseline allow-intra-namespace policy. No extra ingress rule.
+  egress:
+    # The plugin executes barman-cloud commands which speak S3 to the
+    # endpoint configured in each ObjectStore CR
+    # (components/cnpg-app-database/objectstore.yaml:
+    #  endpointURL: http://garage.storage.svc.cluster.local:3900).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: storage
+            app.kubernetes.io/name: garage
+      toPorts:
+        - ports:
+            - port: "3900"
+              protocol: TCP
+  # kube-apiserver + DNS covered by baseline.

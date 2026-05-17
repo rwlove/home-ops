@@ -1,0 +1,30 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: pgadmin-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: pgadmin4
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on internal gateway → pgadmin-pgadmin4:80
+    # (pgadmin.${SECRET_DOMAIN}). Both `external` and `internal` envoy
+    # deployments share app.kubernetes.io/name: envoy.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+  # Egress: pgadmin connects to every postgres-* CNPG cluster on 5432
+  # intra-namespace — covered by baseline allow-intra-namespace.
+  # DNS + apiserver covered by baseline.

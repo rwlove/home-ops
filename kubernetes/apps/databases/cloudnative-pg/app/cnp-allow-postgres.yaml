@@ -1,0 +1,53 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: postgres-instances-allow
+spec:
+  # Matches every CNPG-managed postgres pod in the namespace
+  # (each carries cnpg.io/podRole=instance set by the operator,
+  # plus app.kubernetes.io/managed-by=cloudnative-pg).
+  endpointSelector:
+    matchLabels:
+      cnpg.io/podRole: instance
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # ~25 CNPG clusters serve consumers across home, collab, media, ai,
+    # auth, observability, renovate namespaces. Enumerating every
+    # consumer-side selector per-cluster is extremely fragile — a single
+    # missed allow takes that app's database offline. Use fromEntities:
+    # cluster (any pod, any namespace) → port 5432 to lock down the
+    # cross-cluster boundary without risking missed enumerations.
+    # The default-deny on databases ns still blocks the public internet
+    # and node-host paths from reaching postgres. Tighten to per-consumer
+    # selectors in a follow-up PR once we have hubble flow data showing
+    # the actual edge.
+    - fromEntities:
+        - cluster
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+  egress:
+    # CNPG instance manager pushes WAL + base backups to Garage via the
+    # barman-cloud plugin sidecar. The plugin shells out to barman-cloud
+    # commands which hit the S3 endpoint configured in the ObjectStore
+    # CR — `http://garage.storage.svc.cluster.local:3900`.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: storage
+            app.kubernetes.io/name: garage
+      toPorts:
+        - ports:
+            - port: "3900"
+              protocol: TCP
+  # Egress to peer CNPG instances (streaming replication) is covered by
+  # baseline allow-intra-namespace. The plugin-barman-cloud sidecar
+  # GRPC (intra-ns) is also covered there. kube-apiserver (cnpg-config
+  # watches by the instance manager) is covered by allow-apiserver.
+  # DNS by allow-dns.

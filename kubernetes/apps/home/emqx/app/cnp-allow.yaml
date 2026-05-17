@@ -1,0 +1,54 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: emqx-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: emqx
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # 400+ LAN devices publish MQTT to this broker via the LoadBalancer
+    # VIP (SVC_EMQX_ADDR). Devices originate from the LAN (host /
+    # remote-node identities after kube-proxy/LB SNAT) and from the
+    # public Internet (world) in the ESPHome over-VPN case. The
+    # dashboard (18083) is also fronted by an internal HTTPRoute via
+    # envoy on the headless service.
+    #
+    # MQTT (1883), MQTT-TLS (8883), MQTT-WS (8083), MQTT-WSS (8084),
+    # dashboard (18083).
+    - fromEntities:
+        - world
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "1883"
+              protocol: TCP
+            - port: "8883"
+              protocol: TCP
+            - port: "8083"
+              protocol: TCP
+            - port: "8084"
+              protocol: TCP
+            - port: "18083"
+              protocol: TCP
+    # Internal HTTPRoute dashboard ingress (envoy → emqx-headless:18083).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "18083"
+              protocol: TCP
+    # Egress: no external integrations. zigbee2mqtt in same ns connects
+    # to emqx:1883; baseline allow-intra-namespace covers that as
+    # ingress for emqx and egress for zigbee2mqtt. emqx clustering is
+    # over the headless service inside the StatefulSet — also intra-ns.

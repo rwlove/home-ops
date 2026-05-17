@@ -1,0 +1,42 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: esphome-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: esphome
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # Internal HTTPRoute (envoy → esphome:6052) for the ESPHome dashboard.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "6052"
+              protocol: TCP
+  egress:
+    # ESPHome compiles firmware on-demand and reaches out to the public
+    # internet during compile: PlatformIO package index, GitHub for
+    # libraries / boards, ESPHome release server, PyPI, etc. The set is
+    # broad and changes per-device config — toEntities:world is the only
+    # practical option here. Documented as intentional.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "80"
+              protocol: TCP
+    # NOTE: ESPHome devices on the IoT VLAN are reached via the multus-
+    # attached secondary NIC (esphome-iot-static). That traffic bypasses
+    # Cilium entirely — these CNPs only govern eth0 (Pod CIDR) traffic.

@@ -164,6 +164,20 @@ spec:
         main:
           containers:
             main:
+              # Immich bootstrap runs vchordrq reindexVectorsIfNeeded
+              # before HTTP listen(), so /api/server/ping returns
+              # connection-refused throughout. targetListCount() in
+              # server/src/repositories/database.repository.ts hardcodes
+              # lists=1 below 128k rows, so any manual lists rebuild
+              # gets reverted on every startup — and the dual
+              # clip_index + face_index reindex can exceed the chart's
+              # default 5-min startup budget. Bump to 15 min.
+              probes:
+                startup:
+                  spec:
+                    failureThreshold: 90
+                    periodSeconds: 10
+
               resources:
                 limits:
                   memory: 3Gi

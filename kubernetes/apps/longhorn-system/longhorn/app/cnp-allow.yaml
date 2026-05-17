@@ -3,11 +3,13 @@
 # longhorn-manager (DaemonSet, every node)
 # - Heavy networking: peer managers cross-node, admission/recovery
 #   webhooks from kube-apiserver, instance-manager / engine-image /
-#   share-manager spawning + control, NFS backup target on host.
-# - NFS to the backup target (beast:/mnt/mass_storage/longhorn-backups)
-#   is mounted in the host kernel network namespace by the node's
-#   `mount.nfs`, NOT from inside the manager pod — so no pod-level egress
-#   rule for that flow is required.
+#   share-manager spawning + control, NFS backup target.
+# - NFS to the backup target (beast:/mnt/mass_storage/longhorn-backups,
+#   192.168.1.27) IS opened from inside the longhorn-manager pod
+#   netns — Hubble confirms drops with the manager pod as source. Beast
+#   is a LAN host (not a k8s node), so its Cilium identity is `world`
+#   and the cluster/host/remote-node entity rule does not cover it;
+#   an explicit toCIDR rule is required.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -42,6 +44,14 @@ spec:
         - cluster
         - host
         - remote-node
+    # NFS backup target on beast (LAN host, `world` identity in Cilium).
+    # Required for backupTarget=nfs://beast:/mnt/mass_storage/longhorn-backups.
+    - toCIDR:
+        - 192.168.1.27/32
+      toPorts:
+        - ports:
+            - port: "2049"
+              protocol: TCP
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
 # longhorn-ui (Deployment) — fronted by HTTPRoute
@@ -167,6 +177,16 @@ spec:
         - cluster
         - host
         - remote-node
+    # NFS backup target on beast (LAN host, `world` identity in Cilium).
+    # instance-manager opens the backup-target NFS socket from inside the
+    # pod netns when reconciling BackingImage / volume backups; Hubble
+    # confirms drops with instance-manager as the source.
+    - toCIDR:
+        - 192.168.1.27/32
+      toPorts:
+        - ports:
+            - port: "2049"
+              protocol: TCP
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
 # share-manager (per-RWX-volume NFS exporter). Currently 3 pods:

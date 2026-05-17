@@ -1,0 +1,67 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: smtp-relay-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: smtp-relay
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # In-cluster SMTP clients post mail to smtp-relay:2525. Known
+    # consumers as of 2026-05-17:
+    #   auth/lldap         — LLDAP_SMTP_OPTIONS__SERVER
+    #   auth/authelia      — Authelia SMTP notifier
+    #   collab/zulip       — SETTING_EMAIL_HOST
+    #   home/netbox        — netbox email.server
+    #   home/home-assistant — HA notify SMTP integration
+    # Plus LoadBalancer VIP (SVC_SMTP_RELAY_ADDR) so LAN devices
+    # / cron scripts on hosts can submit mail too.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: auth
+            app.kubernetes.io/name: lldap
+        - matchLabels:
+            io.kubernetes.pod.namespace: auth
+            app.kubernetes.io/name: authelia
+        - matchLabels:
+            io.kubernetes.pod.namespace: collab
+            app.kubernetes.io/name: zulip
+        - matchLabels:
+            io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: netbox
+        - matchLabels:
+            io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: home-assistant
+      toPorts:
+        - ports:
+            - port: "2525"
+              protocol: TCP
+    - fromEntities:
+        - world
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "2525"
+              protocol: TCP
+  egress:
+    # Outbound to Mailgun on the SMTPS submission port (465). See
+    # memory project_smtp_relay_broken_since_day1.md — must be
+    # `tls://` on 465, NOT starttls.
+    #
+    # matchPattern + matchPattern.* covers the search-domain-augmented
+    # FQDN form (Cilium 1.19 quirk — see PR #11492).
+    - toFQDNs:
+        - matchPattern: "smtp.mailgun.org"
+        - matchPattern: "smtp.mailgun.org.*"
+      toPorts:
+        - ports:
+            - port: "465"
+              protocol: TCP

@@ -1,0 +1,69 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: n8n-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: n8n
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # Internal HTTPRoute (envoy → n8n:8080) — n8n web UI + webhook
+    # endpoints.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # alertmanager posts to n8n's /webhook/alert-investigate (used by
+    # the HolmesGPT triage workflow).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: alertmanager
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # n8n-mcp in mcp-system queries the n8n API (N8N_API_URL).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+            app.kubernetes.io/name: n8n-mcp
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+  egress:
+    # Postgres backend (Pattern B — CNPG cluster in databases).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            cnpg.io/cluster: postgres-n8n
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    # n8n workflows call out to an unbounded set of services: HTTP nodes
+    # to arbitrary user URLs, HolmesGPT in the cluster (through envoy),
+    # Pushover, mailgun, Zulip, etc. Workflow URLs live in Postgres and
+    # change at user discretion; toEntities:world is the only practical
+    # option. Documented as intentional per the rollout-plan design
+    # decisions.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "80"
+              protocol: TCP

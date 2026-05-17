@@ -1,0 +1,41 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: frigate-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: frigate
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it. Ingress from frigate-oauth2-proxy in the
+  # same ns (4180 → frigate:5000) is covered by baseline
+  # allow-intra-namespace.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # home-assistant native Frigate integration polls the Frigate API
+    # (port 5000) and pulls go2rtc streams (1984 TCP/UDP, 8554 RTSP).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: home-assistant
+      toPorts:
+        - ports:
+            - port: "5000"
+              protocol: TCP
+            - port: "1984"
+              protocol: TCP
+            - port: "1984"
+              protocol: UDP
+            - port: "8554"
+              protocol: TCP
+            - port: "8971"
+              protocol: TCP
+    # NOTE: cameras live on the SECURITY VLAN and are reached via the
+    # multus-attached secondary NIC (frigate-security-static). Camera
+    # RTSP/HTTP pulls bypass Cilium entirely — only eth0 traffic
+    # (apiserver, DNS, intra-cluster API consumers) is governed here.
+    # No external egress on eth0.

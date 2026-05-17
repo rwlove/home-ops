@@ -1,0 +1,64 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: authelia-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: authelia
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on external gateway → authelia:9091. ~24 oauth2-proxy
+    # instances cluster-wide (plus the mcp-gateway rotator and Envoy's
+    # SecurityPolicy JWKS fetcher) all hit https://auth.${SECRET_DOMAIN}
+    # which is routed through the external Envoy. Nothing in-cluster
+    # talks to the authelia Service IP directly. Both `external` and
+    # `internal` envoy deployments share app.kubernetes.io/name: envoy.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "9091"
+              protocol: TCP
+    # Metrics port (9959) — allow-monitoring-scrape baseline already
+    # covers ingress from observability/prometheus on any port. No
+    # additional rule needed.
+  egress:
+    # LLDAP (intra-ns, port 3893) — covered by allow-intra-namespace
+    # baseline; not listed here.
+    # CNPG cluster `postgres-authelia` in databases ns (Pattern B).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            cnpg.io/cluster: postgres-authelia
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    # Session store: Dragonfly redis in databases ns, database_index 5.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            app.kubernetes.io/name: dragonfly
+      toPorts:
+        - ports:
+            - port: "6379"
+              protocol: TCP
+    # SMTP relay for password-reset / notification emails — Maddy in
+    # home ns on port 2525 (Pattern E).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: smtp-relay
+      toPorts:
+        - ports:
+            - port: "2525"
+              protocol: TCP

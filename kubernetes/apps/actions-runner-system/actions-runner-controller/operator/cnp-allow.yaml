@@ -17,23 +17,19 @@ spec:
   egress:
     # GitHub API: the operator authenticates as a GitHub App, polls for
     # the registration token, and reconciles runner-scale-set state.
-    # api.github.com resolves to Azure IPs (20.85.130.105) and GitHub
-    # IPs (140.82.112.0/20 — observed 140.82.112/113/114 .5/.6 in
-    # cilium-dbg fqdn cache).
     #
-    # NOTE: matchPattern instead of matchName is REQUIRED because the
-    # arc controller's resolver does search-domain expansion (looks up
-    # `api.github.com.actions-runner-system.svc.cluster.local`). Cilium
-    # keys the FQDN cache on the queried name; matchName: "api.github.com"
-    # never matches the search-expanded form. The trailing wildcard
-    # catches both bare and search-expanded.
-    - toFQDNs:
-        - matchPattern: "api.github.com"
-        - matchPattern: "api.github.com.*"
-        - matchPattern: "github.com"
-        - matchPattern: "github.com.*"
-        - matchPattern: "*.githubusercontent.com"
-        - matchPattern: "*.githubusercontent.com.*"
+    # Was a toFQDNs allow-list (api.github.com, github.com,
+    # *.githubusercontent.com — with matchPattern + `.*` variants per
+    # the search-domain hack in PR #11492). Even with that workaround
+    # Cilium 1.19 doesn't reliably match through Kubernetes pod DNS
+    # search-domain augmentation (pod queries e.g.
+    # `api.github.com.actions-runner-system.svc.cluster.local.`; the
+    # FQDN cache stores the augmented name; matching is unreliable).
+    # Broadened to toEntities:world:443 so it actually works. Tighten
+    # when FQDN matching is fixed.
+    # api.github.com resolves to Azure / GitHub IPs (140.82.112.0/20
+    # observed 140.82.112/113/114 .5/.6 in cilium-dbg fqdn cache).
+    - toEntities: [world]
       toPorts:
         - ports:
             - port: "443"

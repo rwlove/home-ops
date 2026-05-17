@@ -212,9 +212,9 @@ Paperless:
 - Run the offsite backup at least once weekly per app — both CronJobs are
   scheduled `@weekly` already.
 - Periodically (~quarterly) thaw a single small object via
-  `aws s3api restore-object` and verify rclone+crypt can decode it. The Immich
-  data path was validated 2026-05-05; paperless still needs a first dry run
-  after deploy.
+  `aws s3api restore-object` and verify rclone+crypt can decode it. Both the
+  Immich data path (2.5 TB, 5-file sample round-trip) and the Paperless data
+  path (778 MiB across docs + DB) were validated 2026-05-05.
 - Keep the 1Password vault backed up independently. If 1Password is also
   destroyed, the encrypted S3 contents are unrecoverable.
 

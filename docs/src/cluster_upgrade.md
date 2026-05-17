@@ -1,5 +1,11 @@
 # Cluster Upgrade Runbook
 
+> **This is a retrospective.** The 1.34 → 1.34.7 patch + 1.34 → 1.35 minor
+> upgrades were executed 2026-05-02 / 2026-05-03 and the cluster is now on
+> v1.35.4 across all nodes. Phase 3 (per-node procedure) is the reusable
+> part — apply it verbatim for future minor bumps. The "Phase 0 preflight"
+> checklist and "Failure modes" table are the load-bearing references.
+
 This runbook covers an in-place rolling upgrade of the cluster, planned
 in May 2026 to bring all nodes to a single k8s 1.34 patch + cri-o 1.34,
 then to k8s 1.35.

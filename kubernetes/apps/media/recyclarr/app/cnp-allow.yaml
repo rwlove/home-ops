@@ -16,10 +16,27 @@ spec:
   egress:
     # External: clones github.com/recyclarr/config-templates (trash-guides
     # JSON snapshots) at the start of each `recyclarr sync` run.
-    # github.com FQDN cache + .* augmentation per PR #11492.
+    #
+    # github.com is at its canonical form (no CNAME chain in DNS
+    # response), so Cilium 1.19's toFQDNs.matchPattern silently fails —
+    # see project_cilium_matchpattern_fqdn_limits.md and PRs #11540 /
+    # #11536 / #11537 / #11495 / #11498 for the cluster-wide audit.
+    # Replace canonical-FQDN matchPattern with toEntities: [world]:443.
+    #
+    # FQDNs covered by the world:443 rule below:
+    #   - github.com (canonical, A-only)
+    #
+    # *.githubusercontent.com / raw.githubusercontent.com /
+    # codeload.github.com / objects.githubusercontent.com kept as
+    # matchPattern below — predecessor classification (see audit
+    # report).
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
     - toFQDNs:
-        - matchPattern: "github.com"
-        - matchPattern: "github.com.*"
         - matchPattern: "*.github.com"
         - matchPattern: "*.github.com.*"
         - matchPattern: "raw.githubusercontent.com"

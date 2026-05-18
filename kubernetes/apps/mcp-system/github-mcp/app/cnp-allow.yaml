@@ -14,27 +14,38 @@ spec:
     ingress: false
   egress:
     # GitHub API surface. The github-mcp-server proxies REST + GraphQL
-    # tools to api.github.com (and graphql.github.com for v4); also
-    # touches uploads.github.com for release artifact uploads when an
-    # agent invokes the release tools. raw.githubusercontent.com and
-    # codeload.github.com cover repo content access.
+    # tools to api.github.com (and the v4 GraphQL endpoint lives at
+    # api.github.com/graphql, not a separate hostname). Also touches
+    # uploads.github.com for release artifact uploads and
+    # codeload.github.com / raw.githubusercontent.com for repo content.
     #
-    # Cilium 1.19's toFQDNs.matchName doesn't match through Kubernetes
-    # pod DNS search-domain augmentation (pod queries
-    # `api.github.com.mcp-system.svc.cluster.local.`; the FQDN cache
-    # stores the augmented name; matchName misses it). The bare +
-    # `.*` dual-form matchPattern covers both un-augmented and
-    # search-domain-augmented forms — see PR #11492 for the canonical
-    # example.
+    # api.github.com and codeload.github.com are at their canonical
+    # DNS form (A-records only, no CNAME chain), so Cilium 1.19's
+    # toFQDNs.matchPattern silently fails — see
+    # project_cilium_matchpattern_fqdn_limits.md. PR #11498 originally
+    # moved these to toEntities:world; PR #11499 reverted to
+    # matchPattern based on PR #11492's pattern; that revert was
+    # wrong for canonical FQDNs. Restore world:443.
+    #
+    # FQDNs covered by the world:443 rule below:
+    #   - api.github.com       (canonical, A-only)
+    #   - codeload.github.com  (canonical, A-only)
+    #
+    # graphql.github.com REMOVED — NXDOMAIN, dead rule (GraphQL is
+    # actually served from api.github.com/graphql, already covered).
+    #
+    # uploads.github.com (CNAME → alambic-origin.githubusercontent.com)
+    # and *.githubusercontent.com matchPattern entries retained per
+    # audit classification (CDN-fronted, CNAME-walk works).
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
     - toFQDNs:
-        - matchPattern: "api.github.com"
-        - matchPattern: "api.github.com.*"
-        - matchPattern: "graphql.github.com"
-        - matchPattern: "graphql.github.com.*"
         - matchPattern: "uploads.github.com"
         - matchPattern: "uploads.github.com.*"
-        - matchPattern: "codeload.github.com"
-        - matchPattern: "codeload.github.com.*"
         - matchPattern: "*.githubusercontent.com"
         - matchPattern: "*.githubusercontent.com.*"
       toPorts:

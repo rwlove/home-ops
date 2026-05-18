@@ -54,24 +54,37 @@ spec:
     # downloads on first run + on model rotation) and qmd-update
     # (GitHub skill-repo updates).
     #
-    # Cilium 1.19's toFQDNs.matchName doesn't match through Kubernetes
-    # pod DNS search-domain augmentation (pod queries e.g.
-    # `huggingface.co.ai.svc.cluster.local.` and the FQDN cache stores
-    # the augmented name; matchName misses it). The bare + `.*`
-    # dual-form matchPattern covers both un-augmented and
-    # search-domain-augmented forms — see PR #11492 for the canonical
-    # example.
+    # huggingface.co, hf.co, github.com are at their canonical DNS
+    # form (A-records only, no CNAME chain), so Cilium 1.19's
+    # toFQDNs.matchPattern silently fails — see
+    # project_cilium_matchpattern_fqdn_limits.md. PR #11494 originally
+    # moved these to toEntities:world; PR #11499 reverted to
+    # matchPattern based on PR #11492's pattern; that revert was
+    # wrong for canonical FQDNs. Restore world:443.
+    #
+    # FQDNs covered by the world:443 rule below:
+    #   - huggingface.co      (canonical, A-only)
+    #   - hf.co               (canonical, A-only)
+    #   - github.com          (canonical, A-only)
+    #
+    # cdn-lfs.huggingface.co matchPattern REMOVED — NXDOMAIN, dead
+    # rule. The actual LFS endpoint is e.g. cdn-lfs-us-1.hf.co (also
+    # canonical, also covered by world:443 above).
+    #
+    # *.hf.co, *.huggingface.co, *.githubusercontent.com,
+    # codeload.github.com, raw.githubusercontent.com matchPattern
+    # entries retained per audit classification.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
     - toFQDNs:
-        - matchPattern: "huggingface.co"
-        - matchPattern: "huggingface.co.*"
         - matchPattern: "*.huggingface.co"
         - matchPattern: "*.huggingface.co.*"
-        - matchPattern: "cdn-lfs.huggingface.co"
-        - matchPattern: "cdn-lfs.huggingface.co.*"
         - matchPattern: "*.hf.co"
         - matchPattern: "*.hf.co.*"
-        - matchPattern: "github.com"
-        - matchPattern: "github.com.*"
         - matchPattern: "codeload.github.com"
         - matchPattern: "codeload.github.com.*"
         - matchPattern: "raw.githubusercontent.com"

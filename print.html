@@ -2724,9 +2724,9 @@ retiring the VM master2.</li>
 three control planes live in independent failure domains.</li>
 </ol>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="networkpolicy-rollout-plan"><a class="header" href="#networkpolicy-rollout-plan">NetworkPolicy Rollout Plan</a></h1>
-<p>Status: <strong>APPROVED — Phase 0 in flight.</strong>
+<p>Status: <strong>COMPLETE — All 21 in-scope namespaces locked down 2026-05-17.</strong>
 Owner: home-ops
-Last updated: 2026-05-17</p>
+Last updated: 2026-05-18</p>
 <h2 id="decisions-locked"><a class="header" href="#decisions-locked">Decisions (locked)</a></h2>
 <ol>
 <li><strong><code>flux-system</code> and <code>kube-system</code> are out of scope.</strong> Neither
@@ -2747,6 +2747,80 @@ apiserver flows use entity selectors (<code>reserved:host</code>,
 <code>reserved:remote-node</code>, <code>reserved:kube-apiserver</code>). No <code>ipBlock</code>
 for node IPs anywhere.</li>
 </ol>
+<h2 id="rollout-completion-summary-2026-05-17"><a class="header" href="#rollout-completion-summary-2026-05-17">Rollout completion summary (2026-05-17)</a></h2>
+<p><strong>Outcome:</strong> All 21 in-scope namespaces have default-deny + per-app
+allow CNPs. <code>flux-system</code> and <code>kube-system</code> remain unconstrained per
+Decision #1.</p>
+<div class="table-wrapper"><table><thead><tr><th>Phase</th><th>Namespaces locked down</th></tr></thead><tbody>
+<tr><td>1</td><td>selfhosted</td></tr>
+<tr><td>2</td><td>ai, actions-runner-system, renovate, mcp-system, home, collab, media</td></tr>
+<tr><td>3</td><td>auth, databases, vpn, downloads</td></tr>
+<tr><td>4</td><td>storage, longhorn-system, rook-ceph</td></tr>
+<tr><td>5</td><td>network (v2 — initial attempt reverted due to envoy port mismatch), cert-manager, external-secrets</td></tr>
+<tr><td>6</td><td>observability, kuadrant (CNP scaffolded but ns disabled cluster-side; dormant-correct), istio-system, cilium-secrets (special: standalone Flux Kustomization since cilium chart owns the namespace)</td></tr>
+</tbody></table>
+</div>
+<p><strong>~35 PRs merged</strong> across baselines, lockdowns, fixes, and follow-ups.</p>
+<h2 id="key-learnings-memorialized-to-agent-memory"><a class="header" href="#key-learnings-memorialized-to-agent-memory">Key learnings (memorialized to agent memory)</a></h2>
+<ul>
+<li><strong>Cilium L4 policy evaluates against pod <code>targetPort</code>, not Service
+<code>port</code></strong> — <code>project_cilium_l4_port_targetport.md</code>. Bit us on
+netbox (svc:80 → pod:8080) and envoy data planes
+(svc:443 → pod:10443, caused the initial network-ns lockdown to
+break cluster-wide ingress; reverted as #11527, redesigned as
+#11529).</li>
+<li><strong><code>toFQDNs.matchPattern</code> works only for FQDNs with CNAME chains</strong>
+— <code>project_cilium_matchpattern_fqdn_limits.md</code>. For canonical
+FQDNs (1Password Connect, ACME endpoints, pushover, mailgun,
+s3.${SECRET_DOMAIN}, etc.) the K8s search-domain augmentation
+makes matchPattern silently fail. Use <code>toEntities: [world] + port</code>
+instead. Audited and fixed across 8 namespaces in PRs #11535–11542.</li>
+<li><strong><code>policy-audit-mode: enabled</code> in cilium-config disables policy
+enforcement entirely WITHOUT capturing audit verdicts</strong> in Cilium
+1.19 with this stack. Don't use as a discovery mechanism. Use
+Hubble flow data on the non-locked baseline as the discovery
+signal instead.</li>
+<li><strong><code>fromEntities: [world, host, remote-node]</code> on broker pods</strong> is
+the correct shape for LAN-client ingress (EMQX MQTT brokers,
+jellyfin via LB IP, wg-easy VPN). Pure <code>cluster</code> doesn't cover
+it because LB IP traffic enters via host identity.</li>
+<li><strong>Adding a new agent to <code>rwlove/langgraph-agents</code> requires updating
+5 hardcoded places</strong> — <code>project_langgraph_specialist_5_places.md</code>.
+Caught during the network-operator port (PR #4).</li>
+<li><strong>Lint must pass on agent-authored PRs</strong> —
+<code>feedback_lint_must_pass_on_agent_prs.md</code>. Run <code>markdownlint-cli2</code>
+locally before any markdown commit.</li>
+</ul>
+<h2 id="notable-design-choices-made-during-rollout"><a class="header" href="#notable-design-choices-made-during-rollout">Notable design choices made during rollout</a></h2>
+<ul>
+<li><strong>Direct-enforce (skip audit window) when canary proves the
+mechanic</strong> — used for selfhosted (1 idle app) and ai (after
+audit-mode discovery proved broken). Tradeoff: missed patterns
+surface as user-impact, rolled back fast via <code>flux suspend</code> +
+<code>kubectl delete cnp</code>.</li>
+<li><strong>One PR per namespace</strong> held throughout (Decision #2). Multi-app
+follow-up fixes shipped as separate PRs.</li>
+<li><strong>Conservative defaults for "tool" or "scan" apps</strong> that fan out
+arbitrarily (renovate scan jobs, GitHub actions runners,
+search-engine scrapers like searxng, smart-home glue like n8n and
+home-assistant): use <code>toEntities: [world]</code> with comment explaining
+the by-design broad allow.</li>
+<li><strong>Reusable kustomize components</strong>: <code>network-policy/baseline</code> (5
+additive allows: DNS, apiserver, host-probes, intra-ns,
+monitoring-scrape) + <code>network-policy/default-deny</code> (1 CNP, no
+audit-mode annotation). Per-namespace <code>default-deny</code> ships as
+separate Flux Kustomization after baseline soaks.</li>
+</ul>
+<h2 id="known-follow-ups-outside-this-rollout"><a class="header" href="#known-follow-ups-outside-this-rollout">Known follow-ups outside this rollout</a></h2>
+<ul>
+<li><strong>Issue #11493</strong>: arr-mcp (legacy SSE vs streamable-http) and
+github-mcp (missing auth config) — not netpol. Recommend opening
+as separate issues.</li>
+<li><strong>kuadrant ns</strong> is dormant in cluster (<code>kustomization.yaml</code>
+commented out). Lockdown applies when kuadrant is re-enabled.</li>
+<li><strong>Cert renewal end-to-end test</strong> hasn't been triggered post-FQDN
+fix; first ACME renewal in ~60 days will validate.</li>
+</ul>
 <h2 id="goal"><a class="header" href="#goal">Goal</a></h2>
 <p>Lock the cluster down with deny-by-default <code>CiliumNetworkPolicy</code>
 (CNP) so pod-to-pod and pod-to-egress traffic is permitted only by

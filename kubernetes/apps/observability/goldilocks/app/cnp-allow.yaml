@@ -2,17 +2,14 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
 #
 # Covers both goldilocks-controller and goldilocks-dashboard
-# Deployments; they share `app.kubernetes.io/name: goldilocks`
-# (distinguished by `app.kubernetes.io/component`).
+# Deployments; they share `app.kubernetes.io/name: goldilocks`.
 #
-# No ingress rules needed: goldilocks-oauth2-proxy is the only door
-# to the dashboard, and the baseline allow-intra-namespace already
-# permits oauth2-proxy → goldilocks-dashboard on :8080. The
-# controller doesn't accept inbound traffic. Surfaced as a broken
-# app during the 2026-05-18 lockdown rollback retrospective.
-#
-# apiserver egress (for VPA recommendations + workload enumeration)
-# is covered by the baseline allow-apiserver rule.
+# Cilium 1.19 requires at least one ingress or egress rule when a CNP
+# selects endpoints — the previous form with only enableDefaultDeny:false
+# failed schema validation and never applied (leaving goldilocks pods
+# with NO per-pod CNP, only baseline). PR #11583's intent was right but
+# the empty-rules shape is invalid; this fix makes the allow explicit
+# rather than implicit-via-intra-namespace.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -24,3 +21,12 @@ spec:
   enableDefaultDeny:
     egress: false
     ingress: false
+  ingress:
+    # oauth2-proxy → goldilocks-dashboard (port 8080)
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: goldilocks-oauth2-proxy
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP

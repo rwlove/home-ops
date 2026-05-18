@@ -77,6 +77,12 @@ flow — they're for ad-hoc operator work.
 | `gen-oauth-client-secret.sh` | Generate an Authelia OAuth2 client secret + matching argon2 hash (paste both into `clients.yaml` / 1Password). |
 | `check-image-registry.sh` | Verify image registries used in the repo against the allowlist (renovate / PR-review aid). |
 
+## Lint
+
+| Script | Purpose |
+|---|---|
+| `lint-cnp-empty-rules.py` | Reject CiliumNetworkPolicy manifests that select endpoints but define no ingress/egress rules — Cilium 1.19 silently fails to apply them. Also wired into the `Lint` GitHub Actions workflow. |
+
 ## App-specific
 
 | Script | Purpose |

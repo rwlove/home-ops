@@ -2724,7 +2724,7 @@ retiring the VM master2.</li>
 three control planes live in independent failure domains.</li>
 </ol>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="networkpolicy-rollout-plan"><a class="header" href="#networkpolicy-rollout-plan">NetworkPolicy Rollout Plan</a></h1>
-<p>Status: <strong>COMPLETE — All 21 in-scope namespaces locked down 2026-05-17.</strong>
+<p>Status: <strong>19 of 21 in-scope namespaces locked down (default-deny enforced). <code>downloads</code> + <code>vpn</code> carved out due to VXLAN DHCP broadcast incompat with cilium default-deny.</strong>
 Owner: home-ops
 Last updated: 2026-05-18</p>
 <h2 id="decisions-locked"><a class="header" href="#decisions-locked">Decisions (locked)</a></h2>
@@ -2748,9 +2748,10 @@ apiserver flows use entity selectors (<code>reserved:host</code>,
 for node IPs anywhere.</li>
 </ol>
 <h2 id="rollout-completion-summary-2026-05-17"><a class="header" href="#rollout-completion-summary-2026-05-17">Rollout completion summary (2026-05-17)</a></h2>
-<p><strong>Outcome:</strong> All 21 in-scope namespaces have default-deny + per-app
+<p><strong>Outcome:</strong> 19 of 21 in-scope namespaces have default-deny + per-app
 allow CNPs. <code>flux-system</code> and <code>kube-system</code> remain unconstrained per
-Decision #1.</p>
+Decision #1. <code>downloads</code> + <code>vpn</code> carved out 2026-05-18 — see
+"Downloads + vpn carve-out" below.</p>
 <div class="table-wrapper"><table><thead><tr><th>Phase</th><th>Namespaces locked down</th></tr></thead><tbody>
 <tr><td>1</td><td>selfhosted</td></tr>
 <tr><td>2</td><td>ai, actions-runner-system, renovate, mcp-system, home, collab, media</td></tr>
@@ -2761,6 +2762,47 @@ Decision #1.</p>
 </tbody></table>
 </div>
 <p><strong>~35 PRs merged</strong> across baselines, lockdowns, fixes, and follow-ups.</p>
+<h2 id="downloads--vpn-carve-out-2026-05-18"><a class="header" href="#downloads--vpn-carve-out-2026-05-18">Downloads + vpn carve-out (2026-05-18)</a></h2>
+<p>After the initial lockdown of <code>downloads</code> + <code>vpn</code> (Phase 3) shipped
+and soaked, the gateway-sidecar's init container began crashlooping.
+Sequence reconstructed from pod logs and Hubble:</p>
+<ol>
+<li>Sidecar runs <code>ping -c 1 10.42.4.4</code> (gateway pod) → DROPPED under
+default-deny. Fixed by PR #11548 — Pattern E cross-ns ICMP allow
+from <code>downloads/*</code> → <code>vpn/pod-gateway-main</code>.</li>
+<li>With ICMP allowed, the VXLAN tunnel comes up successfully.</li>
+<li><code>udhcpc -i vxlan0</code> sends a DHCP discover broadcast
+(255.255.255.255) encapsulated inside the VXLAN unicast tunnel
+to <code>vpn/pod-gateway-main-0</code>.</li>
+<li>dnsmasq on the gateway side logs DHCPACK going out — but the
+client never sees it. <code>udhcpc</code> retries 5×, exits 1, init exits 1,
+container crashloops.</li>
+</ol>
+<p><strong>Root cause:</strong> cilium's security identity for the broadcast frame
+inside the VXLAN tunnel doesn't match <code>vpn/pod-gateway</code>'s identity,
+so the OFFER is silently dropped. This is L2-broadcast-inside-L3-VXLAN,
+something cilium's identity model doesn't handle the way it handles
+unicast pod-to-pod traffic.</p>
+<p><strong>Decision:</strong> carve out <code>downloads</code> + <code>vpn</code> from default-deny. PR
+#11555 removed the <code>default-deny</code> component from both
+<code>kubernetes/apps/downloads/kustomization.yaml</code> and
+<code>kubernetes/apps/vpn/kustomization.yaml</code>. The <code>baseline</code> component
+(allow-dns/apiserver/intra-ns/monitoring) stays. The per-app <code>allow-*</code>
+CNPs stay (so cross-namespace access still requires explicit allow
+rules at the consumer side). What's lost is the deny-by-default
+posture inside these two namespaces.</p>
+<p><strong>Revisit triggers:</strong></p>
+<ul>
+<li>cilium ships better broadcast-identity handling (track upstream)</li>
+<li>we replace pod-gateway with a static-IP wireguard pattern that
+doesn't need DHCP (eliminates the issue entirely)</li>
+<li>a different VPN egress model that uses node-level routing instead
+of a sidecar (also eliminates the issue)</li>
+</ul>
+<p><strong>Net posture:</strong> 19 of 21 namespaces have full default-deny;
+downloads + vpn rely on cluster-perimeter controls (1P/SSO/firewalld,
+no public ingress to these workloads, only <code>bt.thesteamedcrab.com</code> +
+arr/sab/slskd UIs which are still gated by oauth2-proxy).</p>
 <h2 id="where-the-testing-missed-honest-retrospective"><a class="header" href="#where-the-testing-missed-honest-retrospective">Where the testing missed (honest retrospective)</a></h2>
 <p>The network-operator agent's prime directive is "you cannot break
 the network." It broke things. The user discovered failures rather

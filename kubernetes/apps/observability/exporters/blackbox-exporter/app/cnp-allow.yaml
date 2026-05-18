@@ -11,10 +11,21 @@ spec:
   enableDefaultDeny:
     egress: false
     ingress: false
-  # No additional ingress: Prometheus scrapes blackbox at /metrics
-  # via the baseline allow-monitoring-scrape rule, and probe results
-  # are pulled from Prometheus (which calls /probe?target=… on the
-  # same port).
+  # Prometheus scrapes blackbox at /metrics via the baseline
+  # allow-monitoring-scrape rule, and probe results are pulled from
+  # Prometheus (which calls /probe?target=… on the same port).
+  ingress:
+    # HTTPRoute on internal gateway (blackbox.${SECRET_DOMAIN}) →
+    # blackbox-exporter:9115. Surfaced as a broken app during the
+    # 2026-05-18 lockdown rollback retrospective.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "9115"
+              protocol: TCP
   egress:
     # Blackbox probes LAN hosts (~60 devices: cameras, UPSes, iDRAC,
     # ESPHome devices, WLED, Roborock, Kodi, voice satellites, NFS

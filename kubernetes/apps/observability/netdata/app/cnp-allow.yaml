@@ -1,0 +1,30 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: netdata-allow
+spec:
+  # netdata's parent pod uses the chart's legacy `app: netdata` label
+  # rather than `app.kubernetes.io/name`. Select by both `app` and
+  # `role: parent` to avoid catching helper pods.
+  endpointSelector:
+    matchLabels:
+      app: netdata
+      role: parent
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on internal gateway (netdata.${SECRET_DOMAIN}) →
+    # netdata:19999 (no oauth2-proxy fronting; auth is on the parent
+    # itself). Surfaced as a broken app during the 2026-05-18 lockdown
+    # rollback retrospective.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "19999"
+              protocol: TCP

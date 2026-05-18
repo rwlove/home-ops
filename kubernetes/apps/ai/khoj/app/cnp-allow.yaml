@@ -38,33 +38,18 @@ spec:
     # HuggingFace model downloads (embedding/search models cached to
     # khoj-models PVC on first run + on model config changes).
     #
-    # huggingface.co is at its canonical DNS form (A-records only, no
-    # CNAME chain), so Cilium 1.19's toFQDNs.matchPattern silently
-    # fails — see project_cilium_matchpattern_fqdn_limits.md. PR
-    # #11494 originally moved these to toEntities:world; PR #11499
-    # reverted to matchPattern based on PR #11492's pattern; that
-    # revert was wrong for canonical FQDNs. Restore world:443.
+    # huggingface.co, hf.co, and their subdomains (cdn-lfs-*.hf.co,
+    # cas-bridge.xethub.hf.co, cdn-thumbnails.huggingface.co, etc.) all
+    # resolve to A-records only (no CNAME chain). Cilium 1.19's
+    # toFQDNs.matchPattern only walks one label per `.*` and follows
+    # CNAME canonical names — so `*.huggingface.co` / `*.hf.co` are
+    # inert against A-only FQDNs. Coverage is provided by the
+    # toEntities: [world]:443 rule below.
     #
-    # FQDNs covered by the world:443 rule below:
-    #   - huggingface.co  (canonical, A-only)
-    #
-    # cdn-lfs.huggingface.co matchPattern REMOVED — NXDOMAIN, dead
-    # rule. The actual LFS endpoint is e.g. cdn-lfs-us-1.hf.co (also
-    # canonical, also covered by world:443 above).
-    #
-    # *.huggingface.co, *.hf.co matchPattern entries retained per
-    # audit classification.
+    # See project_cilium_matchpattern_fqdn_limits.md for the cluster-
+    # wide audit.
     - toEntities:
         - world
-      toPorts:
-        - ports:
-            - port: "443"
-              protocol: TCP
-    - toFQDNs:
-        - matchPattern: "*.huggingface.co"
-        - matchPattern: "*.huggingface.co.*"
-        - matchPattern: "*.hf.co"
-        - matchPattern: "*.hf.co.*"
       toPorts:
         - ports:
             - port: "443"

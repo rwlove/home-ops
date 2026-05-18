@@ -60,9 +60,11 @@ spec:
               protocol: TCP
     # Intra-ns: immich-server → immich-machine-learning:3003 is covered
     # by baseline allow-intra-namespace.
-    # External: reverse-geocoding (Mapbox tile servers), Authelia OIDC
-    # discovery, version checks, app push (Firebase), thumbnail
-    # off-loads. Mapbox/tile FQDN set churns; world keeps it stable.
+    # External: reverse-geocoding (Mapbox tile servers), version
+    # checks, app push (Firebase), thumbnail off-loads. Mapbox/tile
+    # FQDN set churns; world keeps it stable. (Authelia OIDC is on
+    # a separate Pattern E rule below — the world+443 path can't
+    # reach the in-cluster auth.${SECRET_DOMAIN}.)
     - toEntities:
         - world
       toPorts:
@@ -70,6 +72,24 @@ spec:
             - port: "443"
               protocol: TCP
             - port: "80"
+              protocol: TCP
+    # OIDC token exchange — direct to authelia in-cluster Service
+    # (Pattern E). Immich's server-side OIDC integration (configured
+    # via system.json oauth.issuerUrl) does the code exchange
+    # server-side after user redirect. toEntities:[world]:443 and
+    # matchPattern:auth.${SECRET_DOMAIN} DO NOT work for this
+    # in-cluster path: split-horizon DNS returns the LB IP and
+    # Cilium socket-lb rewrites the connect() to the envoy pod IP +
+    # targetPort 10443 BEFORE policy check, so neither rule matches
+    # the rewritten destination. Authelia's CNP already permits
+    # fromEntities:cluster on 9091. Mirrors paperless PR #11525.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: auth
+            app.kubernetes.io/name: authelia
+      toPorts:
+        - ports:
+            - port: "9091"
               protocol: TCP
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json

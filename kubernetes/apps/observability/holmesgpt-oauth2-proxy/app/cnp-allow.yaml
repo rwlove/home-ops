@@ -22,38 +22,24 @@ spec:
             - port: "4180"
               protocol: TCP
   egress:
-    # OIDC discovery + token exchange against Authelia.
-    # auth.${SECRET_DOMAIN} resolves to the internal Envoy gateway VIP,
-    # which then routes to the auth namespace.
+    # OIDC discovery + token exchange against Authelia at
+    # auth.${SECRET_DOMAIN}. oauth2-proxy is configured with the
+    # external issuer URL, so every OIDC request hits split-horizon DNS
+    # which returns the envoy LB IP (10.45.0.13). Cilium's socket-lb
+    # rewrites the connect() to the envoy pod IP + targetPort 10443
+    # BEFORE policy evaluation (per memory
+    # project_cilium_l4_port_targetport.md), so the policy must allow
+    # the envoy pod on its container port, NOT world:443 (which doesn't
+    # match cluster LB IPs) and NOT authelia:9091 directly (which
+    # oauth2-proxy never connects to because of how it's configured).
+    # Mirrors pump-oauth2-proxy PR #11559.
     # Upstream → holmesgpt.observability.svc.cluster.local:8080 is
-    # intra-ns; baseline allow-intra-namespace covers that path.
-    #
-    # auth.${SECRET_DOMAIN} is canonical (no CNAME chain). Cilium 1.19
-    # matchPattern silently fails for canonical FQDNs through K8s DNS
-    # search-domain augmentation — per memory
-    # project_cilium_matchpattern_fqdn_limits.md. Use toEntities:world+443,
-    # matches the precedent in PRs #11498/#11512/#11517/#11533.
-    - toEntities: [world]
-      toPorts:
-        - ports:
-            - port: "443"
-              protocol: TCP
-    # OIDC token exchange — direct to authelia in-cluster Service
-    # (Pattern E). The Pattern A/B browser flow goes through envoy
-    # fine, but the server-side code exchange (oauth2-proxy callback
-    # → authelia after user login redirect back) needs this direct
-    # cross-ns allow. toEntities:[world]:443 and
-    # matchPattern:auth.${SECRET_DOMAIN} DO NOT work for the
-    # in-cluster path: split-horizon DNS returns the LB IP and
-    # Cilium socket-lb rewrites the connect() to the envoy pod IP +
-    # targetPort 10443 BEFORE policy check, so neither rule matches
-    # the rewritten destination. Authelia's CNP already permits
-    # fromEntities:cluster on 9091. Mirrors paperless PR #11525.
+    # intra-ns, covered by baseline allow-intra-namespace.
     - toEndpoints:
         - matchLabels:
-            io.kubernetes.pod.namespace: auth
-            app.kubernetes.io/name: authelia
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
       toPorts:
         - ports:
-            - port: "9091"
+            - port: "10443"
               protocol: TCP

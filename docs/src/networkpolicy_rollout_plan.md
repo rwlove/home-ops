@@ -87,6 +87,71 @@ downloads + vpn rely on cluster-perimeter controls (1P/SSO/firewalld,
 no public ingress to these workloads, only `bt.thesteamedcrab.com` +
 arr/sab/slskd UIs which are still gated by oauth2-proxy).
 
+## Full rollback 2026-05-18 — reset and redesign
+
+**Outcome:** All default-deny CNPs deleted from the 19 remaining
+locked-down namespaces. `cluster-apps` Flux Kustomization SUSPENDED
+to persist the rollback before this commit lands. Posture is now
+**zero default-deny** cluster-wide. Baseline + per-app allow CNPs
+remain in git and in-cluster but have no enforcement effect without
+a default-deny.
+
+**Trigger:** User browser-testing on 2026-05-18 surfaced 5+ broken
+apps despite every namespace passing audit-mode soak and in-cluster
+smoke tests:
+
+- `collab/pump` — OIDC `/oauth2/callback` token exchange failing
+  (fixed in PR #11559 ahead of the rollback; the fix shape became
+  the canonical pattern for every oauth2-proxy CNP).
+- `media/suggestarr`, `media/av1corrector`, `media/lidarr`,
+  `media/medialyze`, `media/music-assistant` — same OIDC token
+  exchange failure as pump.
+- `observability/kube-ops-view`, `observability/goldilocks`,
+  `observability/netdata`, `observability/blackbox` — non-oauth
+  reachability gaps from various directions (not all root-caused
+  yet).
+
+**Why a full reset rather than incremental fixes:** the failures
+were not a handful of edge cases — they were a systemic blind spot
+in the verification step. The audit-mode soak window cannot exercise
+flows that don't happen during the soak (server-side OIDC
+`/oauth2/callback` only fires when a user actually completes a
+browser login), and in-cluster `curl --resolve` smoke tests bypass
+the socket-lb rewrite path that breaks the policy match (see
+`project_cilium_l4_port_targetport.md`). Continuing to land
+incremental fixes on top of a partially-broken lockdown would
+keep extending the user-impact window every time a new app's
+OIDC pattern surfaces.
+
+**What was rolled back in git (this commit):**
+
+1. Removed the `network-policy/default-deny` component import from
+   all 19 namespace `kustomization.yaml` files that previously had
+   it. `baseline` (DNS, apiserver, intra-ns, monitoring scrape,
+   host probes) stays — these allows are harmless without a
+   default-deny.
+2. Corrected the 20 oauth2-proxy CNPs cluster-wide to the
+   `envoy:10443` egress pattern (was `toEntities:[world]:443` +
+   direct `authelia:9091`, which doesn't match the socket-lb-rewritten
+   destination). Mirrors the pump fix (PR #11559) and the storage
+   fix (PR #11560). These rules are inert under the current
+   no-default-deny posture but will be correct when the next
+   re-rollout enables enforcement.
+
+**Re-rollout plan (when work resumes):**
+
+- One namespace at a time, smallest first (start with `selfhosted`).
+- After enabling default-deny on a namespace, **user performs real
+  external-URL browser verification** (laptop → DNS → cloudflared →
+  envoy → backend → oauth2-proxy callback completes → app loads)
+  before the next namespace is touched.
+- Pattern-A CNPs are no longer accepted as "verified" by `curl URL`
+  returning 302 — the full OIDC round-trip must be exercised by a
+  human session.
+- The audit-mode soak window stays as a discovery mechanism but is
+  no longer the *gate* for flipping enforce; the user's browser
+  check is.
+
 ## Where the testing missed (honest retrospective)
 
 The network-operator agent's prime directive is "you cannot break

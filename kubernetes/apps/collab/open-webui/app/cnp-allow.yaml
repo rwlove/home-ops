@@ -73,16 +73,6 @@ spec:
         - ports:
             - port: "8080"
               protocol: TCP
-    # OIDC discovery + token exchange against Authelia, and TTS via
-    # piper.${SECRET_DOMAIN} — both resolve to the internal Envoy
-    # gateway VIP. Both are canonical local FQDNs (no CNAME chain).
-    #
-    # Subsumed by the toEntities:[world]+443 rule below (web-search /
-    # external integrations). Kept commented for grep-ability; if the
-    # below world:443 rule is ever narrowed, restore an explicit allow
-    # here per project_cilium_matchpattern_fqdn_limits.md
-    # (toEntities:world, not matchPattern — canonical FQDNs).
-    #
     # External tool egress: open-webui's web-search backend (searxng,
     # in-cluster — covered intra-ns via baseline), plus an open list
     # of user-configured external integrations (image gen APIs, image
@@ -90,30 +80,35 @@ spec:
     # Anthropic if the user wires them in via the UI). Config lives in
     # the open-webui SQLite DB (not in git), so the surface is broad
     # by design. Err on the side of permitting HTTPS world egress.
+    #
+    # NOTE: world:443 does NOT cover the OIDC path to Authelia or TTS
+    # via piper.${SECRET_DOMAIN} — both resolve via split-horizon DNS
+    # to the cluster LB IP, which the `world` entity excludes. See the
+    # network/envoy:10443 rule below for that.
     - toEntities:
         - world
       toPorts:
         - ports:
             - port: "443"
               protocol: TCP
-    # OIDC token exchange — direct to authelia in-cluster Service
-    # (Pattern E). The Pattern A/B browser flow goes through envoy
-    # fine, but the server-side code exchange (open-webui callback
-    # → authelia after user login redirect back) needs this direct
-    # cross-ns allow. toEntities:[world]:443 and
-    # matchPattern:auth.${SECRET_DOMAIN} DO NOT work for the
-    # in-cluster path: split-horizon DNS returns the LB IP and
-    # Cilium socket-lb rewrites the connect() to the envoy pod IP +
-    # targetPort 10443 BEFORE policy check, so neither rule matches
-    # the rewritten destination. Authelia's CNP already permits
-    # fromEntities:cluster on 9091. Mirrors paperless PR #11525.
+    # OIDC discovery + token exchange against Authelia + TTS via
+    # piper.${SECRET_DOMAIN}. open-webui is configured with the
+    # external issuer URL, so every OIDC request hits split-horizon
+    # DNS which returns the envoy LB IP (10.45.0.13). Cilium's
+    # socket-lb rewrites the connect() to the envoy pod IP +
+    # targetPort 10443 BEFORE policy evaluation (per memory
+    # project_cilium_l4_port_targetport.md), so the policy must allow
+    # the envoy pod on its container port, NOT world:443 (which
+    # doesn't match cluster LB IPs) and NOT authelia:9091 directly
+    # (which open-webui never connects to because of how it's
+    # configured). Mirrors pump-oauth2-proxy PR #11559.
     - toEndpoints:
         - matchLabels:
-            io.kubernetes.pod.namespace: auth
-            app.kubernetes.io/name: authelia
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
       toPorts:
         - ports:
-            - port: "9091"
+            - port: "10443"
               protocol: TCP
     # Intra-ns to searxng:8080 (SEARXNG_QUERY_URL) is covered by
     # baseline allow-intra-namespace.

@@ -5,22 +5,14 @@ kind: Kustomization
 namespace: auth
 components:
   - ../../components/network-policy/baseline
+  # default-deny re-enabled 2026-05-18 (Phase 3, FINAL ns — auth was
+  # deferred while a parallel session fixed authelia OIDC client config).
+  # L7 DNS proxy opted out for this ns via JSON patch (PR #11599) to
+  # preempt the authelia→LLDAP timeout that broke soulseek during the
+  # first rollout. authelia-allow + lldap-allow CNPs already in place.
+  # Hubble drop alerting (PR #11574) active.
+  - ../../components/network-policy/default-deny
 resources:
   - ./namespace.yaml
   - ./authelia/ks.yaml
   - ./lldap/ks.yaml
-# Strip Cilium's L7 DNS proxy rule from baseline allow-dns in this
-# namespace. The L7 `rules.dns.matchPattern: "*"` proxies every DNS
-# query through cilium-agent to populate the FQDN cache for later
-# toFQDNs: rules — but no policy in `auth` uses toFQDNs, and the
-# added latency previously broke authelia → LLDAP timing (soulseek
-# 403). L4 DNS (UDP/TCP 53 to kube-dns) remains allowed.
-patches:
-  - target:
-      group: cilium.io
-      version: v2
-      kind: CiliumNetworkPolicy
-      name: allow-dns
-    patch: |
-      - op: remove
-        path: /spec/egress/0/toPorts/0/rules

@@ -85,7 +85,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded affix "><li class="part-title">Welcome</li><li class="chapter-item expanded "><a href="introduction.html">👋 Introduction</a></li><li class="chapter-item expanded "><a href="power-outage.html">Power Outage Recovery</a></li><li class="chapter-item expanded "><a href="coral.html">Coral</a></li><li class="chapter-item expanded "><a href="p40.html">nVidia Tesla P40</a></li><li class="chapter-item expanded "><a href="cluster_rebuild.html">Cluster Rebuild Actions</a></li><li class="chapter-item expanded "><a href="cluster_upgrade.html">Cluster Upgrade Runbook</a></li><li class="chapter-item expanded "><a href="promote_worker_to_control_plane.html">Promote Worker to Control Plane</a></li><li class="chapter-item expanded "><a href="per-route-cert-migration.html">Per-Route Cert Migration</a></li><li class="chapter-item expanded "><a href="init_teardown.html">Initialization and Teardown</a></li><li class="chapter-item expanded "><a href="immich_cnpg.html">Immich restore to new CNPG database</a></li><li class="chapter-item expanded "><a href="offsite_recovery.html">Offsite Recovery — Immich and Paperless</a></li><li class="chapter-item expanded "><a href="master1_etcd_disk_swap.html">master1 etcd Disk Swap</a></li><li class="chapter-item expanded "><a href="networkpolicy_rollout_plan.html">NetworkPolicy Rollout Plan</a></li><li class="chapter-item expanded "><a href="egress_restriction_design.html">Egress Restriction Design Proposal</a></li><li class="chapter-item expanded "><a href="pod_security_audit.html">Pod Security Baseline Audit</a></li><li class="chapter-item expanded "><a href="github_webhook.html">Github Webhook</a></li><li class="chapter-item expanded "><a href="limits.html">Resources: Limits and Requests Philosophy</a></li><li class="chapter-item expanded "><a href="rbac_audit.html">RBAC Audit Findings</a></li><li class="chapter-item expanded "><a href="debugging.html">Debugging</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded affix "><li class="part-title">Welcome</li><li class="chapter-item expanded "><a href="introduction.html">👋 Introduction</a></li><li class="chapter-item expanded "><a href="power-outage.html">Power Outage Recovery</a></li><li class="chapter-item expanded "><a href="coral.html">Coral</a></li><li class="chapter-item expanded "><a href="p40.html">nVidia Tesla P40</a></li><li class="chapter-item expanded "><a href="cluster_rebuild.html">Cluster Rebuild Actions</a></li><li class="chapter-item expanded "><a href="cluster_upgrade.html">Cluster Upgrade Runbook</a></li><li class="chapter-item expanded "><a href="promote_worker_to_control_plane.html">Promote Worker to Control Plane</a></li><li class="chapter-item expanded "><a href="per-route-cert-migration.html">Per-Route Cert Migration</a></li><li class="chapter-item expanded "><a href="init_teardown.html">Initialization and Teardown</a></li><li class="chapter-item expanded "><a href="immich_cnpg.html">Immich restore to new CNPG database</a></li><li class="chapter-item expanded "><a href="offsite_recovery.html">Offsite Recovery — Immich and Paperless</a></li><li class="chapter-item expanded "><a href="master1_etcd_disk_swap.html">master1 etcd Disk Swap</a></li><li class="chapter-item expanded "><a href="networkpolicy_rollout_plan.html">NetworkPolicy Rollout Plan</a></li><li class="chapter-item expanded "><a href="egress_restriction_design.html">Egress Restriction Design Proposal</a></li><li class="chapter-item expanded "><a href="mtls_rollout_design.html">Istio mTLS Rollout Design Proposal</a></li><li class="chapter-item expanded "><a href="pod_security_audit.html">Pod Security Baseline Audit</a></li><li class="chapter-item expanded "><a href="github_webhook.html">Github Webhook</a></li><li class="chapter-item expanded "><a href="limits.html">Resources: Limits and Requests Philosophy</a></li><li class="chapter-item expanded "><a href="rbac_audit.html">RBAC Audit Findings</a></li><li class="chapter-item expanded "><a href="debugging.html">Debugging</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -3909,6 +3909,578 @@ change.</li>
 <li><code>project_cilium_ipblock_apiserver.md</code> — why <code>toCIDR: 0.0.0.0/0</code>
 doesn't work for some destinations; relevant context for why
 approach A is fragile beyond just IP-rotation.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="istio-mtls-rollout-design-proposal"><a class="header" href="#istio-mtls-rollout-design-proposal">Istio mTLS Rollout Design Proposal</a></h1>
+<p>Status: <strong>Proposal — research only, not implemented.</strong> Tier 4 of the
+network security roadmap (after NetworkPolicy lockdown and egress
+restriction).
+Owner: home-ops
+Last updated: 2026-05-18</p>
+<h2 id="problem-statement-1"><a class="header" href="#problem-statement-1">Problem statement</a></h2>
+<p>Istio is installed today but scoped to a single namespace (<code>mcp-system</code>).
+Eleven MCP server pods carry <code>sidecar.istio.io/inject: "true"</code> and
+participate in the mesh; the istiod control plane's allow-list
+(<a href="https://github.com/rwlove/home-ops/blob/main/kubernetes/apps/istio-system/istio/app/istiod/cnp-allow.yaml"><code>cnp-allow.yaml</code></a>)
+deliberately opens XDS to <code>fromEntities: cluster</code> because "new sidecars
+can appear in any namespace" — i.e. the door is held open for expansion,
+but no other namespace has walked through it.</p>
+<p>The cluster's current network posture (see
+<a href="networkpolicy_rollout_plan.html">NetworkPolicy Rollout Plan</a> and
+<a href="egress_restriction_design.html">Egress Restriction Design</a>) gives us
+<strong>L3/L4</strong> controls: which pod can talk to which pod on which port,
+based on Cilium identities. What it does <strong>not</strong> give us:</p>
+<ul>
+<li><strong>Cryptographic peer identity.</strong> A CNP allow rule that says
+"<code>pump-cv</code> can reach <code>immich</code>" trusts that the source pod really is
+<code>pump-cv</code> because Cilium says so based on labels. If an attacker
+takes over a different pod in <code>collab</code> and shares enough label
+surface, the identity model can be coaxed.</li>
+<li><strong>In-flight confidentiality.</strong> Pod-to-pod traffic on the cluster
+overlay is plaintext. A compromised node, a misconfigured tap, or
+a future Cilium CVE that leaks pod-to-pod frames exposes every
+database session and HTTP header in the cluster.</li>
+<li><strong>Per-workload authentication at L7.</strong> Istio
+<code>AuthorizationPolicy</code> can require an mTLS-verified SPIFFE identity
+before accepting a request, which is a strictly tighter check than
+"the packet arrived from a pod in namespace X."</li>
+</ul>
+<p>mTLS via Istio would close those gaps. The question this doc evaluates
+is whether the cost of running a service mesh across more than the
+existing single namespace is justified at this cluster's scale.</p>
+<h2 id="goal-2"><a class="header" href="#goal-2">Goal</a></h2>
+<p>Evaluate, but do not commit to, extending Istio mTLS beyond <code>mcp-system</code>.
+Produce:</p>
+<ol>
+<li>A concrete threat model that distinguishes what mTLS catches that
+default-deny CNPs do not.</li>
+<li>A phased rollout that the operator could execute incrementally and
+roll back at any point.</li>
+<li>A clear-eyed recommendation on whether to ship, defer, or never.</li>
+</ol>
+<p>Constraints from the cluster's reality:</p>
+<ul>
+<li><strong>Single operator.</strong> Every new control plane component is a thing
+one person must understand, monitor, and triage at 02:00.</li>
+<li><strong>Approximately 422 pods.</strong> Of those, ~75% would be candidates for
+sidecar injection (the rest are hostNetwork, daemonsets, batch
+jobs, or operators).</li>
+<li><strong>Cilium 1.19 is CNI today.</strong> No plan to replace it. Istio sidecar
+and Cilium are well-tested together; ambient mode requires more
+care (see § Architectural choice).</li>
+<li><strong>NetworkPolicy rollout is freshly rolled back</strong> (2026-05-18) after
+a verification-gap incident. The cluster has lost trust in
+"lock-down then verify" workflows; any mTLS rollout has to do
+better.</li>
+</ul>
+<h2 id="1-threat-model--what-mtls-catches-that-default-deny-does-not"><a class="header" href="#1-threat-model--what-mtls-catches-that-default-deny-does-not">1. Threat model — what mTLS catches that default-deny does not</a></h2>
+<p>The NetworkPolicy work answers the question "which pods can talk to
+which other pods." mTLS answers the question "is the pod on the other
+end of this connection actually the workload it claims to be, and is
+the channel between us tamper-proof."</p>
+<p>Three concrete scenarios where the answers diverge:</p>
+<h3 id="scenario-a-lateral-movement-via-shared-namespace-label-collision"><a class="header" href="#scenario-a-lateral-movement-via-shared-namespace-label-collision">Scenario A: lateral movement via shared-namespace label collision</a></h3>
+<p>A vulnerability in <code>collab/searxng</code> (user-driven web scraper, broad
+egress allow per egress design's "inherently broad" bucket) gets RCE.
+The attacker controls a pod in <code>collab</code>.</p>
+<ul>
+<li><strong>What CNPs catch.</strong> Any cross-namespace flow that wasn't explicitly
+allowed. The attacker cannot reach <code>databases</code> directly because no
+CNP allows <code>collab/searxng → databases/*</code>.</li>
+<li><strong>What CNPs miss.</strong> The <code>allow-intra-namespace</code> baseline CNP lets
+any pod in <code>collab</code> talk to any other pod in <code>collab</code>. The attacker
+can reach <code>pump</code>, <code>pump-cv</code>, <code>obsidian-couchdb</code>, <code>paperless</code>, etc.
+on whatever ports their respective allow-CNPs expose.</li>
+<li><strong>What mTLS adds.</strong> With <code>STRICT</code> PeerAuthentication and an
+AuthorizationPolicy on (e.g.) <code>pump</code> that requires
+<code>principals: ["cluster.local/ns/collab/sa/pump"]</code>, a request from
+<code>collab/searxng</code> is rejected at the receiving sidecar even though
+the L4 connection succeeded. The attacker needs to also steal a
+ServiceAccount token <em>and</em> prove possession of its X.509 cert,
+which the sidecar refuses to issue without a valid SA.</li>
+</ul>
+<p>This is the highest-value scenario. The cluster's threat surface is
+shaped like "many apps in one namespace per concern" — <code>collab</code> has
+17 apps, <code>media</code> has 30+. Intra-namespace movement is the unfilled
+gap.</p>
+<h3 id="scenario-b-compromised-node-taps-pod-to-pod-overlay-traffic"><a class="header" href="#scenario-b-compromised-node-taps-pod-to-pod-overlay-traffic">Scenario B: compromised node taps pod-to-pod overlay traffic</a></h3>
+<p>A worker node is compromised — disk image stolen, kubelet credentials
+extracted, or the host gets RCE via a kernel CVE. The attacker can
+run <code>tcpdump</code> on the node's interfaces and see every cni0/vxlan
+frame transiting it.</p>
+<ul>
+<li><strong>What CNPs catch.</strong> Nothing — CNPs gate which connections form,
+not what's on the wire after they do.</li>
+<li><strong>What mTLS adds.</strong> Every mesh-internal connection is wrapped in
+TLS 1.3 with workload-cert client + server auth. Captured frames
+are encrypted; the attacker would also need the receiving pod's
+private key (only present inside the receiving sidecar's memory).</li>
+</ul>
+<p>This scenario is real but lower-probability in a home lab. The
+mitigation that already exists is <em>node access control</em> — physical
+access, no shared tenants, hardened kubelet. mTLS adds defense in
+depth here, not a new primary control.</p>
+<h3 id="scenario-c-a-future-cilium-identity-confusion-bug"><a class="header" href="#scenario-c-a-future-cilium-identity-confusion-bug">Scenario C: a future Cilium identity-confusion bug</a></h3>
+<p>The 2026-05-17/18 rollback discovered that Cilium's identity model
+can be wrong in subtle ways: socket-lb rewrites destinations before
+policy evaluation; <code>matchPattern</code> silently fails on canonical FQDNs;
+VXLAN-encapsulated broadcast frames are dropped because identity
+doesn't propagate. None of those were attacker-exploitable, but they
+were <em>correctness</em> bugs in the very mechanism mTLS would protect
+against. If a future Cilium CVE lets an attacker spoof a pod's
+identity to a peer pod (presented to the receiving CNP as a different
+endpoint), CNPs no longer protect anything.</p>
+<ul>
+<li><strong>What mTLS adds.</strong> Workload identity is bound to a Kubernetes
+ServiceAccount via an X.509 cert issued by istiod. It is <strong>not</strong>
+derived from Cilium identity. An attacker who can confuse Cilium's
+identity table still cannot present a <code>pump.collab.svc.cluster.local</code>
+client cert without compromising the istiod CA or stealing the
+pump SA token.</li>
+</ul>
+<p>This is the "defense in depth against tools we already rely on"
+argument. The strength of this argument is proportional to how much
+you trust Cilium's identity model — and our recent rollout chewed
+through some of that trust.</p>
+<h3 id="what-mtls-does-not-add"><a class="header" href="#what-mtls-does-not-add">What mTLS does NOT add</a></h3>
+<p>To be honest about what we get:</p>
+<ul>
+<li><strong>No protection against compromised mTLS-participating pods.</strong> If
+<code>pump-cv</code> is itself compromised, it has a valid cert and the mesh
+trusts it.</li>
+<li><strong>No protection at the ingress edge.</strong> External traffic
+(cloudflared → envoy gateway → backend) is already TLS-terminated
+at envoy. mTLS inside the cluster doesn't change the public
+threat model.</li>
+<li><strong>No mitigation for the data-exfil class.</strong> Egress to the internet
+is bound by Cilium FQDN/entity rules, not mesh policy.</li>
+<li><strong>No protection against control-plane (istiod) compromise.</strong>
+istiod is the CA. It's a new SPOF.</li>
+</ul>
+<h2 id="2-inventory--services-with-native-mtls-today-vs-what-istio-would-add"><a class="header" href="#2-inventory--services-with-native-mtls-today-vs-what-istio-would-add">2. Inventory — services with native mTLS today vs. what Istio would add</a></h2>
+<h3 id="what-already-has-tlsmtls-in-flight"><a class="header" href="#what-already-has-tlsmtls-in-flight">What already has TLS/mTLS in flight</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Component</th><th>Channel</th><th>Mechanism</th></tr></thead><tbody>
+<tr><td>Cloudflared → Envoy Gateway</td><td>external ingress</td><td>Envoy TLS termination with per-route certs from cert-manager</td></tr>
+<tr><td>Envoy Gateway → some backends</td><td>internal HTTPS</td><td>Re-encrypted backends (jellyfin, immich on TLS); most are plaintext</td></tr>
+<tr><td>CNPG client → CNPG primary</td><td>DB replication + barman</td><td>CNPG generates server certs; client <code>verify-ca</code> mode</td></tr>
+<tr><td>Cilium agent → Hubble</td><td>telemetry</td><td>Cilium-managed certs</td></tr>
+<tr><td><code>mcp-system</code> sidecars ↔ istiod</td><td>XDS</td><td>Already mTLS (port 15012) — this is the deployed slice</td></tr>
+</tbody></table>
+</div>
+<h3 id="what-istio-sidecar-would-add"><a class="header" href="#what-istio-sidecar-would-add">What Istio sidecar would add</a></h3>
+<p>For any pod with <code>sidecar.istio.io/inject: "true"</code>:</p>
+<ul>
+<li>Outbound: all traffic transparently routed through the sidecar,
+upgraded to mTLS when the destination is also in the mesh.</li>
+<li>Inbound: all traffic terminated by the sidecar, mTLS verified.</li>
+<li>Per-port plaintext fallback (<code>PERMISSIVE</code> PeerAuthentication) until
+every peer is in the mesh.</li>
+</ul>
+<h3 id="pods-that-cannot-run-a-sidecar-sidecar-mode"><a class="header" href="#pods-that-cannot-run-a-sidecar-sidecar-mode">Pods that cannot run a sidecar (sidecar mode)</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Pod type</th><th>Examples</th><th>Why</th></tr></thead><tbody>
+<tr><td><code>hostNetwork: true</code></td><td><code>kube-vip</code> (daemonset), <code>etcd-defrag</code> (cronjob)</td><td>Sidecar's iptables redirect doesn't work in host net namespace</td></tr>
+<tr><td>Daemonsets serving node-level data</td><td><code>cilium-agent</code>, <code>node-exporter</code>, <code>node-problem-detector</code>, <code>node-tuning</code></td><td>Same reason; many also need raw socket / capability access incompatible with sidecar UID</td></tr>
+<tr><td>Multi-interface pods</td><td><code>vpn/pod-gateway</code>, <code>downloads/*</code> clients (VXLAN to gateway)</td><td>Sidecar redirect interferes with VXLAN tunnel; verified-incompatible by the netpol rollout's pod-gateway carve-out</td></tr>
+<tr><td>Bare TCP non-HTTP that's deeply protocol-coupled</td><td>EMQX MQTT brokers, Zigbee2MQTT, Z-Wave-JS, EsphomeAPI</td><td>Istio supports TCP-only services, but loses L7 features (AuthorizationPolicy reduces to L4 source identity only)</td></tr>
+<tr><td>Pods that read <code>/proc</code> or use host PID/network</td><td><code>node-tuning</code>, <code>gpu-operator</code> driver daemons</td><td>Same as daemonset bucket</td></tr>
+<tr><td>Operators that talk to apiserver only</td><td><code>cnpg-controller</code>, <code>external-secrets</code>, <code>cert-manager</code>, <code>flux-system/*</code></td><td>Adds latency + complexity for ~zero security benefit; apiserver traffic is already mTLS via SA tokens</td></tr>
+<tr><td>Init-container-heavy short-lived workloads</td><td><code>cnpg-bootstrap</code>, longhorn engine restore jobs</td><td>Sidecar startup timing makes init containers flaky; documented Istio quirk</td></tr>
+</tbody></table>
+</div>
+<h3 id="pods-that-should-not-join-the-mesh-judgment-not-technical"><a class="header" href="#pods-that-should-not-join-the-mesh-judgment-not-technical">Pods that should NOT join the mesh (judgment, not technical)</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Bucket</th><th>Reason</th></tr></thead><tbody>
+<tr><td><code>flux-system</code> controllers</td><td>Rollback substrate. Adding sidecars to flux-controller is "modify the tool you use to fix mistakes."</td></tr>
+<tr><td><code>cilium-*</code> (in <code>kube-system</code> + <code>cilium-secrets</code>)</td><td>Cilium is the data plane Istio runs on top of. Circular dependency on bootstrap.</td></tr>
+<tr><td><code>rook-ceph</code> operator + agents</td><td>Sidecars on storage data path add latency and a new failure mode for the very PVCs the mesh apps depend on.</td></tr>
+</tbody></table>
+</div>
+<h3 id="whats-left--the-mesh-eligible-surface"><a class="header" href="#whats-left--the-mesh-eligible-surface">What's left — the mesh-eligible surface</a></h3>
+<p>Approximately 75% of cluster pods, concentrated in: <code>collab</code>, <code>media</code>,
+<code>ai</code>, <code>home</code>, <code>mcp-system</code> (already done), <code>auth</code>, <code>databases</code>
+(CNPG primaries can be meshed; replication channels stay native),
+<code>observability</code> (grafana/loki/prometheus can be meshed; alloy/vector
+daemonsets cannot).</p>
+<h2 id="3-architectural-choice--sidecar-mode-vs-ambient-mode"><a class="header" href="#3-architectural-choice--sidecar-mode-vs-ambient-mode">3. Architectural choice — sidecar mode vs. ambient mode</a></h2>
+<p>Istio 1.22+ ships <strong>ambient mode</strong> as an alternative to per-pod
+sidecars. The choice is load-bearing for everything that follows.</p>
+<h3 id="sidecar-mode"><a class="header" href="#sidecar-mode">Sidecar mode</a></h3>
+<p><strong>How it works.</strong> Every meshed pod gets an injected <code>istio-proxy</code>
+container (Envoy). All inbound + outbound pod traffic is redirected
+to the sidecar via init-container iptables rules. The sidecar
+performs mTLS, policy enforcement, L7 telemetry.</p>
+<p><strong>Pros for this cluster:</strong></p>
+<ul>
+<li>Battle-tested. Sidecar mode is what mcp-system runs today; we have
+six months of operational experience.</li>
+<li>Per-pod blast radius. A failing sidecar takes down one pod, not a
+node.</li>
+<li>Well-supported by <code>app-template</code> chart via pod annotations — no
+new chart machinery needed.</li>
+</ul>
+<p><strong>Cons:</strong></p>
+<ul>
+<li><strong>Resource overhead.</strong> Each sidecar costs ~50-100m CPU and ~100Mi
+RAM steady-state. At ~315 meshed pods that's ~16-32 vCPU and
+~31 GiB RAM — non-trivial on a cluster where worker8 already runs
+92% allocated and P40-era workers are P40-era.</li>
+<li><strong>Pod-startup latency.</strong> Sidecar must be ready before the app
+can serve. Adds 5-15s to cold starts (already a known pain point
+for prowlarr, immich-ml, and others — see
+<a href="https://github.com/rwlove/home-ops">HelmReleases needing disableWait</a> memory note).</li>
+<li><strong>Init container ordering.</strong> Some apps' init containers need
+network before the sidecar is ready. Workarounds exist
+(<code>holdApplicationUntilProxyStarts</code>) but add per-app config.</li>
+<li><strong>Per-app debug.</strong> A connection failure could be Cilium CNP, Istio
+AuthorizationPolicy, Istio PeerAuthentication, sidecar config,
+or app-level TLS. Five layers, four owners (we own all four).</li>
+</ul>
+<h3 id="ambient-mode"><a class="header" href="#ambient-mode">Ambient mode</a></h3>
+<p><strong>How it works.</strong> No sidecars. A per-node "ztunnel" daemon handles
+mTLS for L4 traffic. An optional per-namespace "waypoint" pod handles
+L7 features (AuthorizationPolicy by HTTP method/path, rate limiting,
+etc.) when needed. Apps are unchanged — joining the mesh means
+labeling a namespace.</p>
+<p><strong>Pros for this cluster:</strong></p>
+<ul>
+<li><strong>Per-node overhead instead of per-pod.</strong> One ztunnel per node
+(~100m CPU, ~200Mi RAM each × 9 worker nodes ≈ 900m CPU,
+1.8 GiB RAM) instead of one Envoy per pod. ~20x reduction.</li>
+<li><strong>No app restart to join the mesh.</strong> Label the namespace; existing
+pods are meshed on next packet. Reversible by removing the label.</li>
+<li><strong>No init-container ordering issues.</strong> Apps see normal traffic;
+ztunnel does the mTLS off-pod.</li>
+<li><strong>No 5-15s sidecar warmup on pod restart.</strong></li>
+<li><strong>Conceptually cleaner for the "all pods L4-mTLS, only some pods
+L7" pattern</strong> — which describes our cluster's mostly-internal HTTP
+with a few bare-TCP services well.</li>
+</ul>
+<p><strong>Cons:</strong></p>
+<ul>
+<li><strong>Newer.</strong> Istio 1.22 (May 2024) GA'd ambient; 1.29 is what we run.
+Production track record is shorter than sidecar mode.</li>
+<li><strong>ztunnel + Cilium overlap.</strong> Both want to be the per-node data
+plane. Cilium's chaining mode is supported but documented as
+"complex." Specifically, Cilium's socket-lb rewrite (which already
+bit us once) interacts with ztunnel's transparent capture. We
+would need to validate the combination on a non-production cluster
+before committing.</li>
+<li><strong>AuthorizationPolicy L7 requires waypoints,</strong> which are
+per-namespace pods — back to a sidecar-shaped overhead just for the
+L7 enforcement paths.</li>
+<li><strong>Smaller upstream community + fewer Stack-Overflow-quality answers</strong>
+for debugging at 02:00.</li>
+</ul>
+<h3 id="recommendation-for-this-cluster"><a class="header" href="#recommendation-for-this-cluster">Recommendation for this cluster</a></h3>
+<p><strong>If we ship, use sidecar mode for the first 2-3 namespaces, evaluate
+ambient on the pilot's lessons.</strong> Rationale:</p>
+<ul>
+<li>mcp-system is already sidecar; matching it removes operational
+complexity.</li>
+<li>Sidecar mode's worst case is "one pod restart loops" — recoverable.
+Ambient mode's worst case is "ztunnel + Cilium data-plane conflict
+takes the node off the mesh" — harder to triage with one operator.</li>
+<li>The ambient-vs-sidecar resource math becomes compelling only
+beyond ~50 meshed pods. The pilot won't get there.</li>
+<li>If sidecar mode shows it scales to 3-4 namespaces without operator
+fatigue, that's the answer. If it doesn't, ambient becomes the
+forced-rewrite alternative — and we'll have real numbers to
+evaluate it against by then.</li>
+</ul>
+<h2 id="4-phased-rollout"><a class="header" href="#4-phased-rollout">4. Phased rollout</a></h2>
+<p>The phasing mirrors the NetworkPolicy rollout's "smallest first, real
+verification, one operator-owned change at a time" pattern. The
+NetworkPolicy rollback (2026-05-18) established that audit-mode soak +
+in-cluster smoke tests are <em>not</em> sufficient verification gates.
+<strong>Every phase below has a user-driven browser verification step</strong>
+before the next phase starts.</p>
+<h3 id="phase-0--control-plane-scoping-1-2-days"><a class="header" href="#phase-0--control-plane-scoping-1-2-days">Phase 0 — control-plane scoping (1-2 days)</a></h3>
+<p>Today istiod is configured to accept sidecars from any namespace
+(<code>cnp-allow.yaml</code> uses <code>fromEntities: cluster</code>). That is the right
+shape for the long run, but istiod has no namespace-discovery
+restriction today — it watches every namespace's services + endpoints.</p>
+<ul>
+<li>Add <code>discoverySelectors</code> to istiod values, scoped to only the
+namespaces actively in the mesh. Reduces istiod memory + control
+loop cost as more namespaces join.</li>
+<li>Verify mcp-system continues working post-change.</li>
+</ul>
+<p>Exit criteria: istiod CPU/memory unchanged or lower; mcp-system MCP
+servers continue serving traffic.</p>
+<p><strong>No new namespace joins the mesh in this phase.</strong></p>
+<h3 id="phase-1--pilot-namespace-selfhosted-2-weeks"><a class="header" href="#phase-1--pilot-namespace-selfhosted-2-weeks">Phase 1 — pilot namespace: <code>selfhosted</code> (2 weeks)</a></h3>
+<p>Why <code>selfhosted</code>:</p>
+<ul>
+<li>Two pods (<code>webhook</code> deployment). Bounded blast radius.</li>
+<li>Already used as the canary for the NetworkPolicy rollout — same
+shape of "smallest, lowest-traffic namespace" gives consistency.</li>
+<li>No CNPG dependency, no external integrations that would obscure
+mesh-introduced failures.</li>
+<li>Already has CNPs in place (<code>cnp-allow-from-gateway.yaml</code>), so
+CNP-vs-mesh interaction is exercisable.</li>
+</ul>
+<p>Steps:</p>
+<ol>
+<li>Label <code>selfhosted</code> namespace with <code>istio-injection: enabled</code>.</li>
+<li>Restart the <code>webhook</code> deployment (forces sidecar injection).</li>
+<li><strong>User browser test.</strong> Trigger a webhook end-to-end (the same way
+it gets used in production).</li>
+<li>Apply <code>PeerAuthentication: PERMISSIVE</code> namespace-scoped — allows
+both mTLS and plaintext during the transition. The mesh
+participant accepts mTLS from other mesh peers and plaintext from
+non-mesh (envoy, callers in other namespaces).</li>
+<li>Soak 1 week. Watch istiod logs for cert issuance errors; watch
+webhook for new restart patterns; watch CPU/memory on the worker
+running the pod.</li>
+</ol>
+<p>Exit criteria: webhook serves traffic through sidecar; no new
+restart patterns; sidecar CPU under 50m, RAM under 150Mi.</p>
+<h3 id="phase-2--second-pilot-collabpump--collabpump-cv-only-3-weeks"><a class="header" href="#phase-2--second-pilot-collabpump--collabpump-cv-only-3-weeks">Phase 2 — second pilot: <code>collab/pump</code> + <code>collab/pump-cv</code> only (3 weeks)</a></h3>
+<p>Why this specific cut, not all of <code>collab</code>:</p>
+<ul>
+<li>pump + pump-cv are a <em>real</em> multi-pod app with internal
+collab-to-collab traffic (pump-cv is the computer-vision worker
+for pump). Exercises the intra-namespace mTLS path.</li>
+<li>pump is OIDC-protected via Authelia — exercises the
+mesh-to-non-mesh boundary at the ingress edge.</li>
+<li>The 2026-05-18 NetworkPolicy rollback's most-impactful failure
+was <code>collab/pump</code> OIDC. Re-meshing it provides a "did we learn
+from the netpol incident" feedback signal: if mesh adoption breaks
+pump again, our verification process is still broken, and we should
+stop.</li>
+</ul>
+<p>Steps:</p>
+<ol>
+<li>Label <code>pump</code> and <code>pump-cv</code> pods individually with
+<code>sidecar.istio.io/inject: "true"</code> (do NOT label the namespace
+yet — keeps other collab apps untouched).</li>
+<li>Restart pump first; user browser-tests OIDC login end-to-end.</li>
+<li>Restart pump-cv; user browser-tests image upload + CV worker
+processing end-to-end.</li>
+<li><strong>One full week of normal use before any further action.</strong></li>
+<li>After soak: add <code>AuthorizationPolicy</code> on pump-cv requiring
+<code>principals: ["cluster.local/ns/collab/sa/pump"]</code>. This is the
+first real workload-identity check.</li>
+<li>User browser-tests again to confirm AuthorizationPolicy didn't
+break the pump → pump-cv call.</li>
+</ol>
+<p>Exit criteria: pump + pump-cv serving normally; AuthorizationPolicy
+in place; no operator alerts.</p>
+<h3 id="phase-3--spread-one-namespace-at-a-time-2-4-months-elapsed"><a class="header" href="#phase-3--spread-one-namespace-at-a-time-2-4-months-elapsed">Phase 3 — spread one namespace at a time (2-4 months elapsed)</a></h3>
+<p>Order, low-to-high risk:</p>
+<ol>
+<li><code>ai</code> — most apps already restart frequently from model swaps; new
+restart pattern is masked.</li>
+<li><code>home</code> — careful: home-assistant + esphome + zigbee2mqtt have
+multi-interface and TCP/MQTT patterns. Selectively mesh
+home-assistant first; leave brokers (emqx, z2m) out per § 2.</li>
+<li><code>media</code> — large surface (30+ apps); take *arr stack first as a
+logical sub-bundle.</li>
+<li><code>collab</code> (full namespace) — once pump pilot is stable, extend to
+sibling apps.</li>
+</ol>
+<p>Each namespace gets:</p>
+<ul>
+<li>Sidecar injection per-pod via existing app-template
+<code>pod.annotations</code> (no namespace-label cascade).</li>
+<li>PERMISSIVE PeerAuthentication first, soak 1 week, then STRICT
+per-namespace.</li>
+<li>One user browser-test per OIDC app in the namespace before
+declaring the namespace done.</li>
+</ul>
+<p><strong>Rate limit: one namespace per 2 weeks maximum.</strong> No parallel
+rollouts; one operator can't triage two simultaneous mesh failures.</p>
+<h3 id="phase-4--strict-mtls-at-the-mesh-default-level-after-80-adoption"><a class="header" href="#phase-4--strict-mtls-at-the-mesh-default-level-after-80-adoption">Phase 4 — STRICT mTLS at the mesh-default level (after 80% adoption)</a></h3>
+<p>Once every namespace that's going to be meshed <em>is</em> meshed and on
+namespace-scoped STRICT PeerAuthentication, replace the per-namespace
+PeerAuthentications with a single mesh-scoped one in <code>istio-system</code>:</p>
+<pre><code class="language-yaml">apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: istio-system
+spec:
+  mtls:
+    mode: STRICT
+</code></pre>
+<p>This makes mTLS the cluster default. Any new namespace gets STRICT
+automatically; opt-out requires an explicit PeerAuthentication.</p>
+<p>Exit criteria: no mesh-internal plaintext traffic visible in Kiali /
+istio metrics.</p>
+<h3 id="phase-n--never-fully-mesh-acceptance"><a class="header" href="#phase-n--never-fully-mesh-acceptance">Phase N — never-fully-mesh acceptance</a></h3>
+<p>The pods enumerated in § 2 ("Pods that cannot run a sidecar") stay
+out of the mesh permanently. Their traffic to meshed pods is allowed
+via PeerAuthentication <code>PERMISSIVE</code> boundary at the receiving side
+or by AuthorizationPolicy carve-outs for specific source identities.</p>
+<p>This is fine. The threat model in § 1 already acknowledges that
+host-network and daemonset pods have a different trust posture.</p>
+<h2 id="5-operational-cost"><a class="header" href="#5-operational-cost">5. Operational cost</a></h2>
+<h3 id="resource-overhead-sidecar-mode"><a class="header" href="#resource-overhead-sidecar-mode">Resource overhead (sidecar mode)</a></h3>
+<p>Empirical numbers from the mcp-system deployment (11 sidecars
+currently):</p>
+<div class="table-wrapper"><table><thead><tr><th>Per-sidecar resource</th><th>Steady-state</th><th>P99</th></tr></thead><tbody>
+<tr><td>CPU</td><td>30-70m</td><td>150m</td></tr>
+<tr><td>RAM</td><td>80-120Mi</td><td>200Mi</td></tr>
+<tr><td>Startup time added</td><td>5-10s</td><td>15s</td></tr>
+</tbody></table>
+</div>
+<p>Extrapolated to a hypothetical 80% mesh coverage (~315 pods):</p>
+<div class="table-wrapper"><table><thead><tr><th>Cluster-wide cost</th><th>Lower bound</th><th>Upper bound</th></tr></thead><tbody>
+<tr><td>CPU</td><td>9.5 vCPU</td><td>22 vCPU</td></tr>
+<tr><td>RAM</td><td>25 GiB</td><td>38 GiB</td></tr>
+</tbody></table>
+</div>
+<p>Cluster has ~80 vCPU and ~520 GiB usable across 9 workers. CPU is
+the binding constraint — 22 vCPU is 27% of total. Beast is fine; P40
+workers (worker8 already at 92% allocation) are not.</p>
+<h3 id="resource-overhead-ambient-mode"><a class="header" href="#resource-overhead-ambient-mode">Resource overhead (ambient mode)</a></h3>
+<p>Estimated from upstream docs + ambient-mode performance benchmarks:</p>
+<div class="table-wrapper"><table><thead><tr><th>Cluster-wide cost</th><th>Estimate</th></tr></thead><tbody>
+<tr><td>ztunnel CPU (9 nodes × ~100m)</td><td>0.9 vCPU</td></tr>
+<tr><td>ztunnel RAM (9 nodes × ~250Mi)</td><td>2.3 GiB</td></tr>
+<tr><td>Waypoint CPU (estimate, 5 namespaces with L7 policy × ~100m)</td><td>0.5 vCPU</td></tr>
+<tr><td>Waypoint RAM (5 × 200Mi)</td><td>1.0 GiB</td></tr>
+<tr><td><strong>Total</strong></td><td><strong>~1.4 vCPU, ~3.3 GiB</strong></td></tr>
+</tbody></table>
+</div>
+<p>~15x cheaper. This is the strongest argument for ambient if we get
+past the Cilium-interaction concern.</p>
+<h3 id="management-complexity"><a class="header" href="#management-complexity">Management complexity</a></h3>
+<p>New CRDs in active use:</p>
+<ul>
+<li><code>PeerAuthentication</code> (mTLS mode)</li>
+<li><code>AuthorizationPolicy</code> (workload identity gates)</li>
+<li><code>DestinationRule</code> (per-destination connection settings; mostly
+unused but learning curve to write one when needed)</li>
+<li><code>VirtualService</code> + <code>Gateway</code> (overlap with our existing Envoy
+Gateway / HTTPRoute; we would <em>not</em> migrate ingress to Istio
+gateways)</li>
+<li><code>ServiceEntry</code> (for non-mesh external destinations from meshed
+pods)</li>
+</ul>
+<p>Per-namespace conventions to establish:</p>
+<ul>
+<li>ServiceAccount-per-pod (today many apps share <code>default</code>); without
+per-app SAs, AuthorizationPolicy degrades to namespace-level
+granularity.</li>
+<li>Naming convention for <code>AuthorizationPolicy</code> resources to avoid
+cross-app confusion.</li>
+<li>Whether each app belongs in <code>network-policy/baseline/</code> style
+shared components, or stays per-app.</li>
+</ul>
+<p>Observability additions:</p>
+<ul>
+<li>Kiali (mesh topology view) — currently in repo but namespace
+disabled (per netpol plan § Phase 6 — kuadrant ns dormant; same
+story for kiali).</li>
+<li>Istio control-plane dashboards in Grafana (already shipped by
+kube-prometheus-stack).</li>
+<li>Mesh-aware log fields in Loki — modest work.</li>
+</ul>
+<h3 id="debugging-changes"><a class="header" href="#debugging-changes">Debugging changes</a></h3>
+<p>A failed connection currently has 3 possible causes:</p>
+<ol>
+<li>CNP denies it.</li>
+<li>App-level error (auth, app bug).</li>
+<li>Network plumbing (DNS, kube-proxy, etc.).</li>
+</ol>
+<p>With a partial mesh, add five more:</p>
+<ol>
+<li>PeerAuthentication mismatch (PERMISSIVE vs STRICT cross-boundary).</li>
+<li>AuthorizationPolicy denies it.</li>
+<li>Sidecar config error (port not in services, hostNetwork conflict).</li>
+<li>Cert rotation in flight (ms-scale, but real).</li>
+<li>Sidecar OOMKilled.</li>
+</ol>
+<p>The cluster's MTTR for current-state issues is ~15-30 minutes per
+incident. Doubling the failure dimensions plausibly doubles MTTR.
+This is the operator-cost line item that matters most for a
+one-person operation.</p>
+<h3 id="new-spofs"><a class="header" href="#new-spofs">New SPOFs</a></h3>
+<ul>
+<li><strong>istiod.</strong> If istiod is down, new pods can join the mesh but
+can't get certs; existing sidecars use cached certs until expiry
+(default 24h). Recoverable, but a new "thing that must be running."</li>
+<li><strong>Sidecar liveness.</strong> A failing sidecar = a failing pod even if
+the app is fine. New restart patterns to triage.</li>
+<li><strong>Mesh CA root key.</strong> Rotation procedure exists but is operationally
+finicky; documented Istio gotcha.</li>
+</ul>
+<h2 id="6-recommendation"><a class="header" href="#6-recommendation">6. Recommendation</a></h2>
+<p><strong>Defer.</strong> Specifically: keep the current <code>mcp-system</code>-scoped
+deployment as-is; do not extend mTLS to other namespaces in 2026.</p>
+<h3 id="rationale"><a class="header" href="#rationale">Rationale</a></h3>
+<ol>
+<li>
+<p><strong>The L4/L7 gap mTLS closes is narrower than it looks here.</strong>
+The cluster's biggest unfixed exposure surface is <em>egress to the
+internet</em> (50 of 51 CNPs allow <code>world:443</code>), not pod-to-pod
+confidentiality. The
+<a href="egress_restriction_design.html">egress restriction design</a> addresses
+the higher-value gap first.</p>
+</li>
+<li>
+<p><strong>The verification-gap lesson from the NetworkPolicy rollback
+(2026-05-18) still applies.</strong> That rollout had stronger
+verification than mesh adoption would have (audit mode + in-cluster
+smoke), and still produced 5+ user-impacting failures. Mesh
+adoption's failure modes (PeerAuthentication mismatches,
+AuthorizationPolicy denies) are <em>harder</em> to discover from
+in-cluster tests than CNP drops are, because they're application-
+level and require real authenticated calls to surface.</p>
+</li>
+<li>
+<p><strong>The operator-cost line is the binding constraint.</strong> One person.
+MTTR doubles with the new failure dimensions. The hours that would
+go into mesh expansion are better spent on the egress restriction,
+the OS migration program (worker2 → master2, beast Stream 9 → 10,
+Talos pilot), and the Spark-arrival-conditional LangGraph
+activation — all of which are higher-leverage for the cluster's
+current shape.</p>
+</li>
+<li>
+<p><strong>Sidecar resource overhead is non-trivial at this scale.</strong> ~15-32
+vCPU and ~25-38 GiB RAM is plausibly the difference between
+"comfortable headroom" and "next workload needs a new node."
+Ambient mode would solve this, but ambient + Cilium socket-lb
+interaction is exactly the kind of "two clever data planes
+fighting" problem the rollback documented us being bad at.</p>
+</li>
+</ol>
+<h3 id="revisit-triggers"><a class="header" href="#revisit-triggers">Revisit triggers</a></h3>
+<ul>
+<li><strong>A cluster-internal compromise.</strong> If we ever have a confirmed
+lateral-movement incident, the ROI calculation flips immediately
+and Phase 1 starts the next week.</li>
+<li><strong>Cilium identity-confusion CVE.</strong> A real one would force the
+"don't trust Cilium identity alone" argument from § 1 Scenario C
+from speculative to concrete.</li>
+<li><strong>Cluster doubles in size.</strong> At ~800 pods + multi-operator (e.g.
+if the home-ops repo gains a collaborator), the per-operator
+debug-burden math changes.</li>
+<li><strong>Ambient mode + Cilium chaining gets a "production ready" story
+with multiple home-lab references.</strong> Today the references are
+thin; in 12 months that may change.</li>
+</ul>
+<h3 id="what-ships-instead"><a class="header" href="#what-ships-instead">What ships instead</a></h3>
+<ul>
+<li>Document this evaluation (this PR).</li>
+<li>Mention in
+<a href="networkpolicy_rollout_plan.html">NetworkPolicy Rollout Plan § Out of scope</a>
+that mesh-layer policy was evaluated and deferred. Done already
+in that doc.</li>
+<li>Re-run this evaluation in 2027-Q1 or upon a revisit trigger,
+whichever is sooner.</li>
+</ul>
+<h2 id="what-this-is-not"><a class="header" href="#what-this-is-not">What this is NOT</a></h2>
+<ul>
+<li>A teardown of <code>mcp-system</code>'s Istio. That deployment serves a
+specific need (XDS-mediated MCP server discovery via Kuadrant)
+and is justified by <em>that</em> requirement, not by mTLS-for-mTLS-sake.
+It stays.</li>
+<li>A claim that mTLS is bad. mTLS is genuinely better security than
+CNPs alone. The recommendation is about <em>cost in this cluster</em>,
+not <em>security value in general</em>.</li>
+<li>A permanent "no." It is a "not now, with concrete triggers for
+reconsideration."</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="pod-security-baseline-audit"><a class="header" href="#pod-security-baseline-audit">Pod Security Baseline Audit</a></h1>
 <p>Status: <strong>Audit only — no remediation in this PR.</strong> Next step is per-namespace remediation PRs; enforcement via Kyverno/PSA is a separate later step.

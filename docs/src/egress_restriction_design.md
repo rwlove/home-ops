@@ -1,9 +1,34 @@
 # Egress Restriction Design Proposal
 
-Status: **Proposal — not implemented.** Tier 3 of the network security
-roadmap.
+Status: **Phases 1–3 implemented 2026-05-18.** Detection-first hybrid
+(approach E) live; per-app narrowing (approach F) is opportunistic and
+ongoing. Tier 3 of the network security roadmap.
 Owner: home-ops
 Last updated: 2026-05-18
+
+## Implementation notes (2026-05-18)
+
+The Hubble metrics in this cluster don't expose what the original
+design assumed:
+
+- `hubble_dns_queries_total` has a `query` label but no source-pod
+  attribution out of the box — only the cilium-agent pod observing the
+  query. Fixed by adding `labelsContext=source_namespace,source_pod`
+  to the `dns:` metric in
+  `kubernetes/apps/kube-system/cilium/app/values.yaml`.
+- `hubble_flows_processed_total` has no `destination_fqdn` label at
+  all in Cilium 1.19 — that pairing exists in the flow logs but not
+  in the Prometheus export. For Phase 3 (egress-volume anomaly) we
+  use `container_network_transmit_bytes_total` from cAdvisor instead,
+  since byte counts aren't in any Hubble metric.
+
+The shipped recording rules + alerts live in
+`kubernetes/apps/observability/kube-prometheus-stack/app/prometheusrule-egress-detection.yaml`.
+The Phase-0 "baseline JSON exported to git" step is deferred — the
+detection alert fires on novel destinations relative to a live 24h
+window rather than a frozen baseline file, which trades some signal
+quality for not needing to commit and refresh a per-app FQDN
+manifest.
 
 ## Problem statement
 

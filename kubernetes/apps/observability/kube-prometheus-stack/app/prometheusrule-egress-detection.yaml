@@ -1,0 +1,184 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: egress-detection
+spec:
+  groups:
+    # Egress detection-first hardening per
+    # docs/src/egress_restriction_design.md (approach E + F).
+    #
+    # The cluster's CNP posture is `toEntities: [world]` on ~50 of 51
+    # rules — every workload that needs any outbound HTTPS today can
+    # exfiltrate anywhere on 443. The design recommends detection
+    # rather than prevention because Cilium 1.19's matchPattern
+    # silently fails on canonical FQDNs (memory:
+    # project_cilium_matchpattern_fqdn_limits.md), and the 2026-05-18
+    # rollback established that any control that fails silently is
+    # operationally unacceptable.
+    #
+    # Source metric for Phase 1+2: `hubble_dns_queries_total` enriched
+    # with `labelsContext=source_namespace,source_pod` (added in
+    # kubernetes/apps/kube-system/cilium/app/values.yaml). The
+    # `query` label carries the FQDN as the pod asked it — which
+    # includes K8s DNS search-suffix augmentation (e.g.
+    # `api.cloudflare.com.network.svc.cluster.local.`). Filtering
+    # on canonical suffixes is the cleanest way to isolate
+    # external lookups from intra-cluster service lookups.
+    #
+    # Source metric for Phase 3: `container_network_transmit_bytes_total`
+    # from cAdvisor. Hubble doesn't expose byte counts on flows, so
+    # cAdvisor's per-pod tx counter is the simplest signal.
+    - name: egress-fqdn-baseline
+      interval: 1m
+      rules:
+        # Phase 1: per-(namespace, pod, fqdn) DNS-query rate over 5m.
+        # Materialized as a recording rule so the novel-destination
+        # alert below can ask "was this tuple seen in the last 24h?"
+        # cheaply via `offset`, instead of fanning the raw counter
+        # out at alert-eval time.
+        #
+        # Filters strip non-egress queries:
+        #   - `.cluster.local.` — intra-cluster service resolution.
+        #   - `.thesteamedcrab.com.` — LAN-internal hosts via bind9
+        #     split-horizon; not external egress.
+        #   - `.in-addr.arpa.` / `.ip6.arpa.` — reverse DNS, not egress.
+        - record: namespace_pod_fqdn:hubble_dns_queries:rate5m
+          expr: |
+            sum by (source_namespace, source_pod, query) (
+              rate(hubble_dns_queries_total{
+                query!~".*\\.cluster\\.local\\.$",
+                query!~".*\\.thesteamedcrab\\.com\\.$",
+                query!~".*\\.in-addr\\.arpa\\.$",
+                query!~".*\\.ip6\\.arpa\\.$",
+                source_namespace!="",
+                source_pod!=""
+              }[5m])
+            )
+        # Phase 3 substrate: per-(namespace, pod) egress bytes rate
+        # restricted to the "inherently unbounded" pod population from
+        # the design doc. Materializing this rate as a recording rule
+        # lets the volume-anomaly alert below avoid re-evaluating the
+        # same cAdvisor subquery five times.
+        #
+        # Regex covers home-assistant, n8n, node-red, searxng,
+        # open-webui, glance (incl glance-user), esphome (incl
+        # esphome-code), and self-hosted runners. Narrow on purpose —
+        # broadening this catches infrastructure pods (backup jobs,
+        # image pulls) whose egress is bursty by design and would
+        # generate noise.
+        - record: namespace_pod:broad_egress_bytes:rate1h
+          expr: |
+            sum by (namespace, pod) (
+              rate(container_network_transmit_bytes_total{
+                namespace=~"home|automation|actions-runner-system|ai",
+                pod=~"home-assistant.*|n8n.*|node-red.*|searxng.*|open-webui.*|glance.*|esphome.*|.*-runner-.*",
+                pod!=""
+              }[1h])
+            )
+    - name: egress-fqdn-novel-destination
+      rules:
+        # Phase 2: a `(namespace, pod, query)` tuple shows up in the
+        # last 15m that did NOT exist in the past 24h. `absent_over_time`
+        # is the idiom for "this series didn't exist over the
+        # lookback window."
+        #
+        # The 24h window is the design's recommended starting point.
+        # Once a real soak exists (design Phase 0 calls for 7d), widen
+        # to `[7d]` — but 24h means the alert is useful immediately
+        # rather than waiting a week. Cost: it fires on legitimately
+        # new destinations during the soak; that surfaces alert-tuning
+        # work before silence does.
+        #
+        # `for: 15m` dampens single-query bursts (a curl from a debug
+        # exec, a DNS retry on packet loss). 15 minutes of repeated
+        # lookups means the pod is actually using the destination,
+        # not a one-shot probe.
+        - alert: PodEgressNovelDestination
+          annotations:
+            description: >-
+              Pod {{ $labels.source_namespace }}/{{ $labels.source_pod }}
+              is querying DNS for `{{ $labels.query }}` — a destination
+              not seen from this pod in the past 24h. Investigate whether
+              this is a legitimate config change or an exfiltration
+              attempt. See docs/src/egress_restriction_design.md.
+            summary: >-
+              Pod {{ $labels.source_namespace }}/{{ $labels.source_pod }}
+              hit novel egress destination {{ $labels.query }}.
+          expr: |
+            (
+              namespace_pod_fqdn:hubble_dns_queries:rate5m > 0
+            )
+            and
+            (
+              absent_over_time(
+                namespace_pod_fqdn:hubble_dns_queries:rate5m[24h] offset 15m
+              )
+            )
+          for: 15m
+          labels:
+            severity: warning
+    - name: egress-volume-anomaly
+      rules:
+        # Phase 3: egress-bytes anomaly for inherently-broad pods.
+        # The design's unbounded population is structurally allowed
+        # to talk anywhere — FQDN baselining would churn constantly.
+        # Volume anomaly catches the bulk-exfil scenario without
+        # needing an FQDN allowlist.
+        #
+        # Comparison: current 1h rate vs 7d baseline of the same
+        # recording rule (avg ± 3σ). Subquery `[7d:5m]` samples the
+        # recording rule every 5m over 7d for the avg/stddev.
+        #
+        # Guards (all required to fire):
+        #   - `> 1e6` floor (1 MB/s) avoids firing on apps whose
+        #     baseline rate is so low that 3σ is meaningless (idle
+        #     node-red with a 100 B/s baseline would alert on a 1KB
+        #     burst otherwise).
+        #   - `stddev_over_time > 0` avoids div-by-zero on pods with
+        #     perfectly constant rates.
+        #   - `unless absent_over_time([7d:5m])` prevents firing on
+        #     cold baselines (pod first deployed <7d ago, fresh
+        #     Prometheus, recording rule not yet present). The
+        #     design explicitly calls out "don't fire on empty/cold
+        #     data."
+        - alert: PodEgressVolumeAnomaly
+          annotations:
+            description: >-
+              Pod {{ $labels.namespace }}/{{ $labels.pod }} has sustained
+              egress of {{ $value | humanize }}B/s over the last hour —
+              more than 3 standard deviations above its 7-day baseline.
+              This pod is on the broad-egress allowlist (home-assistant,
+              n8n, node-red, searxng, open-webui, glance, esphome,
+              runners) where an FQDN baseline isn't tractable; volume
+              anomaly is the catch for bulk-exfil patterns. Investigate
+              via Hubble flow logs in Grafana.
+            summary: >-
+              Egress-bytes anomaly on broad-egress pod
+              {{ $labels.namespace }}/{{ $labels.pod }}.
+          expr: |
+            (
+              namespace_pod:broad_egress_bytes:rate1h
+              >
+              (
+                avg_over_time(namespace_pod:broad_egress_bytes:rate1h[7d:5m])
+                +
+                3 * stddev_over_time(namespace_pod:broad_egress_bytes:rate1h[7d:5m])
+              )
+            )
+            and
+            (
+              namespace_pod:broad_egress_bytes:rate1h > 1e6
+            )
+            and
+            (
+              stddev_over_time(namespace_pod:broad_egress_bytes:rate1h[7d:5m]) > 0
+            )
+            unless
+            (
+              absent_over_time(namespace_pod:broad_egress_bytes:rate1h[7d:5m])
+            )
+          for: 30m
+          labels:
+            severity: warning

@@ -1,6 +1,6 @@
 # Pod Security Baseline Audit
 
-Status: **Audit only — no remediation in this PR.** Next step is per-namespace remediation PRs; enforcement via Kyverno/PSA is a separate later step.
+Status: **PSA audit labels applied per-namespace (audit-mode only, no warn/enforce).** Group A remediation in flight (PRs #11600/#11604/#11606/#11607/#11608/#11609/#11611/#11612). Enforcement ramp is per-namespace and gated on log observation.
 Owner: home-ops
 Last updated: 2026-05-18
 
@@ -227,17 +227,115 @@ namespace. This is inherent to the CSI architecture.
    UID 0 on sidecars). Pod-gateway architecture; sidecars need to
    manipulate the netns. Already isolated to one namespace.
 
+## PSA enforcement plan
+
+### Decision: built-in PSA labels, not Kyverno
+
+Choices considered for new-workload enforcement:
+
+| Option | Pros | Cons |
+|---|---|---|
+| **Built-in PSA** (`pod-security.kubernetes.io/<mode>` labels) | No new component; zero CRDs; built into apiserver since v1.25; one label-line per namespace | Three modes only (privileged/baseline/restricted); no per-pod exception model; cluster-wide policy not expressible as code |
+| **Kyverno** | Full policy DSL, per-workload exceptions, mutation, image-signature checks | Another operator to upgrade; webhook in admission path adds latency + a failure mode; CRDs to learn |
+
+For a 1-operator / ~400-pod home lab, the PSA labels are the right
+size. Decision: ship PSA labels, revisit Kyverno only if we hit a
+policy expressiveness limit (e.g. per-workload exception inside an
+otherwise-restricted namespace).
+
+### Per-namespace audit level
+
+Applied as `pod-security.kubernetes.io/audit: <level>` +
+`pod-security.kubernetes.io/audit-version: latest`. No `warn` or
+`enforce` yet — audit-only logs violations into the apiserver's pod
+log without admitting/rejecting. Out-of-scope namespaces (`kube-system`,
+`flux-system`, `cilium-secrets`, `kuadrant` (empty/dormant)) carry no
+PSA labels — same boundary as the netpol rollout.
+
+| Namespace | Audit level | Rationale |
+|---|---|---|
+| `actions-runner-system` | `baseline` | ARC runners spawn user-defined workloads |
+| `ai` | `restricted` | App-template HRs; partially hardened |
+| `auth` | `restricted` | Authelia + LLDAP already meet baseline |
+| `cert-manager` | `restricted` | Upstream pods are clean |
+| `collab` | `restricted` | oauth2-proxy hardened; zulip will fire |
+| `databases` | `baseline` | CNPG operator-managed; tighten later |
+| `downloads` | `baseline` | pod-gateway-sidecar root + NET_ADMIN |
+| `external-secrets` | `restricted` | ESO controller is clean |
+| `home` | `baseline` | frigate/z2m/zwave-js need privileged USB |
+| `istio-system` | `baseline` | istio CNI installer needs privileged init |
+| `longhorn-system` | `privileged` | CSI architecture (audit doc C1) |
+| `mcp-system` | `restricted` | Stateless services |
+| `media` | `baseline` | Rootfs writes (jellyfin/gonic/romm) |
+| `network` | `baseline` | multus/wg-easy need NET_ADMIN |
+| `observability` | `privileged` | node-exporter/smartctl/vector hostPID |
+| `renovate` | `restricted` | Stateless workers |
+| `rook-ceph` | `privileged` | CSI + OSDs (audit doc C1) |
+| `selfhosted` | `restricted` | Small stateless set |
+| `storage` | `baseline` | Garage is near-clean |
+| `vpn` | `privileged` | Already enforce-privileged; audit aligned |
+
+### Reading PSA audit-mode violations
+
+PSA violations land in the kube-apiserver pod's stdout (each control-plane
+node) as warnings. Vector-agent scrapes them into Loki. From Grafana
+Explore:
+
+```text
+{namespace="kube-system", pod=~"kube-apiserver-.*"}
+  |~ "would violate PodSecurity"
+  | json
+  | line_format `{{.violations}} ns={{.namespace}} pod={{.name}}`
+```
+
+Each violation line includes the failing field (`runAsNonRoot`,
+`seccompProfile`, etc.), the offending namespace, and the requesting
+user/serviceAccount. For a focused look at a single ns:
+
+```text
+{namespace="kube-system", pod=~"kube-apiserver-.*"}
+  |~ "would violate PodSecurity"
+  |~ `ns=\"observability\"`
+```
+
+The same data is also emitted as a `policy_violation` annotation on
+`Events` in the namespace of the rejected workload, queryable with:
+
+```bash
+kubectl get events -A --field-selector reason=FailedCreate -o yaml \
+  | grep -B1 -A5 'would violate PodSecurity'
+```
+
+### Ramp criteria: audit → warn → enforce
+
+Per-namespace, advance one step at a time once the prior step has been
+stable for the window:
+
+- **`audit` → `warn`**: ≥7 days of audit logs with zero unexplained
+  violations (i.e. every violation maps to a known accepted-deviation
+  pod from this audit doc, or to a Group A/B remediation TODO). Adding
+  `warn` surfaces violations to the user creating the workload at
+  apply-time, which is where you want them.
+- **`warn` → `enforce`**: ≥14 days of `warn` with zero new violation
+  classes (operators have learned the rule; the noise has settled to
+  steady-state). Flip via `pod-security.kubernetes.io/enforce: <level>`
+  in the same namespace.yaml — the level should match `audit`. After
+  enforce lands, the audit + warn labels become belt-and-suspenders;
+  leave them in place so version bumps continue logging.
+
+Per-namespace tracking lives in this section's table as the levels are
+ramped.
+
 ## What this audit doesn't do
 
-- **No remediation in this PR.** Every "easy" finding still needs a
-  PR. Don't auto-apply.
-- **No Kyverno / PSA admission enforcement.** That's a followup
-  decision: once we've remediated the easy + medium tiers, decide
-  whether to enforce `restricted` or `baseline` PSA at the
-  namespace label level. Until then, ad-hoc compliance only.
-- **No drift detection.** Static snapshot. New apps can ship below
-  baseline without a check. Enforcement is the answer; this audit
-  is the prerequisite for it.
+- **No drift detection beyond audit-mode logs.** Group A/B remediation
+  PRs still have to be authored by hand. PSA admission catches *new*
+  workloads that violate the level; it doesn't migrate the existing
+  fleet.
+- **Doesn't replace HelmRelease defaults.** PSA is the floor;
+  `helmrelease.security.md` is the ceiling. New HRs should still meet
+  the helmrelease.security baseline even if the namespace's PSA level
+  doesn't require it (defense in depth + makes future ramps free).
 
 ## Methodology
 

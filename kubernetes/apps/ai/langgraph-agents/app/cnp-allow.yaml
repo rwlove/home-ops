@@ -79,22 +79,16 @@ spec:
     # External APIs: api.pushover.net for Tier-1 alert escalations,
     # api.anthropic.com for the Claude API gated on ENABLE_CLAUDE_API.
     #
-    # Cilium 1.19's toFQDNs.matchName doesn't match through Kubernetes
-    # pod DNS search-domain augmentation (pod queries
-    # `api.pushover.net.ai.svc.cluster.local.` and the FQDN cache
-    # stores the augmented name; matchName misses it). The bare +
-    # `.*` dual-form matchPattern covers both un-augmented and
-    # search-domain-augmented forms — see PR #11492 for the canonical
-    # example.
+    # Both are canonical FQDNs (no CNAME chain). Per memory
+    # project_cilium_matchpattern_fqdn_limits.md, Cilium 1.19
+    # matchPattern silently fails for canonical FQDNs queried through
+    # K8s DNS search-domain augmentation — use toEntities:world+443,
+    # matches the precedent in PRs #11498/#11512/#11517/#11533.
     # Langfuse: user intends self-hosted in-cluster. LANGFUSE_HOST is
     # currently empty so the client doesn't instantiate. When the
     # in-cluster Langfuse lands, add a toEndpoints rule here for the
     # langfuse ns + app label.
-    - toFQDNs:
-        - matchPattern: "api.pushover.net"
-        - matchPattern: "api.pushover.net.*"
-        - matchPattern: "api.anthropic.com"
-        - matchPattern: "api.anthropic.com.*"
+    - toEntities: [world]
       toPorts:
         - ports:
             - port: "443"

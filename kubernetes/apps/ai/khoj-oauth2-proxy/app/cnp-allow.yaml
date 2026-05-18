@@ -25,21 +25,15 @@ spec:
               protocol: TCP
   egress:
     # OIDC discovery + token exchange against Authelia.
-    # auth.${SECRET_DOMAIN} resolves to the internal Envoy gateway VIP,
-    # which then routes to the auth namespace.
-    # Upstream → khoj.ai.svc.cluster.local:42110. Same-ns; the baseline
-    # allow-intra-namespace already covers that path.
-    #
-    # Cilium 1.19's toFQDNs.matchName doesn't match through Kubernetes
-    # pod DNS search-domain augmentation (pod queries
-    # `auth.thesteamedcrab.com.ai.svc.cluster.local.` and the FQDN
-    # cache stores the augmented name; matchName misses it). The
-    # bare + `.*` dual-form matchPattern covers both un-augmented and
-    # search-domain-augmented forms — see PR #11492 for the canonical
-    # example.
-    - toFQDNs:
-        - matchPattern: "auth.thesteamedcrab.com"
-        - matchPattern: "auth.thesteamedcrab.com.*"
+    # auth.${SECRET_DOMAIN} is a split-horizon local FQDN at its
+    # canonical form — no CNAME chain. Per memory
+    # project_cilium_matchpattern_fqdn_limits.md, Cilium 1.19
+    # matchPattern silently fails for canonical FQDNs queried through
+    # K8s DNS search-domain augmentation. Use toEntities:world+443,
+    # matches the precedent in PRs #11498/#11512/#11517/#11533.
+    # Upstream → khoj.ai.svc.cluster.local:42110 is intra-namespace,
+    # covered by baseline allow-intra-namespace.
+    - toEntities: [world]
       toPorts:
         - ports:
             - port: "443"

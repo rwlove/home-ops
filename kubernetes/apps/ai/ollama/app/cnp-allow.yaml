@@ -50,33 +50,21 @@ spec:
   egress:
     # Model registry — ollama pulls model blobs on first invocation
     # (`ollama pull <model>`) and on Modelfile changes.
-    # *.cloudflarestorage.com covers the rotating GCS-backed R2 blob
-    # host (e.g. dd20bb891979d25aebc8bec07b2b3bbc.r2.cloudflarestorage.com).
-    # huggingface.co + *.huggingface.co + cdn-lfs.huggingface.co cover
-    # community model GGUFs.
+    # Intended endpoints:
+    #   - ollama.com, registry.ollama.ai, *.ollama.ai (canonical)
+    #   - *.cloudflarestorage.com (R2 blob host, e.g.
+    #     dd20bb891979d25aebc8bec07b2b3bbc.r2.cloudflarestorage.com)
+    #   - huggingface.co, *.huggingface.co, cdn-lfs.huggingface.co
     #
-    # Cilium 1.19's toFQDNs.matchName doesn't match through Kubernetes
-    # pod DNS search-domain augmentation (pod queries e.g.
-    # `ollama.com.ai.svc.cluster.local.` and the FQDN cache stores
-    # the augmented name; matchName misses it). The bare + `.*`
-    # dual-form matchPattern covers both un-augmented and
-    # search-domain-augmented forms — see PR #11492 for the canonical
-    # example.
-    - toFQDNs:
-        - matchPattern: "ollama.com"
-        - matchPattern: "ollama.com.*"
-        - matchPattern: "registry.ollama.ai"
-        - matchPattern: "registry.ollama.ai.*"
-        - matchPattern: "*.ollama.ai"
-        - matchPattern: "*.ollama.ai.*"
-        - matchPattern: "*.cloudflarestorage.com"
-        - matchPattern: "*.cloudflarestorage.com.*"
-        - matchPattern: "huggingface.co"
-        - matchPattern: "huggingface.co.*"
-        - matchPattern: "*.huggingface.co"
-        - matchPattern: "*.huggingface.co.*"
-        - matchPattern: "cdn-lfs.huggingface.co"
-        - matchPattern: "cdn-lfs.huggingface.co.*"
+    # The ollama.* family is canonical-only (no CNAME chain) and
+    # matchPattern silently fails on it (per memory
+    # project_cilium_matchpattern_fqdn_limits.md). Since we'd have
+    # to fall back to toEntities:[world]+443 to cover those, the
+    # whole rule collapses to world:443 — adding matchPattern allows
+    # for the CNAME-fronted ones (HF, R2) would be redundant
+    # (world:443 already covers them). Matches the precedent in
+    # PRs #11498/#11512/#11517/#11533.
+    - toEntities: [world]
       toPorts:
         - ports:
             - port: "443"

@@ -4506,7 +4506,7 @@ not <em>security value in general</em>.</li>
 reconsideration."</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="pod-security-baseline-audit"><a class="header" href="#pod-security-baseline-audit">Pod Security Baseline Audit</a></h1>
-<p>Status: <strong>Audit only — no remediation in this PR.</strong> Next step is per-namespace remediation PRs; enforcement via Kyverno/PSA is a separate later step.
+<p>Status: <strong>PSA audit labels applied per-namespace (audit-mode only, no warn/enforce).</strong> Group A remediation in flight (PRs #11600/#11604/#11606/#11607/#11608/#11609/#11611/#11612). Enforcement ramp is per-namespace and gated on log observation.
 Owner: home-ops
 Last updated: 2026-05-18</p>
 <p>Audits running pods against the baseline defined in
@@ -4708,17 +4708,97 @@ UID 0 on sidecars). Pod-gateway architecture; sidecars need to
 manipulate the netns. Already isolated to one namespace.</p>
 </li>
 </ol>
+<h2 id="psa-enforcement-plan"><a class="header" href="#psa-enforcement-plan">PSA enforcement plan</a></h2>
+<h3 id="decision-built-in-psa-labels-not-kyverno"><a class="header" href="#decision-built-in-psa-labels-not-kyverno">Decision: built-in PSA labels, not Kyverno</a></h3>
+<p>Choices considered for new-workload enforcement:</p>
+<div class="table-wrapper"><table><thead><tr><th>Option</th><th>Pros</th><th>Cons</th></tr></thead><tbody>
+<tr><td><strong>Built-in PSA</strong> (<code>pod-security.kubernetes.io/&lt;mode&gt;</code> labels)</td><td>No new component; zero CRDs; built into apiserver since v1.25; one label-line per namespace</td><td>Three modes only (privileged/baseline/restricted); no per-pod exception model; cluster-wide policy not expressible as code</td></tr>
+<tr><td><strong>Kyverno</strong></td><td>Full policy DSL, per-workload exceptions, mutation, image-signature checks</td><td>Another operator to upgrade; webhook in admission path adds latency + a failure mode; CRDs to learn</td></tr>
+</tbody></table>
+</div>
+<p>For a 1-operator / ~400-pod home lab, the PSA labels are the right
+size. Decision: ship PSA labels, revisit Kyverno only if we hit a
+policy expressiveness limit (e.g. per-workload exception inside an
+otherwise-restricted namespace).</p>
+<h3 id="per-namespace-audit-level"><a class="header" href="#per-namespace-audit-level">Per-namespace audit level</a></h3>
+<p>Applied as <code>pod-security.kubernetes.io/audit: &lt;level&gt;</code> +
+<code>pod-security.kubernetes.io/audit-version: latest</code>. No <code>warn</code> or
+<code>enforce</code> yet — audit-only logs violations into the apiserver's pod
+log without admitting/rejecting. Out-of-scope namespaces (<code>kube-system</code>,
+<code>flux-system</code>, <code>cilium-secrets</code>, <code>kuadrant</code> (empty/dormant)) carry no
+PSA labels — same boundary as the netpol rollout.</p>
+<div class="table-wrapper"><table><thead><tr><th>Namespace</th><th>Audit level</th><th>Rationale</th></tr></thead><tbody>
+<tr><td><code>actions-runner-system</code></td><td><code>baseline</code></td><td>ARC runners spawn user-defined workloads</td></tr>
+<tr><td><code>ai</code></td><td><code>restricted</code></td><td>App-template HRs; partially hardened</td></tr>
+<tr><td><code>auth</code></td><td><code>restricted</code></td><td>Authelia + LLDAP already meet baseline</td></tr>
+<tr><td><code>cert-manager</code></td><td><code>restricted</code></td><td>Upstream pods are clean</td></tr>
+<tr><td><code>collab</code></td><td><code>restricted</code></td><td>oauth2-proxy hardened; zulip will fire</td></tr>
+<tr><td><code>databases</code></td><td><code>baseline</code></td><td>CNPG operator-managed; tighten later</td></tr>
+<tr><td><code>downloads</code></td><td><code>baseline</code></td><td>pod-gateway-sidecar root + NET_ADMIN</td></tr>
+<tr><td><code>external-secrets</code></td><td><code>restricted</code></td><td>ESO controller is clean</td></tr>
+<tr><td><code>home</code></td><td><code>baseline</code></td><td>frigate/z2m/zwave-js need privileged USB</td></tr>
+<tr><td><code>istio-system</code></td><td><code>baseline</code></td><td>istio CNI installer needs privileged init</td></tr>
+<tr><td><code>longhorn-system</code></td><td><code>privileged</code></td><td>CSI architecture (audit doc C1)</td></tr>
+<tr><td><code>mcp-system</code></td><td><code>restricted</code></td><td>Stateless services</td></tr>
+<tr><td><code>media</code></td><td><code>baseline</code></td><td>Rootfs writes (jellyfin/gonic/romm)</td></tr>
+<tr><td><code>network</code></td><td><code>baseline</code></td><td>multus/wg-easy need NET_ADMIN</td></tr>
+<tr><td><code>observability</code></td><td><code>privileged</code></td><td>node-exporter/smartctl/vector hostPID</td></tr>
+<tr><td><code>renovate</code></td><td><code>restricted</code></td><td>Stateless workers</td></tr>
+<tr><td><code>rook-ceph</code></td><td><code>privileged</code></td><td>CSI + OSDs (audit doc C1)</td></tr>
+<tr><td><code>selfhosted</code></td><td><code>restricted</code></td><td>Small stateless set</td></tr>
+<tr><td><code>storage</code></td><td><code>baseline</code></td><td>Garage is near-clean</td></tr>
+<tr><td><code>vpn</code></td><td><code>privileged</code></td><td>Already enforce-privileged; audit aligned</td></tr>
+</tbody></table>
+</div>
+<h3 id="reading-psa-audit-mode-violations"><a class="header" href="#reading-psa-audit-mode-violations">Reading PSA audit-mode violations</a></h3>
+<p>PSA violations land in the kube-apiserver pod's stdout (each control-plane
+node) as warnings. Vector-agent scrapes them into Loki. From Grafana
+Explore:</p>
+<pre><code class="language-text">{namespace="kube-system", pod=~"kube-apiserver-.*"}
+  |~ "would violate PodSecurity"
+  | json
+  | line_format `{{.violations}} ns={{.namespace}} pod={{.name}}`
+</code></pre>
+<p>Each violation line includes the failing field (<code>runAsNonRoot</code>,
+<code>seccompProfile</code>, etc.), the offending namespace, and the requesting
+user/serviceAccount. For a focused look at a single ns:</p>
+<pre><code class="language-text">{namespace="kube-system", pod=~"kube-apiserver-.*"}
+  |~ "would violate PodSecurity"
+  |~ `ns=\"observability\"`
+</code></pre>
+<p>The same data is also emitted as a <code>policy_violation</code> annotation on
+<code>Events</code> in the namespace of the rejected workload, queryable with:</p>
+<pre><code class="language-bash">kubectl get events -A --field-selector reason=FailedCreate -o yaml \
+  | grep -B1 -A5 'would violate PodSecurity'
+</code></pre>
+<h3 id="ramp-criteria-audit--warn--enforce"><a class="header" href="#ramp-criteria-audit--warn--enforce">Ramp criteria: audit → warn → enforce</a></h3>
+<p>Per-namespace, advance one step at a time once the prior step has been
+stable for the window:</p>
+<ul>
+<li><strong><code>audit</code> → <code>warn</code></strong>: ≥7 days of audit logs with zero unexplained
+violations (i.e. every violation maps to a known accepted-deviation
+pod from this audit doc, or to a Group A/B remediation TODO). Adding
+<code>warn</code> surfaces violations to the user creating the workload at
+apply-time, which is where you want them.</li>
+<li><strong><code>warn</code> → <code>enforce</code></strong>: ≥14 days of <code>warn</code> with zero new violation
+classes (operators have learned the rule; the noise has settled to
+steady-state). Flip via <code>pod-security.kubernetes.io/enforce: &lt;level&gt;</code>
+in the same namespace.yaml — the level should match <code>audit</code>. After
+enforce lands, the audit + warn labels become belt-and-suspenders;
+leave them in place so version bumps continue logging.</li>
+</ul>
+<p>Per-namespace tracking lives in this section's table as the levels are
+ramped.</p>
 <h2 id="what-this-audit-doesnt-do"><a class="header" href="#what-this-audit-doesnt-do">What this audit doesn't do</a></h2>
 <ul>
-<li><strong>No remediation in this PR.</strong> Every "easy" finding still needs a
-PR. Don't auto-apply.</li>
-<li><strong>No Kyverno / PSA admission enforcement.</strong> That's a followup
-decision: once we've remediated the easy + medium tiers, decide
-whether to enforce <code>restricted</code> or <code>baseline</code> PSA at the
-namespace label level. Until then, ad-hoc compliance only.</li>
-<li><strong>No drift detection.</strong> Static snapshot. New apps can ship below
-baseline without a check. Enforcement is the answer; this audit
-is the prerequisite for it.</li>
+<li><strong>No drift detection beyond audit-mode logs.</strong> Group A/B remediation
+PRs still have to be authored by hand. PSA admission catches <em>new</em>
+workloads that violate the level; it doesn't migrate the existing
+fleet.</li>
+<li><strong>Doesn't replace HelmRelease defaults.</strong> PSA is the floor;
+<code>helmrelease.security.md</code> is the ceiling. New HRs should still meet
+the helmrelease.security baseline even if the namespace's PSA level
+doesn't require it (defense in depth + makes future ramps free).</li>
 </ul>
 <h2 id="methodology"><a class="header" href="#methodology">Methodology</a></h2>
 <pre><code class="language-bash">kubectl get pods -A -o json &gt; all-pods.json

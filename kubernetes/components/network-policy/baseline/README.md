@@ -92,6 +92,38 @@ patches:
         path: /metadata/annotations/policy.cilium.io~1audit-mode
 ```
 
+## Dropping the L7 DNS proxy per-namespace
+
+`allow-dns` ships with an L7 `dns.matchPattern: "*"` rule that proxies
+every DNS query through cilium-agent. This is required for `toFQDNs:`
+egress rules in app overlays to work — Cilium populates the FQDN cache
+from observed proxied queries.
+
+The proxy adds latency (one extra hop per query, plus per-query policy
+evaluation). For latency-sensitive auth flows it can be enough to break
+things — see `auth/kustomization.yaml` where it broke authelia → LLDAP
+during a prior rollout. **If a namespace uses no `toFQDNs:` rules at
+all, the L7 proxy is dead weight.**
+
+To opt out per-namespace, strip the `rules:` block via a kustomize JSON
+patch in the namespace's `kustomization.yaml`:
+
+```yaml
+patches:
+  - target:
+      group: cilium.io
+      version: v2
+      kind: CiliumNetworkPolicy
+      name: allow-dns
+    patch: |
+      - op: remove
+        path: /spec/egress/0/toPorts/0/rules
+```
+
+The L4 DNS allow (UDP/TCP 53 to `kube-dns`) remains in effect. Adding a
+`toFQDNs:` rule to any policy in the namespace later will silently fail
+to match anything — re-add the L7 proxy first.
+
 ## The `default-deny` companion
 
 `default-deny` is intentionally **not** in this component. Bundling

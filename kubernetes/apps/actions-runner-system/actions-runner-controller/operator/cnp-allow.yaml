@@ -18,20 +18,26 @@ spec:
     # GitHub API: the operator authenticates as a GitHub App, polls for
     # the registration token, and reconciles runner-scale-set state.
     #
-    # Cilium 1.19's toFQDNs.matchName doesn't match through Kubernetes
-    # pod DNS search-domain augmentation (pod queries e.g.
-    # `api.github.com.actions-runner-system.svc.cluster.local.`; the
-    # FQDN cache stores the augmented name; matchName misses it). The
-    # bare + `.*` dual-form matchPattern covers both un-augmented and
-    # search-domain-augmented forms — see PR #11492 for the canonical
-    # example.
-    # api.github.com resolves to Azure / GitHub IPs (140.82.112.0/20
-    # observed 140.82.112/113/114 .5/.6 in cilium-dbg fqdn cache).
+    # api.github.com and github.com are at their canonical form (A-only,
+    # no CNAME chain), so Cilium 1.19's toFQDNs.matchPattern silently
+    # fails — see project_cilium_matchpattern_fqdn_limits.md.
+    # PR #11495 originally moved these to toEntities:world; PR #11499
+    # reverted to matchPattern based on PR #11492's pattern; that
+    # revert was wrong for canonical FQDNs. Restore world:443.
+    #
+    # FQDNs covered by the world:443 rule below:
+    #   - api.github.com (canonical, A-only — observed 140.82.113.5)
+    #   - github.com    (canonical, A-only — observed 140.82.114.3)
+    #
+    # *.githubusercontent.com matchPattern retained per audit
+    # classification.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
     - toFQDNs:
-        - matchPattern: "api.github.com"
-        - matchPattern: "api.github.com.*"
-        - matchPattern: "github.com"
-        - matchPattern: "github.com.*"
         - matchPattern: "*.githubusercontent.com"
         - matchPattern: "*.githubusercontent.com.*"
       toPorts:

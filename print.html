@@ -4968,8 +4968,13 @@ mirrors them into other namespaces. It needs
 types — which is basically <code>*</code>, but spelled out explicitly the
 list is auditable. <code>deletecollection</code> and any future verbs added
 by Kubernetes do not need to be auto-granted.</li>
-<li><strong>Proposed remediation</strong>: Pin the verb list explicitly. Cosmetic
-hardening, not a critical fix.</li>
+<li><strong>Status (2026-05-18)</strong>: Remediated via the Tier 3 cleanup batch PR
+(<code>fix/rbac-tier-3-cleanup-batch</code>). Flux <code>postRenderers.kustomize</code>
+patches the chart-rendered <code>ClusterRole/reflector</code> <code>rules[0].verbs</code>
+from <code>["*"]</code> to the explicit
+<code>["get","list","watch","create","update","patch","delete"]</code>. The
+chart hardcodes the wildcard with no values knob; postRenderer is
+the only Flux-native option.</li>
 </ul>
 <h3 id="32-openebs-localpv-provisioner--wildcard-apigroups"><a class="header" href="#32-openebs-localpv-provisioner--wildcard-apigroups">3.2 <code>openebs-localpv-provisioner</code> → wildcard <code>apiGroups</code></a></h3>
 <ul>
@@ -4982,9 +4987,16 @@ hardening, not a critical fix.</li>
 API group. Using <code>apiGroups:["*"]</code> means a future CRD that
 happens to define a resource named <code>pods</code> (unusual but possible)
 would inherit these permissions.</li>
-<li><strong>Proposed remediation</strong>: Upstream the change so <code>apiGroups</code>
-matches the actual groups (<code>[""]</code>, <code>[storage.k8s.io]</code>). Pure
-hygiene — no current threat — but tightens future-proofing.</li>
+<li><strong>Status (2026-05-18)</strong>: <strong>Accepted, not remediated</strong> in the
+Tier 3 cleanup batch. The openebs chart's <code>localpv-provisioner</code>
+template hardcodes <code>apiGroups: ["*"]</code> across 5 separate rules with
+no values knob to scope them. A Flux postRenderer rewriting all 5
+rules' <code>apiGroups</code> would survive the current install but break the
+next chart upgrade if upstream adds a new rule or renames an
+existing one — the deferred-failure mode is worse than the
+steady-state risk for what is purely defensive against a future
+same-named-resource CRD collision. Same reasoning pattern as
+§3.3 longhorn-role.</li>
 </ul>
 <h3 id="33-longhorn-role--wildcard-on-clusterrolebindings--clusterroles"><a class="header" href="#33-longhorn-role--wildcard-on-clusterrolebindings--clusterroles">3.3 <code>longhorn-role</code> → wildcard on <code>clusterrolebindings</code> + <code>clusterroles</code></a></h3>
 <ul>
@@ -5057,20 +5069,28 @@ validates we can recover regardless.</li>
 <code>statefulsets</code>, <code>daemonsets</code> to make VPA recommendations. The
 wildcard would also cover <code>controllerrevisions</code> and any future
 <code>apps/*</code> resource.</li>
-<li><strong>Proposed remediation</strong>: Replace <code>["*"]</code> with the explicit
-resource list. Read-only so blast radius is small, but explicit
-is better.</li>
+<li><strong>Status (2026-05-18)</strong>: <strong>Partially remediated</strong> in the Tier 3
+cleanup batch. The <code>apps/*</code> wildcard itself is hardcoded in the
+chart with no scoping knob, so the read-only <code>apps/*</code> rule is
+<strong>accepted</strong> (read-only blast radius is small).
+The adjacent <code>argoproj.io/rollouts</code> rule — added unconditionally to
+both <code>goldilocks-controller</code> and <code>goldilocks-dashboard</code> ClusterRoles
+— was dropped by setting <code>controller.rbac.enableArgoproj: false</code>
+and <code>dashboard.rbac.enableArgoproj: false</code>. We don't run Argo
+Rollouts in this cluster (no <code>argoproj.io/v1alpha1/Rollout</code> CRD
+installed), so the rule had nothing to read; removing it tightens
+cluster-wide read by one apiGroup at zero functional cost.</li>
 </ul>
 <h2 id="4-tier-3--worth-auditing"><a class="header" href="#4-tier-3--worth-auditing">4. Tier 3 — Worth auditing</a></h2>
 <p>These are not obviously wrong, but they warrant a deeper look the
 next time the relevant chart is touched.</p>
-<div class="table-wrapper"><table><thead><tr><th>Workload</th><th>Role / binding</th><th>Concern</th></tr></thead><tbody>
-<tr><td><code>renovate-operator</code> (renovate ns)</td><td><code>ClusterRole/renovate-operator</code> grants <code>create/get/list/watch/update/delete</code> on <strong>all</strong> <code>secrets</code> cluster-wide</td><td>Renovate mints credential secrets per-job; needs to read its source secrets. Wildcard cluster-wide write feels broader than the workload calls for — verify whether it can be namespace-scoped to <code>renovate</code> only. <strong>Remediated 2026-05-18 (PR #11602)</strong>: set <code>rbac.ownNamespaceOnly: true</code> on the chart; operator now uses Role + RoleBinding scoped to <code>renovate</code> ns.</td></tr>
-<tr><td><code>k8tz</code> (kube-system)</td><td><code>ClusterRole/k8tz-role</code> grants <code>*</code> on <code>configmaps</code> + <code>secrets</code> cluster-wide</td><td>Mutating webhook for TZ injection. Needs read on a small set of CMs/Secrets; cluster-wide <code>*</code> is over-broad.</td></tr>
-<tr><td><code>netdata</code> (observability)</td><td>Reads <code>secrets</code> cluster-wide</td><td>Used to populate dashboards; revisit whether it actually consumes Secret values or just enumerates names.</td></tr>
-<tr><td><code>actions-runner-set-home-ops-gha-rs-kube-mode</code> (Role, actions-runner-system ns)</td><td><code>pods/exec</code>, <code>secrets create/delete</code> within the ns</td><td>Standard GHA kube-mode pattern; in-namespace scope contains the blast radius. Listed here so it is not surprising.</td></tr>
-<tr><td><code>holmesgpt-view</code> (observability)</td><td>Built-in <code>view</code> cluster-wide</td><td>View tier reads almost everything except secrets. HolmesGPT is an LLM-fed pipeline; if the model context ever flows back to a less-trusted channel, this matters.</td></tr>
-<tr><td><code>kubectl-mcp-kubectl-mcp-read-all</code> (mcp-system)</td><td>Custom read-all cluster-wide</td><td>Already restricted to <code>get/list/watch</code> and excludes secrets; flagged only to confirm no future PRs widen it.</td></tr>
+<div class="table-wrapper"><table><thead><tr><th>Workload</th><th>Role / binding</th><th>Concern</th><th>Status (2026-05-18)</th></tr></thead><tbody>
+<tr><td><code>renovate-operator</code> (renovate ns)</td><td><code>ClusterRole/renovate-operator</code> grants <code>create/get/list/watch/update/delete</code> on <strong>all</strong> <code>secrets</code> cluster-wide</td><td>Renovate mints credential secrets per-job; needs to read its source secrets. Wildcard cluster-wide write feels broader than the workload calls for — verify whether it can be namespace-scoped to <code>renovate</code> only.</td><td><strong>Remediated</strong> PR #11602 — <code>rbac.ownNamespaceOnly: true</code>; operator now uses Role + RoleBinding scoped to <code>renovate</code> ns.</td></tr>
+<tr><td><code>k8tz</code> (kube-system)</td><td><code>ClusterRole/k8tz-role</code> grants <code>*</code> on <code>configmaps</code> + <code>secrets</code> cluster-wide</td><td>Mutating webhook for TZ injection. Needs read on a small set of CMs/Secrets; cluster-wide <code>*</code> is over-broad.</td><td><strong>Audit doc was wrong — corrected and accepted</strong> in Tier 3 cleanup batch. The live rule grants only <code>get/list/watch</code> on <code>secrets</code> (not <code>*</code>, and not on <code>configmaps</code> at all). The rule is conditional on <code>webhook.certManager.enabled: true</code> so k8tz can read its own cert-manager-issued webhook TLS Secret (<code>k8tz-webhook-ca</code> in <code>kube-system</code>). The chart hardcodes the cluster-wide scope with no <code>resourceNames</code> knob. Read-only on a narrow predictable name — accept.</td></tr>
+<tr><td><code>netdata</code> (observability)</td><td>Reads <code>secrets</code> cluster-wide</td><td>Used to populate dashboards; revisit whether it actually consumes Secret values or just enumerates names.</td><td><strong>Accepted</strong> in Tier 3 cleanup batch. Live rule is <code>get/list/watch</code> (not write) on <code>secrets</code> + <code>configmaps</code> cluster-wide. Used by netdata's k8s-state collector for service discovery (pod env, configmap volume references) to enrich dashboards. Chart provides only a binary <code>rbac.create: true/false</code> knob — no scoping option. We already run <code>parent</code>-only (<code>child.enabled: false</code>, <code>k8sState.enabled: false</code>); read-only blast radius on a parent-only deployment is acceptable.</td></tr>
+<tr><td><code>actions-runner-set-home-ops-gha-rs-kube-mode</code> (Role, actions-runner-system ns)</td><td><code>pods/exec</code>, <code>secrets create/delete</code> within the ns</td><td>Standard GHA kube-mode pattern; in-namespace scope contains the blast radius. Listed here so it is not surprising.</td><td><strong>Accepted, no change</strong> in Tier 3 cleanup batch. The actual deployed Role is named <code>arc-runner-set-home-ops-gha-rs-kube-mode</code> and is already correctly a namespace-scoped <code>Role</code> (not a <code>ClusterRole</code>). It grants <code>pods</code>, <code>pods/exec</code>, <code>pods/log</code>, <code>jobs</code>, <code>secrets</code> within the <code>actions-runner-system</code> namespace only — the standard GHA kube-mode pattern, blast radius contained. The companion <code>arc-runner-set-home-ops-gha-rs-manager</code> Role grants the controller <code>roles</code>/<code>rolebindings</code>/<code>secrets</code>/<code>serviceaccounts</code> in the same namespace so it can mint per-job ephemeral RBAC. Both are appropriate; the cluster-wide secrets gap that Tier 2 fixed was a separate finding.</td></tr>
+<tr><td><code>holmesgpt-view</code> (observability)</td><td>Built-in <code>view</code> cluster-wide</td><td>View tier reads almost everything except secrets. HolmesGPT is an LLM-fed pipeline; if the model context ever flows back to a less-trusted channel, this matters.</td><td><strong>Accepted</strong> in Tier 3 cleanup batch. The built-in <code>view</code> ClusterRole excludes Secrets by design. HolmesGPT's value proposition is correlated triage across the whole cluster (pods, events, nodes, services, CRs across every namespace) — narrowing scope would defeat the tool. The <code>holmesgpt-extra-read</code> companion ClusterRole (declared in this repo at <code>kubernetes/apps/observability/holmesgpt/app/rbac.yaml</code>) is already explicit (no wildcards) and read-only. Mitigation: HolmesGPT runs against a local Ollama backend (<code>OLLAMA_API_BASE: http://ollama.ai.svc.cluster.local</code>) — no model context flows offsite.</td></tr>
+<tr><td><code>kubectl-mcp-kubectl-mcp-read-all</code> (mcp-system)</td><td>Custom read-all cluster-wide</td><td>Already restricted to <code>get/list/watch</code> and excludes secrets; flagged only to confirm no future PRs widen it.</td><td><strong>Accepted, no change</strong> in Tier 3 cleanup batch. ClusterRole is declared inline in this repo at <code>kubernetes/apps/mcp-system/kubectl-mcp/app/helmrelease.yaml</code> under <code>values.rbac.roles.kubectl-mcp-read-all</code>. Rule set is explicit (no wildcards), read-only, and excludes <code>secrets</code>. Companion <code>kubectl-mcp-write-restricted</code> is a namespace-scoped <code>Role</code> granting only <code>pods delete</code>, <code>pods/exec create</code>, <code>jobs delete</code>, <code>deployments patch/update</code> in <code>mcp-system</code>. Both are appropriately scoped for the MCP server's introspection workload.</td></tr>
 </tbody></table>
 </div>
 <h2 id="5-whitelist--bindings-that-are-justified"><a class="header" href="#5-whitelist--bindings-that-are-justified">5. Whitelist — Bindings that ARE justified</a></h2>

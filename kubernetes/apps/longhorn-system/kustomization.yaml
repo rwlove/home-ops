@@ -5,6 +5,30 @@ kind: Kustomization
 namespace: longhorn-system
 components:
   - ../../components/network-policy/baseline
+  # default-deny re-enabled 2026-05-18 (Phase 2 of careful re-rollout
+  # after the 2026-05-18 mass-rollback; selfhosted PR #11565 + cert-manager
+  # PR #11571 validated first). Longhorn is high-blast-radius — a netpol
+  # mistake can trigger volume detach/attach storms cluster-wide. The 7
+  # per-component CNPs in longhorn/app/cnp-allow.yaml cover every traffic
+  # pattern:
+  #   - longhorn-manager-allow: cluster+host+remote-node + apiserver, plus
+  #     world:443 (upstream telemetry) and NFS:2049 to beast (192.168.1.27)
+  #     for backupTarget=nfs://beast:/mnt/mass_storage/longhorn-backups
+  #   - longhorn-ui-allow: envoy gateway → ui (Pattern A)
+  #   - longhorn-csi-plugin-allow: kubelet (host) ↔ csi-plugin DaemonSet
+  #   - longhorn-csi-sidecars-allow: structural no-op; baseline covers
+  #     apiserver + intra-ns
+  #   - longhorn-data-plane-allow: instance-manager + engine-image broad
+  #     cluster reach (Longhorn's dynamic replica/engine port range), plus
+  #     NFS:2049 to beast for BackingImage / volume backups
+  #   - longhorn-share-manager-allow: RWX exporters; NFS arrives with
+  #     host/remote-node identity (node-side mount.nfs, not pod netns)
+  #   - longhorn-recurring-jobs-allow: structural no-op; baseline covers
+  #     apiserver + intra-ns (manager API)
+  # Validate post-merge: all pods Running, no Volume state regressions, a
+  # representative consumer pod (any longhorn PVC) still healthy, hubble
+  # shows no unexpected drops in longhorn-system over 3-5min window.
+  - ../../components/network-policy/default-deny
 resources:
   - ./namespace.yaml
   - ./longhorn/ks.yaml

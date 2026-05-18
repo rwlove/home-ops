@@ -2803,6 +2803,68 @@ of a sidecar (also eliminates the issue)</li>
 downloads + vpn rely on cluster-perimeter controls (1P/SSO/firewalld,
 no public ingress to these workloads, only <code>bt.thesteamedcrab.com</code> +
 arr/sab/slskd UIs which are still gated by oauth2-proxy).</p>
+<h2 id="full-rollback-2026-05-18--reset-and-redesign"><a class="header" href="#full-rollback-2026-05-18--reset-and-redesign">Full rollback 2026-05-18 — reset and redesign</a></h2>
+<p><strong>Outcome:</strong> All default-deny CNPs deleted from the 19 remaining
+locked-down namespaces. <code>cluster-apps</code> Flux Kustomization SUSPENDED
+to persist the rollback before this commit lands. Posture is now
+<strong>zero default-deny</strong> cluster-wide. Baseline + per-app allow CNPs
+remain in git and in-cluster but have no enforcement effect without
+a default-deny.</p>
+<p><strong>Trigger:</strong> User browser-testing on 2026-05-18 surfaced 5+ broken
+apps despite every namespace passing audit-mode soak and in-cluster
+smoke tests:</p>
+<ul>
+<li><code>collab/pump</code> — OIDC <code>/oauth2/callback</code> token exchange failing
+(fixed in PR #11559 ahead of the rollback; the fix shape became
+the canonical pattern for every oauth2-proxy CNP).</li>
+<li><code>media/suggestarr</code>, <code>media/av1corrector</code>, <code>media/lidarr</code>,
+<code>media/medialyze</code>, <code>media/music-assistant</code> — same OIDC token
+exchange failure as pump.</li>
+<li><code>observability/kube-ops-view</code>, <code>observability/goldilocks</code>,
+<code>observability/netdata</code>, <code>observability/blackbox</code> — non-oauth
+reachability gaps from various directions (not all root-caused
+yet).</li>
+</ul>
+<p><strong>Why a full reset rather than incremental fixes:</strong> the failures
+were not a handful of edge cases — they were a systemic blind spot
+in the verification step. The audit-mode soak window cannot exercise
+flows that don't happen during the soak (server-side OIDC
+<code>/oauth2/callback</code> only fires when a user actually completes a
+browser login), and in-cluster <code>curl --resolve</code> smoke tests bypass
+the socket-lb rewrite path that breaks the policy match (see
+<code>project_cilium_l4_port_targetport.md</code>). Continuing to land
+incremental fixes on top of a partially-broken lockdown would
+keep extending the user-impact window every time a new app's
+OIDC pattern surfaces.</p>
+<p><strong>What was rolled back in git (this commit):</strong></p>
+<ol>
+<li>Removed the <code>network-policy/default-deny</code> component import from
+all 19 namespace <code>kustomization.yaml</code> files that previously had
+it. <code>baseline</code> (DNS, apiserver, intra-ns, monitoring scrape,
+host probes) stays — these allows are harmless without a
+default-deny.</li>
+<li>Corrected the 20 oauth2-proxy CNPs cluster-wide to the
+<code>envoy:10443</code> egress pattern (was <code>toEntities:[world]:443</code> +
+direct <code>authelia:9091</code>, which doesn't match the socket-lb-rewritten
+destination). Mirrors the pump fix (PR #11559) and the storage
+fix (PR #11560). These rules are inert under the current
+no-default-deny posture but will be correct when the next
+re-rollout enables enforcement.</li>
+</ol>
+<p><strong>Re-rollout plan (when work resumes):</strong></p>
+<ul>
+<li>One namespace at a time, smallest first (start with <code>selfhosted</code>).</li>
+<li>After enabling default-deny on a namespace, <strong>user performs real
+external-URL browser verification</strong> (laptop → DNS → cloudflared →
+envoy → backend → oauth2-proxy callback completes → app loads)
+before the next namespace is touched.</li>
+<li>Pattern-A CNPs are no longer accepted as "verified" by <code>curl URL</code>
+returning 302 — the full OIDC round-trip must be exercised by a
+human session.</li>
+<li>The audit-mode soak window stays as a discovery mechanism but is
+no longer the <em>gate</em> for flipping enforce; the user's browser
+check is.</li>
+</ul>
 <h2 id="where-the-testing-missed-honest-retrospective"><a class="header" href="#where-the-testing-missed-honest-retrospective">Where the testing missed (honest retrospective)</a></h2>
 <p>The network-operator agent's prime directive is "you cannot break
 the network." It broke things. The user discovered failures rather

@@ -1,0 +1,63 @@
+---
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: Gitleaks
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: Scan for inline secrets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # PR scans need base-branch history for --log-opts; push scans
+          # don't, but full-depth checkout is cheap on this repo and keeps
+          # the two branches symmetric.
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: 8.30.1
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C "${RUNNER_TEMP}" gitleaks
+          echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"
+
+      - name: Scan PR commits
+        if: github.event_name == 'pull_request'
+        # Only the commits this PR adds. Historical leaks on other refs
+        # (e.g. bc7dddb1, remediated in PR #11587) do not break CI here.
+        run: |
+          gitleaks detect \
+            --no-banner \
+            --config=.gitleaks.toml \
+            --log-opts="origin/${{ github.base_ref }}..HEAD" \
+            --verbose --redact
+
+      - name: Scan working tree
+        if: github.event_name == 'push'
+        # Direct-to-main push: validate the tree as it is, ignore history.
+        run: |
+          gitleaks detect \
+            --no-banner \
+            --config=.gitleaks.toml \
+            --no-git \
+            --verbose --redact

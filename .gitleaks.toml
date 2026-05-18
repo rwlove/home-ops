@@ -1,0 +1,42 @@
+title = "home-ops gitleaks config"
+
+# Inherit every gitleaks built-in rule (generic-api-key, jwt, aws,
+# private-key, etc.) and add repo-specific ones below.
+[extend]
+useDefault = true
+
+# Authelia OIDC client_secret values are stored as argon2id PHC strings.
+# These are the shape Red Hat InfoSec's scanner flagged on bc7dddb1 — fix
+# landed in PR #11587, this rule prevents regression with a clearer id
+# than the default "generic-api-key".
+[[rules]]
+id = "argon2id-phc-string"
+description = "Argon2id PHC password hash (e.g. Authelia client_secret)"
+regex = '''\$argon2id\$v=\d+\$m=\d+,t=\d+,p=\d+\$[A-Za-z0-9+/=]+\$[A-Za-z0-9+/=]+'''
+tags = ["password", "hash", "authelia"]
+
+[allowlist]
+description = "Paths and patterns that are not real secrets"
+paths = [
+  # Local Claude Code worktree artifacts (in .gitignore; absent in CI).
+  '''^\.claude/''',
+  # Archived configs — kept for reference, not deployed.
+  '''^\.archive/''',
+  # kubeadm bootstrap token expires 24h after `kubeadm init`; the
+  # token in this file is a long-expired one-shot artifact from cluster
+  # bring-up, not a live credential.
+  '''^init/clusterconfiguration\.yaml$''',
+]
+regexes = [
+  # ExternalSecret Go-template substitutions like {{ .OIDC_HMAC_SECRET }}
+  # — the actual value lives in 1Password, never in git.
+  '''\{\{\s*\.\w+\s*\}\}''',
+  # Flux postBuild substitution vars like ${SECRET_DOMAIN} and the
+  # default-form ${VAR:-fallback} used in flux-local rendering.
+  '''\$\{[A-Z_][A-Z0-9_]*(?::-[^}]*)?\}''',
+  # Repo convention: comments documenting env-sourced Authelia fields.
+  '''#\s*from\s+env:\s*AUTHELIA_''',
+  # Grafana panel/query refIDs in dashboard JSON, shaped like
+  # `Q-<uuid>-<n>` — auto-generated, not credentials.
+  '''Q-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-\d+''',
+]

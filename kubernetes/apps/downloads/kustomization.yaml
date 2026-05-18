@@ -5,7 +5,18 @@ kind: Kustomization
 namespace: downloads
 components:
   - ../../components/network-policy/baseline
-  - ../../components/network-policy/default-deny
+  # default-deny intentionally OMITTED for downloads ns. The pod-gateway
+  # sidecar's init container brings up a VXLAN tunnel to vpn/pod-gateway
+  # then runs `udhcpc` on vxlan0 to lease an IP. The DHCP discover is a
+  # 255.255.255.255 broadcast encapsulated inside the VXLAN unicast tunnel.
+  # Under cilium default-deny the broadcast return path (DHCP OFFER) is
+  # silently dropped — cilium's identity for the broadcast frame inside
+  # the tunnel doesn't match vpn/pod-gateway's identity. ICMP allow
+  # (PR #11548) was necessary but not sufficient: VXLAN tunnel comes
+  # up, then DHCP times out and the init container crashloops.
+  # Tracked in #11493 / pod-gateway upstream issues #414-#416.
+  # Revisit when cilium broadcast-identity handling improves or we
+  # replace pod-gateway with static-IP wireguard.
 resources:
   - ./namespace.yaml
   - ./jdownloader2/ks.yaml

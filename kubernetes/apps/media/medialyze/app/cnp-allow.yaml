@@ -1,14 +1,10 @@
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
 #
-# No ingress rules needed: medialyze-oauth2-proxy is the only door,
-# and the baseline allow-intra-namespace already permits
-# oauth2-proxy → medialyze on :8080.
-#
-# Egress: medialyze consumes *arr APIs (sonarr/radarr/lidarr) in the
-# same media ns — covered by allow-intra-namespace baseline. No
-# external API calls observed in the helmrelease env. Add specific
-# allows here if medialyze later needs cross-ns or external access.
+# Cilium 1.19 requires at least one ingress or egress rule when
+# endpointSelector is set — empty rules with enableDefaultDeny:false
+# failed schema validation and never applied. Same bug class as the
+# goldilocks-allow fix (PR #11597).
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -20,3 +16,12 @@ spec:
   enableDefaultDeny:
     egress: false
     ingress: false
+  ingress:
+    # oauth2-proxy → medialyze backend
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: medialyze-oauth2-proxy
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP

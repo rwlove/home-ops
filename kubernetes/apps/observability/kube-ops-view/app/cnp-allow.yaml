@@ -1,14 +1,10 @@
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
 #
-# No ingress rules needed: kube-ops-view-oauth2-proxy is the only
-# door, and the baseline allow-intra-namespace already permits
-# oauth2-proxy → kube-ops-view on :8080. Surfaced as a broken app
-# during the 2026-05-18 lockdown rollback retrospective.
-#
-# apiserver egress is covered by the baseline allow-apiserver rule;
-# kube-ops-view uses an in-cluster client (--in-cluster) to enumerate
-# nodes and pods.
+# Cilium 1.19 requires at least one ingress or egress rule when
+# endpointSelector is set — empty rules with enableDefaultDeny:false
+# failed schema validation and never applied. Same bug class as the
+# goldilocks-allow fix (PR #11597).
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -20,3 +16,12 @@ spec:
   enableDefaultDeny:
     egress: false
     ingress: false
+  ingress:
+    # oauth2-proxy → kube-ops-view backend (default chart port 8080)
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: kube-ops-view-oauth2-proxy
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP

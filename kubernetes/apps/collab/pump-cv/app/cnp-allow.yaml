@@ -30,12 +30,25 @@ spec:
               protocol: TCP
     # Ultralytics YOLOv8 model download from github releases on first
     # run (then cached to ceph-block under /cache). Subsequent restarts
-    # use the cached weights. Bare + `.*` matchPattern covers both
-    # un-augmented and search-domain-augmented FQDN forms (Cilium 1.19
-    # search-domain quirk — see PR #11492).
+    # use the cached weights.
+    #
+    # github.com is at its canonical DNS form (A-records only, no
+    # CNAME chain), so Cilium 1.19's toFQDNs.matchPattern silently
+    # fails — see project_cilium_matchpattern_fqdn_limits.md.
+    # Restore world:443.
+    #
+    # FQDNs covered by the world:443 rule below:
+    #   - github.com  (canonical, A-only)
+    #
+    # *.githubusercontent.com matchPattern retained per audit
+    # classification.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
     - toFQDNs:
-        - matchPattern: "github.com"
-        - matchPattern: "github.com.*"
         - matchPattern: "*.githubusercontent.com"
         - matchPattern: "*.githubusercontent.com.*"
       toPorts:

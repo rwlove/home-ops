@@ -27,39 +27,19 @@ spec:
     # External HTTPS for provisioning. The ai-dock/comfyui provisioning
     # script pulls model weights + custom nodes from these hosts on
     # first start and on AUTO_UPDATE.
+    # Intended endpoints:
+    #   github.com family, *.githubusercontent.com (CNAME-fronted)
+    #   huggingface.co + *.huggingface.co + *.hf.co (CNAME-fronted)
+    #   civitai.com (CNAME-fronted)
+    #   pypi.org + files.pythonhosted.org (canonical — matchPattern
+    #     silently fails per project_cilium_matchpattern_fqdn_limits.md,
+    #     same gap immich-mcp hit in PR #11533)
     #
-    # Cilium 1.19's toFQDNs.matchName doesn't match through Kubernetes
-    # pod DNS search-domain augmentation (pods query e.g.
-    # `huggingface.co.ai.svc.cluster.local.` and the FQDN cache stores
-    # the augmented name; matchName misses it). The bare + `.*`
-    # dual-form matchPattern covers both un-augmented and
-    # search-domain-augmented forms — see PR #11492 for the canonical
-    # example.
-    - toFQDNs:
-        - matchPattern: "github.com"
-        - matchPattern: "github.com.*"
-        - matchPattern: "codeload.github.com"
-        - matchPattern: "codeload.github.com.*"
-        - matchPattern: "raw.githubusercontent.com"
-        - matchPattern: "raw.githubusercontent.com.*"
-        - matchPattern: "*.githubusercontent.com"
-        - matchPattern: "*.githubusercontent.com.*"
-        - matchPattern: "huggingface.co"
-        - matchPattern: "huggingface.co.*"
-        - matchPattern: "*.huggingface.co"
-        - matchPattern: "*.huggingface.co.*"
-        - matchPattern: "cdn-lfs.huggingface.co"
-        - matchPattern: "cdn-lfs.huggingface.co.*"
-        - matchPattern: "*.hf.co"
-        - matchPattern: "*.hf.co.*"
-        - matchPattern: "civitai.com"
-        - matchPattern: "civitai.com.*"
-        - matchPattern: "*.civitai.com"
-        - matchPattern: "*.civitai.com.*"
-        - matchPattern: "pypi.org"
-        - matchPattern: "pypi.org.*"
-        - matchPattern: "files.pythonhosted.org"
-        - matchPattern: "files.pythonhosted.org.*"
+    # Since the pypi family alone forces a toEntities:[world]+443 to
+    # avoid silent breakage, the whole rule collapses to world:443 —
+    # adding matchPattern allows for the CNAME-fronted ones would be
+    # redundant. Matches the precedent in PRs #11498/#11512/#11517/#11533.
+    - toEntities: [world]
       toPorts:
         - ports:
             - port: "443"

@@ -34,8 +34,20 @@ spec:
               protocol: TCP
             - port: "8971"
               protocol: TCP
-    # NOTE: cameras live on the SECURITY VLAN and are reached via the
-    # multus-attached secondary NIC (frigate-security-static). Camera
-    # RTSP/HTTP pulls bypass Cilium entirely — only eth0 traffic
-    # (apiserver, DNS, intra-cluster API consumers) is governed here.
-    # No external egress on eth0.
+    # NOTE: most cameras live on the SECURITY VLAN and are reached via
+    # the multus-attached secondary NIC (frigate-security-static).
+    # Those pulls bypass Cilium entirely.
+    #
+    # birdcam is the exception — it sits on the main LAN at
+    # 192.168.1.31, so its RTSP + HTTP pulls go via eth0 and ARE
+    # governed by Cilium. Explicit toCIDR egress required after the
+    # home-namespace default-deny rollout (PR #11592, 2026-05-18).
+  egress:
+    - toCIDR:
+        - 192.168.1.31/32
+      toPorts:
+        - ports:
+            - port: "554"
+              protocol: TCP
+            - port: "80"
+              protocol: TCP

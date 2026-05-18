@@ -9,3 +9,18 @@ resources:
   - ./namespace.yaml
   - ./authelia/ks.yaml
   - ./lldap/ks.yaml
+# Strip Cilium's L7 DNS proxy rule from baseline allow-dns in this
+# namespace. The L7 `rules.dns.matchPattern: "*"` proxies every DNS
+# query through cilium-agent to populate the FQDN cache for later
+# toFQDNs: rules — but no policy in `auth` uses toFQDNs, and the
+# added latency previously broke authelia → LLDAP timing (soulseek
+# 403). L4 DNS (UDP/TCP 53 to kube-dns) remains allowed.
+patches:
+  - target:
+      group: cilium.io
+      version: v2
+      kind: CiliumNetworkPolicy
+      name: allow-dns
+    patch: |
+      - op: remove
+        path: /spec/egress/0/toPorts/0/rules

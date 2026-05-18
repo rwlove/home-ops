@@ -5,6 +5,19 @@ kind: Kustomization
 namespace: databases
 components:
   - ../../components/network-policy/baseline
+  # default-deny re-enabled 2026-05-18 (Phase 2 of re-rollout, after
+  # selfhosted PR #11565 + cert-manager PR #11571 validated). databases
+  # uses a label-selector model rather than per-cluster CNPs:
+  # postgres-instances-allow selects all `cnpg.io/podRole: instance` pods
+  # (24 clusters × 3 instances = 72 pods covered by one policy) with
+  # ingress `fromEntities: cluster` :5432 + egress to storage/garage:3900
+  # for Barman backups. plugin-barman-cloud-allow handles operator-side
+  # Garage egress; cloudnative-pg-allow opens 9443 to kube-apiserver for
+  # the webhook. baseline (apiserver + DNS + intra-namespace) handles
+  # operator egress to k8s API. dragonfly/pgadmin/qdrant each have their
+  # own allow CNP. No browser UI to test; validate via Cluster health +
+  # cross-ns consumer connectivity post-merge.
+  - ../../components/network-policy/default-deny
 resources:
   - ./namespace.yaml
   - ./priority-class.yaml

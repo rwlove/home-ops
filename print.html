@@ -85,7 +85,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded affix "><li class="part-title">Welcome</li><li class="chapter-item expanded "><a href="introduction.html">👋 Introduction</a></li><li class="chapter-item expanded "><a href="power-outage.html">Power Outage Recovery</a></li><li class="chapter-item expanded "><a href="coral.html">Coral</a></li><li class="chapter-item expanded "><a href="p40.html">nVidia Tesla P40</a></li><li class="chapter-item expanded "><a href="cluster_rebuild.html">Cluster Rebuild Actions</a></li><li class="chapter-item expanded "><a href="cluster_upgrade.html">Cluster Upgrade Runbook</a></li><li class="chapter-item expanded "><a href="promote_worker_to_control_plane.html">Promote Worker to Control Plane</a></li><li class="chapter-item expanded "><a href="per-route-cert-migration.html">Per-Route Cert Migration</a></li><li class="chapter-item expanded "><a href="init_teardown.html">Initialization and Teardown</a></li><li class="chapter-item expanded "><a href="immich_cnpg.html">Immich restore to new CNPG database</a></li><li class="chapter-item expanded "><a href="offsite_recovery.html">Offsite Recovery — Immich and Paperless</a></li><li class="chapter-item expanded "><a href="master1_etcd_disk_swap.html">master1 etcd Disk Swap</a></li><li class="chapter-item expanded "><a href="networkpolicy_rollout_plan.html">NetworkPolicy Rollout Plan</a></li><li class="chapter-item expanded "><a href="egress_restriction_design.html">Egress Restriction Design Proposal</a></li><li class="chapter-item expanded "><a href="github_webhook.html">Github Webhook</a></li><li class="chapter-item expanded "><a href="limits.html">Resources: Limits and Requests Philosophy</a></li><li class="chapter-item expanded "><a href="debugging.html">Debugging</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded affix "><li class="part-title">Welcome</li><li class="chapter-item expanded "><a href="introduction.html">👋 Introduction</a></li><li class="chapter-item expanded "><a href="power-outage.html">Power Outage Recovery</a></li><li class="chapter-item expanded "><a href="coral.html">Coral</a></li><li class="chapter-item expanded "><a href="p40.html">nVidia Tesla P40</a></li><li class="chapter-item expanded "><a href="cluster_rebuild.html">Cluster Rebuild Actions</a></li><li class="chapter-item expanded "><a href="cluster_upgrade.html">Cluster Upgrade Runbook</a></li><li class="chapter-item expanded "><a href="promote_worker_to_control_plane.html">Promote Worker to Control Plane</a></li><li class="chapter-item expanded "><a href="per-route-cert-migration.html">Per-Route Cert Migration</a></li><li class="chapter-item expanded "><a href="init_teardown.html">Initialization and Teardown</a></li><li class="chapter-item expanded "><a href="immich_cnpg.html">Immich restore to new CNPG database</a></li><li class="chapter-item expanded "><a href="offsite_recovery.html">Offsite Recovery — Immich and Paperless</a></li><li class="chapter-item expanded "><a href="master1_etcd_disk_swap.html">master1 etcd Disk Swap</a></li><li class="chapter-item expanded "><a href="networkpolicy_rollout_plan.html">NetworkPolicy Rollout Plan</a></li><li class="chapter-item expanded "><a href="egress_restriction_design.html">Egress Restriction Design Proposal</a></li><li class="chapter-item expanded "><a href="github_webhook.html">Github Webhook</a></li><li class="chapter-item expanded "><a href="limits.html">Resources: Limits and Requests Philosophy</a></li><li class="chapter-item expanded "><a href="rbac_audit.html">RBAC Audit Findings</a></li><li class="chapter-item expanded "><a href="debugging.html">Debugging</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -3985,6 +3985,177 @@ approach A is fragile beyond just IP-rotation.</li>
 <li><strong>Workloads with known memory leaks</strong> (e.g. Frigate's ffmpeg leak — see project memory) need a memory limit that's higher than steady-state to provide headroom before OOMKilled restarts kick in.</li>
 </ul>
 <p>When the exception is permanent, leave a comment in the manifest noting <em>why</em> the rule is being broken.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="rbac-audit-findings"><a class="header" href="#rbac-audit-findings">RBAC Audit Findings</a></h1>
+<p>Snapshot date: 2026-05-18. Audit scope: every <code>ClusterRoleBinding</code>,
+<code>ClusterRole</code>, and <code>RoleBinding</code> in the cluster, with extra attention
+to anything bound to <code>cluster-admin</code> or carrying wildcard verbs /
+resources.</p>
+<p>This is an awareness document. <strong>No RBAC was changed by this audit.</strong>
+Findings are sorted into tiers so a follow-up PR can pick off the
+easiest, highest-value wins first.</p>
+<h2 id="1-summary"><a class="header" href="#1-summary">1. Summary</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Metric</th><th>Count</th></tr></thead><tbody>
+<tr><td>Total <code>ClusterRoleBindings</code></td><td>154</td></tr>
+<tr><td>Total <code>ClusterRoles</code></td><td>200</td></tr>
+<tr><td>Total <code>RoleBindings</code> (all namespaces)</td><td>121</td></tr>
+<tr><td>CRBs to <code>cluster-admin</code></td><td>5</td></tr>
+<tr><td>Non-system <code>ClusterRoles</code> with wildcard verbs or wildcard resources</td><td>13</td></tr>
+<tr><td><code>RoleBindings</code> referencing the built-in <code>admin</code>/<code>edit</code>/<code>view</code> ClusterRoles</td><td>0</td></tr>
+</tbody></table>
+</div>
+<p>Headline reads: this cluster is in reasonable shape on RBAC. The
+worst offender is a single helm-chart-shipped <code>longhorn-support-bundle</code>
+binding to <code>cluster-admin</code> for a <code>ServiceAccount</code> that does not run
+anything today. Everything else is either platform infrastructure
+(Flux, Cilium, cert-manager, CNPG) or genuine operators whose grants
+match their reconciler scope.</p>
+<p>What this audit did <strong>not</strong> check: aggregated <code>view</code>-tier roles
+(reflector, holmesgpt-extra-read, kubectl-mcp), <code>system:*</code>
+ClusterRoles owned by kubeadm / kube-controller-manager, and the
+default ServiceAccount surface area in each tenant namespace. Those
+are worth a second pass if this one finds traction.</p>
+<h2 id="2-tier-1--definitely-over-permissive"><a class="header" href="#2-tier-1--definitely-over-permissive">2. Tier 1 — Definitely over-permissive</a></h2>
+<p>These are bindings where <code>cluster-admin</code> (or equivalent unrestricted
+power) is granted to a workload whose actual function does not
+require it.</p>
+<h3 id="21-longhorn-support-bundle--cluster-admin"><a class="header" href="#21-longhorn-support-bundle--cluster-admin">2.1 <code>longhorn-support-bundle</code> → <code>cluster-admin</code></a></h3>
+<ul>
+<li><strong>Workload</strong>: <code>ServiceAccount/longhorn-system/longhorn-support-bundle</code></li>
+<li><strong>Binding</strong>: <code>ClusterRoleBinding/longhorn-support-bundle</code> → <code>ClusterRole/cluster-admin</code></li>
+<li><strong>Runtime state</strong>: No pod is using this SA right now (<code>kubectl get pods -n longhorn-system -l app=longhorn-support-bundle</code> returns
+nothing). The SA + binding exist because the Longhorn chart
+unconditionally ships them; the SA is only consumed when a support
+bundle is being collected, and the binding stays in place between
+collections.</li>
+<li><strong>Actual need</strong>: A support-bundle collector needs broad <strong>read</strong>
+across the cluster (pods, services, events, CRs, logs) plus the
+ability to write its bundle output. <code>cluster-admin</code> is hugely
+beyond that — <code>view</code> plus targeted writes to its own namespace
+would do.</li>
+<li><strong>Proposed remediation</strong>: File an upstream Longhorn issue
+requesting a scoped role for the support bundle SA; in the
+meantime, fork the binding to <code>ClusterRole/view</code> in the chart's
+values (or via a Flux post-render patch) so a leaked token cannot
+pivot to full cluster takeover. Confirm Longhorn's support-bundle
+collector still functions before merging.</li>
+</ul>
+<p>This is the single most concerning finding because it is the cleanest
+"unjustified" <code>cluster-admin</code> in the cluster.</p>
+<h2 id="3-tier-2--probably-over-permissive"><a class="header" href="#3-tier-2--probably-over-permissive">3. Tier 2 — Probably over-permissive</a></h2>
+<p>These bindings are not <code>cluster-admin</code>, but the granted role carries
+wildcards on resources or verbs that exceed the workload's apparent
+need.</p>
+<h3 id="31-reflector--wildcard-on-secrets--configmaps"><a class="header" href="#31-reflector--wildcard-on-secrets--configmaps">3.1 <code>reflector</code> → wildcard on <code>secrets</code> + <code>configmaps</code></a></h3>
+<ul>
+<li><strong>Workload</strong>: <code>ServiceAccount/kube-system/reflector</code></li>
+<li><strong>ClusterRole rule</strong>: <code>apiGroups:[""], resources:[configmaps,secrets], verbs:["*"]</code></li>
+<li><strong>Actual need</strong>: Reflector reads source secrets/configmaps and
+mirrors them into other namespaces. It needs
+<code>get/list/watch/create/update/patch/delete</code> on those two resource
+types — which is basically <code>*</code>, but spelled out explicitly the
+list is auditable. <code>deletecollection</code> and any future verbs added
+by Kubernetes do not need to be auto-granted.</li>
+<li><strong>Proposed remediation</strong>: Pin the verb list explicitly. Cosmetic
+hardening, not a critical fix.</li>
+</ul>
+<h3 id="32-openebs-localpv-provisioner--wildcard-apigroups"><a class="header" href="#32-openebs-localpv-provisioner--wildcard-apigroups">3.2 <code>openebs-localpv-provisioner</code> → wildcard <code>apiGroups</code></a></h3>
+<ul>
+<li><strong>Workload</strong>: <code>ServiceAccount/storage/openebs-localpv-provisioner</code></li>
+<li><strong>ClusterRole rule(s)</strong>: Multiple rules with <code>apiGroups:["*"]</code> on
+<code>nodes</code>, <code>namespaces</code>, <code>pods</code>, <code>events</code>, <code>endpoints</code>,
+<code>resourcequotas</code>, <code>limitranges</code>, <code>storageclasses</code>,
+<code>persistentvolumeclaims</code>, <code>persistentvolumes</code>.</li>
+<li><strong>Actual need</strong>: Those resources only exist in the core (<code>""</code>)
+API group. Using <code>apiGroups:["*"]</code> means a future CRD that
+happens to define a resource named <code>pods</code> (unusual but possible)
+would inherit these permissions.</li>
+<li><strong>Proposed remediation</strong>: Upstream the change so <code>apiGroups</code>
+matches the actual groups (<code>[""]</code>, <code>[storage.k8s.io]</code>). Pure
+hygiene — no current threat — but tightens future-proofing.</li>
+</ul>
+<h3 id="33-longhorn-role--wildcard-on-clusterrolebindings--clusterroles"><a class="header" href="#33-longhorn-role--wildcard-on-clusterrolebindings--clusterroles">3.3 <code>longhorn-role</code> → wildcard on <code>clusterrolebindings</code> + <code>clusterroles</code></a></h3>
+<ul>
+<li><strong>Workload</strong>: <code>ServiceAccount/longhorn-system/longhorn-service-account</code></li>
+<li><strong>Rule</strong>: <code>apiGroups:["rbac.authorization.k8s.io"], resources:[clusterrolebindings,clusterroles], verbs:["*"]</code></li>
+<li><strong>Actual need</strong>: Longhorn creates per-driver RBAC at install
+time, but at steady state it reconciles its own existing
+bindings rather than minting fresh cluster-scoped RBAC. A
+compromised Longhorn manager pod can grant itself <code>cluster-admin</code>
+via this rule, which makes Longhorn an implicit
+privilege-escalation path equivalent to Tier 1.</li>
+<li><strong>Proposed remediation</strong>: Verify what Longhorn actually needs
+here; if it only mutates a known list of its own roles, scope
+the rule by <code>resourceNames</code>. Otherwise document the elevated
+blast radius explicitly so it is not silently re-evaluated as
+"just a storage driver."</li>
+</ul>
+<h3 id="34-goldilocks-controller--wildcard-resources-under-apps"><a class="header" href="#34-goldilocks-controller--wildcard-resources-under-apps">3.4 <code>goldilocks-controller</code> → wildcard <code>resources</code> under <code>apps</code></a></h3>
+<ul>
+<li><strong>Workload</strong>: <code>ServiceAccount/observability/goldilocks-controller</code></li>
+<li><strong>Rule</strong>: <code>apiGroups:["apps"], resources:["*"], verbs:["get","list","watch"]</code></li>
+<li><strong>Actual need</strong>: Goldilocks reads <code>deployments</code>,
+<code>statefulsets</code>, <code>daemonsets</code> to make VPA recommendations. The
+wildcard would also cover <code>controllerrevisions</code> and any future
+<code>apps/*</code> resource.</li>
+<li><strong>Proposed remediation</strong>: Replace <code>["*"]</code> with the explicit
+resource list. Read-only so blast radius is small, but explicit
+is better.</li>
+</ul>
+<h2 id="4-tier-3--worth-auditing"><a class="header" href="#4-tier-3--worth-auditing">4. Tier 3 — Worth auditing</a></h2>
+<p>These are not obviously wrong, but they warrant a deeper look the
+next time the relevant chart is touched.</p>
+<div class="table-wrapper"><table><thead><tr><th>Workload</th><th>Role / binding</th><th>Concern</th></tr></thead><tbody>
+<tr><td><code>renovate-operator</code> (renovate ns)</td><td><code>ClusterRole/renovate-operator</code> grants <code>create/get/list/watch/update/delete</code> on <strong>all</strong> <code>secrets</code> cluster-wide</td><td>Renovate mints credential secrets per-job; needs to read its source secrets. Wildcard cluster-wide write feels broader than the workload calls for — verify whether it can be namespace-scoped to <code>renovate</code> only.</td></tr>
+<tr><td><code>k8tz</code> (kube-system)</td><td><code>ClusterRole/k8tz-role</code> grants <code>*</code> on <code>configmaps</code> + <code>secrets</code> cluster-wide</td><td>Mutating webhook for TZ injection. Needs read on a small set of CMs/Secrets; cluster-wide <code>*</code> is over-broad.</td></tr>
+<tr><td><code>netdata</code> (observability)</td><td>Reads <code>secrets</code> cluster-wide</td><td>Used to populate dashboards; revisit whether it actually consumes Secret values or just enumerates names.</td></tr>
+<tr><td><code>actions-runner-set-home-ops-gha-rs-kube-mode</code> (Role, actions-runner-system ns)</td><td><code>pods/exec</code>, <code>secrets create/delete</code> within the ns</td><td>Standard GHA kube-mode pattern; in-namespace scope contains the blast radius. Listed here so it is not surprising.</td></tr>
+<tr><td><code>holmesgpt-view</code> (observability)</td><td>Built-in <code>view</code> cluster-wide</td><td>View tier reads almost everything except secrets. HolmesGPT is an LLM-fed pipeline; if the model context ever flows back to a less-trusted channel, this matters.</td></tr>
+<tr><td><code>kubectl-mcp-kubectl-mcp-read-all</code> (mcp-system)</td><td>Custom read-all cluster-wide</td><td>Already restricted to <code>get/list/watch</code> and excludes secrets; flagged only to confirm no future PRs widen it.</td></tr>
+</tbody></table>
+</div>
+<h2 id="5-whitelist--bindings-that-are-justified"><a class="header" href="#5-whitelist--bindings-that-are-justified">5. Whitelist — Bindings that ARE justified</a></h2>
+<p>So these do not get re-flagged in subsequent audits.</p>
+<h3 id="51-cluster-admin-bindings"><a class="header" href="#51-cluster-admin-bindings">5.1 <code>cluster-admin</code> bindings</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Subject</th><th>Justification</th></tr></thead><tbody>
+<tr><td><code>Group/system:masters</code></td><td>Built-in. Required for the bootstrap kubeconfig. Untouchable.</td></tr>
+<tr><td><code>Group/kubeadm:cluster-admins</code></td><td>Built-in (kubeadm). Required for the cluster-admin group on the cluster.</td></tr>
+<tr><td><code>flux-system/kustomize-controller</code> + <code>flux-system/helm-controller</code> (via <code>cluster-reconciler-flux-system</code>)</td><td>Flux GitOps reconcilers must be able to apply arbitrary cluster resources by design. This is the whole-cluster GitOps model.</td></tr>
+<tr><td><code>flux-system/flux-operator</code></td><td>Same — the operator manages Flux itself across all namespaces.</td></tr>
+<tr><td><code>longhorn-system/longhorn-support-bundle</code></td><td><strong>Not</strong> whitelisted. See §2.1.</td></tr>
+</tbody></table>
+</div>
+<h3 id="52-broad-but-justified-clusterroles"><a class="header" href="#52-broad-but-justified-clusterroles">5.2 Broad-but-justified <code>ClusterRoles</code></a></h3>
+<ul>
+<li><code>cilium-operator</code>, <code>cilium</code> — eBPF CNI needs cluster-wide visibility into pods/nodes/services to install datapath state.</li>
+<li><code>cert-manager</code> family — issuance machinery must reach CSRs, secrets, ingresses cluster-wide.</li>
+<li><code>cloudnative-pg</code> — operates per-tenant <code>Cluster</code> CRs in any namespace.</li>
+<li><code>cloudnative-pg</code>'s sibling <code>plugin-barman-cloud</code> — same scope.</li>
+<li><code>istiod-clusterrole-istio-system</code> — service-mesh control plane requires cluster-wide visibility of network resources.</li>
+<li><code>external-secrets-controller</code>, <code>external-secrets-cert-controller</code> — by design reads/writes Secrets in every tenant namespace.</li>
+<li><code>kube-prometheus-stack-operator</code>, <code>kube-prometheus-stack-prometheus</code>, <code>kube-state-metrics</code>, <code>vector-agent</code>, <code>loki</code>, <code>grafana-clusterrole</code> (read-only on configmaps/secrets) — observability stack needs cluster-wide read.</li>
+<li><code>crd-controller-flux-system</code> — wildcard on every Flux apiGroup, but bound exclusively to Flux's own controllers; intrinsically justified.</li>
+<li><code>rook-ceph-system</code>, <code>rook-ceph-global</code>, <code>rook-ceph-mgr-cluster</code>, <code>rook-ceph-osd</code> — storage operator scope.</li>
+<li>All <code>ceph-csi-*</code> plugins — CSI drivers must enumerate volumes/snapshots cluster-wide.</li>
+<li><code>node-feature-discovery</code>, <code>nvidia-*</code>, <code>gpu-operator</code>, <code>inteldeviceplugins-*</code> — device plugins need cluster-wide node visibility.</li>
+<li><code>multus</code>, <code>coredns</code>, <code>kube-vip</code>, <code>metrics-server</code>, <code>descheduler</code>, <code>node-problem-detector</code>, <code>kubelet-csr-approver</code> — networking/node-level platform components.</li>
+<li><code>coroot-cluster-agent</code>, <code>kube-ops-view</code>, <code>goldilocks-dashboard</code> (read-only on <code>apps/*</code>), <code>silence-operator</code> — observability with cluster-wide read needs.</li>
+<li><code>vpa-*</code>, <code>goldilocks-controller</code> (with the wildcard-resources caveat in §3.4) — VPA needs cluster-wide workload visibility.</li>
+<li><code>actions-runner-controller</code> (cluster-scoped CRs in its own apiGroup) — controller manages its own CRDs cluster-wide; the in-namespace workflow-pod Role is the more interesting one (Tier 3).</li>
+<li><code>mcp-gateway-controller</code> — manages <code>mcp.kuadrant.io</code> CRs and Gateway/HTTPRoute resources cluster-wide; scope matches reconciler.</li>
+<li><code>glance</code> — dashboard widget; rule set is narrow (list-only on a small set of cluster-scoped resources).</li>
+</ul>
+<h2 id="6-notes-for-the-next-pass"><a class="header" href="#6-notes-for-the-next-pass">6. Notes for the next pass</a></h2>
+<ul>
+<li>Aggregated <code>system:*</code> roles owned by kube-controller-manager were
+not audited; they are upstream and changing them would diverge
+from kubeadm.</li>
+<li>Service-account-scope hygiene per workload (i.e. is each
+HelmRelease running under a dedicated SA vs the namespace
+<code>default</code>?) was not checked; would be a good follow-up.</li>
+<li>No OPA / Kyverno / ValidatingAdmissionPolicy rules were
+evaluated — the standing rule in the audit prompt is to not
+reach for those yet.</li>
+</ul>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="debugging"><a class="header" href="#debugging">Debugging</a></h1>
 <p>Operator-first reference for triaging issues in this cluster. Roughly ordered from most-used to least.</p>
 <h2 id="first-moves"><a class="header" href="#first-moves">First moves</a></h2>

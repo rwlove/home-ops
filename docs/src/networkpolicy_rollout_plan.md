@@ -41,6 +41,57 @@ Decision #1.
 
 **~35 PRs merged** across baselines, lockdowns, fixes, and follow-ups.
 
+## Where the testing missed (honest retrospective)
+
+The network-operator agent's prime directive is "you cannot break
+the network." It broke things. The user discovered failures rather
+than the agent catching them. This is what slipped by:
+
+1. **In-cluster smoke tests gave false confidence.** Lockdown
+   agents tested with `curl --resolve` from inside the cluster,
+   bypassing the actual external path (laptop → DNS → cloudflared
+   → envoy → backend). The initial network-ns lockdown (PR #11524)
+   passed all in-cluster checks while every external URL was
+   timing out cluster-wide. User noticed first.
+
+2. **Pattern A 302 != working OIDC.** Smoke tests treated "URL
+   returns 302" as success. But oauth2-proxy returns 302 to the
+   login page even when its server-side token exchange (the call
+   from oauth2-proxy pod → authelia after browser-side login) is
+   blocked. The actual user-visible failure happens at the
+   `/oauth2/callback` step, which isn't exercised by `curl URL`.
+   User discovered pump login hanging the morning after collab
+   lockdown shipped.
+
+3. **`matchPattern` for canonical FQDNs was assumed to work** based
+   on its name. It silently fails for FQDNs without CNAME chains
+   (1Password Connect, ACME, pushover, mailgun, auth.${SECRET_DOMAIN}).
+   When paperless OIDC surfaced this mid-rollout, the fix was
+   applied only to paperless instead of immediately auditing every
+   matchPattern allow. Six hours of silent breakage elapsed before
+   the user prompted the audit.
+
+4. **Cilium socket-lb rewrite happens BEFORE policy check.**
+   In-cluster pods that hit a public hostname via split-horizon
+   DNS get their destination rewritten from LB IP to envoy pod IP
+   plus targetPort BEFORE BPF L4 policy evaluates. A
+   `toEntities: [world]` plus port 443 allow doesn't match the
+   rewritten destination (`network/envoy:10443`). Cross-ns
+   Pattern E to envoy is also required. Missed during the FQDN
+   audit and surfaced when the user reported pump's `/oauth2/`
+   URL hanging.
+
+5. **No end-to-end OIDC test gate.** Pattern A overlays were
+   verified by curl returning 302. There was no test that
+   completed a full OIDC login (curl with cookie jar through the
+   full redirect + callback chain). Every oauth2-proxy app in the
+   cluster was potentially affected by gaps #2-4 above.
+
+These are not learnings about Cilium — they are testing strategy
+gaps in the network-operator agent's verification step. Future
+network changes should verify from the user's actual path, not
+from an idealized in-cluster path that bypasses the failure mode.
+
 ## Key learnings (memorialized to agent memory)
 
 - **Cilium L4 policy evaluates against pod `targetPort`, not Service

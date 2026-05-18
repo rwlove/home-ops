@@ -60,6 +60,11 @@ require it.
   values (or via a Flux post-render patch) so a leaked token cannot
   pivot to full cluster takeover. Confirm Longhorn's support-bundle
   collector still functions before merging.
+- **Status (2026-05-18)**: Remediated via PR #11601 — Flux postRenderer
+  patches the chart-shipped `ClusterRoleBinding/longhorn-support-bundle`
+  from `cluster-admin` to `view`. Verify support-bundle collection still
+  works the next time one is needed; if it fails on insufficient
+  permissions, drop the patch and file the upstream issue.
 
 This is the single most concerning finding because it is the cleanest
 "unjustified" `cluster-admin` in the cluster.
@@ -108,11 +113,54 @@ need.
   compromised Longhorn manager pod can grant itself `cluster-admin`
   via this rule, which makes Longhorn an implicit
   privilege-escalation path equivalent to Tier 1.
-- **Proposed remediation**: Verify what Longhorn actually needs
-  here; if it only mutates a known list of its own roles, scope
-  the rule by `resourceNames`. Otherwise document the elevated
-  blast radius explicitly so it is not silently re-evaluated as
-  "just a storage driver."
+- **Status (2026-05-18)**: **Accepted, documented, not remediated**.
+  The longhorn chart's `longhorn-role` template hardcodes this rule
+  in `clusterrole.yaml` with no values knob to scope it, and Longhorn
+  uses these permissions during chart upgrades to reconcile its own
+  per-driver `ClusterRole`/`ClusterRoleBinding` set (longhorn-manager,
+  longhorn-ui-service-account, CSI components). Patching the rule
+  via Flux postRenderer to add `resourceNames` would survive the
+  current install but break the next chart upgrade if Longhorn adds a
+  new role or renames an existing one — a deferred failure mode that
+  is worse than the steady-state risk.
+- **Blast radius if compromised**: Total cluster takeover. Any pod
+  running with `longhorn-service-account` (longhorn-manager DaemonSet
+  on every node; longhorn-driver-deployer; longhorn-csi components)
+  can `kubectl create clusterrolebinding self-admin --clusterrole=
+  cluster-admin --serviceaccount=longhorn-system:longhorn-service-
+  account` and have full cluster control on the next reconcile. This
+  is on par with Tier 1 (`longhorn-support-bundle` → `cluster-admin`,
+  remediated separately) — except the support-bundle SA had no pod
+  consuming it, whereas longhorn-service-account is mounted into
+  ~10 pods per node continuously.
+- **Compensating controls**:
+  - Longhorn-system namespace network policy restricts egress (see
+    `kubernetes/components/network-policy/`); a compromised longhorn-
+    manager cannot exfiltrate to arbitrary endpoints without first
+    pivoting to a host with looser egress.
+  - Longhorn images are pinned by tag (v1.11.0-hotfix-1) and pulled
+    via the in-cluster ZOT registry cache, reducing supply-chain
+    surface vs pulling tag-floating from docker.io directly.
+  - Backup target (`nfs://beast:/mnt/mass_storage/longhorn-backups`)
+    is read+write from longhorn-manager pods, so a compromise that
+    encrypts or deletes the backup target would defeat the
+    cluster-loss-survivability tier. **This is the highest-impact
+    blast-radius dimension** — see drill proposal below.
+- **Backup-restore drill proposal**:
+  - Simulate a compromised longhorn-manager by manually creating an
+    arbitrary `ClusterRoleBinding` and confirming the cluster
+    detects it (via the existing kube-prometheus-stack rules or a
+    new PrometheusRule that alerts on non-chart-managed CRBs
+    referencing `cluster-admin`).
+  - Validate that the most recent Longhorn backup is restorable from
+    the NFS target after rotating the longhorn-system kubeconfig
+    (i.e. assume the backup target was preserved but the cluster
+    state is gone). Recovery procedure in
+    `docs/src/cluster_rebuild.md`; verify the Longhorn step
+    end-to-end against a representative volume.
+  - Drill cadence: annual. The Longhorn structural permissions are
+    not going to change without a major chart redesign; the drill
+    validates we can recover regardless.
 
 ### 3.4 `goldilocks-controller` → wildcard `resources` under `apps`
 
@@ -133,7 +181,7 @@ next time the relevant chart is touched.
 
 | Workload | Role / binding | Concern |
 |---|---|---|
-| `renovate-operator` (renovate ns) | `ClusterRole/renovate-operator` grants `create/get/list/watch/update/delete` on **all** `secrets` cluster-wide | Renovate mints credential secrets per-job; needs to read its source secrets. Wildcard cluster-wide write feels broader than the workload calls for — verify whether it can be namespace-scoped to `renovate` only. |
+| `renovate-operator` (renovate ns) | `ClusterRole/renovate-operator` grants `create/get/list/watch/update/delete` on **all** `secrets` cluster-wide | Renovate mints credential secrets per-job; needs to read its source secrets. Wildcard cluster-wide write feels broader than the workload calls for — verify whether it can be namespace-scoped to `renovate` only. **Remediated 2026-05-18 (PR #11602)**: set `rbac.ownNamespaceOnly: true` on the chart; operator now uses Role + RoleBinding scoped to `renovate` ns. |
 | `k8tz` (kube-system) | `ClusterRole/k8tz-role` grants `*` on `configmaps` + `secrets` cluster-wide | Mutating webhook for TZ injection. Needs read on a small set of CMs/Secrets; cluster-wide `*` is over-broad. |
 | `netdata` (observability) | Reads `secrets` cluster-wide | Used to populate dashboards; revisit whether it actually consumes Secret values or just enumerates names. |
 | `actions-runner-set-home-ops-gha-rs-kube-mode` (Role, actions-runner-system ns) | `pods/exec`, `secrets create/delete` within the ns | Standard GHA kube-mode pattern; in-namespace scope contains the blast radius. Listed here so it is not surprising. |

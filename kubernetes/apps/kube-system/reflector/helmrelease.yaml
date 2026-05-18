@@ -22,10 +22,24 @@ spec:
   chartRef:
     kind: OCIRepository
     name: reflector
-  interval: 1h
   install:
     remediation:
       retries: -1
+  interval: 1h
+  postRenderers:
+    # Pin the verb list on the reflector ClusterRole's secrets/configmaps
+    # rule to the explicit set it actually needs (vs the chart-shipped
+    # `verbs: ["*"]`). Drops `deletecollection` + any future verbs that
+    # Kubernetes adds. See docs/src/rbac_audit.md §3.1.
+    - kustomize:
+        patches:
+          - patch: |-
+              - op: replace
+                path: /rules/0/verbs
+                value: ["get", "list", "watch", "create", "update", "patch", "delete"]
+            target:
+              kind: ClusterRole
+              name: reflector
   upgrade:
     cleanupOnFail: true
     remediation:

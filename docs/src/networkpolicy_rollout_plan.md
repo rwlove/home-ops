@@ -1,8 +1,8 @@
 # NetworkPolicy Rollout Plan
 
-Status: **APPROVED — Phase 0 in flight.**
+Status: **COMPLETE — All 21 in-scope namespaces locked down 2026-05-17.**
 Owner: home-ops
-Last updated: 2026-05-17
+Last updated: 2026-05-18
 
 ## Decisions (locked)
 
@@ -23,6 +23,83 @@ Last updated: 2026-05-17
    apiserver flows use entity selectors (`reserved:host`,
    `reserved:remote-node`, `reserved:kube-apiserver`). No `ipBlock`
    for node IPs anywhere.
+
+## Rollout completion summary (2026-05-17)
+
+**Outcome:** All 21 in-scope namespaces have default-deny + per-app
+allow CNPs. `flux-system` and `kube-system` remain unconstrained per
+Decision #1.
+
+| Phase | Namespaces locked down |
+|---|---|
+| 1 | selfhosted |
+| 2 | ai, actions-runner-system, renovate, mcp-system, home, collab, media |
+| 3 | auth, databases, vpn, downloads |
+| 4 | storage, longhorn-system, rook-ceph |
+| 5 | network (v2 — initial attempt reverted due to envoy port mismatch), cert-manager, external-secrets |
+| 6 | observability, kuadrant (CNP scaffolded but ns disabled cluster-side; dormant-correct), istio-system, cilium-secrets (special: standalone Flux Kustomization since cilium chart owns the namespace) |
+
+**~35 PRs merged** across baselines, lockdowns, fixes, and follow-ups.
+
+## Key learnings (memorialized to agent memory)
+
+- **Cilium L4 policy evaluates against pod `targetPort`, not Service
+  `port`** — `project_cilium_l4_port_targetport.md`. Bit us on
+  netbox (svc:80 → pod:8080) and envoy data planes
+  (svc:443 → pod:10443, caused the initial network-ns lockdown to
+  break cluster-wide ingress; reverted as #11527, redesigned as
+  #11529).
+- **`toFQDNs.matchPattern` works only for FQDNs with CNAME chains**
+  — `project_cilium_matchpattern_fqdn_limits.md`. For canonical
+  FQDNs (1Password Connect, ACME endpoints, pushover, mailgun,
+  s3.${SECRET_DOMAIN}, etc.) the K8s search-domain augmentation
+  makes matchPattern silently fail. Use `toEntities: [world] + port`
+  instead. Audited and fixed across 8 namespaces in PRs #11535–11542.
+- **`policy-audit-mode: enabled` in cilium-config disables policy
+  enforcement entirely WITHOUT capturing audit verdicts** in Cilium
+  1.19 with this stack. Don't use as a discovery mechanism. Use
+  Hubble flow data on the non-locked baseline as the discovery
+  signal instead.
+- **`fromEntities: [world, host, remote-node]` on broker pods** is
+  the correct shape for LAN-client ingress (EMQX MQTT brokers,
+  jellyfin via LB IP, wg-easy VPN). Pure `cluster` doesn't cover
+  it because LB IP traffic enters via host identity.
+- **Adding a new agent to `rwlove/langgraph-agents` requires updating
+  5 hardcoded places** — `project_langgraph_specialist_5_places.md`.
+  Caught during the network-operator port (PR #4).
+- **Lint must pass on agent-authored PRs** —
+  `feedback_lint_must_pass_on_agent_prs.md`. Run `markdownlint-cli2`
+  locally before any markdown commit.
+
+## Notable design choices made during rollout
+
+- **Direct-enforce (skip audit window) when canary proves the
+  mechanic** — used for selfhosted (1 idle app) and ai (after
+  audit-mode discovery proved broken). Tradeoff: missed patterns
+  surface as user-impact, rolled back fast via `flux suspend` +
+  `kubectl delete cnp`.
+- **One PR per namespace** held throughout (Decision #2). Multi-app
+  follow-up fixes shipped as separate PRs.
+- **Conservative defaults for "tool" or "scan" apps** that fan out
+  arbitrarily (renovate scan jobs, GitHub actions runners,
+  search-engine scrapers like searxng, smart-home glue like n8n and
+  home-assistant): use `toEntities: [world]` with comment explaining
+  the by-design broad allow.
+- **Reusable kustomize components**: `network-policy/baseline` (5
+  additive allows: DNS, apiserver, host-probes, intra-ns,
+  monitoring-scrape) + `network-policy/default-deny` (1 CNP, no
+  audit-mode annotation). Per-namespace `default-deny` ships as
+  separate Flux Kustomization after baseline soaks.
+
+## Known follow-ups outside this rollout
+
+- **Issue #11493**: arr-mcp (legacy SSE vs streamable-http) and
+  github-mcp (missing auth config) — not netpol. Recommend opening
+  as separate issues.
+- **kuadrant ns** is dormant in cluster (`kustomization.yaml`
+  commented out). Lockdown applies when kuadrant is re-enabled.
+- **Cert renewal end-to-end test** hasn't been triggered post-FQDN
+  fix; first ACME renewal in ~60 days will validate.
 
 ## Goal
 

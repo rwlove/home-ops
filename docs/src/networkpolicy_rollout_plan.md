@@ -1,6 +1,6 @@
 # NetworkPolicy Rollout Plan
 
-Status: **COMPLETE — All 21 in-scope namespaces locked down 2026-05-17.**
+Status: **19 of 21 in-scope namespaces locked down (default-deny enforced). `downloads` + `vpn` carved out due to VXLAN DHCP broadcast incompat with cilium default-deny.**
 Owner: home-ops
 Last updated: 2026-05-18
 
@@ -26,9 +26,10 @@ Last updated: 2026-05-18
 
 ## Rollout completion summary (2026-05-17)
 
-**Outcome:** All 21 in-scope namespaces have default-deny + per-app
+**Outcome:** 19 of 21 in-scope namespaces have default-deny + per-app
 allow CNPs. `flux-system` and `kube-system` remain unconstrained per
-Decision #1.
+Decision #1. `downloads` + `vpn` carved out 2026-05-18 — see
+"Downloads + vpn carve-out" below.
 
 | Phase | Namespaces locked down |
 |---|---|
@@ -40,6 +41,51 @@ Decision #1.
 | 6 | observability, kuadrant (CNP scaffolded but ns disabled cluster-side; dormant-correct), istio-system, cilium-secrets (special: standalone Flux Kustomization since cilium chart owns the namespace) |
 
 **~35 PRs merged** across baselines, lockdowns, fixes, and follow-ups.
+
+## Downloads + vpn carve-out (2026-05-18)
+
+After the initial lockdown of `downloads` + `vpn` (Phase 3) shipped
+and soaked, the gateway-sidecar's init container began crashlooping.
+Sequence reconstructed from pod logs and Hubble:
+
+1. Sidecar runs `ping -c 1 10.42.4.4` (gateway pod) → DROPPED under
+   default-deny. Fixed by PR #11548 — Pattern E cross-ns ICMP allow
+   from `downloads/*` → `vpn/pod-gateway-main`.
+2. With ICMP allowed, the VXLAN tunnel comes up successfully.
+3. `udhcpc -i vxlan0` sends a DHCP discover broadcast
+   (255.255.255.255) encapsulated inside the VXLAN unicast tunnel
+   to `vpn/pod-gateway-main-0`.
+4. dnsmasq on the gateway side logs DHCPACK going out — but the
+   client never sees it. `udhcpc` retries 5×, exits 1, init exits 1,
+   container crashloops.
+
+**Root cause:** cilium's security identity for the broadcast frame
+inside the VXLAN tunnel doesn't match `vpn/pod-gateway`'s identity,
+so the OFFER is silently dropped. This is L2-broadcast-inside-L3-VXLAN,
+something cilium's identity model doesn't handle the way it handles
+unicast pod-to-pod traffic.
+
+**Decision:** carve out `downloads` + `vpn` from default-deny. PR
+\#11555 removed the `default-deny` component from both
+`kubernetes/apps/downloads/kustomization.yaml` and
+`kubernetes/apps/vpn/kustomization.yaml`. The `baseline` component
+(allow-dns/apiserver/intra-ns/monitoring) stays. The per-app `allow-*`
+CNPs stay (so cross-namespace access still requires explicit allow
+rules at the consumer side). What's lost is the deny-by-default
+posture inside these two namespaces.
+
+**Revisit triggers:**
+
+- cilium ships better broadcast-identity handling (track upstream)
+- we replace pod-gateway with a static-IP wireguard pattern that
+  doesn't need DHCP (eliminates the issue entirely)
+- a different VPN egress model that uses node-level routing instead
+  of a sidecar (also eliminates the issue)
+
+**Net posture:** 19 of 21 namespaces have full default-deny;
+downloads + vpn rely on cluster-perimeter controls (1P/SSO/firewalld,
+no public ingress to these workloads, only `bt.thesteamedcrab.com` +
+arr/sab/slskd UIs which are still gated by oauth2-proxy).
 
 ## Where the testing missed (honest retrospective)
 

@@ -128,23 +128,13 @@ spec:
           http:
             port: *httpPort
 
-    route:
-      app:
-        annotations:
-          glance/name: "LangGraph Agents"
-          glance/show: "true"
-          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/langchain.png"
-          glance/id: "AI"
-        hostnames:
-          - "agents.${SECRET_DOMAIN}"
-        parentRefs:
-          - name: internal
-            namespace: network
-            sectionName: https
-        rules:
-          - backendRefs:
-              - identifier: app
-                port: *httpPort
+    # No external HTTPRoute. langgraph-agents is a webhook/MCP backend
+    # consumed exclusively via the in-cluster Service
+    # (langgraph-agents.ai.svc.cluster.local:8765) by open-webui and the
+    # n8n langgraph-* workflows. Exposing /docs, /openapi.json, /healthz
+    # at agents.${SECRET_DOMAIN} without auth leaked the full FastAPI
+    # schema to anyone on LAN. Use `kubectl -n ai port-forward
+    # svc/langgraph-agents 8765` for one-off /docs access.
 
     persistence:
       # Vault content is split into two PVCs (pvc.yaml).

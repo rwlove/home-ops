@@ -17,6 +17,7 @@
 - [master1 etcd Disk Swap](master1_etcd_disk_swap.md)
 - [NetworkPolicy Rollout Plan](networkpolicy_rollout_plan.md)
 - [Egress Restriction Design Proposal](egress_restriction_design.md)
+- [Istio mTLS Rollout Design Proposal](mtls_rollout_design.md)
 - [Pod Security Baseline Audit](pod_security_audit.md)
 - [Github Webhook](github_webhook.md)
 - [Resources: Limits and Requests Philosophy](limits.md)

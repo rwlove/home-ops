@@ -47,3 +47,21 @@ spec:
     preUpgradeChecker:
       jobEnabled: false
       upgradeVersionCheck: false
+  # Scope the chart-shipped `longhorn-support-bundle` ClusterRoleBinding
+  # from `cluster-admin` down to `view`. The chart hardcodes the binding
+  # with no values knob to disable it (clusterrolebinding.yaml lines
+  # 15-27 in longhorn-1.11.2), so we patch it post-render. The SA is
+  # only consumed when a support bundle is being collected; if a bundle
+  # fails because of insufficient permissions, drop this patch and file
+  # an upstream issue.
+  # See docs/src/rbac_audit.md §2.1.
+  postRenderers:
+    - kustomize:
+        patches:
+          - patch: |-
+              - op: replace
+                path: /roleRef/name
+                value: view
+            target:
+              kind: ClusterRoleBinding
+              name: longhorn-support-bundle

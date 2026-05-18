@@ -48,3 +48,18 @@ spec:
         - ports:
             - port: "4789"
               protocol: UDP
+    # ICMP echo to the pod-gateway. The gateway-sidecar init container
+    # (angelnu/pod-gateway client_init.sh v7+) runs an ICMP liveness
+    # check against the gateway pod IP before declaring the tunnel up.
+    # Without this, init fails → CrashLoopBackOff under default-deny.
+    # See memory project_pod_gateway_upstream_issues.md (#414).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: vpn
+            app.kubernetes.io/instance: downloads-gateway
+            app.kubernetes.io/name: pod-gateway
+            app.kubernetes.io/controller: main
+      icmps:
+        - fields:
+            - type: 8  # echo request
+              family: IPv4

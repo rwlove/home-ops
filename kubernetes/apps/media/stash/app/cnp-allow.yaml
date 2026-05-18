@@ -35,3 +35,20 @@ spec:
               protocol: TCP
             - port: "80"
               protocol: TCP
+    # OIDC token exchange — direct to authelia in-cluster Service
+    # (Pattern E). Stash uses native server-side OIDC (STASH_OIDC_*)
+    # to talk to Authelia after the user login redirect. The
+    # toEntities:[world]:443 above doesn't suffice for this path:
+    # split-horizon DNS resolves auth.${SECRET_DOMAIN} to the LB IP
+    # and Cilium socket-lb rewrites the connect() to the envoy pod IP
+    # + targetPort 10443 BEFORE policy check, so neither rule matches
+    # the rewritten destination. Authelia's CNP already permits
+    # fromEntities:cluster on 9091. Mirrors paperless PR #11525.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: auth
+            app.kubernetes.io/name: authelia
+      toPorts:
+        - ports:
+            - port: "9091"
+              protocol: TCP

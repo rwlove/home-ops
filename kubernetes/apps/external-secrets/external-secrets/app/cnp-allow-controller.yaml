@@ -1,0 +1,33 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: external-secrets-controller-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: external-secrets
+      app.kubernetes.io/instance: external-secrets
+  # Additive — default-deny is what triggers the lockdown; this rule
+  # punches a hole through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # GithubAccessToken generator (renovate/github-auth-token ES) runs
+    # IN the controller process and POSTs to api.github.com for App
+    # installation token minting. Without this, ExternalSecrets using
+    # GithubAccessToken fail with "context deadline exceeded" — surfaced
+    # 2026-05-18 as renovate/github-auth-token failing for ~90min after
+    # the external-secrets ns default-deny landed (PR #11572).
+    #
+    # api.github.com is canonical FQDN (no CNAME chain) — matchPattern
+    # silently fails per memory cilium-matchpattern-fqdn-limits, so use
+    # toEntities:[world]:443. The 1Password Connect path is already
+    # covered by onepassword-connect-allow on a separate pod.
+    - toEntities: [world]
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

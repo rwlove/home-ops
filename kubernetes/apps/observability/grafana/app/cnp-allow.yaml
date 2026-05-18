@@ -43,22 +43,18 @@ spec:
     # Also covers grafana.com plugin downloads, grafana.com gnetId
     # dashboard fetches, and grafana.com news feed (disabled in
     # values but the client still ranges over default URLs at boot).
+    # Intended endpoints:
+    #   raw.githubusercontent.com (CNAME-fronted via Fastly)
+    #   grafana.com, *.grafana.com, grafana.net (uncertain CNAME)
+    #   storage.googleapis.com (CNAME-fronted via Google)
     #
-    # Cilium 1.19's toFQDNs.matchName doesn't match through Kubernetes
-    # pod DNS search-domain augmentation — bare + `.*` dual-form
-    # matchPattern handles both un-augmented and search-domain-
-    # augmented forms.
-    - toFQDNs:
-        - matchPattern: "raw.githubusercontent.com"
-        - matchPattern: "raw.githubusercontent.com.*"
-        - matchPattern: "grafana.com"
-        - matchPattern: "grafana.com.*"
-        - matchPattern: "*.grafana.com"
-        - matchPattern: "*.grafana.com.*"
-        - matchPattern: "grafana.net"
-        - matchPattern: "grafana.net.*"
-        - matchPattern: "storage.googleapis.com"
-        - matchPattern: "storage.googleapis.com.*"
+    # The grafana.* family CNAME status is uncertain; per memory
+    # project_cilium_matchpattern_fqdn_limits.md, when uncertain default
+    # to toEntities:world+443 (broad allow is the safe failure mode).
+    # That subsumes the CNAME-fronted hosts above so the whole rule
+    # collapses to world:443. Matches the precedent in PRs
+    # #11498/#11512/#11517/#11533.
+    - toEntities: [world]
       toPorts:
         - ports:
             - port: "443"

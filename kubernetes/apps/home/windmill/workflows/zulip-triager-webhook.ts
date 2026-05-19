@@ -48,31 +48,44 @@ export async function main(
 
     const task_id = `zulip-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-    // langgraph /inbox is normally fast for the initial dispatch — it
-    // returns once the task is queued + (maybe) the triager classified
-    // the intent. The actual specialist work runs async after the
-    // POST returns. 5s timeout keeps us under Zulip's 10s webhook
-    // deadline.
-    let status = "queued";
+    // KNOWN ISSUE: langgraph-agents /inbox handler hangs after
+    // receiving the request (same shape as the documented
+    // /admin/tasks hang — see workflow_automation.md "Operating
+    // notes"). Mitigation: fire-and-forget. We give the POST 2s,
+    // which is enough for the body to land on the server side;
+    // uvicorn keeps processing after we abort the client connection.
+    // The langgraph specialist's eventual reply will land in this
+    // same DM thread via the triager-bot's API key.
+    const dispatchPayload = JSON.stringify({
+        task_id,
+        source: "zulip",
+        content: text,
+        user: "rob",
+    });
+    let dispatched = false;
     try {
-        const r = await fetch(
+        await fetch(
             "http://langgraph-agents.ai.svc.cluster.local:8765/inbox",
             {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    task_id,
-                    source: "zulip",
-                    content: text,
-                    user: "rob",
-                }),
-                signal: AbortSignal.timeout(5_000),
+                body: dispatchPayload,
+                signal: AbortSignal.timeout(2_000),
             },
         );
-        const lg = await r.json().catch(() => ({}));
-        status = lg.status ?? "ok";
+        dispatched = true;
     } catch (e) {
-        status = `error: ${(e as Error).message}`;
+        // TimeoutError is expected — the handler hangs but the
+        // request landed. Anything else (DNS / connect / etc.) is
+        // a real failure.
+        const msg = (e as Error).message ?? "";
+        if (msg.includes("Signal timed out") || msg.includes("aborted")) {
+            dispatched = true;
+        } else {
+            return {
+                response_string: `⚠️ failed to dispatch · ${msg}`,
+            };
+        }
     }
 
     // Zulip expects {response_string} for the bot's acknowledgement
@@ -81,6 +94,8 @@ export async function main(
     // triager-bot identity.
     const preview = text.length > 60 ? text.slice(0, 57) + "…" : text;
     return {
-        response_string: `📥 received · task \`${task_id}\` · status: ${status}\n_(preview: ${preview})_`,
+        response_string: dispatched
+            ? `📥 dispatched · task \`${task_id}\` · _(processing async — reply will appear here when ready)_`
+            : `⚠️ task \`${task_id}\` — failed to dispatch`,
     };
 }

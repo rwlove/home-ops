@@ -18,17 +18,19 @@ spec:
   # Loki publicly.
   egress:
     # Chunk + index storage on Rook Ceph RGW (S3 API). Loki's S3
-    # endpoint comes from the `loki-chunks-bucket-v1` ConfigMap which
-    # points at `rook-ceph-rgw-ceph-objectstore.rook-ceph.svc`. Use
-    # Pattern E (cross-ns endpoint match) rather than FQDN — the
-    # rook-ceph-rgw selector is stable.
+    # endpoint resolves to the `rook-ceph-rgw-ceph-objectstore` Service
+    # (port 80 → targetPort 8080). Cilium L4 egress is evaluated against
+    # the post-translation pod port: radosgw starts with
+    # `--rgw-frontends=beast port=8080`, so the rule must allow 8080,
+    # not the Service port 80. Use Pattern E (cross-ns endpoint match)
+    # rather than FQDN — the rook-ceph-rgw selector is stable.
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: rook-ceph
             app.kubernetes.io/name: ceph-rgw
       toPorts:
         - ports:
-            - port: "80"
+            - port: "8080"
               protocol: TCP
     # Ruler alerting target — Loki rule evaluations fire alerts at
     # alertmanager-operated:9093 (intra-ns; baseline covers).

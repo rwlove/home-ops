@@ -166,15 +166,43 @@ be faster on the warm pod.
 ## Implications for Phase 0d activation
 
 Both ollama Services now serve clean tool-calls on their assigned models.
-**Phase 0d criterion 5 satisfied for both groups.** Activation
-(`LANGGRAPH_TRIGGERS_ENABLED=true`) is unblocked from a tool-call perspective.
+**Phase 0d criterion 5 satisfied for both groups.**
+
+## Activation status (2026-05-19 follow-up)
+
+Phase 2 factory + per-group routing + observability fully landed:
+
+- **v0.2.6** (PR #11641): factory code live in cluster.
+- **v0.2.7** (PR #11642): inbox `aget_state` async fix; 4 test inbox tasks
+  completed cleanly (3 P40 + 1 Spark routing). Phase 0d criterion 3 ✅.
+- **v0.2.8** (PR #11647): metrics callback wiring attempt via
+  `with_config(callbacks=[...])` — **empirically broken**: callbacks dropped
+  by `with_structured_output()` chain wrapping at LangChain core 0.3+.
+- **v0.2.9** (PR #11648): fix — switch to intrinsic ChatOllama callbacks
+  with labels baked in at handler construction. **Metrics now flowing**:
+
+  ```
+  langgraph_calls_total{agent="triager",group="local-p40",model="qwen2.5:7b",outcome="success",trigger=""} 2.0
+  langgraph_calls_total{agent="ml-operator",group="local-spark",model="qwen2.5:32b",outcome="success",trigger=""} 1.0
+  langgraph_calls_total{agent="researcher",group="local-p40",model="qwen2.5:7b",outcome="success",trigger=""} 1.0
+  ```
+
+Spark routing visible (ml-operator → qwen2.5:32b on Blackwell), P40 routing
+visible (triager + researcher → qwen2.5:7b on P40). Grafana dashboard
+shipped in PR #11636 now has live data to plot.
 
 ## Open follow-ups
 
 - [x] **P40 spill investigation** — root cause identified + fix shipped via
   PR #11640.
 - [x] **Re-probe qwen2.5:7b for tool-call leakage** after P40 tune — clean.
-- [ ] **Image-tag rollout**: the langgraph-agents HR pod still runs v0.2.5;
-  PR #11641 (this PR) bumps to v0.2.6 which contains the Phase 2 factory.
-- [ ] **Activation flip**: `LANGGRAPH_TRIGGERS_ENABLED=true` (separate PR
-  after this one lands and the new pod is verified Running).
+- [x] **Phase 2 factory rollout** — v0.2.6 → v0.2.7 → v0.2.9.
+- [x] **Metrics callback wiring** — fixed in v0.2.9.
+- [ ] **HolmesGPT investigation timeout** — litellm hits default 600s on
+  P40 tool-call chains. Bump `LITELLM_REQUEST_TIMEOUT` (or equivalent) in
+  HolmesGPT HR to align with the n8n 1500s outer-timeout from memory
+  `project_n8n_holmesgpt_timeout_workaround`.
+- [ ] **n8n alertmanager webhook** — webhook returned HTTP 405 when probed;
+  workflow `AlertManager → HolmesGPT → Pushover` may need re-activation in
+  the live n8n UI. The HolmesGPT side responds correctly to direct
+  `/api/chat` POSTs.

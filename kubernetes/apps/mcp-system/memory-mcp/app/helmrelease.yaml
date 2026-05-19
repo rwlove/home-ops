@@ -1,0 +1,118 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: memory-mcp
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  values:
+    defaultPodOptions:
+      securityContext:
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+    controllers:
+      memory-mcp:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        pod:
+          annotations:
+            sidecar.istio.io/inject: "true"
+        containers:
+          app:
+            image:
+              repository: ghcr.io/rwlove/memory-mcp
+              tag: 0.1.0@sha256:8f215c1deb7554551a57a7f389e407a03300a66b13cf250aa57009dd04e2f58b
+            env:
+              # CNPG-generated app Secret reflected from databases ns
+              # via emberstack reflector (see langgraph-memory
+              # cluster.yaml inheritedMetadata). Exposes key `uri`.
+              DATABASE_URL:
+                valueFrom:
+                  secretKeyRef:
+                    name: postgres-langgraph-memory-app
+                    key: uri
+              EMBED_MODEL: nomic-embed-text
+              HOST: "0.0.0.0"
+              OLLAMA_BASE_URL: http://ollama.ai.svc.cluster.local:11434
+              PORT: "8070"
+              TZ: America/New_York
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: &httpPort 8070
+                  initialDelaySeconds: 15
+                  periodSeconds: 30
+                  timeoutSeconds: 5
+                  failureThreshold: 5
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: *httpPort
+                  initialDelaySeconds: 5
+                  periodSeconds: 10
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: *httpPort
+                  initialDelaySeconds: 5
+                  periodSeconds: 5
+                  timeoutSeconds: 5
+                  failureThreshold: 30
+            resources:
+              requests:
+                cpu: 50m
+                memory: 128Mi
+              limits:
+                memory: 512Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+              readOnlyRootFilesystem: true
+              seccompProfile:
+                type: RuntimeDefault
+    persistence:
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          memory-mcp:
+            app:
+              - path: /tmp
+                subPath: tmp
+    service:
+      app:
+        controller: memory-mcp
+        ports:
+          http:
+            port: *httpPort
+    route:
+      app:
+        hostnames:
+          - "memory-mcp.mcp.local"
+        parentRefs:
+          - name: mcp-gateway
+            namespace: mcp-system
+            sectionName: mcps
+        rules:
+          - matches:
+              - path:
+                  type: PathPrefix
+                  value: /mcp
+            backendRefs:
+              - identifier: app
+                port: *httpPort

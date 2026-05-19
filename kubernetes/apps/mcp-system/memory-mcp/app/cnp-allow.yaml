@@ -1,0 +1,35 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: memory-mcp-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: memory-mcp
+  # Additive — default-deny enforces; these punch holes. Ingress from
+  # same-ns mcp-gateway broker is covered by baseline allow-intra-ns.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # langgraph-memory CNPG primary in databases ns. Per
+    # project_cilium_l4_port_targetport, toPorts matches container port.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            cnpg.io/cluster: postgres-langgraph-memory
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    # Ollama for embedding generation (nomic-embed-text).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: ollama
+      toPorts:
+        - ports:
+            - port: "11434"
+              protocol: TCP

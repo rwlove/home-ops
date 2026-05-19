@@ -15,9 +15,9 @@ spec:
     ingress: false
   ingress:
     # HTTPRoute on internal gateway → langgraph-agents:8765
-    # (agents.${SECRET_DOMAIN}). n8n's approval-receive workflow also
-    # POSTs here, but that traffic still arrives via the internal
-    # Envoy gateway (n8n → HTTPRoute → envoy → langgraph-agents).
+    # (agents.${SECRET_DOMAIN}). Windmill workers + app (in home ns)
+    # POST here directly for the inbox / approval / awaiting-user /
+    # cost-cap-watcher / daily-digest flows (replacing n8n's role).
     # collab/open-webui hits the in-cluster Service directly via
     # OPENAI_API_BASE_URLS (each agent id registered as a model).
     - fromEndpoints:
@@ -27,6 +27,15 @@ spec:
         - matchLabels:
             io.kubernetes.pod.namespace: collab
             app.kubernetes.io/name: open-webui
+        - matchExpressions:
+            - key: io.kubernetes.pod.namespace
+              operator: In
+              values: [home]
+            - key: app.kubernetes.io/name
+              operator: In
+              values:
+                - windmill-app
+                - windmill-workers
       toPorts:
         - ports:
             - port: "8765"

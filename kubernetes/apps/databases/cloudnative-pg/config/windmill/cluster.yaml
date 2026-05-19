@@ -47,6 +47,14 @@ spec:
       # Windmill's migration 20221211192539 grants USAGE on the schema to
       # windmill_admin + windmill_user (NOLOGIN roles it expects to exist).
       # Without these, migrations fail mid-run and the app crash-loops.
+      #
+      # The DEFAULT PRIVILEGES + GRANT ALL block is needed because the
+      # Windmill app `SET LOCAL ROLE windmill_admin`s before INSERT/UPDATE
+      # operations on the public schema. When the app's role becomes
+      # windmill_admin, it loses windmill's owner-implicit table perms
+      # and falls back to per-role grants — which would be empty without
+      # this. Without this block, `POST /scripts/create` fails with
+      # `permission denied for table script`.
       postInitApplicationSQL:
         - CREATE ROLE windmill_admin WITH NOLOGIN
         - CREATE ROLE windmill_user WITH NOLOGIN
@@ -54,6 +62,11 @@ spec:
         - GRANT windmill_user TO windmill
         - GRANT ALL ON SCHEMA public TO windmill_admin
         - GRANT ALL ON SCHEMA public TO windmill_user
+        # FOR ROLE windmill — Windmill migrations CREATE TABLE while
+        # connected as windmill, so default privileges must target that
+        # role to auto-grant on every future migration's table.
+        - ALTER DEFAULT PRIVILEGES FOR ROLE windmill IN SCHEMA public GRANT ALL ON TABLES TO windmill_admin, windmill_user
+        - ALTER DEFAULT PRIVILEGES FOR ROLE windmill IN SCHEMA public GRANT ALL ON SEQUENCES TO windmill_admin, windmill_user
 
   # CNPG generates the `postgres-windmill-app` Secret with the connection
   # URI in this namespace. The Windmill HR consumes it cross-namespace

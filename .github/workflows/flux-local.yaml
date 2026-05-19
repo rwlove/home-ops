@@ -62,7 +62,13 @@ jobs:
     # Diff-against-default-branch only makes sense on PRs.
     if: ${{ github.event_name == 'pull_request' && needs.filter-changes.outputs.changed-files != '[]' }}
     name: Flux Local Diff
-    runs-on: ubuntu-latest
+    # Self-hosted because `diff helmrelease` invokes `helm template` for
+    # changed charts. Any HelmRelease whose chart source moved to
+    # zot.kube-system.svc.cluster.local (Phase 1 routing) can't be
+    # rendered from an off-cluster GHA runner. No container: at job level
+    # so the Node-based Generate Token / Add Comment actions still work
+    # on the runner pod; the flux-local step uses ARC's docker:// hook.
+    runs-on: arc-runner-set-home-ops
     needs:
       - filter-changes
     permissions:

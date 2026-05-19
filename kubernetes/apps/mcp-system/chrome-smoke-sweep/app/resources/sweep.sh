@@ -46,25 +46,32 @@ mcp_notify() {
     >/dev/null || true
 }
 
+mcp_init() {
+  # Establish a fresh MCP session and set SESSION_ID. Playwright MCP's
+  # session goes stale after a handful of tool calls (404 on subsequent
+  # requests), so we re-init per host. Cost is one extra round-trip,
+  # ~200ms.
+  SESSION_ID=""
+  mcp_post '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"chrome-smoke-sweep","version":"1.0"}}}' >/dev/null
+  SESSION_ID="$(awk 'BEGIN{IGNORECASE=1} /^mcp-session-id:/{print $2}' "$${HEADERS_FILE}" | tr -d '\r\n')"
+  [ -z "$${SESSION_ID}" ] && return 1
+  mcp_notify '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+  return 0
+}
+
 echo "== chrome-smoke-sweep =="
 echo "PW_URL=$${PW_URL}"
 echo "HOSTS_FILE=$${HOSTS_FILE}"
 echo
 
-SESSION_ID=""
-INIT_RESP="$(mcp_post '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"chrome-smoke-sweep","version":"1.0"}}}')"
-SESSION_ID="$(awk 'BEGIN{IGNORECASE=1} /^mcp-session-id:/{print $2}' "$${HEADERS_FILE}" | tr -d '\r\n')"
-
-if [ -z "$${SESSION_ID}" ]; then
-  echo "FATAL: no Mcp-Session-Id header from chrome-mcp" >&2
+# Sanity check — fail fast if chrome-mcp won't even hand us a session.
+if ! mcp_init; then
+  echo "FATAL: chrome-mcp won't issue Mcp-Session-Id on initial init" >&2
   cat "$${HEADERS_FILE}" >&2
   exit 2
 fi
-
-echo "Session established."
+echo "Initial session established."
 echo
-
-mcp_notify '{"jsonrpc":"2.0","method":"notifications/initialized"}'
 
 REQ_ID=10
 TOTAL=0
@@ -78,17 +85,17 @@ while IFS= read -r LINE; do
   case "$${HOST}" in \#*) continue ;; esac
 
   TOTAL=$((TOTAL + 1))
+
+  # Re-init per host. Avoids the stale-session 404s seen after ~5 calls.
+  if ! mcp_init; then
+    printf '%-9s  %-45s  %s\n' "FAIL" "$${HOST}" "<session init failed>"
+    FAILED=$((FAILED + 1))
+    continue
+  fi
+
   REQ_ID=$((REQ_ID + 1))
   BODY="$(printf '{"jsonrpc":"2.0","id":%d,"method":"tools/call","params":{"name":"browser_navigate","arguments":{"url":"https://%s"}}}' "$${REQ_ID}" "$${HOST}")"
-  RESP="$(mcp_post "$${BODY}" || echo '{}')"
-
-  # Retry once on the known "Session not found" intermittency
-  # (see project_chrome_mcp_playwright_gotchas).
-  if printf '%s' "$${RESP}" | grep -q "Session not found"; then
-    REQ_ID=$((REQ_ID + 1))
-    BODY="$(printf '{"jsonrpc":"2.0","id":%d,"method":"tools/call","params":{"name":"browser_navigate","arguments":{"url":"https://%s"}}}' "$${REQ_ID}" "$${HOST}")"
-    RESP="$(mcp_post "$${BODY}" || echo '{}')"
-  fi
+  RESP="$(mcp_post "$${BODY}")"
 
   TEXT="$(printf '%s' "$${RESP}" | jq -r '.result.content[]?.text // empty' 2>/dev/null)"
 

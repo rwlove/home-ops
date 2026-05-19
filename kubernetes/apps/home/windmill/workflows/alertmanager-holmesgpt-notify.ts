@@ -1,7 +1,7 @@
 // Triggered by Alertmanager webhook receiver.
 //
 // Receives a critical alert, asks HolmesGPT to investigate (≤2 tool
-// calls, <500 chars), then forwards the summary to Pushover.
+// calls, <500 chars), then forwards the summary via ntfy → #alerts.
 //
 // Replaces the n8n flow "AlertManager → HolmesGPT → Pushover".
 
@@ -61,40 +61,44 @@ export async function main(body: AlertmanagerPayload) {
         message = ((m && m[0].length > 600) ? m[0] : cut).trimEnd() + "…";
     }
 
-    // Pushover REST: POST /1/messages.json
-    const pushoverResp = await sendPushover({
+    const sev = (a.labels.severity ?? "").toLowerCase();
+    const priority = sev === "critical" ? 5 : sev === "warning" ? 4 : 3;
+
+    const notifyResp = await publishNtfy({
+        topic: "alerts",
         title: `🔍 ${a.labels.alertname}`,
         message,
-        priority: 0,
-        sound: "intermission",
+        priority,
+        tags: ["mag"],
     });
 
-    return { alertname: a.labels.alertname, holmes_chars: raw.length, pushover: pushoverResp };
+    return { alertname: a.labels.alertname, holmes_chars: raw.length, ntfy: notifyResp };
 }
 
-async function sendPushover(args: {
+async function publishNtfy(args: {
+    topic: string;
     title: string;
     message: string;
-    priority: number;
-    sound?: string;
+    priority?: number;
+    tags?: string[];
 }) {
-    const token = Deno.env.get("PUSHOVER_APP_TOKEN");
-    const user = Deno.env.get("PUSHOVER_USER_KEY");
-    if (!token || !user) {
-        throw new Error("PUSHOVER_APP_TOKEN / PUSHOVER_USER_KEY env not set");
-    }
-    const form = new URLSearchParams({
-        token,
-        user,
-        title: args.title,
-        message: args.message,
-        priority: String(args.priority),
-    });
-    if (args.sound) form.set("sound", args.sound);
-    const r = await fetch("https://api.pushover.net/1/messages.json", {
+    const url = Deno.env.get("NTFY_URL") ?? "https://ntfy.thesteamedcrab.com";
+    const token = Deno.env.get("NTFY_WRITE_TOKEN");
+    if (!token) throw new Error("NTFY_WRITE_TOKEN env not set");
+    const r = await fetch(url, {
         method: "POST",
-        body: form,
+        headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+            topic: args.topic,
+            title: args.title,
+            message: args.message,
+            priority: args.priority ?? 3,
+            tags: args.tags ?? [],
+        }),
         signal: AbortSignal.timeout(30_000),
     });
-    return { status: r.status };
+    return { status: r.status, ok: r.ok };
 }

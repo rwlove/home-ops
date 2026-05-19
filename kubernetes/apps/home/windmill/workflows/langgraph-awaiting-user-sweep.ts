@@ -1,7 +1,7 @@
 // Cron: every 5 minutes.
 //
 // Buckets interrupted (paused-for-user) tasks by age and acts:
-//   30 min  → tier-1 Pushover escalation
+//   30 min  → tier-1 ntfy escalation (priority 5, distinct sound)
 //   4 hr    → POST /admin/tasks/<id>/timeout-tier {tier: "4h"} (mark cold)
 //   7 day   → POST /admin/tasks/<id>/cancel (auto-cancel)
 //
@@ -50,15 +50,16 @@ export async function main() {
 
 async function handle(t: Task, tier: "30min" | "4h" | "7d", age: number) {
     if (tier === "30min") {
-        const ok = await sendPushover({
+        const resp = await publishNtfy({
+            topic: "approvals",
             title: `⏰ Task awaiting you (30m): ${t.task_id}`,
             message: `Agent ${t.target_agent ?? "unknown"} is paused, age ${
                 Math.round(age / 60000)
-            }m. Reply in Zulip #approvals.`,
-            priority: 1,
-            sound: "gamelan",
+            }m. Tap an action in the original approval push, or react in Zulip #approvals.`,
+            priority: 5,
+            tags: ["alarm_clock"],
         });
-        return { action: "pushover", ok };
+        return { action: "ntfy", ok: resp.ok };
     }
     if (tier === "4h") {
         const r = await fetch(
@@ -89,29 +90,30 @@ async function handle(t: Task, tier: "30min" | "4h" | "7d", age: number) {
     return { action: "cancel", ok: r.ok };
 }
 
-async function sendPushover(args: {
+async function publishNtfy(args: {
+    topic: string;
     title: string;
     message: string;
-    priority: number;
-    sound?: string;
-}): Promise<boolean> {
-    const token = Deno.env.get("PUSHOVER_APP_TOKEN");
-    const user = Deno.env.get("PUSHOVER_USER_KEY");
-    if (!token || !user) {
-        throw new Error("PUSHOVER_APP_TOKEN / PUSHOVER_USER_KEY env not set");
-    }
-    const form = new URLSearchParams({
-        token,
-        user,
-        title: args.title,
-        message: args.message,
-        priority: String(args.priority),
-    });
-    if (args.sound) form.set("sound", args.sound);
-    const r = await fetch("https://api.pushover.net/1/messages.json", {
+    priority?: number;
+    tags?: string[];
+}) {
+    const url = Deno.env.get("NTFY_URL") ?? "https://ntfy.thesteamedcrab.com";
+    const token = Deno.env.get("NTFY_WRITE_TOKEN");
+    if (!token) throw new Error("NTFY_WRITE_TOKEN env not set");
+    const r = await fetch(url, {
         method: "POST",
-        body: form,
+        headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+            topic: args.topic,
+            title: args.title,
+            message: args.message,
+            priority: args.priority ?? 3,
+            tags: args.tags ?? [],
+        }),
         signal: AbortSignal.timeout(30_000),
     });
-    return r.ok;
+    return { status: r.status, ok: r.ok };
 }

@@ -171,7 +171,10 @@ async function postZulipApprovalCard(task_id: string, r: ApprovalRequest) {
         `**Undo path:** ${r.undo_path ?? "_(none — will escalate to Class D)_"}`,
         `**Cost estimate:** $${r.cost_estimate_usd ?? 0}`,
         "",
-        "Tap an action on the ntfy push, **or** react here: 👍 approve / 👎 reject / ⏸️ defer 4h",
+        "Tap an action on the ntfy push, **or** @-mention from a desktop:",
+        "  @**Approval Receiver** approve",
+        "  @**Approval Receiver** reject",
+        "  @**Approval Receiver** defer",
     ].join("\n");
 
     const email = Deno.env.get("ZULIP_BOT_EMAIL");

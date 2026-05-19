@@ -55,6 +55,40 @@ spec:
               memory: 256Mi
             limits:
               memory: 1Gi
+          # Workflow secrets — single 1P source materialized by the
+          # windmill-workflows ExternalSecret. Scripts read via
+          # Deno.env.get("…").
+          extraEnv: &workflow_secrets
+            - name: LANGGRAPH_APPROVAL_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: windmill-workflows-secret
+                  key: LANGGRAPH_APPROVAL_SIGNING_KEY
+            - name: PUSHOVER_APP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: windmill-workflows-secret
+                  key: PUSHOVER_APP_TOKEN
+            - name: PUSHOVER_USER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: windmill-workflows-secret
+                  key: PUSHOVER_USER_KEY
+            - name: ZULIP_BOT_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: windmill-workflows-secret
+                  key: ZULIP_BOT_EMAIL
+            - name: ZULIP_BOT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: windmill-workflows-secret
+                  key: ZULIP_BOT_API_KEY
+            - name: ROB_ZULIP_USER_ID
+              valueFrom:
+                secretKeyRef:
+                  name: windmill-workflows-secret
+                  key: ROB_ZULIP_USER_ID
         # Native worker — runs Bash/PowerShell/etc. without nsjail.
         - name: native
           replicas: 1
@@ -64,6 +98,13 @@ spec:
               memory: 128Mi
             limits:
               memory: 512Mi
+          extraEnv: *workflow_secrets
+
+      # app pod — also receives workflow secrets so scripts triggered
+      # via `/api/w/.../run_wait_result` from inside the app pod see
+      # the same env (Windmill execs scripts inline for short flows).
+      app:
+        extraEnv: *workflow_secrets
 
       # App pod resources.
       resources:

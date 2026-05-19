@@ -11,7 +11,9 @@ spec:
       sourceRef:
         kind: HelmRepository
         name: windmill
-      version: 2.x  # TODO: pin to a concrete version after first install
+      # Pinned to 4.0.158 — first deploy on chart v4 line. Chart appVersion
+      # 1.704.1. Re-pin when bumping; let Renovate manage the suffix.
+      version: 4.0.158
   install:
     disableWait: true
   interval: 30m
@@ -43,12 +45,21 @@ spec:
       # Replica count — single instance is fine for a homelab.
       appReplicas: 1
 
+      # Chart v4 defaults `privileged: true` on workers (chart 4.0+ flips
+      # this to enable the OOM-killer + PID-namespace-isolation flow on
+      # k8s 1.32+). We're trusted-script-only here, so prefer
+      # least-privilege: turn off privileged AND turn off unshare-pid.
+      # Net effect: identical to chart 2.x's posture.
+      disableUnsharePid: true
+
       # Default worker group.
       workerGroups:
         - name: default
           replicas: 1
           tolerations: []
           nodeSelector: {}
+          privileged: false
+          disableUnsharePid: true
           resources:
             requests:
               cpu: 100m
@@ -97,6 +108,8 @@ spec:
         # Native worker — runs Bash/PowerShell/etc. without nsjail.
         - name: native
           replicas: 1
+          privileged: false
+          disableUnsharePid: true
           resources:
             requests:
               cpu: 50m

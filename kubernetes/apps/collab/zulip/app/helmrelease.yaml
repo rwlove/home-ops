@@ -45,6 +45,16 @@ spec:
                         - -c
                         - |
                           set -eu
+                          # IMPORTANT: docker-zulip's entrypoint regenerates
+                          # /etc/supervisor/conf.d/zulip/*.conf during boot,
+                          # which races postStart. Wait for supervisord to be
+                          # fully alive (= entrypoint finished) BEFORE we
+                          # write our smokescreen config, otherwise the
+                          # entrypoint clobbers it.
+                          for i in $(seq 1 300); do
+                            supervisorctl status >/dev/null 2>&1 && break
+                            sleep 1
+                          done
                           cat > /etc/supervisor/conf.d/zulip/smokescreen.conf <<'EOF'
                           [program:smokescreen]
                           command=/usr/local/bin/smokescreen-464b1115f802cbd91ffee555a41e71546646d396-go-1.26.0 --listen-ip 127.0.0.1 --expose-prometheus-metrics --prometheus-port 4760 --allow-range 10.42.0.0/16 --allow-range 10.43.0.0/16
@@ -57,11 +67,6 @@ spec:
                           stdout_logfile_maxbytes=0
                           stdout_logfile_backups=0
                           EOF
-                          # Wait for supervisord to be ready (up to 60s), then reload.
-                          for i in $(seq 1 60); do
-                            supervisorctl status >/dev/null 2>&1 && break
-                            sleep 1
-                          done
                           supervisorctl reread || true
                           supervisorctl update || true
 

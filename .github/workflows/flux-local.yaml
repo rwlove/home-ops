@@ -38,7 +38,13 @@ jobs:
   test:
     if: ${{ needs.filter-changes.outputs.changed-files != '[]' }}
     name: Flux Local Test
-    runs-on: ubuntu-latest
+    # Self-hosted runner so flux-local can resolve oci://zot.kube-system.svc.cluster.local
+    # (Phase 1 routed 30+ HelmReleases through the in-cluster ZOT). Off-cluster GHA
+    # runners can't resolve the in-cluster DNS name. Job runs in the flux-local image
+    # directly so we don't need docker daemon access (ARC is k8s-mode, no DinD).
+    runs-on: arc-runner-set-home-ops
+    container:
+      image: ghcr.io/allenporter/flux-local:v8.1.0
     needs:
       - filter-changes
     steps:
@@ -48,9 +54,8 @@ jobs:
           persist-credentials: false
 
       - name: Run flux-local test
-        uses: docker://ghcr.io/allenporter/flux-local:v8.1.0
-        with:
-          args: test --enable-helm --all-namespaces --path /github/workspace/kubernetes/flux -v
+        shell: sh
+        run: flux-local test --enable-helm --all-namespaces --path "$GITHUB_WORKSPACE/kubernetes/flux" -v
 
   diff:
     # Diff-against-default-branch only makes sense on PRs.

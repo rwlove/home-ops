@@ -1,0 +1,27 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-zot-egress
+spec:
+  # Namespace-wide: catches the runner pod (app.kubernetes.io/name=
+  # arc-runner-set-home-ops) AND the job-container pods spawned by ARC's
+  # k8s container hooks (which carry hook-applied labels, not the
+  # runner's). Both need ZOT egress when the Flux Local Test job runs.
+  endpointSelector: {}
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # ZOT pull-through cache in kube-system. Phase 1 routed 30+ HelmReleases
+    # through oci://zot.kube-system.svc.cluster.local:5000/... — off-cluster
+    # GHA runners can't resolve that name, but a pod in this cluster can.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            app.kubernetes.io/name: zot
+      toPorts:
+        - ports:
+            - port: "5000"
+              protocol: TCP

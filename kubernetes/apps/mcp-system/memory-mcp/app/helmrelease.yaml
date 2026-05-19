@@ -42,11 +42,16 @@ spec:
               PORT: "8070"
               TZ: America/New_York
             probes:
+              # v0.1.2 server exposes /healthz (DB ping) and /readyz
+              # (DB + Ollama probe) via FastMCP custom_route. Switch from
+              # TCP-only to httpGet so the kubelet drops us out of
+              # Service rotation if Postgres or Ollama go sideways.
               liveness:
                 enabled: true
                 custom: true
                 spec:
-                  tcpSocket:
+                  httpGet:
+                    path: /healthz
                     port: &httpPort 8070
                   initialDelaySeconds: 15
                   periodSeconds: 30
@@ -56,7 +61,8 @@ spec:
                 enabled: true
                 custom: true
                 spec:
-                  tcpSocket:
+                  httpGet:
+                    path: /readyz
                     port: *httpPort
                   initialDelaySeconds: 5
                   periodSeconds: 10
@@ -66,7 +72,8 @@ spec:
                 enabled: true
                 custom: true
                 spec:
-                  tcpSocket:
+                  httpGet:
+                    path: /healthz
                     port: *httpPort
                   initialDelaySeconds: 5
                   periodSeconds: 5

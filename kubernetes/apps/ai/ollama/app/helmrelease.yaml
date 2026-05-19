@@ -8,7 +8,11 @@ spec:
   chartRef:
     kind: OCIRepository
     name: app-template
+  install:
+    disableWait: true
   interval: 30m
+  upgrade:
+    disableWait: true
   values:
     controllers:
       backend:
@@ -49,14 +53,18 @@ spec:
               # https://github.com/ollama/ollama/blob/main/docs/faq.md#how-can-i-set-the-quantization-type-for-the-kv-cache
               OLLAMA_KV_CACHE_TYPE: q8_0
               OLLAMA_FLASH_ATTENTION: 1
-              OLLAMA_CONTEXT_LENGTH: 16384
-              OLLAMA_NUM_PARALLEL: 4
-              # P40 VRAM budget is tight (24G total, ~15G steady-used by
-              # Frigate/Immich/etc). Without this, ollama tries to keep
-              # multiple models resident concurrently and OOMs when a
-              # langgraph-agents specialist (qwen2.5:14b, 9GB) is invoked
-              # while the triager's qwen2.5:7b (11GB) is still in keep-alive.
-              # Temporary until L40S/Spark lands per project_gpu_upgrade_decision.
+              # Tightened 2026-05-18 (Phase 0d audit caught CPU-spill from
+              # P40 VRAM exhaustion): NUM_PARALLEL=4 × KV cache at 16384
+              # context blew past 24 GiB VRAM headroom after immich-ml
+              # workloads landed. NUM_PARALLEL=1 + CONTEXT=8192 keeps
+              # qwen2.5:7b + KV cache fully GPU-resident (~5.7 GiB total).
+              # See docs/src/audit/post-spark-tool-call-leakage-2026-05-18.md.
+              OLLAMA_CONTEXT_LENGTH: 8192
+              OLLAMA_NUM_PARALLEL: 1
+              # Post-v48 dual-concurrent Ollama: 14b/32b never live on the
+              # P40 (heavy agents route to ollama-spark on Blackwell). P40
+              # only serves qwen2.5:7b for light agents + HolmesGPT, so the
+              # MAX_LOADED_MODELS=1 cap is safe — there's nothing to evict.
               OLLAMA_MAX_LOADED_MODELS: 1
 
             resources:

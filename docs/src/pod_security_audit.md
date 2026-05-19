@@ -82,7 +82,7 @@ container level. Likely candidates for one-PR-each remediation:
 - `collab/{it-tools,nametag,paperless,pump,pump-cv,swiparr,kitchenowl}`
 - `media/{flaresolverr,immich-power-tools,videodupfinder,theme-park,immichkiosk}`
 - `home/wyoming-services-{kokoro,openwakeword,whisper}`
-- `ai/{kubeclaw-qmd,kubeclaw-qmd-update,paperless-ai,sync-receiver}`
+- `ai/{paperless-ai,sync-receiver}`
 
 Each is a stateless or near-stateless app reading from a configMap or
 PVC; readOnlyRootFilesystem should land with at most a `tmpfs`
@@ -96,7 +96,7 @@ PVCs, but adds startup latency on large volumes (Immich, paperless,
 n8n). One-line fix per app:
 
 ```text
-ai/{kubeclaw-chromium,kubeclaw-gateway,kubeclaw-qmd,langgraph-agents}
+ai/{langgraph-agents}
 auth/authelia
 collab/{paperless-offsite-backup,zulip-memcached,zulip-rabbitmq}
 home/{emqx,netbox}

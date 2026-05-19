@@ -138,7 +138,7 @@ async function postAck(topic: string, reaction: string, lgStatus: string) {
     const apiKey = Deno.env.get("ZULIP_BOT_API_KEY");
     if (!email || !apiKey) return;
     const auth = "Basic " + btoa(`${email}:${apiKey}`);
-    const zulipHost = Deno.env.get("ZULIP_HOST") ?? "chat.thesteamedcrab.com";
+    const zulipApiUrl = Deno.env.get("ZULIP_API_URL") ?? "http://zulip.collab.svc.cluster.local";
     const emoji = reaction === "approve" ? "✅" : reaction === "reject" ? "🛑" : "⏸";
     const form = new URLSearchParams({
         type: "stream",
@@ -146,7 +146,7 @@ async function postAck(topic: string, reaction: string, lgStatus: string) {
         topic,
         content: `${emoji} **${reaction}** → langgraph status: \`${lgStatus ?? "ok"}\``,
     });
-    await fetch(`https://${zulipHost}/api/v1/messages`, {
+    await fetch(`${zulipApiUrl}/api/v1/messages`, {
         method: "POST",
         headers: {
             Authorization: auth,

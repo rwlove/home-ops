@@ -9,6 +9,35 @@ spec:
     kind: OCIRepository
     name: rook-ceph-cluster
   interval: 1h
+  postRenderers:
+    # The rook-ceph cluster chart ships CephNodeDiskspaceWarning with
+    # `device=~"/.*"` — which matches every block device on the node,
+    # including CSI plugin mounts (/dev/rbd*, /dev/longhorn/*). That
+    # turns the rule into a noisy "any PVC filling up" alert with
+    # `predict_linear < 0` regardless of actual fill %.
+    #
+    # Scope the matcher to actual node disks. Real OSD-node disks (sd*,
+    # nvme*, mapper/ when used as OSD LVM) still alert; transient and
+    # legitimate PVC growth is covered by the kube-prometheus-stack
+    # NodeFilesystemSpaceFillingUp rule (stricter: requires both
+    # <15% free AND fills in 24h).
+    #
+    # Index path is the current chart layout — `test` op verifies it
+    # before `replace`, so a chart upgrade that reorders rules will
+    # fail loudly here rather than silently mis-patch a different rule.
+    - kustomize:
+        patches:
+          - patch: |-
+              - op: test
+                path: /spec/groups/6/rules/4/alert
+                value: CephNodeDiskspaceWarning
+              - op: replace
+                path: /spec/groups/6/rules/4/expr
+                value: |
+                  predict_linear(node_filesystem_free_bytes{device=~"/.*",device!~"/dev/(rbd|longhorn).*"}[2d], 3600 * 24 * 5) *on(instance) group_left(nodename) node_uname_info < 0
+            target:
+              kind: PrometheusRule
+              name: prometheus-ceph-rules
   values:
     cephBlockPools:
       - name: ceph-blockpool

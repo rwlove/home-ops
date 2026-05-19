@@ -24,8 +24,23 @@ or the inline curl in the README two levels up).
 | env | source 1P item / field |
 |---|---|
 | `LANGGRAPH_APPROVAL_SIGNING_KEY` | `langgraph-agents.LANGGRAPH_APPROVAL_SIGNING_KEY` |
-| `PUSHOVER_USER_KEY` | `langgraph-agents.PUSHOVER_USER_KEY` |
-| `PUSHOVER_APP_TOKEN` | `langgraph-agents.PUSHOVER_APP_TOKEN` |
+| `NTFY_URL` | literal template (`https://ntfy.${SECRET_DOMAIN}`) |
+| `NTFY_WRITE_TOKEN` | `ntfy.NTFY_WRITE_TOKEN` |
 | `ZULIP_BOT_EMAIL` | `zulip-n8n-bot.ZULIP_BOT_EMAIL` |
 | `ZULIP_BOT_API_KEY` | `zulip-n8n-bot.ZULIP_BOT_API_KEY` |
 | `ROB_ZULIP_USER_ID` | `zulip-n8n-bot.ROB_ZULIP_USER_ID` |
+
+## Approval-token signing (pre-sign at post-time)
+
+`langgraph-approval-post.ts` and the inline `postApproval` in
+`langgraph-inbox.ts` pre-sign three HMAC-SHA256 approval tokens
+(approve / reject / defer) when the agent pauses and embeds them in
+the ntfy push's action buttons. Tapping a button on the phone POSTs
+the matching token to `https://langgraph.${SECRET_DOMAIN}/approval`
+(exposed by `kubernetes/apps/ai/langgraph-agents/app/route-approval.yaml`).
+
+Single-use is enforced by langgraph-agents' paused-state machine: once
+one verdict resumes the task, subsequent token POSTs return 409.
+
+The Zulip emoji-reaction path in `langgraph-approval-receive.ts`
+remains as a desktop fallback — it signs its own token at react-time.

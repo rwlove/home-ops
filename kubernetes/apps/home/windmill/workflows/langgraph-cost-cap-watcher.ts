@@ -1,10 +1,9 @@
 // Cron: every 4 hours.
 //
-// Polls /admin/costs/today on langgraph-agents and Pushovers if we're
+// Polls /admin/costs/today on langgraph-agents and ntfys if we're
 // approaching (≥80%) or have crossed (≥100%) the daily cap.
 //
-// Endpoint may 404 until Langfuse phase is online — we degrade
-// gracefully.
+// Endpoint may 404 until Langfuse phase is online — we degrade gracefully.
 //
 // Replaces the n8n flow "LangGraph → Cost cap watcher".
 
@@ -28,50 +27,53 @@ export async function main() {
     const pct = cap > 0 ? Math.round((spent / cap) * 100) : 0;
 
     if (pct >= 100) {
-        await sendPushover({
+        await publishNtfy({
+            topic: "costs",
             title: `💥 Daily cost cap HIT ($${spent} / $${cap})`,
             message:
                 "langgraph-agents will refuse Claude-API-eligible specialists for the rest of the day.",
-            priority: 1,
-            sound: "siren",
+            priority: 5,
+            tags: ["boom"],
         });
         return { tier: "hit", spent, cap, pct };
     }
     if (pct >= 80) {
-        await sendPushover({
+        await publishNtfy({
+            topic: "costs",
             title: `⚠️ Daily cost cap 80%+ ($${spent} / $${cap})`,
             message: "Approaching the daily limit. Consider deferring non-urgent Claude-API tasks.",
-            priority: 0,
-            sound: "intermission",
+            priority: 4,
+            tags: ["warning"],
         });
         return { tier: "warn", spent, cap, pct };
     }
     return { tier: "ok", spent, cap, pct };
 }
 
-async function sendPushover(args: {
+async function publishNtfy(args: {
+    topic: string;
     title: string;
     message: string;
-    priority: number;
-    sound?: string;
+    priority?: number;
+    tags?: string[];
 }) {
-    const token = Deno.env.get("PUSHOVER_APP_TOKEN");
-    const user = Deno.env.get("PUSHOVER_USER_KEY");
-    if (!token || !user) {
-        throw new Error("PUSHOVER_APP_TOKEN / PUSHOVER_USER_KEY env not set");
-    }
-    const form = new URLSearchParams({
-        token,
-        user,
-        title: args.title,
-        message: args.message,
-        priority: String(args.priority),
-    });
-    if (args.sound) form.set("sound", args.sound);
-    const r = await fetch("https://api.pushover.net/1/messages.json", {
+    const url = Deno.env.get("NTFY_URL") ?? "https://ntfy.thesteamedcrab.com";
+    const token = Deno.env.get("NTFY_WRITE_TOKEN");
+    if (!token) throw new Error("NTFY_WRITE_TOKEN env not set");
+    const r = await fetch(url, {
         method: "POST",
-        body: form,
+        headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+            topic: args.topic,
+            title: args.title,
+            message: args.message,
+            priority: args.priority ?? 3,
+            tags: args.tags ?? [],
+        }),
         signal: AbortSignal.timeout(30_000),
     });
-    return r.ok;
+    return { status: r.status, ok: r.ok };
 }

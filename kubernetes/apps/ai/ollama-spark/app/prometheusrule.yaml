@@ -1,0 +1,37 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: ollama-spark-rules
+spec:
+  groups:
+    # GB10 traditional DCGM utilization counters (GPU_UTIL,
+    # GR_ENGINE_ACTIVE, FB_USED, MEM_COPY_UTIL) are broken on this
+    # arch — see reference_dcgm_gb10_broken_counters.md. The only
+    # signals that reliably report on GB10 are POWER_USAGE and
+    # SM_CLOCK. A "GPU is wedged" alert that depends on POWER_USAGE
+    # (idle <12 W while Pod Ready for >10 min) is planned for the
+    # Stream 1d cleanup PR; it'd cry wolf right now because no
+    # consumer routes to ollama-spark yet and POWER sits at the
+    # ~10 W idle floor.
+    - name: ollama-spark.availability
+      rules:
+        # Pod-level failure — covers OOM, image-pull, scheduling,
+        # crash-loop. High-precision pager. Once Stream 1 routes
+        # langgraph / HolmesGPT / Open WebUI to Spark, a dead Pod
+        # means the cluster's chat surface is degraded to the P40
+        # fallback.
+        - alert: SparkOllamaPodDown
+          annotations:
+            summary: ollama-spark Pod not Ready (Spark inference unavailable)
+            description: |
+              Pod {{ $labels.namespace }}/{{ $labels.pod }} on Spark
+              has been not-Ready for >5 minutes. Inspect with
+              `kubectl -n ai describe pod {{ $labels.pod }}` and
+              `kubectl -n ai logs {{ $labels.pod }} --previous`.
+          expr: |-
+            kube_pod_status_ready{namespace="ai",pod=~"ollama-spark-.*",condition="true"} == 0
+          for: 5m
+          labels:
+            severity: critical

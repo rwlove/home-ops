@@ -1,0 +1,88 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: windmill-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: windmill
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # Internal Envoy gateway → windmill-app:8000.
+    # Open WebUI / n8n-style direct in-cluster Service calls also
+    # land here (e.g., when langgraph-agents posts to a Windmill
+    # webhook URL).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: langgraph-agents
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: alertmanager
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+  egress:
+    # CNPG postgres-windmill cluster in `databases` ns.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            cnpg.io/cluster: postgres-windmill
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    # In-cluster Services Windmill workflows POST to:
+    # langgraph-agents (replaces n8n's role in the LangGraph flows)
+    # HolmesGPT (replaces n8n's role for the AlertManager flow)
+    # Zulip (chat notifications + approval reactions)
+    # MCP gateway (future flows may call MCP backends)
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: langgraph-agents
+      toPorts:
+        - ports:
+            - port: "8765"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: holmesgpt
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: collab
+            app.kubernetes.io/name: zulip
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # External APIs Windmill workflows hit: Pushover + Anthropic + GitHub.
+    # Canonical FQDNs via toEntities:world+443 per memory
+    # project_cilium_matchpattern_fqdn_limits (matchPattern silently
+    # fails for canonical FQDNs queried via K8s DNS search-domain
+    # augmentation).
+    - toEntities: [world]
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

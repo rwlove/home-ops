@@ -35,14 +35,14 @@ export async function main() {
     const apiKey = Deno.env.get("ZULIP_BOT_API_KEY");
     if (!email || !apiKey) throw new Error("ZULIP_BOT_EMAIL / ZULIP_BOT_API_KEY env not set");
     const auth = "Basic " + btoa(`${email}:${apiKey}`);
-    const zulipHost = Deno.env.get("ZULIP_HOST") ?? "chat.thesteamedcrab.com";
+    const zulipApiUrl = Deno.env.get("ZULIP_API_URL") ?? "http://zulip.collab.svc.cluster.local";
     const form = new URLSearchParams({
         type: "stream",
         to: "digests",
         topic: `daily-${date}`,
         content,
     });
-    const zr = await fetch(`https://${zulipHost}/api/v1/messages`, {
+    const zr = await fetch(`${zulipApiUrl}/api/v1/messages`, {
         method: "POST",
         headers: {
             Authorization: auth,

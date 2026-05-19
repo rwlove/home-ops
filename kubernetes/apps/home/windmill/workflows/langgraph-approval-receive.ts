@@ -37,10 +37,20 @@ export async function main(
 ) {
     const robId = parseInt(Deno.env.get("ROB_ZULIP_USER_ID") ?? "0", 10);
     if (!message || message.sender_id !== robId) {
-        return { skip: true, reason: "sender not Rob", sender_id: message?.sender_id };
+        return {
+            response_not_required: true,
+            skip: true,
+            reason: "sender not Rob",
+            sender_id: message?.sender_id,
+        };
     }
     if (message.type !== "stream") {
-        return { skip: true, reason: "not a stream message", type: message.type };
+        return {
+            response_not_required: true,
+            skip: true,
+            reason: "not a stream message",
+            type: message.type,
+        };
     }
 
     // Parse intent from message text (already has the @mention stripped by Zulip).
@@ -54,6 +64,7 @@ export async function main(
         reaction = "defer";
     } else {
         return {
+            response_not_required: true,
             skip: true,
             reason: "no approve/reject/defer keyword in message",
             text: text.slice(0, 80),
@@ -63,13 +74,15 @@ export async function main(
     // Topic format: "<task_id> — Class <C/D>: <action>"
     const topic = message.topic ?? message.subject ?? "";
     const taskMatch = topic.match(/^([\w-]+)\s/);
-    if (!taskMatch) return { skip: true, reason: "no task_id in topic", topic };
+    if (!taskMatch) {
+        return { response_not_required: true, skip: true, reason: "no task_id in topic", topic };
+    }
     const task_id = taskMatch[1];
 
     const classMatch = topic.match(/Class\s+([ABCD]):/);
     const targetMatch = topic.match(/Class\s+[ABCD]:\s*(\S+)/);
     if (!classMatch || !targetMatch) {
-        return { skip: true, reason: "malformed topic", topic };
+        return { response_not_required: true, skip: true, reason: "malformed topic", topic };
     }
     const action_class = classMatch[1];
     const target = targetMatch[1];
@@ -86,25 +99,38 @@ export async function main(
     const sig = await hmacSha256Hex(secret, payload);
     const approval_token = `${payload}:${sig}`;
 
-    const r = await fetch("http://langgraph-agents.ai.svc.cluster.local:8765/approval", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ task_id, reaction, approval_token, actor: "rob" }),
-        signal: AbortSignal.timeout(300_000),
-    });
-    const lgResult = await r.json().catch(() => ({}));
-
-    // Post a Zulip ack in the same topic so Rob sees the bot
-    // acknowledged the action. Uses the existing n8n-bot creds
-    // (still write-authorized to the approvals stream). Best-effort —
-    // we don't fail the job if the ack post errors out.
+    // langgraph /approval is normally fast (<1s) — validate token,
+    // resume the paused task, return. 5s timeout to stay safely under
+    // Zulip's ~10s webhook deadline (with headroom for HMAC sig).
+    //
+    // We intentionally don't post a Zulip ack from this script:
+    // Rob's @-mention in #approvals is the user-visible confirmation
+    // that the bot was triggered. langgraph-agents posts the task's
+    // own status update via its zulip integration on /approval
+    // success.
+    let lgStatus = "queued";
     try {
-        await postAck(message.topic ?? message.subject ?? "", reaction, lgResult.status);
+        const r = await fetch(
+            "http://langgraph-agents.ai.svc.cluster.local:8765/approval",
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ task_id, reaction, approval_token, actor: "rob" }),
+                signal: AbortSignal.timeout(5_000),
+            },
+        );
+        const lgResult = await r.json().catch(() => ({}));
+        lgStatus = lgResult.status ?? "ok";
     } catch (e) {
-        console.error("post-ack failed (non-fatal):", e);
+        lgStatus = `error: ${(e as Error).message}`;
     }
 
-    return { status: lgResult.status ?? "completed", task_id, reaction };
+    return {
+        response_not_required: true,
+        status: lgStatus,
+        task_id,
+        reaction,
+    };
 }
 
 async function postAck(topic: string, reaction: string, lgStatus: string) {

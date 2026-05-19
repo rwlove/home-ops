@@ -82,15 +82,19 @@ jobs:
 
       # Multi-line heredoc avoids needing jq inside the flux-local
       # container (it isn't there) — file is already valid JSON, just
-      # plumb it through.
+      # plumb it through. printf ensures a trailing newline before the
+      # delimiter (flux-local doesn't write one), and the random-ish
+      # delimiter guards against any image name literally containing
+      # `EOF` on a line.
       - name: Emit images
         id: extract
         shell: sh
         run: |
+          delim="EOF_$(date +%s)_$$"
           {
-            echo "${{ matrix.branches }}<<EOF"
+            echo "${{ matrix.branches }}<<${delim}"
             cat images.json
-            echo EOF
+            printf '\n%s\n' "${delim}"
           } >> "$GITHUB_OUTPUT"
 
   check-new-images:

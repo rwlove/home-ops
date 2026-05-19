@@ -202,7 +202,4 @@ shipped in PR #11636 now has live data to plot.
   P40 tool-call chains. Bump `LITELLM_REQUEST_TIMEOUT` (or equivalent) in
   HolmesGPT HR to align with the n8n 1500s outer-timeout from memory
   `project_n8n_holmesgpt_timeout_workaround`.
-- [ ] **n8n alertmanager webhook** — webhook returned HTTP 405 when probed;
-  workflow `AlertManager → HolmesGPT → Pushover` may need re-activation in
-  the live n8n UI. The HolmesGPT side responds correctly to direct
-  `/api/chat` POSTs.
+- [x] **n8n alertmanager webhook** — **WON'T FIX (user decision 2026-05-19).** Root cause turned out to be n8n 2.x license gating: `n8n license:info` shows `isValid: false`, so workflows never escape draft state and `/webhook/*` paths don't register in Express's production webhook router. Setting `N8N_PUBLIC_API_DISABLED=false` (PR #11657) and running `n8n update:workflow --active=true` + `n8n publish:workflow` both no-op without a license. Accepted criterion 4 partial: HolmesGPT direct path works (verified) + Alertmanager's direct pushover receiver still fires (n8n leg has `continue: true`).

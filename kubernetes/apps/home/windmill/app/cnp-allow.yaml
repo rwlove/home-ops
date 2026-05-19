@@ -5,17 +5,20 @@ kind: CiliumNetworkPolicy
 metadata:
   name: windmill-allow
 spec:
+  # The official Windmill chart labels pods with release=windmill plus
+  # per-component app=<windmill-app|windmill-lsp|windmill-workers>. We
+  # select all four with `release=windmill` so this single policy
+  # covers app + workers + lsp + indexer.
   endpointSelector:
     matchLabels:
-      app.kubernetes.io/name: windmill
+      release: windmill
   enableDefaultDeny:
     egress: false
     ingress: false
   ingress:
     # Internal Envoy gateway → windmill-app:8000.
-    # Open WebUI / n8n-style direct in-cluster Service calls also
-    # land here (e.g., when langgraph-agents posts to a Windmill
-    # webhook URL).
+    # Cluster-local Service consumers (langgraph-agents, alertmanager
+    # → /webhook/*) also hit port 8000.
     - fromEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: network
@@ -30,7 +33,35 @@ spec:
         - ports:
             - port: "8000"
               protocol: TCP
+    # Prometheus → windmill-app-metrics:8001.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: prometheus
+      toPorts:
+        - ports:
+            - port: "8001"
+              protocol: TCP
+    # windmill-app → windmill-lsp:3001 (in-browser code-completion LSP).
+    - fromEndpoints:
+        - matchLabels:
+            release: windmill
+      toPorts:
+        - ports:
+            - port: "3001"
+              protocol: TCP
   egress:
+    # Kube DNS — every pod needs this; default-deny namespace.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
     # CNPG postgres-windmill cluster in `databases` ns.
     - toEndpoints:
         - matchLabels:
@@ -39,6 +70,17 @@ spec:
       toPorts:
         - ports:
             - port: "5432"
+              protocol: TCP
+    # Workers → app (job pickup is via Postgres but workers also call
+    # /api/* on the app server for token refresh, log shipping, etc).
+    - toEndpoints:
+        - matchLabels:
+            release: windmill
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+            - port: "3001"
               protocol: TCP
     # In-cluster Services Windmill workflows POST to:
     # langgraph-agents (replaces n8n's role in the LangGraph flows)

@@ -42,16 +42,19 @@ spec:
               - python
               - /app/server.py
             env:
-              MODEL: ollama/qwen2.5:7b
-              OLLAMA_API_BASE: http://ollama.ai.svc.cluster.local:11434
+              MODEL: ollama/qwen2.5:32b
+              OLLAMA_API_BASE: http://ollama-spark.ai.svc.cluster.local:11434
               OVERRIDE_MAX_CONTENT_SIZE: "16384"
               OVERRIDE_MAX_OUTPUT_TOKEN: "4096"
-              # Default litellm timeout is 600s — tool-calling investigations
-              # against qwen2.5:7b on P40 frequently exceed it (verified
-              # 2026-05-19 via direct /api/chat probe; investigation timed out
-              # at 600s with `litellm.Timeout: Connection timed out`). Align
-              # with the n8n outer-timeout of 1500s per
-              # `project_n8n_holmesgpt_timeout_workaround` memory.
+              # Default litellm timeout is 600s; tool-calling
+              # investigations against qwen2.5:7b on P40 routinely
+              # exceeded it (1500s band-aid landed in PR #11651). On
+              # Spark qwen2.5:32b the per-token latency drops but the
+              # total tool-orchestration budget for a complex
+              # investigation can still rival 1500s. Keep the band-aid
+              # through the 48 h soak; revert to 600s in the Stream
+              # 1d cleanup PR once p95 alert latency is observed back
+              # under 5 min in Grafana.
               LITELLM_REQUEST_TIMEOUT: "1500"
               LITELLM_TIMEOUT: "1500"
               HOLMES_HOST: 0.0.0.0

@@ -34,6 +34,7 @@ jobs:
         with:
           patterns: |-
             kubernetes/**/*
+            .github/workflows/flux-local.yaml
 
   test:
     if: ${{ needs.filter-changes.outputs.changed-files != '[]' }}
@@ -61,12 +62,18 @@ jobs:
     # Diff-against-default-branch only makes sense on PRs.
     if: ${{ github.event_name == 'pull_request' && needs.filter-changes.outputs.changed-files != '[]' }}
     name: Flux Local Diff
-    runs-on: ubuntu-latest
+    # Self-hosted + container: spec because `diff helmrelease` invokes
+    # `helm template` for changed HelmReleases. ZOT-routed chart URLs
+    # only resolve in-cluster. The `uses: docker://` pattern (sibling
+    # pod via ARC's k8s hooks) caused `helm repo update` to time out
+    # consistently against HelmRepository sources — switching to
+    # container: at job level avoids that. Node-based comment posting
+    # moved to a sibling `diff-comment` job (this image lacks node).
+    runs-on: arc-runner-set-home-ops
+    container:
+      image: ghcr.io/allenporter/flux-local:v8.1.0
     needs:
       - filter-changes
-    permissions:
-      contents: read
-      pull-requests: write
     strategy:
       matrix:
         resources:
@@ -89,32 +96,70 @@ jobs:
           persist-credentials: false
 
       - name: Run flux-local diff
-        uses: docker://ghcr.io/allenporter/flux-local:v8.1.0
-        with:
-          args: >-
-            diff ${{ matrix.resources }}
-            --unified 6
-            --path /github/workspace/pull/kubernetes/flux
-            --path-orig /github/workspace/default/kubernetes/flux
-            --strip-attrs "helm.sh/chart,checksum/config,app.kubernetes.io/version,chart"
-            --limit-bytes 10000
-            --all-namespaces
+        shell: sh
+        run: |
+          flux-local diff ${{ matrix.resources }} \
+            --unified 6 \
+            --path "$GITHUB_WORKSPACE/pull/kubernetes/flux" \
+            --path-orig "$GITHUB_WORKSPACE/default/kubernetes/flux" \
+            --strip-attrs "helm.sh/chart,checksum/config,app.kubernetes.io/version,chart" \
+            --limit-bytes 10000 \
+            --all-namespaces \
             --output-file diff.patch
 
-      - name: Generate Diff
+      - name: Upload diff artifact
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: flux-local-diff-${{ matrix.resources }}
+          path: diff.patch
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Render diff in step summary
+        shell: sh
+        run: |
+          {
+            echo "## Flux ${{ matrix.resources }} diff"
+            echo '```diff'
+            cat diff.patch
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  diff-comment:
+    # Posts the diff as a sticky PR comment. Runs on ubuntu-latest
+    # because the flux-local image (used by the diff job) doesn't ship
+    # Node, which create-github-app-token + sticky-pull-request-comment
+    # both need.
+    if: ${{ github.event_name == 'pull_request' && needs.filter-changes.outputs.changed-files != '[]' }}
+    name: Flux Local Comment
+    runs-on: ubuntu-latest
+    needs:
+      - filter-changes
+      - diff
+    permissions:
+      contents: read
+      pull-requests: write
+    strategy:
+      matrix:
+        resources:
+          - helmrelease
+          - kustomization
+      max-parallel: 4
+      fail-fast: false
+    steps:
+      - name: Download diff artifact
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: flux-local-diff-${{ matrix.resources }}
+
+      - name: Load diff into output
         id: diff
         run: |
           {
-              echo 'diff<<EOF'
-              cat diff.patch
-              echo EOF
-          } >> "${GITHUB_OUTPUT}";
-          {
-              echo "## Flux ${{ matrix.resources }} diff"
-              echo '```diff'
-              cat diff.patch
-              echo '```'
-          } >> "${GITHUB_STEP_SUMMARY}"
+            echo 'diff<<EOF'
+            cat diff.patch
+            echo EOF
+          } >> "${GITHUB_OUTPUT}"
 
       - name: Generate Token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -139,6 +184,7 @@ jobs:
     needs:
       - test
       - diff
+      - diff-comment
     if: ${{ !cancelled() }}
     name: Flux Local successful
     runs-on: ubuntu-latest

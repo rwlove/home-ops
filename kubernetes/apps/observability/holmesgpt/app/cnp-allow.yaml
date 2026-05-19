@@ -11,10 +11,25 @@ spec:
   enableDefaultDeny:
     egress: false
     ingress: false
-  # No ingress rules needed: holmesgpt-oauth2-proxy is the only door,
-  # and baseline allow-intra-namespace already permits that path. The
-  # n8n webhook in `home` ns reaches holmesgpt via its oauth2-proxy
-  # (gateway path + cross-ns auth-bearing call) — see Pattern A.
+  ingress:
+    # Windmill workflow `alertmanager-holmesgpt-notify` POSTs directly
+    # to /api/chat from the home ns. n8n previously reached HolmesGPT
+    # through its oauth2-proxy + gateway; Windmill skips that hop and
+    # talks to the in-cluster Service for lower latency.
+    - fromEndpoints:
+        - matchExpressions:
+            - key: io.kubernetes.pod.namespace
+              operator: In
+              values: [home]
+            - key: app.kubernetes.io/name
+              operator: In
+              values:
+                - windmill-app
+                - windmill-workers
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
   egress:
     # LLM backend — ollama in ai ns (Pattern E).
     - toEndpoints:

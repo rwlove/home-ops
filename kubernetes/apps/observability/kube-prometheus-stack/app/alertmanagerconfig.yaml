@@ -22,11 +22,12 @@ spec:
           - name: alertname
             value: InfoInhibitor
             matchType: =
-      # Enrich critical alerts with HolmesGPT investigation via n8n,
+      # Enrich critical alerts with HolmesGPT investigation via Windmill,
       # then `continue` to fall through to the existing pushover delivery
       # (immediate notification preserved; investigation arrives 1–3 min
-      # later as a second pushover).
-      - receiver: n8n-investigate
+      # later as a second pushover). Migrated from n8n 2026-05-19 —
+      # see kubernetes/apps/home/windmill/workflows/alertmanager-…ts.
+      - receiver: windmill-investigate
         continue: true
         matchers:
           - name: severity
@@ -86,8 +87,16 @@ spec:
           userKey:
             name: alertmanager-secret
             key: pushover_api_userkey
-    - name: n8n-investigate
+    - name: windmill-investigate
       webhookConfigs:
-        - url: http://n8n.home.svc.cluster.local:8080/webhook/alert-investigate
+        # Windmill API runs the script and returns the result. We use
+        # `run` (async, fire-and-forget) since Alertmanager doesn't
+        # need to wait for HolmesGPT — the result goes to ntfy
+        # directly from the script.
+        - url: http://windmill-app.home.svc.cluster.local:8000/api/w/lovenet/jobs/run/p/f/lovenet/alertmanager-holmesgpt-notify
           sendResolved: false
           maxAlerts: 1
+          httpConfig:
+            bearerTokenSecret:
+              name: alertmanager-secret
+              key: windmill_webhook_token

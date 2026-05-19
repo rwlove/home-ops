@@ -18,10 +18,16 @@ spec:
     ingress: false
   ingress:
     # HTTPRoute on internal gateway → prometheus:9090 (web UI / API).
+    # Home Assistant prometheus sensor → prometheus:9090 (direct pull
+    # from home ns for the HA `prometheus` integration; egress side
+    # was punched through in PR #11699).
     - fromEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: network
             app.kubernetes.io/name: envoy
+        - matchLabels:
+            io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: home-assistant
       toPorts:
         - ports:
             - port: "9090"
@@ -75,16 +81,16 @@ spec:
             - port: "9093"
               protocol: TCP
   egress:
-    # n8n webhook receiver for `n8n-investigate` route in
+    # Windmill webhook receiver for `windmill-investigate` route in
     # alertmanagerconfig — enriches critical alerts via HolmesGPT
-    # before falling through to pushover.
+    # before falling through to pushover. Migrated from n8n 2026-05-19.
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: home
-            app.kubernetes.io/name: n8n
+            app.kubernetes.io/name: windmill-app
       toPorts:
         - ports:
-            - port: "8080"
+            - port: "8000"
               protocol: TCP
     # Pushover notification API.
     #

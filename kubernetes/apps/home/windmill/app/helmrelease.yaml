@@ -11,7 +11,9 @@ spec:
       sourceRef:
         kind: HelmRepository
         name: windmill
-      version: 2.x  # TODO: pin to a concrete version after first install
+      # Pinned to 4.0.158 — first deploy on chart v4 line. Chart appVersion
+      # 1.704.1. Re-pin when bumping; let Renovate manage the suffix.
+      version: 4.0.158
   install:
     disableWait: true
   interval: 30m
@@ -43,27 +45,98 @@ spec:
       # Replica count — single instance is fine for a homelab.
       appReplicas: 1
 
+      # Chart v4 defaults `privileged: true` on workers (chart 4.0+ flips
+      # this to enable the OOM-killer + PID-namespace-isolation flow on
+      # k8s 1.32+). We're trusted-script-only here, so prefer
+      # least-privilege: turn off privileged AND turn off unshare-pid.
+      # Net effect: identical to chart 2.x's posture.
+      disableUnsharePid: true
+
       # Default worker group.
       workerGroups:
         - name: default
           replicas: 1
           tolerations: []
           nodeSelector: {}
+          privileged: false
+          disableUnsharePid: true
           resources:
             requests:
               cpu: 100m
               memory: 256Mi
             limits:
               memory: 1Gi
+          # Workflow secrets — single 1P source materialized by the
+          # windmill-workflows ExternalSecret. WHITELIST_ENVS tells the
+          # Windmill worker which pod-env keys to pass through to the
+          # spawned Deno/Python/Bash subprocesses (default is none for
+          # nsjail-style isolation; Windmill strips parent env without
+          # an explicit allowlist).
+          # Pushover envs remain for the brief overlap window between
+          # Flux applying this manifest and the new ntfy-shape workflow
+          # scripts being synced to the Windmill DB. Removed in a
+          # follow-up PR once sync + verification is complete.
+          extraEnv: &workflow_secrets
+            - name: WHITELIST_ENVS
+              value: LANGGRAPH_APPROVAL_SIGNING_KEY,NTFY_URL,NTFY_WRITE_TOKEN,PUSHOVER_APP_TOKEN,PUSHOVER_USER_KEY,ZULIP_BOT_EMAIL,ZULIP_BOT_API_KEY,ROB_ZULIP_USER_ID
+            - name: LANGGRAPH_APPROVAL_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: windmill-workflows-secret
+                  key: LANGGRAPH_APPROVAL_SIGNING_KEY
+            - name: NTFY_URL
+              valueFrom:
+                secretKeyRef:
+                  name: windmill-workflows-secret
+                  key: NTFY_URL
+            - name: NTFY_WRITE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: windmill-workflows-secret
+                  key: NTFY_WRITE_TOKEN
+            - name: PUSHOVER_APP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: windmill-workflows-secret
+                  key: PUSHOVER_APP_TOKEN
+            - name: PUSHOVER_USER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: windmill-workflows-secret
+                  key: PUSHOVER_USER_KEY
+            - name: ZULIP_BOT_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: windmill-workflows-secret
+                  key: ZULIP_BOT_EMAIL
+            - name: ZULIP_BOT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: windmill-workflows-secret
+                  key: ZULIP_BOT_API_KEY
+            - name: ROB_ZULIP_USER_ID
+              valueFrom:
+                secretKeyRef:
+                  name: windmill-workflows-secret
+                  key: ROB_ZULIP_USER_ID
         # Native worker — runs Bash/PowerShell/etc. without nsjail.
         - name: native
           replicas: 1
+          privileged: false
+          disableUnsharePid: true
           resources:
             requests:
               cpu: 50m
               memory: 128Mi
             limits:
               memory: 512Mi
+          extraEnv: *workflow_secrets
+
+      # app pod — also receives workflow secrets so scripts triggered
+      # via `/api/w/.../run_wait_result` from inside the app pod see
+      # the same env (Windmill execs scripts inline for short flows).
+      app:
+        extraEnv: *workflow_secrets
 
       # App pod resources.
       resources:
@@ -78,19 +151,13 @@ spec:
         # Forward the actual client IP via the headers Envoy sets.
         enabled: true
 
-      # Bootstrap admin credentials (Windmill's first-run setup expects
-      # to either land at /user/setup or accept these from env).
-      # Reference the ExternalSecret-materialized windmill-secret.
-      extraEnv:
-        - name: WM_USER_USERNAME
-          value: admin
-        - name: WM_USER_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: windmill-secret
-              key: admin_password
-        - name: WM_USER_EMAIL
-          value: admin@windmill.local
+      # NOTE: Windmill's bootstrap admin is hardcoded by the binary to
+      # `admin@windmill.dev` with default password `changeme`. The
+      # chart does NOT expose an admin-password override (the
+      # `windmill.extraEnv` block has no analog in the chart). Operators
+      # must rotate the password immediately after first deploy via:
+      #   curl -X POST https://windmill.${SECRET_DOMAIN}/api/users/setpassword
+      # See ../README.md for the full bootstrap recipe.
 
     indexer:
       enabled: true

@@ -1,0 +1,101 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: chrome-mcp
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  values:
+    defaultPodOptions:
+      securityContext:
+        # Image runs as `node` user (UID 1000) per its baked-in USER directive.
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+    controllers:
+      chrome-mcp:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        pod:
+          annotations:
+            sidecar.istio.io/inject: "true"
+        containers:
+          app:
+            image:
+              repository: mcr.microsoft.com/playwright/mcp
+              tag: v0.0.75@sha256:d238ec7bc98cc4e22df0696d6031dad5b8a4b46781f4f0abaa3bfadeedb43b9a
+            # Image entrypoint is:
+            #   node /app/cli.js --headless --browser chromium --no-sandbox
+            # We append HTTP transport flags. --no-sandbox is acceptable
+            # because the gateway gates all callers via Authelia JWT.
+            # --allowed-hosts=* disables Playwright MCP's built-in DNS
+            # rebinding protection; safe here because (a) the CNP blocks
+            # ingress from outside the cluster and (b) the mcp-gateway
+            # gates every caller via JWT before traffic reaches us.
+            args:
+              - --port=8931
+              - --host=0.0.0.0
+              - --isolated
+              - --allowed-hosts=*
+            resources:
+              requests:
+                cpu: 100m
+                memory: 512Mi
+              limits:
+                memory: 2Gi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+              readOnlyRootFilesystem: true
+              seccompProfile:
+                type: RuntimeDefault
+    persistence:
+      # Chromium scratch space and Playwright cache directories. --isolated
+      # keeps the browser profile in memory, but the runtime still touches
+      # /tmp and the user's home dir.
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          chrome-mcp:
+            app:
+              - path: /tmp
+                subPath: tmp
+              - path: /home/node
+                subPath: home
+      # Chromium uses /dev/shm heavily for IPC; default 64Mi is too small.
+      dev-shm:
+        type: emptyDir
+        medium: Memory
+        sizeLimit: 1Gi
+        globalMounts:
+          - path: /dev/shm
+    service:
+      app:
+        controller: chrome-mcp
+        ports:
+          http:
+            port: 8931
+    route:
+      app:
+        hostnames:
+          - "chrome-mcp.mcp.local"
+        parentRefs:
+          - name: mcp-gateway
+            namespace: mcp-system
+            sectionName: mcps
+        rules:
+          - matches:
+              - path:
+                  type: PathPrefix
+                  value: /mcp
+            backendRefs:
+              - identifier: app
+                port: 8931

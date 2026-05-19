@@ -1,0 +1,78 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/job-batch-v1.json
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: memory-mcp-schema-init
+  annotations:
+    # Re-run this Job whenever the SQL changes. The ConfigMap is hashed
+    # into the Job name via configMapGenerator name suffix... except
+    # we have disableNameSuffixHash. So bump this manually if you edit
+    # resources/schema.sql, OR delete the Job and let Flux recreate it.
+    home-ops.thesteamedcrab.com/schema-version: "1"
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      annotations:
+        # Sidecar would prevent Job completion (stays running). Skip.
+        sidecar.istio.io/inject: "false"
+      # CNP selects on this label — Job pods need to match the
+      # memory-mcp-allow policy so they can reach postgres.
+      labels:
+        app.kubernetes.io/name: memory-mcp
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: psql
+          image: ghcr.io/cloudnative-pg/postgresql:14.17
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -euo pipefail
+              # Don't echo DATABASE_URL — contains credentials. The earlier
+              # ${DATABASE_URL%%\?*} attempt globbed away the whole string
+              # because `?*` matches everything (bash glob, not regex).
+              echo "Applying kg schema to the langgraph_memory database."
+              psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f /sql/schema.sql
+              echo "Schema apply complete."
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-langgraph-memory-app
+                  key: uri
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - mountPath: /sql/schema.sql
+              name: schema
+              readOnly: true
+              subPath: schema.sql
+            - mountPath: /tmp
+              name: tmp
+      volumes:
+        - configMap:
+            name: memory-mcp-schema
+          name: schema
+        - emptyDir: {}
+          name: tmp

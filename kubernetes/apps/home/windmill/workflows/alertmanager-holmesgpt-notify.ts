@@ -1,0 +1,104 @@
+// Triggered by Alertmanager webhook receiver.
+//
+// Receives a critical alert, asks HolmesGPT to investigate (≤2 tool
+// calls, <500 chars), then forwards the summary via ntfy → #alerts.
+//
+// Replaces the n8n flow "AlertManager → HolmesGPT → Pushover".
+
+type AlertmanagerPayload = {
+    alerts: Array<{
+        labels: { alertname: string; severity?: string; namespace?: string; pod?: string };
+        annotations: { summary?: string; description?: string };
+    }>;
+};
+
+export async function main(body: AlertmanagerPayload) {
+    const a = body.alerts?.[0];
+    if (!a) {
+        return { skip: true, reason: "no alerts in payload" };
+    }
+
+    const ask = [
+        "IMPORTANT: Be concise. Investigate this alert in <=2 tool calls",
+        "(kubectl_get_events on the namespace plus one other). Then answer",
+        "in <500 chars total: 1 sentence root cause + 1 sentence remediation.",
+        "Do not iterate further.",
+        "",
+        `Alert: ${a.labels.alertname}`,
+        `Severity: ${a.labels.severity ?? "unknown"}`,
+        `Namespace: ${a.labels.namespace ?? "unknown"}`,
+        `Pod: ${a.labels.pod ?? "n/a"}`,
+        `Summary: ${a.annotations.summary ?? "(none)"}`,
+        `Description: ${a.annotations.description ?? "(none)"}`,
+    ].join("\n");
+
+    // HolmesGPT REST: POST /api/chat
+    const hg = await fetch(
+        "http://holmesgpt.observability.svc.cluster.local:8080/api/chat",
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ask }),
+            signal: AbortSignal.timeout(600_000),
+        },
+    );
+    const data = await hg.json().catch(() => ({}));
+    const raw = String(data.analysis ?? data.response ?? "").trim();
+
+    let message: string;
+    if (!raw) {
+        message = "⚠️ HolmesGPT returned no analysis. Check the Windmill execution.";
+    } else if (
+        /^[:\s]*\{/.test(raw) &&
+        /"(suggested_prefixes|tool_call_id|function)"\s*:/.test(raw.slice(0, 200))
+    ) {
+        message = `⚠️ HolmesGPT model returned a tool-call instead of a summary.`;
+    } else if (raw.length <= 1000) {
+        message = raw;
+    } else {
+        const cut = raw.slice(0, 997);
+        const m = cut.match(/^[\s\S]*[.!?\n](?=[^.!?\n]*$)/);
+        message = ((m && m[0].length > 600) ? m[0] : cut).trimEnd() + "…";
+    }
+
+    const sev = (a.labels.severity ?? "").toLowerCase();
+    const priority = sev === "critical" ? 5 : sev === "warning" ? 4 : 3;
+
+    const notifyResp = await publishNtfy({
+        topic: "alerts",
+        title: `🔍 ${a.labels.alertname}`,
+        message,
+        priority,
+        tags: ["mag"],
+    });
+
+    return { alertname: a.labels.alertname, holmes_chars: raw.length, ntfy: notifyResp };
+}
+
+async function publishNtfy(args: {
+    topic: string;
+    title: string;
+    message: string;
+    priority?: number;
+    tags?: string[];
+}) {
+    const url = Deno.env.get("NTFY_URL") ?? "https://ntfy.thesteamedcrab.com";
+    const token = Deno.env.get("NTFY_WRITE_TOKEN");
+    if (!token) throw new Error("NTFY_WRITE_TOKEN env not set");
+    const r = await fetch(url, {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+            topic: args.topic,
+            title: args.title,
+            message: args.message,
+            priority: args.priority ?? 3,
+            tags: args.tags ?? [],
+        }),
+        signal: AbortSignal.timeout(30_000),
+    });
+    return { status: r.status, ok: r.ok };
+}

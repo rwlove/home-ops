@@ -5,13 +5,18 @@ kind: CiliumNetworkPolicy
 metadata:
   name: windmill-allow
 spec:
-  # The official Windmill chart labels pods with release=windmill plus
-  # per-component app=<windmill-app|windmill-lsp|windmill-workers>. We
-  # select all four with `release=windmill` so this single policy
-  # covers app + workers + lsp + indexer.
+  # Chart label coverage (v4): app + workers carry
+  # `release=windmill`, but `windmill-extra` does NOT. Cover all three
+  # via matchExpressions across the chart-set
+  # `app.kubernetes.io/name` field.
   endpointSelector:
-    matchLabels:
-      release: windmill
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          - windmill-app
+          - windmill-extra
+          - windmill-workers
   enableDefaultDeny:
     egress: false
     ingress: false
@@ -29,6 +34,12 @@ spec:
         - matchLabels:
             io.kubernetes.pod.namespace: observability
             app.kubernetes.io/name: alertmanager
+        # Zulip outgoing-webhook (approval-receiver-bot) calls
+        # /api/w/lovenet/jobs/run/p/f/lovenet/langgraph-approval-receive
+        # when Rob @-mentions the bot in the #approvals stream.
+        - matchLabels:
+            io.kubernetes.pod.namespace: collab
+            app.kubernetes.io/name: zulip
       toPorts:
         - ports:
             - port: "8000"
@@ -42,10 +53,15 @@ spec:
         - ports:
             - port: "8001"
               protocol: TCP
-    # windmill-app → windmill-lsp:3001 (in-browser code-completion LSP).
+    # windmill-app → windmill-extra:3001 (in-browser code-completion LSP).
     - fromEndpoints:
-        - matchLabels:
-            release: windmill
+        - matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values:
+                - windmill-app
+                - windmill-extra
+                - windmill-workers
       toPorts:
         - ports:
             - port: "3001"
@@ -74,8 +90,13 @@ spec:
     # Workers → app (job pickup is via Postgres but workers also call
     # /api/* on the app server for token refresh, log shipping, etc).
     - toEndpoints:
-        - matchLabels:
-            release: windmill
+        - matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values:
+                - windmill-app
+                - windmill-extra
+                - windmill-workers
       toPorts:
         - ports:
             - port: "8000"

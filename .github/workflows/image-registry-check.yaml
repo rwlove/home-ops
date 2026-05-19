@@ -31,12 +31,18 @@ jobs:
           patterns: |-
             kubernetes/**/*
             .github/image-registry-allowlist.txt
+            .github/workflows/image-registry-check.yaml
             tools/check-image-registry.sh
 
   extract-images:
     if: ${{ needs.filter-changes.outputs.changed-files != '[]' }}
     name: Extract images
-    runs-on: ubuntu-latest
+    # Self-hosted runner so flux-local can resolve
+    # oci://zot.kube-system.svc.cluster.local — same reason as the
+    # Flux Local Test job in flux-local.yaml (see PR #11677).
+    runs-on: arc-runner-set-home-ops
+    container:
+      image: ghcr.io/allenporter/flux-local:v8.1.0
     needs:
       - filter-changes
     strategy:
@@ -54,33 +60,42 @@ jobs:
         with:
           ref: "${{ matrix.branches == 'default' && github.event.repository.default_branch || '' }}"
 
-      # Wrapped in retry — flux-local does hundreds of upstream chart pulls
-      # per run; one transient 500 from GitHub Releases / quay / etc. fails
-      # the whole step. 3 attempts with backoff catches the single-flake case
-      # without hiding sustained outages.
+      # Retry mostly covers first-call cold-cache misses on ZOT — the
+      # underlying upstream-registry transients that motivated this on
+      # ubuntu-latest are largely absorbed by the in-cluster pull-through
+      # cache, but cold tags still occasionally 5xx on first reach.
       - name: Gather images
         uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
         with:
           timeout_minutes: 10
           max_attempts: 3
           retry_wait_seconds: 30
+          shell: sh
           command: |
-            docker run --rm \
-              -v "${{ github.workspace }}:/github/workspace" \
-              -w /github/workspace \
-              ghcr.io/allenporter/flux-local:v8.1.0 \
-              get cluster \
+            flux-local get cluster \
               --all-namespaces \
-              --path /github/workspace/kubernetes/flux \
+              --path "$GITHUB_WORKSPACE/kubernetes/flux" \
               --enable-images \
               --only-images \
               --output json \
               --output-file images.json
 
+      # Multi-line heredoc avoids needing jq inside the flux-local
+      # container (it isn't there) — file is already valid JSON, just
+      # plumb it through. printf ensures a trailing newline before the
+      # delimiter (flux-local doesn't write one), and the random-ish
+      # delimiter guards against any image name literally containing
+      # `EOF` on a line.
       - name: Emit images
         id: extract
+        shell: sh
         run: |
-          echo "${{ matrix.branches }}=$(jq --compact-output '.' images.json)" >> "${GITHUB_OUTPUT}"
+          delim="EOF_$(date +%s)_$$"
+          {
+            echo "${{ matrix.branches }}<<${delim}"
+            cat images.json
+            printf '\n%s\n' "${delim}"
+          } >> "$GITHUB_OUTPUT"
 
   check-new-images:
     if: ${{ needs.extract-images.outputs.default != needs.extract-images.outputs.pull }}

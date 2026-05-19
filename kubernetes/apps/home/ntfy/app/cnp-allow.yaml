@@ -1,0 +1,45 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: ntfy-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: ntfy
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # Envoy gateway → ntfy:8080 (public HTTPRoute + LAN HTTPRoute).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # In-cluster callers (Windmill workflows in `home` ns) hit the
+    # Service directly via cluster DNS, bypassing the gateway.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: windmill-app
+        - matchLabels:
+            io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: windmill-workers
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # Prometheus → ntfy:9090 /metrics.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: prometheus
+      toPorts:
+        - ports:
+            - port: "9090"
+              protocol: TCP

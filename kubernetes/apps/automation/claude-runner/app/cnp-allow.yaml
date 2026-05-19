@@ -1,0 +1,59 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: claude-runner-allow
+spec:
+  endpointSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          - claude-runner-pr-triage
+          - claude-runner-cost-cap-commentary
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # langgraph-agents in-cluster Service — the cost-cap-commentary
+    # workflow reads /admin/costs/today via the in-cluster Service.
+    # PR-triage doesn't need this but the rule is harmless for it.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: langgraph-agents
+      toPorts:
+        - ports:
+            - port: "8765"
+              protocol: TCP
+    # Prometheus (observability ns) — cost-cap-commentary queries
+    # langgraph_cost_usd_total for trend visualization.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: prometheus
+      toPorts:
+        - ports:
+            - port: "9090"
+              protocol: TCP
+    # Zulip (collab ns) — both workflows post their reports to the
+    # `ops` stream via the Zulip REST API.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: collab
+            app.kubernetes.io/name: zulip
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+    # External APIs: api.anthropic.com (Claude Code runtime),
+    # api.github.com (gh CLI). Canonical FQDNs through Cilium —
+    # toEntities:world+443 per memory project_cilium_matchpattern_fqdn_limits
+    # (matchPattern silently fails for canonical FQDNs queried via the
+    # K8s DNS search-domain augmentation).
+    - toEntities: [world]
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

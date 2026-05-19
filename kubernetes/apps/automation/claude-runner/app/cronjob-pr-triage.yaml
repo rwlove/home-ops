@@ -1,0 +1,93 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/cronjob-batch-v1.json
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: claude-runner-pr-triage
+  labels:
+    app.kubernetes.io/name: claude-runner-pr-triage
+spec:
+  # 0 13 * * * UTC = 09:00 EDT / 08:00 EST. Per Phase 4 Outcomes table.
+  schedule: "0 13 * * *"
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      # one retry then give up — preserves daily Claude budget
+      backoffLimit: 1
+      # 10 min hard cap; PR triage is read-only and finishes well under this
+      # in normal runs. Avoids racing the litellm timeout pattern from
+      # HolmesGPT (see project_n8n_holmesgpt_timeout_workaround).
+      activeDeadlineSeconds: 600
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: claude-runner-pr-triage
+        spec:
+          serviceAccountName: claude-runner-pr-triage
+          automountServiceAccountToken: false
+          restartPolicy: OnFailure
+          containers:
+            - name: runner
+              # PLACEHOLDER — see ../README.md gating item 1. The image
+              # doesn't exist yet; Renovate will track once
+              # rwlove/containers publishes claude-runner.
+              image: ghcr.io/rwlove/claude-runner:0.0.0
+              imagePullPolicy: IfNotPresent
+              command: ["claude"]
+              args:
+                - "--print"
+                - "--max-turns"
+                - "20"
+                - |
+                  Read open PRs at rwlove/home-ops via the gh MCP. For
+                  each open PR, summarize the change in one paragraph
+                  covering: current → target version, release-notes
+                  risk, any breaking changes. For Renovate PRs, surface
+                  the OCI digest if present. Post one Zulip card per PR
+                  to stream "ops", topic "pr-triage". Skip PRs that
+                  have been triaged in the last 24h (look for a "🤖
+                  triaged" emoji reaction).
+              env:
+                - name: HOME
+                  value: /workspace
+              envFrom:
+                - secretRef:
+                    name: claude-runner-secret
+                    optional: false
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: "1"
+                  memory: 1Gi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: workspace
+                  mountPath: /workspace
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            # /workspace + /tmp are tmpfs — the runner is stateless
+            # per Claude-Code-session and writes nothing durable.
+            - name: workspace
+              emptyDir:
+                medium: Memory
+                sizeLimit: 256Mi
+            - name: tmp
+              emptyDir:
+                medium: Memory
+                sizeLimit: 64Mi

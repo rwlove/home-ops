@@ -19,12 +19,16 @@ mcp_post() {
   # $1 = JSON body. Captures response headers to HEADERS_FILE (overwrite).
   # Handles both plain-JSON and SSE response framing: if the body has a
   # `data: ` line, emit just that payload; otherwise emit the body as-is.
-  RAW="$(curl -fsS -X POST "$${PW_URL}" \
+  #
+  # --max-time 45 — Playwright MCP returns text/event-stream that may not
+  # close cleanly; bound every call so a hung navigation doesn't wedge
+  # the whole sweep. (First iteration hung after ~5 hosts in a 20-min Job.)
+  RAW="$(curl -fsS --max-time 45 -X POST "$${PW_URL}" \
     -D "$${HEADERS_FILE}" \
     -H "Content-Type: application/json" \
     -H "Accept: application/json, text/event-stream" \
     $${SESSION_ID:+-H "Mcp-Session-Id: $${SESSION_ID}"} \
-    --data "$1")"
+    --data "$1" || true)"
   SSE_LINE="$(printf '%s' "$${RAW}" | sed -n '/^data: /{s///;p;q;}')"
   if [ -n "$${SSE_LINE}" ]; then
     printf '%s' "$${SSE_LINE}"
@@ -34,12 +38,12 @@ mcp_post() {
 }
 
 mcp_notify() {
-  curl -fsS -X POST "$${PW_URL}" \
+  curl -fsS --max-time 10 -X POST "$${PW_URL}" \
     -H "Content-Type: application/json" \
     -H "Accept: application/json, text/event-stream" \
     -H "Mcp-Session-Id: $${SESSION_ID}" \
     --data "$1" \
-    >/dev/null
+    >/dev/null || true
 }
 
 echo "== chrome-smoke-sweep =="
@@ -86,11 +90,11 @@ while IFS= read -r LINE; do
     RESP="$(mcp_post "$${BODY}" || echo '{}')"
   fi
 
-  TEXT="$(printf '%s' "$${RESP}" | jq -r '.result.content[]?.text // empty' 2>/dev/null | tr -s '\n' ' ')"
+  TEXT="$(printf '%s' "$${RESP}" | jq -r '.result.content[]?.text // empty' 2>/dev/null)"
 
-  TITLE="$(printf '%s' "$${TEXT}" | sed -n 's/.*Page Title: \([^#]*\) #*.*/\1/p' | sed 's/ *$//' | head -c 60)"
-  FINAL_URL="$(printf '%s' "$${TEXT}" | sed -n 's/.*Page URL: \([^ ]*\) .*/\1/p' | head -1)"
-  ERRORS="$(printf '%s' "$${TEXT}" | sed -n 's/.*Console: \([0-9]*\) errors.*/\1/p' | head -1)"
+  TITLE="$(printf '%s\n' "$${TEXT}" | sed -n 's/^- Page Title: //p' | head -1 | cut -c1-60)"
+  FINAL_URL="$(printf '%s\n' "$${TEXT}" | sed -n 's/^- Page URL: //p' | head -1)"
+  ERRORS="$(printf '%s\n' "$${TEXT}" | sed -n 's/^- Console: \([0-9]*\) errors.*/\1/p' | head -1)"
   ERRORS="$${ERRORS:-0}"
 
   STATUS="OK"

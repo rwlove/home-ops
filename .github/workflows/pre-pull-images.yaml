@@ -55,17 +55,28 @@ jobs:
         with:
           ref: "${{ matrix.branches == 'default' && github.event.repository.default_branch || '' }}"
 
+      # Wrapped in retry — flux-local does hundreds of upstream chart pulls
+      # per run; one transient 500 from GitHub Releases / quay / etc. fails
+      # the whole step. 3 attempts with backoff catches the single-flake case
+      # without hiding sustained outages.
       - name: Gather Images
-        uses: docker://ghcr.io/allenporter/flux-local:v8.1.0
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
         with:
-          args: >-
-            get cluster
-            --all-namespaces
-            --path /github/workspace/kubernetes/flux
-            --enable-images
-            --only-images
-            --output json
-            --output-file images.json
+          timeout_minutes: 10
+          max_attempts: 3
+          retry_wait_seconds: 30
+          command: |
+            docker run --rm \
+              -v "${{ github.workspace }}:/github/workspace" \
+              -w /github/workspace \
+              ghcr.io/allenporter/flux-local:v8.1.0 \
+              get cluster \
+              --all-namespaces \
+              --path /github/workspace/kubernetes/flux \
+              --enable-images \
+              --only-images \
+              --output json \
+              --output-file images.json
 
       - name: Extract Images
         id: extract-images

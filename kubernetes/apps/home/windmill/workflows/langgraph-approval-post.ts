@@ -31,7 +31,10 @@ export async function main(body: ApprovalRequest) {
         `**Undo path:** ${r.undo_path ?? "_(none — will escalate to Class D)_"}`,
         `**Cost estimate:** $${r.cost_estimate_usd ?? 0}`,
         "",
-        "React: 👍 approve / 👎 reject / ⏸️ defer 4h",
+        "Reply with one of (Zulip outgoing webhooks fire on @-mentions, not reactions):",
+        "  @**Approval Receiver** approve",
+        "  @**Approval Receiver** reject",
+        "  @**Approval Receiver** defer",
     ].join("\n");
 
     // Post to Zulip via REST as the n8n-bot user.

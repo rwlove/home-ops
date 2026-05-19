@@ -1,0 +1,109 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: windmill
+spec:
+  chart:
+    spec:
+      chart: windmill
+      sourceRef:
+        kind: HelmRepository
+        name: windmill
+      version: 2.x  # TODO: pin to a concrete version after first install
+  install:
+    disableWait: true
+  interval: 30m
+  upgrade:
+    disableWait: true
+  values:
+    # No bundled postgres — we use the CNPG cluster `postgres-windmill`.
+    postgresql:
+      enabled: false
+    # No bundled minio either.
+    minio:
+      enabled: false
+    enterprise:
+      enabled: false
+    hub:
+      enabled: false
+
+    windmill:
+      baseDomain: "windmill.${SECRET_DOMAIN}"
+      baseProtocol: https
+
+      # CNPG provisions a per-app `<cluster>-app` Secret with full DB
+      # credentials. The Secret has fields: username, password, host,
+      # port, dbname, and a ready-to-use `uri`. Point Windmill at that
+      # secret's uri field.
+      databaseUrlSecretName: postgres-windmill-app
+      databaseUrlSecretKey: uri
+
+      # Replica count — single instance is fine for a homelab.
+      appReplicas: 1
+
+      # Default worker group.
+      workerGroups:
+        - name: default
+          replicas: 1
+          tolerations: []
+          nodeSelector: {}
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+        # Native worker — runs Bash/PowerShell/etc. without nsjail.
+        - name: native
+          replicas: 1
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+
+      # App pod resources.
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          memory: 1Gi
+
+      # Tell Windmill it's behind a TLS-terminating proxy (Envoy).
+      proxy:
+        # Forward the actual client IP via the headers Envoy sets.
+        enabled: true
+
+      # Bootstrap admin credentials (Windmill's first-run setup expects
+      # to either land at /user/setup or accept these from env).
+      # Reference the ExternalSecret-materialized windmill-secret.
+      extraEnv:
+        - name: WM_USER_USERNAME
+          value: admin
+        - name: WM_USER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: windmill-secret
+              key: admin_password
+        - name: WM_USER_EMAIL
+          value: admin@windmill.local
+
+    indexer:
+      enabled: true
+
+    "windmill-extra":
+      lsp:
+        enabled: true
+      multiplayer:
+        enabled: false  # Enterprise-only
+
+    # Disable the chart's bundled ingress — we use Gateway API HTTPRoute
+    # (see route.yaml in the same dir).
+    ingress:
+      enabled: false
+    httproute:
+      enabled: false

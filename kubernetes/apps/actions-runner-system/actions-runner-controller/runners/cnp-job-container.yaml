@@ -1,0 +1,44 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-job-container-egress
+spec:
+  # The job-container pods spawned by ARC's k8s container hooks (when a
+  # workflow uses `container:` job spec) carry only hook-applied labels
+  # (e.g. `runner-pod=arc-runner-set-home-ops-*-workflow`). They do NOT
+  # share `app.kubernetes.io/name: arc-runner-set-home-ops` with the
+  # runner pod, so `arc-runner-set-home-ops-allow` doesn't apply to
+  # them — leaving them locked down by default-deny. Catch them by
+  # namespace + label-key presence.
+  endpointSelector:
+    matchExpressions:
+      - { key: runner-pod, operator: Exists }
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # Mirrors arc-runner-set-home-ops-allow's egress for runner pods —
+    # actions/checkout needs github.com on 443; container actions can
+    # fetch artifacts from any URL.
+    - toFQDNs:
+        - matchPattern: "*"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "80"
+              protocol: TCP
+    # ZOT pull-through cache in kube-system. Phase 1 routed 30+ HelmReleases
+    # through oci://zot.kube-system.svc.cluster.local:5000/... — Flux Local
+    # Test runs `helm template` against those URLs, which is why we route
+    # this workflow to the self-hosted runner in the first place.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            app.kubernetes.io/name: zot
+      toPorts:
+        - ports:
+            - port: "5000"
+              protocol: TCP

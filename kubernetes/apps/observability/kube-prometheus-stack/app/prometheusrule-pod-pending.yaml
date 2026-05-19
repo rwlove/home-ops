@@ -1,0 +1,62 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: pod-pending-rules
+spec:
+  groups:
+    # Catches workloads stuck in Pending — a state the upstream
+    # KubePodNotReady alert doesn't fire on quickly (it waits 15min by
+    # default and the symptom is `not Ready`, not `Pending`). Per session
+    # 2026-05-18 incident: `ai/langgraph-agents` sat in ImagePullBackOff
+    # (Pending) for 62 minutes with no Pushover before a manual probe
+    # surfaced it. The arch-taint regression that caused that bug is
+    # fixed; this rule catches the next regression of the same class.
+    #
+    # Critical severity → routes through the n8n-investigate +
+    # pushover receivers per `alertmanagerconfig.yaml`.
+    #
+    # Exclusions:
+    #   - downloads namespace: workloads here are gateway-init-gated and
+    #     intermittently Pending while the gateway sidecar comes up;
+    #     30min is well past the normal init cycle.
+    #   - default ns curl-test: throwaway debug pods I leave around.
+    - name: kube-pod-pending
+      rules:
+        - alert: KubePodStuckPending
+          annotations:
+            description: |-
+              Pod {{ $labels.namespace }}/{{ $labels.pod }} has been in Pending
+              for >5 minutes (current phase: {{ $labels.phase }}). Common
+              causes: ImagePullBackOff (missing arch variant, registry auth,
+              unknown digest), unschedulable due to taint/toleration mismatch
+              or insufficient resources, or stuck waiting on a PVC. See
+              `kubectl describe pod -n {{ $labels.namespace }} {{ $labels.pod }}`.
+            summary: Pod {{ $labels.namespace }}/{{ $labels.pod }} stuck Pending >5min
+          expr: |-
+            sum by (namespace, pod, phase) (
+              kube_pod_status_phase{phase="Pending", namespace!~"downloads"}
+              unless on (namespace, pod) kube_pod_status_phase{phase=~"Succeeded|Running"}
+            ) == 1
+          for: 5m
+          labels:
+            severity: critical
+        # Lower-priority warn variant for shorter stalls (e.g., normal
+        # rolling-update transitions). Pure warning — no Pushover noise,
+        # just shows up in Grafana for trend visibility.
+        - alert: KubePodPendingBrief
+          annotations:
+            description: |-
+              Pod {{ $labels.namespace }}/{{ $labels.pod }} has been Pending
+              for >2 minutes. Possibly a normal rollout; escalates to critical
+              KubePodStuckPending after 5m if it doesn't resolve.
+            summary: Pod {{ $labels.namespace }}/{{ $labels.pod }} Pending >2min
+          expr: |-
+            sum by (namespace, pod, phase) (
+              kube_pod_status_phase{phase="Pending", namespace!~"downloads"}
+              unless on (namespace, pod) kube_pod_status_phase{phase=~"Succeeded|Running"}
+            ) == 1
+          for: 2m
+          labels:
+            severity: warning

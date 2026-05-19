@@ -119,6 +119,39 @@ spec:
               protocol: TCP # external MQTT-TLS brokers
             - port: "1883"
               protocol: TCP # external MQTT plain (Mosquitto.org test broker, etc)
+    # LAN device polling — these reach physical hosts on the main home
+    # subnet via eth0 (Cilium-governed), not via the multus secondary
+    # NICs. The IoT/security-VLAN NICs handle discovery/polling on
+    # 10.10.20.x / 10.10.40.x and bypass Cilium.
+    #
+    # TCP 9090 — Kodi JSON-RPC. Five `kodi` integrations are configured
+    # in HA (kodi-bedroom .5, kodi-? .6, kodi-? .7, kodi-familyroom .11,
+    # kodi-? .14), all polling Kodi's EventServer/JSON-RPC on 9090.
+    - toCIDR:
+        - 192.168.1.0/24
+      toPorts:
+        - ports:
+            - port: "9090"
+              protocol: TCP
+    # SNMP polling — UPSes on the management subnet (.5.36 = UPS-3000,
+    # .5.65 = UPS-1500, SmartConnect cards) and the Dell R730xd iDRAC
+    # on the main LAN. Both via SNMP v2c, community `public`.
+    # See [[reference_rack_ups_topology]] + [[reference_beast_idrac_power_probes]].
+    - toCIDR:
+        - 192.168.1.22/32
+        - 192.168.5.0/24
+      toPorts:
+        - ports:
+            - port: "161"
+              protocol: UDP
+    # IPP printer (Brother MFC-J895DW) on the management subnet. The
+    # `ipp` integration is currently in setup_retry without this rule.
+    - toCIDR:
+        - 192.168.5.29/32
+      toPorts:
+        - ports:
+            - port: "631"
+              protocol: TCP
     # NOTE: Home Assistant has multus-attached secondary NICs on the
     # IoT and SECURITY VLANs (hass-iot-static, hass-security-static).
     # Discovery (mDNS, broadcasts, device polling) over those NICs

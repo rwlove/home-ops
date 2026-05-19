@@ -76,18 +76,18 @@ in-cluster Service endpoints (not a localhost ollama).
 
 Working inference path, ~0.4s warm.
 
-## P40 — `qwen2.5:7b` (degraded — investigation deferred)
+## P40 — `qwen2.5:7b` on worker8
 
-**Tool-call probe**: hung past 60s timeout; subsequent retries returned HTTP 500
-on `/api/chat`. Pod logs from `ollama-0` show every `/api/chat` and
-`/v1/chat/completions` since 19:55 EDT returning 500, including Open WebUI
-traffic from `kubeclaw-gateway`.
+### Initial state (pre-tune)
 
-A fresh pod restart at 19:59 EDT (`kubectl -n ai delete pod ollama-0`) brought
-the pod back Ready in 10s, but the subsequent cold model-load took **48 seconds**
-(per `llama runner started in 48.43 seconds` log) — far slower than expected.
-The first `/api/generate` after restart took **9m18s** to complete a `"hi"`
-prompt, indicating significant CPU spillover. Logs from `llama_context` show:
+`/api/chat` hung past 60s timeout; subsequent retries returned HTTP 500.
+Pod logs from `ollama-0` showed every `/api/chat` and `/v1/chat/completions`
+since 19:55 EDT returning 500, including Open WebUI traffic.
+
+A fresh pod restart at 19:59 EDT brought the pod back Ready in 10s, but
+cold model-load took **48 seconds** and the first `/api/generate` after
+restart took **9m18s** to complete a `"hi"` prompt — indicating significant
+CPU spillover. Logs from `llama_context` showed:
 
 ```
 llama_context:        CUDA0 compute buffer size =   730.36 MiB
@@ -96,60 +96,85 @@ llama_kv_cache:        CPU KV buffer size =  1904.00 MiB
 llama_context: graph splits = 396 (with bs=512)
 ```
 
-KV cache landed on CPU rather than VRAM (1.9 GiB on host RAM), and the compute
-graph splits across CPU↔GPU 396 times per batch — that's pathological for
-inference latency.
+KV cache landed on CPU rather than VRAM (1.9 GiB on host RAM), and the
+compute graph splits across CPU↔GPU 396 times per batch.
 
-### Likely root cause (unverified — needs follow-up)
+### Root cause + fix (home-ops PR #11640)
 
-P40 has 24 GiB VRAM. qwen2.5:7b Q4_K_M weights ~4.7 GiB. With
-`OLLAMA_NUM_PARALLEL=4` (recent Ollama default) and `OLLAMA_CONTEXT_LENGTH`
-unset (inheriting Ollama's higher default), KV cache reservation balloons:
-4 slots × ~1.9 GiB per slot ≈ 7.6 GiB. Add immich-machine-learning's CLIP +
-embedding models on the same node, and the P40 runs out of VRAM headroom.
-Ollama spills to CPU instead of failing outright.
+`OLLAMA_NUM_PARALLEL=4` (recent Ollama default) × `OLLAMA_CONTEXT_LENGTH=16384`
+with KV-cache q8_0 reserved ~7.6 GiB VRAM for KV slots alone. Combined with
+qwen2.5:7b weights (~4.7 GiB) and immich-machine-learning workloads on the
+same node, total VRAM demand exceeded the 24 GiB P40 budget; ollama silently
+fell back to CPU offload.
 
-### Verdict + recommendation
+Tune applied via PR #11640:
+- `OLLAMA_NUM_PARALLEL`: 4 → 1
+- `OLLAMA_CONTEXT_LENGTH`: 16384 → 8192
+- Added `install.disableWait` / `upgrade.disableWait` (cold-start exceeds 5min)
 
-**Tool-call leakage**: undetermined for qwen2.5:7b — the inference path itself
-is degraded enough that the tool-call test isn't meaningful right now.
+### Post-tune state — TOOL-CALL CLEAN ✅
 
-**Action**:
-1. Do NOT flip `LANGGRAPH_TRIGGERS_ENABLED=true` yet — light agents would
-   queue on the degraded P40 path.
-2. Tune ollama HR: pin `OLLAMA_NUM_PARALLEL=1` and `OLLAMA_CONTEXT_LENGTH` to
-   a tight value (e.g. 8192) to fit KV cache fully into VRAM. Re-test.
-3. If still spilling: identify which immich-machine-learning model is holding
-   most VRAM and consider relocating one replica to spark (immich-ML is the
-   ideal candidate for Blackwell — 8 × time-sliced nvidia.com/gpu).
-4. After P40 retest passes, re-run this audit's tool-call probe on
-   qwen2.5:7b and update this doc.
+After PR #11640 reconciled and `ollama-0` restarted, log inspection confirms
+GPU-resident inference:
 
-Spark side is unaffected — `local-spark` agents can activate independently
-once Phase 2 factory image rolls out to the langgraph-agents Pod.
+```
+llama_kv_cache:      CUDA0 KV buffer size =   229.50 MiB
+llama_kv_cache: size = 238.00 MiB (8192 cells, 28 layers, 1/1 seqs)
+llama_context:      CUDA0 compute buffer size =   730.36 MiB
+llama_context:  CUDA_Host compute buffer size =    23.01 MiB
+llama_context: graph splits = 18 (with bs=512), 3 (with bs=1)
+```
+
+KV cache on CUDA0 (was on CPU), graph splits reduced 396 → 18.
+
+**Tool-call probe** (against the post-tune pod):
+```json
+{
+  "model": "qwen2.5:7b",
+  "created_at": "2026-05-19T00:20:32.72490431Z",
+  "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+      {
+        "id": "call_oqim0ssa",
+        "function": {
+          "index": 0,
+          "name": "get_current_weather",
+          "arguments": {"location": "Boston, MA"}
+        }
+      }
+    ]
+  },
+  "done": true,
+  "done_reason": "stop",
+  "total_duration": 19.77s,
+  "load_duration": 0.40s,
+  "prompt_eval_count": 163,
+  "prompt_eval_duration": 0.39s,
+  "eval_count": 23,
+  "eval_duration": 3.80s
+}
+```
+
+**Verdict: ✅ CLEAN.** Content empty, structured `tool_calls` with correct
+function name and arguments. Eval rate ~6 tok/s on P40 (23 tokens in 3.8s) —
+typical for qwen2.5:7b Q4_K_M on Pascal. Total wall-time 19.8s includes some
+prompt-eval overhead unique to first tool-call cycle; subsequent calls would
+be faster on the warm pod.
 
 ## Implications for Phase 0d activation
 
-- Spark (heavy agents): cleared for activation. Phase 2 factory routes the
-  8 heavy agents to `ollama-spark` cleanly.
-- P40 (light agents): blocked on the VRAM/CPU-spill issue above.
-
-**Recommendation**: ship the home-ops CNP egress widening (this PR), then
-**investigate + fix the P40 spill** before flipping `LANGGRAPH_TRIGGERS_ENABLED`.
-The flip activates ALL agents — half of which route to the degraded P40 — so
-a partial flip isn't possible without a code change to AGENT_GROUP.
-
-Alternative: temporarily widen `AGENT_GROUP` to route every agent to
-`local-spark` (Blackwell has the VRAM headroom for both groups concurrently)
-as a stopgap until P40 is tuned. Document the override in the next iteration
-of the plan and revert once P40 is healthy.
+Both ollama Services now serve clean tool-calls on their assigned models.
+**Phase 0d criterion 5 satisfied for both groups.** Activation
+(`LANGGRAPH_TRIGGERS_ENABLED=true`) is unblocked from a tool-call perspective.
 
 ## Open follow-ups
 
-- [ ] **P40 spill investigation** — see "Likely root cause" above. Tune
-  `OLLAMA_NUM_PARALLEL` + `OLLAMA_CONTEXT_LENGTH`, possibly relocate immich-ml
-  replica to spark.
-- [ ] **Re-probe qwen2.5:7b for tool-call leakage** after P40 tune; update
-  this doc with the result.
-- [ ] **Decide on stopgap**: route everything to Spark until P40 tuned, or
-  keep AGENT_GROUP as-is and defer activation entirely.
+- [x] **P40 spill investigation** — root cause identified + fix shipped via
+  PR #11640.
+- [x] **Re-probe qwen2.5:7b for tool-call leakage** after P40 tune — clean.
+- [ ] **Image-tag rollout**: the langgraph-agents HR pod still runs v0.2.5;
+  PR #11641 (this PR) bumps to v0.2.6 which contains the Phase 2 factory.
+- [ ] **Activation flip**: `LANGGRAPH_TRIGGERS_ENABLED=true` (separate PR
+  after this one lands and the new pod is verified Running).

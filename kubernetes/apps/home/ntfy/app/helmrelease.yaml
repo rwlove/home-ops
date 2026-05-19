@@ -1,0 +1,91 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app ntfy
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 30m
+  values:
+    controllers:
+      ntfy:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        pod:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            fsGroupChangePolicy: OnRootMismatch
+            seccompProfile:
+              type: RuntimeDefault
+        replicas: 1
+        strategy: Recreate  # RWO PVCs
+        type: deployment
+        containers:
+          app:
+            image:
+              # ntfy is published to Docker Hub only — no GHCR mirror.
+              # If/when ZOT container-image pull-through lands, route here.
+              repository: binwiederhier/ntfy
+              tag: v2.13.0
+            args: ["serve"]
+            resources:
+              requests:
+                cpu: 10m
+                memory: 64Mi
+              limits:
+                memory: 256Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+    service:
+      app:
+        controller: ntfy
+        ports:
+          http:
+            port: 80
+          metrics:
+            port: 9090
+    persistence:
+      cache:
+        type: persistentVolumeClaim
+        existingClaim: ntfy-cache
+        advancedMounts:
+          ntfy:
+            app:
+              - path: /var/cache/ntfy
+      data:
+        type: persistentVolumeClaim
+        existingClaim: ntfy-data
+        advancedMounts:
+          ntfy:
+            app:
+              - path: /var/lib/ntfy
+      config-file:
+        type: configMap
+        name: ntfy-configmap
+        advancedMounts:
+          ntfy:
+            app:
+              - path: /etc/ntfy/server.yml
+                subPath: server.yml
+                readOnly: true
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          ntfy:
+            app:
+              - path: /tmp
+    serviceMonitor:
+      app:
+        serviceName: ntfy
+        endpoints:
+          - port: metrics

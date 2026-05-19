@@ -1,0 +1,39 @@
+# ntfy server config — mounted at /etc/ntfy/server.yml.
+#
+# Storage layout:
+#   /var/cache/ntfy/   — message cache + attachment cache (PVC ntfy-cache, ceph-block)
+#   /var/lib/ntfy/     — auth db + web-push db (PVC ntfy-data, ceph-block)
+#
+# Bootstrap (post-deploy, one-time):
+#   kubectl -n home exec deploy/ntfy -- ntfy user add --role=admin admin
+#   kubectl -n home exec deploy/ntfy -- ntfy user add windmill
+#   kubectl -n home exec deploy/ntfy -- ntfy user add rob
+#   kubectl -n home exec deploy/ntfy -- ntfy access windmill 'approvals,alerts,costs,digests' rw
+#   kubectl -n home exec deploy/ntfy -- ntfy access rob       'approvals,alerts,costs,digests' ro
+
+base-url: "https://ntfy.${SECRET_DOMAIN}"
+listen-http: ":80"
+
+cache-file: /var/cache/ntfy/cache.db
+cache-duration: 12h
+attachment-cache-dir: /var/cache/ntfy/attachments
+attachment-total-size-limit: 1G
+attachment-file-size-limit: 15M
+
+auth-file: /var/lib/ntfy/user.db
+# deny-all blocks anonymous publish + subscribe. Per-topic ACLs are
+# granted to named users via `ntfy access` post-bootstrap.
+auth-default-access: deny-all
+
+# Envoy gateway terminates TLS and forwards X-Forwarded-* headers.
+behind-proxy: true
+
+# /metrics scraped by Prometheus on a dedicated port (CNP-allowed).
+enable-metrics: true
+metrics-listen-http: ":9090"
+
+# Web push is deferred — only Android app + native ntfy subscription
+# is in scope for Phase 1. Re-enable + provision VAPID keys when
+# the laptop PWA path lands in Phase 1 follow-up.
+# web-push-file: /var/lib/ntfy/webpush.db
+# web-push-email-address: rob@example.com

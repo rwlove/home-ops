@@ -19,6 +19,52 @@ spec:
   upgrade:
     disableWait: true
 
+  # Patch the zulip container with a postStart lifecycle hook that
+  # rewrites the supervisord smokescreen config with cluster-CIDR
+  # `--allow-range` flags. Without this, smokescreen (Zulip's SSRF-
+  # protection proxy on 127.0.0.1:4750) blocks every outgoing webhook
+  # to a cluster-internal URL (RFC1918 default-deny), breaking the
+  # langgraph-approval-receive Windmill flow.
+  #
+  # The chart doesn't expose a way to configure smokescreen, so we
+  # rewrite the file in postStart + ask supervisord to reread/update.
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: StatefulSet
+              name: zulip
+            patch: |
+              - op: add
+                path: /spec/template/spec/containers/0/lifecycle
+                value:
+                  postStart:
+                    exec:
+                      command:
+                        - /bin/sh
+                        - -c
+                        - |
+                          set -eu
+                          cat > /etc/supervisor/conf.d/zulip/smokescreen.conf <<'EOF'
+                          [program:smokescreen]
+                          command=/usr/local/bin/smokescreen-464b1115f802cbd91ffee555a41e71546646d396-go-1.26.0 --listen-ip 127.0.0.1 --expose-prometheus-metrics --prometheus-port 4760 --allow-range 10.42.0.0/16 --allow-range 10.43.0.0/16
+                          priority=15
+                          autostart=true
+                          autorestart=true
+                          user=zulip
+                          redirect_stderr=true
+                          stdout_logfile=/var/log/zulip/smokescreen.log
+                          stdout_logfile_maxbytes=0
+                          stdout_logfile_backups=0
+                          EOF
+                          # Wait for supervisord to be ready (up to 60s), then reload.
+                          for i in $(seq 1 60); do
+                            supervisorctl status >/dev/null 2>&1 && break
+                            sleep 1
+                          done
+                          supervisorctl reread || true
+                          supervisorctl update || true
+
   valuesFrom:
     - kind: Secret
       name: zulip-secret

@@ -13,11 +13,21 @@ spec:
     egress: false
     ingress: false
   egress:
-    # Chromium browses public-facing apps (immich.${SECRET_DOMAIN} etc.)
-    # via the Cloudflared tunnel — the realistic user-side path, not
-    # a curl-pod shortcut.
+    # True-external HTTPS — Chromium hits public sites (example.com)
+    # AND traverses the Cloudflared tunnel back to the cluster for
+    # apps whose public DNS doesn't resolve to a LAN address.
     - toEntities:
         - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    # Cilium LB pool — split-horizon bind9 resolves internal hostnames
+    # (auth.${SECRET_DOMAIN}, etc.) to the in-cluster LB IPs, not the
+    # Cloudflared edge. Without this, navigating to any internal app
+    # hangs at TCP connect.
+    - toCIDR:
+        - "10.45.0.0/24"
       toPorts:
         - ports:
             - port: "443"

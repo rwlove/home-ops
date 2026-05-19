@@ -1,0 +1,31 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: mcp-system-rules
+spec:
+  groups:
+    # Per-backend recording rules project each backend's native metric
+    # names into a normalized series with a `backend` label. Alerts
+    # query the projected metric and fan out across backends
+    # automatically. Add one group per instrumented backend.
+    - name: mcp.recording.memory.rules
+      interval: 1m
+      rules:
+        - record: mcp:tool_calls:rate5m
+          expr: sum by (tool, status) (rate(memory_mcp_tool_calls_total[5m]))
+          labels:
+            backend: memory
+        - record: mcp:tool_call_duration:p99_5m
+          expr: |
+            histogram_quantile(
+              0.99,
+              sum by (le, tool) (rate(memory_mcp_tool_call_duration_seconds_bucket[5m]))
+            )
+          labels:
+            backend: memory
+        - record: mcp:embed_calls:rate5m
+          expr: sum by (status) (rate(memory_mcp_embed_calls_total[5m]))
+          labels:
+            backend: memory

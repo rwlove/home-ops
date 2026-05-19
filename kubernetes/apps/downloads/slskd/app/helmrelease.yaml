@@ -53,6 +53,23 @@ spec:
                   name: *app
 
             probes:
+              # slskd 0.25 doesn't bind its HTTP listener until the initial share
+              # scan completes — for our 3Ti music library that's ~15-20 min on
+              # the first scan after a chart change. A startupProbe defers both
+              # liveness and readiness during that window so the pod isn't
+              # killed mid-scan, then liveness/readiness take over for steady
+              # state. failureThreshold: 180 * periodSeconds: 10 = 30 min grace.
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /health
+                    port: *httpPort
+                  failureThreshold: 180
+                  initialDelaySeconds: 0
+                  periodSeconds: 10
+                  timeoutSeconds: 3
               # Liveness goes beyond /health (which only checks slskd's API) and asserts
               # that slskd's Soulseek server connection is making forward progress.
               # When the downloads-gateway VXLAN tunnel flaps, slskd loses its server
@@ -74,7 +91,7 @@ spec:
                         wget -qO- http://localhost:5030/api/v0/application \
                           | jq -e '.server.isLoggedIn or .server.isConnecting or .server.isLoggingIn or .connectionWatchdog.isAwaitingVpn' >/dev/null
                   failureThreshold: 10
-                  initialDelaySeconds: 60
+                  initialDelaySeconds: 0
                   periodSeconds: 30
                   timeoutSeconds: 5
               readiness:

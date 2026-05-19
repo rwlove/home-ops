@@ -61,6 +61,10 @@ export async function main(
         source: "zulip",
         content: text,
         user: "rob",
+        // langgraph-agents 0.2.11+ uses this to DM the final graph
+        // output back to the originating user from triager-bot.
+        // Older versions silently ignore the extra field.
+        zulip_user_id: message.sender_id,
     });
     let dispatched = false;
     try {

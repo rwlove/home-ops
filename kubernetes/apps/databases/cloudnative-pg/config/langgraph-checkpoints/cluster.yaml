@@ -20,6 +20,19 @@ spec:
   postgresql:
     parameters:
       timezone: "America/New_York"
+      # Loud failures over hangs. langgraph-agents' workload is small
+      # fast queries (aget_tuple / aput / aput_writes); nothing here
+      # legitimately runs close to 60s. If a future regression
+      # reintroduces a hang shape, postgres aborts the offending txn
+      # with a visible error in pod logs instead of letting the runtime
+      # park forever. Paired with the AsyncConnectionPool fix in
+      # langgraph-agents v0.2.12. MERGE ORDER: pool fix first, then
+      # this — otherwise the CNPG rolling restart triggered by these
+      # params would drop the live pod's stale conn and the (still
+      # single-conn) pod would hang on reconnect.
+      statement_timeout: "60s"
+      idle_in_transaction_session_timeout: "60s"
+      lock_timeout: "30s"
 
   storage:
     size: 8Gi

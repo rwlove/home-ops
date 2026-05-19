@@ -4,6 +4,7 @@
 
 - [👋 Introduction](introduction.md)
 
+- [Workflow Automation: Agents, Approvals, and Push](workflow_automation.md)
 - [Power Outage Recovery](power-outage.md)
 - [Coral](coral.md)
 - [nVidia Tesla P40](p40.md)

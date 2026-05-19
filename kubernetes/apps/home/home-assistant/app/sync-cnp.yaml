@@ -1,0 +1,39 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: home-assistant-config-sync-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: home-assistant-config-sync
+  # Additive — default-deny in `home` ns is what triggers the lockdown;
+  # these rules punch holes through it for the 5-min git pull + HA
+  # reload_all flow.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # SSH to github.com to fetch + pull config. Cilium FQDN matching for
+    # `github.com` is feasible but the SSH session is short-lived and the
+    # broader world:22 entity already constrains by port — narrow enough
+    # for this single-purpose pod.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "22"
+              protocol: TCP
+    # /api/services/homeassistant/reload_all on the home-assistant pod
+    # after a successful pull. Intra-namespace, but explicit for
+    # grep-ability — and the home-assistant-allow CNP only opens the
+    # 8123 ingress to specific labelled clients.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: home-assistant
+      toPorts:
+        - ports:
+            - port: "8123"
+              protocol: TCP

@@ -162,6 +162,8 @@ spec:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: true
               capabilities: {drop: ["ALL"]}
+              seccompProfile:
+                type: RuntimeDefault
     service:
       app:
         controller: <app>

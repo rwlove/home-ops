@@ -112,27 +112,25 @@ pages:
                 namespace != "kube-system" and
                 annotations["glance/id"] == "Security" and
                 ("glance/hide" in annotations || annotations["glance/show"] == "true")
+          # Storage block carries a name-based carve-out for Rook's HA
+          # mgr pair: rook-ceph-mgr-{a,b} both have `mgr_role=active` on
+          # their deployment template labels (only the pod's mgr_role
+          # flips dynamically). The dashboard Service selects on that
+          # label, and glance-k8s v0.5.0's workload matcher uses
+          # deployment-template labels, so both mgr deployments match
+          # the same HTTPRoute → the same `glance/name: Rook` annotation
+          # gets merged in → two cards. Until upstream fixes the matcher,
+          # we exclude one mgr by its stable instance name. Doesn't matter
+          # which active pod backs the dashboard at any given moment —
+          # the Service handles that.
           - <<: *apps-by-id
             title: Storage
             parameters:
               show-if: |
                 namespace != "kube-system" and
                 annotations["glance/id"] == "Storage" and
-                ("glance/hide" in annotations || annotations["glance/show"] == "true")
-          - <<: *apps-by-id
-            title: System
-            parameters:
-              show-if: |
-                namespace != "kube-system" and
-                annotations["glance/id"] == "System" and
-                ("glance/hide" in annotations || annotations["glance/show"] == "true")
-          - <<: *apps-by-id
-            title: Uncategorized
-            parameters:
-              show-if: |
-                namespace != "kube-system" and
-                !("glance/id" in annotations) and
-                ("glance/hide" in annotations || annotations["glance/show"] == "true")
+                ("glance/hide" in annotations || annotations["glance/show"] == "true") and
+                name != "rook-ceph-mgr-b"
 
           - type: extension
             url: http://glance-k8s-extension:8080/extension/nodes

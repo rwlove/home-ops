@@ -18,12 +18,28 @@ spec:
 
         type: statefulset
 
-        # NVENC requires the Tesla P40 in worker8. Pascal supports both 8-bit
-        # Main and 10-bit Main10 HEVC encode, so unlike Intel HD630 there's
-        # no codec/pix-fmt fallback needed.
+        # Pinned to Spark/GB10 (Blackwell) after the multi-arch image
+        # rebuild (av1corrector v0.9.0). Blackwell's NVENC supports HEVC
+        # encode (8-bit Main + 10-bit Main10) same as Pascal P40 — no
+        # codec change needed. AV1 decode is now hardware on Blackwell
+        # (Pascal's NVDEC had no AV1) but the encoder env stays hevc_nvenc;
+        # using AV1 hardware decode is a follow-up tuning.
         pod:
           nodeSelector:
-            nvidia.com/gpu.present: "true"
+            node-role.kubernetes.io/gpu: blackwell
+
+          tolerations:
+            # Spark is tainted kubernetes.io/arch=arm64:NoSchedule to keep
+            # amd64-only workloads off it. av1corrector v0.9.0 is
+            # multi-arch (linux/arm64 + linux/amd64) so tolerate explicitly.
+            - key: kubernetes.io/arch
+              operator: Equal
+              value: arm64
+              effect: NoSchedule
+            - key: nvidia.com/gpu
+              operator: Equal
+              value: "true"
+              effect: NoSchedule
 
         initContainers:
           init-db:
@@ -39,22 +55,25 @@ spec:
           app:
             image:
               repository: ghcr.io/rwlove/av1corrector
-              tag: v0.8.5
+              tag: v0.9.0@sha256:f4f38efa85b56949772806b91b5ec9e67b9acae73d583beae25eb629ccf9a4c2
 
             env:
               AV1CORRECTOR_LIBRARY_PATH: /library
               AV1CORRECTOR_LISTEN_ADDR: ":8000"
               AV1CORRECTOR_LOG_FORMAT: json
 
-              # NVENC HEVC on the Tesla P40 (worker8). Handles both 8-bit and
-              # 10-bit AV1 sources natively — Pascal supports Main10. AV1
-              # decode is software (Pascal NVDEC has no AV1); HEVC encode
-              # runs on the GPU at ~200-500 fps for 1080p.
+              # NVENC HEVC on Blackwell (Spark/GB10). Handles 8-bit Main +
+              # 10-bit Main10 same as the P40 we migrated from. AV1 decode
+              # is hardware on Blackwell (previously software-only on
+              # Pascal), but turning on NVDEC AV1 acceleration is a
+              # follow-up — the ffmpeg invocation in the Go binary
+              # currently does software AV1 decode regardless.
               AV1CORRECTOR_ENCODER: hevc_nvenc
 
-              # P40 has 2 NVENC engines — one ffmpeg can't keep both fed.
-              # Two concurrent workers ~doubles throughput. claimNextJob's
-              # FOR UPDATE SKIP LOCKED keeps them grabbing distinct jobs.
+              # Blackwell GB10's NVENC layout is different from P40's two
+              # engines. WORKERS=2 was sized for the P40 era; revisit
+              # after observing Spark throughput. claimNextJob's
+              # FOR UPDATE SKIP LOCKED ensures workers grab distinct jobs.
               AV1CORRECTOR_WORKERS: "2"
 
               # Tells the Nvidia container runtime which driver capabilities
@@ -85,11 +104,11 @@ spec:
 
             resources:
               requests:
-                # 256Mi fits worker8's tight memory headroom (~99% requested
-                # by Comfyui + Postgres + others). Actual usage is well under
-                # this — the Go binary is ~30 MB, ffmpeg's AV1 software decode
-                # buffers a few seconds of frames, NVENC encode happens in GPU
-                # memory.
+                # 256Mi was sized for worker8's tight memory headroom;
+                # Spark has 121 GiB unified memory so the request could
+                # be increased, but the actual usage (~30 MB Go binary +
+                # ffmpeg frame buffer + NVENC in GPU memory) is well
+                # under 256Mi anyway. Keep tight for headroom on Spark.
                 cpu: 500m
                 memory: 256Mi
                 nvidia.com/gpu: 1

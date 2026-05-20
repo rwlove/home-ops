@@ -8,12 +8,18 @@ spec:
   groups:
     - name: dcgm-exporter
       rules:
+        # DCGM_FI_DEV_GPU_UTIL is a gauge (0-100 %), not a counter — `rate()`
+        # on it is undefined. Original rule has been silenced forever in
+        # silence-operator because of this. Scoped to Tesla P40 because
+        # GPU_UTIL/MEM_COPY_UTIL/FB_USED are broken on GB10 (Spark uses a
+        # separate power-based + synthetic-probe approach — see
+        # reference_dcgm_gb10_broken_counters.md).
         - alert: HighGpuUsage
           expr: |
-            rate(DCGM_FI_DEV_GPU_UTIL[15m]) > 0.85
+            avg_over_time(DCGM_FI_DEV_GPU_UTIL{modelName="Tesla P40"}[15m]) > 85
           for: 15m
           labels:
             severity: warning
           annotations:
-            summary: "High GPU usage on node {{ $labels.Hostname }} for 15 minutes"
-            description: "GPU usage on node {{ $labels.Hostname }} for gpu: {{ $labels.modelName }} has passed 85% for over 15 minutes"
+            summary: "High GPU usage on {{ $labels.Hostname }} ({{ $labels.modelName }}) for 15+ min"
+            description: "GPU usage on {{ $labels.Hostname }} for {{ $labels.modelName }} has averaged over 85% for the past 15 minutes."

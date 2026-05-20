@@ -8,11 +8,20 @@ spec:
   groups:
     - name: oom
       rules:
+        # kube_pod_container_status_last_terminated_reason flips 1 → 0
+        # the moment the container restarts (with a non-OOM reason). A
+        # fast crash-loop can flap the metric to 0 before AlertManager
+        # notifies. keep_firing_for: 10m holds the alert across that
+        # window so OOMs in a tight restart cycle don't go silent.
+        # for: 0m fires on the first scrape that catches the OOM
+        # terminated state.
         - alert: OOMKilled
           annotations:
             summary: Container {{ $labels.container }} of pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is out of memory
             message: Container {{ $labels.container }} of pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is out of memory
             description: Container {{ $labels.container }} of pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is out of memory
           expr: kube_pod_container_status_last_terminated_reason{reason="OOMKilled"}==1
+          for: 0m
+          keep_firing_for: 10m
           labels:
             severity: critical

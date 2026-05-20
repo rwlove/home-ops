@@ -48,14 +48,23 @@ spec:
           # pump-cv config.py does not interpolate env vars in YAML, so
           # the configmap stores ${REOLINK_*} placeholders and we render
           # them once at pod start into the shared emptyDir.
+          #
+          # Image notes: prior `ghcr.io/dmfrey/bash:5.2.26-alpine3.20`
+          # is amd64-only, which exec-format-errors on Spark/arm64.
+          # Use the multi-arch official alpine image and `apk add
+          # gettext` to get envsubst at init time. Adds ~3-5s on
+          # first init for the apk fetch; not worth keeping a separate
+          # baked image just for envsubst.
           config-render:
             image:
-              repository: ghcr.io/dmfrey/bash
-              tag: 5.2.26-alpine3.20
+              repository: docker.io/library/alpine
+              tag: "3.20"
             command:
-              - "/usr/local/bin/bash"
+              - sh
               - -c
               - |
+                set -eu
+                apk add --no-cache gettext
                 envsubst < /config-template/default.yaml > /config/default.yaml
                 # Ensure ultralytics' settings dir exists; it doesn't
                 # auto-create parents so on a fresh PVC the first run
@@ -66,7 +75,6 @@ spec:
                 # to enter needs_calibration state. Pre-create so the
                 # first capture doesn't race the parent dir into existence.
                 mkdir -p /cache/calibration/captures
-                exit 0
             envFrom:
               - secretRef:
                   name: pump-cv-secret

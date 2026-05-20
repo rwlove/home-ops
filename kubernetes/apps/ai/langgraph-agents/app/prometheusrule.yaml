@@ -1,0 +1,38 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: langgraph-agents-rules
+spec:
+  groups:
+    # The `langgraph_paused_threads{is_stale}` gauge is updated on
+    # every paused-thread sweep — the lifecycle startup hook and the
+    # /admin/paused-threads endpoint both trigger it via
+    # `agents.paused_threads.sweep_paused_threads`. See PR #37 in
+    # rwlove/langgraph-agents for the emission path.
+    #
+    # A thread is "stale" when paused at interrupt() longer than
+    # DEFAULT_STALE_AFTER_SECONDS (300s) without an /approval verdict.
+    # The startup hook logs each stale thread once per pod lifetime;
+    # this rule turns that into a continuous, paging signal.
+    - name: langgraph-agents.paused-threads
+      rules:
+        - alert: LangGraphAgentsStalePausedThreads
+          annotations:
+            description: |
+              {{ $value }} LangGraph thread(s) have been paused at
+              interrupt() for longer than 5 minutes without an
+              operator /approval verdict. Inspect with:
+
+                kubectl -n ai exec deploy/langgraph-agents -c app -- \
+                  curl -s http://localhost:8765/admin/paused-threads
+
+              For trace inspection, see
+              https://langfuse.${SECRET_DOMAIN}.
+            summary: "{{ $value }} LangGraph thread(s) stale at interrupt"
+          expr: |-
+            langgraph_paused_threads{is_stale="true"} > 0
+          for: 5m
+          labels:
+            severity: warning

@@ -13,7 +13,11 @@ spec:
   interval: 1h
   timeout: 5m
   prune: true
-  wait: false
+  # `wait: true` is required for `cilium-config`'s `dependsOn` to
+  # honor readiness — without it, the dependent Kustomization fires
+  # as soon as this one's resources are applied, not when the chart
+  # has actually installed its CRDs. Mirrors cert-manager / kyverno.
+  wait: true
   sourceRef:
     kind: GitRepository
     name: home-ops-kubernetes
@@ -34,8 +38,15 @@ spec:
   interval: 1h
   timeout: 5m
   prune: true
-  wait: false
+  wait: true
   sourceRef:
     kind: GitRepository
     name: home-ops-kubernetes
     namespace: flux-system
+  # CiliumBGPAdvertisement + CiliumLoadBalancerIPPool here use CRDs
+  # the cilium chart provides. Without dependsOn, fresh deploys /
+  # full reconciles race the chart's CRD install (chicken-and-egg).
+  # Same pattern as cert-manager-issuers / kyverno-policies.
+  dependsOn:
+    - name: cilium
+      namespace: kube-system

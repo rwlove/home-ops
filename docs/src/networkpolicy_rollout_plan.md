@@ -85,7 +85,7 @@ posture inside these two namespaces.
 **Net posture:** 19 of 21 namespaces have full default-deny;
 downloads + vpn rely on cluster-perimeter controls (1P/SSO/firewalld,
 no public ingress to these workloads, only `bt.thesteamedcrab.com` +
-arr/sab/slskd UIs which are still gated by oauth2-proxy).
+media-pull-stack UIs which are still gated by oauth2-proxy).
 
 ## Full rollback 2026-05-18 — reset and redesign
 
@@ -103,7 +103,7 @@ smoke tests:
 - `collab/pump` — OIDC `/oauth2/callback` token exchange failing
   (fixed in PR #11559 ahead of the rollback; the fix shape became
   the canonical pattern for every oauth2-proxy CNP).
-- `media/suggestarr`, `media/av1corrector`, `media/lidarr`,
+- `media/<media-pull-stack apps>`, `media/av1corrector`,
   `media/medialyze`, `media/music-assistant` — same OIDC token
   exchange failure as pump.
 - `observability/kube-ops-view`, `observability/goldilocks`,
@@ -526,7 +526,7 @@ spec:
 LB IP (10.45.0.x range, advertised via BGP) is reachable; Cilium
 matches the resolved IP against the FQDN cache.
 
-### Pattern D: *arr stack internal deps (Sonarr → Prowlarr, etc.)
+### Pattern D: media-pull-stack internal deps
 
 Same as Pattern B but with `app.kubernetes.io/name` selectors for
 peer apps in the same `media` namespace — Pattern 3 (intra-ns

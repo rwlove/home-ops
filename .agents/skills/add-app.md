@@ -20,9 +20,9 @@ For MCP servers under `kubernetes/apps/mcp-system/`, prefer the
 
 Ask the user for:
 
-1. **App name** — e.g. `autobrr`, `sonarr`
+1. **App name** — e.g. `nametag`, `pump`
 2. **Namespace** — must already exist under `kubernetes/apps/<namespace>/`
-3. **Image repository** — e.g. `ghcr.io/autobrr/autobrr`
+3. **Image repository** — e.g. `ghcr.io/<owner>/<repo>`
 4. **Image tag** — preferably a sha-pinned tag (`v1.76.0@sha256:...`)
 5. **Port** — application HTTP port
 6. **Dependencies** — Flux Kustomizations this depends on (cross-namespace

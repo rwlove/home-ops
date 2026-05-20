@@ -29,7 +29,8 @@ catches up. Per HOMELAB-SPEC Layer 5 Workaround tracking.
 - Custom CNP / RBAC / config to compensate for a missing upstream
   feature.
 - Sidecar containers that exist only to work around an upstream gap
-  (e.g., `lidarr-sab-autoimport`).
+  (e.g., a sidecar that polls app state and triggers scans the app
+  doesn't trigger itself).
 - Disabling default behavior that's known-broken (e.g., gpu-operator
   NFD override for CRI-O nodes).
 

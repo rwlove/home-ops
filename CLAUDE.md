@@ -70,6 +70,44 @@ edits, or to take an app offline for maintenance.
 a Flux Kustomization without explicit instruction. If a `Suspended:
 True` status shows up unexpectedly, ask before touching it.
 
+## Blast radius
+
+A single agent-authored PR touches at most 50 files. Larger sweeps —
+sorting, schema, security-context retrofits, mass renames — require
+the `sweep` label on the PR to bypass the limit. Even with the label,
+prefer to split if the change can be split.
+
+Per HOMELAB-SPEC Layer 5 blast-radius rules.
+
+## Maintenance windows
+
+Non-emergency disruptive changes wait for one of these windows
+(US Eastern):
+
+- **Routine** (internal services, langgraph-agents, Windmill,
+  MCP servers, observability, storage backends): any night,
+  02:00–05:00.
+- **Renee-facing** (Home Assistant, Music Assistant, Jellyfin,
+  Frigate, voice services, lighting / climate / locks): Tuesday
+  02:00–04:00 only.
+
+Emergency changes (security, data-loss prevention) bypass with Rob's
+explicit approval.
+
+Today these windows are advisory — there is no scheduler enforcing
+them. See `docs/src/orchestration_substrate.md` for why.
+
+## Observer and Guardian modes (deferred)
+
+HOMELAB-SPEC Layer 4 defines Observer and Guardian modes that watch
+cluster health and gate destructive operations through a queue with
+TTL. This cluster doesn't have the queue substrate yet, so both
+modes are aspirational. See `docs/src/orchestration_substrate.md`.
+
+Until the substrate lands, destructive operations follow the
+propose-then-execute pattern from `.agents/instructions/persona.md`
+with Rob as the human-in-the-loop gate.
+
 ## Common Operations
 
 - **Add app**: Create in `kubernetes/apps/` with kustomization + HelmRelease

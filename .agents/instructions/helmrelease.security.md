@@ -17,8 +17,6 @@ spec:
             runAsNonRoot: true
             runAsUser: 1000
             runAsGroup: 1000
-            fsGroup: 1000
-            fsGroupChangePolicy: OnRootMismatch
         containers:
           app:
             securityContext:
@@ -42,12 +40,32 @@ spec:
 - `allowPrivilegeEscalation: false` + `capabilities.drop: [ALL]` — block
   setuid/setgid binaries from gaining new caps; drop the kernel
   capability set Linux gives every container by default.
-- `fsGroup` + `fsGroupChangePolicy: OnRootMismatch` — let the kubelet
-  chown the volume root so the non-root pod can actually write to its
-  PVCs, but only when the top-level isn't already correct (avoids
-  multi-minute recursive chowns on large volumes).
 - `seccompProfile.RuntimeDefault` — opt into the runtime's default
   seccomp filter (vs the unconfined default).
+
+## When the workload mounts a PVC
+
+If the controller mounts a writable PVC (Longhorn, ceph-block, or any
+RWO/RWX volume the pod writes to), add `fsGroup` so the kubelet chowns
+the mount root to a GID the non-root pod can write to:
+
+```yaml
+spec:
+  values:
+    controllers:
+      <app>:
+        pod:
+          securityContext:
+            fsGroup: 1000
+            fsGroupChangePolicy: OnRootMismatch
+```
+
+`fsGroupChangePolicy: OnRootMismatch` skips the recursive chown if the
+top-level is already correct — important on large volumes where a full
+chown takes minutes.
+
+Stateless apps (anything writing only to emptyDir / tmpfs) don't need
+this — the chown has no purpose if nothing writes outside scratch.
 
 ## When to deviate
 

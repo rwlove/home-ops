@@ -89,3 +89,33 @@ is the only gate.
 
 _Flux reconciles automatically once the PR merges — there's no
 deploy-time safety net beyond this review._
+
+## Documentation drift
+
+When reviewing a PR that changes routing/security/network behavior,
+verify the matching design doc is updated in the same PR:
+
+- Routing changes (Gateway, HTTPRoute, EnvoyExtensionPolicy,
+  per-listener TLS) → `docs/src/per-route-cert-migration.md` or
+  `docs/src/mtls_rollout_design.md`.
+- NetworkPolicy / CiliumNetworkPolicy → `docs/src/networkpolicy_rollout_plan.md`
+  or `docs/src/egress_restriction_design.md`.
+- Pod Security Standards (PSA labels, security-context relaxations) →
+  `docs/src/pod_security_audit.md`.
+- RBAC (ClusterRole, RoleBinding, ServiceAccount grants) →
+  `docs/src/rbac_audit.md`.
+
+If the design doc isn't updated alongside the change, request changes.
+A stale design doc is a bug per HOMELAB-SPEC Layer 3.
+
+## Disaster-recovery docs
+
+Any PR introducing a stateful workload — new CNPG cluster, new Longhorn
+PVC for irreplaceable data, new Garage bucket, new direct-NFS workload
+for non-regenerable data — must include a restore-path entry. Either:
+
+- A section added to `docs/src/offsite_recovery.md`, or
+- A dedicated `docs/src/<app>_recovery.md` linked from `SUMMARY.md`.
+
+Request changes if missing. Per HOMELAB-SPEC Layer 5 DR: "every
+stateful service has a documented restore path."

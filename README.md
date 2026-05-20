@@ -16,11 +16,11 @@ _Production-grade Kubernetes for a household._
 
 <br/>
 
-![apps](https://img.shields.io/badge/apps-168-blue?style=for-the-badge)
-![helmreleases](https://img.shields.io/badge/HelmReleases-180-326CE5?style=for-the-badge&logo=helm&logoColor=white)
-![nodes](https://img.shields.io/badge/k8s_nodes-10-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white)
-![cnpg](https://img.shields.io/badge/Postgres_clusters-24-336791?style=for-the-badge&logo=postgresql&logoColor=white)
-![secrets](https://img.shields.io/badge/secrets-109-0572EC?style=for-the-badge&logo=1password&logoColor=white)
+![apps](https://img.shields.io/badge/apps-175-blue?style=for-the-badge)
+![helmreleases](https://img.shields.io/badge/HelmReleases-185-326CE5?style=for-the-badge&logo=helm&logoColor=white)
+![nodes](https://img.shields.io/badge/k8s_nodes-11-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white)
+![cnpg](https://img.shields.io/badge/Postgres_clusters-25-336791?style=for-the-badge&logo=postgresql&logoColor=white)
+![secrets](https://img.shields.io/badge/secrets-111-0572EC?style=for-the-badge&logo=1password&logoColor=white)
 ![age](https://img.shields.io/badge/cluster_age-5%2B_years-success?style=for-the-badge)
 
 </div>
@@ -42,7 +42,7 @@ flowchart LR
     Dev[👤 Operator] -->|git push| Repo[(📦 GitHub<br/>home-ops)]
     Renovate[🤖 Renovate] -.->|automated PRs| Repo
     Repo -->|reconciles| Flux[⚙️ Flux]
-    Flux -->|deploys| Cluster[☸️ Kubernetes<br/>10 nodes · 168 apps]
+    Flux -->|deploys| Cluster[☸️ Kubernetes<br/>11 nodes · 175 apps]
 
     Cluster --> Ceph[(🪨 Ceph<br/>block · default durable)]
     Cluster --> LH[(🐂 Longhorn<br/>+ recurring backups)]
@@ -64,24 +64,26 @@ Storage tiers are picked deliberately per workload — see [`storage-class.instr
 
 | Layer            | Tool                                | Role                                                  |
 |------------------|-------------------------------------|-------------------------------------------------------|
-| **OS**           | CentOS Stream 9 / 10                | Node operating system                                 |
-| **Runtime**      | cri-o + crun                        | CRI runtime + OCI runtime (C implementation)          |
+| **OS**           | CentOS Stream 9 / 10 (+ Ubuntu 24.04 on Spark) | Node operating system                      |
+| **Runtime**      | cri-o + crun (containerd on Spark)  | CRI + OCI runtime; Spark is the lone containerd node  |
 | **Kubernetes**   | v1.35.4                             | Control-plane and node version                        |
-| **GPU**          | NVIDIA GPU Operator + Container Toolkit | P40 driver/runtime management on worker8           |
+| **GPU**          | NVIDIA GPU Operator + Container Toolkit | P40 on worker8 (Pascal, 24 GB); GB10 on Spark (Grace-Blackwell, 128 GB unified) |
 | **GitOps**       | Flux2                               | Declarative cluster reconciliation                    |
 | **Automation**   | Renovate + GitHub Actions           | Dependency PRs, link checks, self-hosted runners     |
 | **CNI**          | Cilium (eBPF)                       | Networking, BGP peering, LoadBalancer pool            |
 | **Ingress**      | Envoy Gateway                       | L7 gateway / HTTPRoute                                |
 | **Service mesh** | Istio                               | mTLS + traffic mgmt for mcp-system                    |
+| **Admission**    | Kyverno                             | Namespace-delete blast-radius + audit-mode policies   |
 | **DNS**          | external-dns                        | Cloudflare + bind9 split-horizon                      |
 | **TLS**          | cert-manager                        | Let's Encrypt + internal CA                           |
 | **Tunnel**       | cloudflared                         | Public ingress without exposing home WAN              |
 | **AuthN/Z**      | Authelia + oauth2-proxy             | OIDC SSO; 24 oauth2-proxy instances gate apps         |
-| **Secrets**      | External Secrets Operator + 1Password | 109 ExternalSecrets, zero plain-text in Git         |
+| **Secrets**      | External Secrets Operator + 1Password | 111 ExternalSecrets, zero plain-text in Git         |
 | **VPN**          | wg-easy                             | Operator OOB WireGuard access                         |
 | **Storage**      | Rook-Ceph, Longhorn, Garage, direct NFS | Tiered by durability requirement                  |
-| **Databases**    | CloudNative-PG, Dragonfly, Qdrant   | 24 Postgres clusters, KV, vector                      |
-| **Observability**| kube-prometheus-stack, Loki, Grafana, HolmesGPT | Metrics, logs, dashboards, AI alert triage |
+| **Databases**    | CloudNative-PG, Dragonfly, Qdrant   | 25 Postgres clusters, KV, vector                      |
+| **Observability**| kube-prometheus-stack, Loki, Tempo, Grafana, HolmesGPT | Metrics, logs, traces, dashboards, AI alert triage |
+| **Telemetry**    | OpenTelemetry Collector + Vector    | Trace pipeline (→ Tempo) + log shipping (→ Loki)      |
 | **Images**       | ZOT                                 | Pull-through registry / local cache                   |
 
 ---
@@ -100,6 +102,7 @@ Storage tiers are picked deliberately per workload — see [`storage-class.instr
 | 💪   | worker6   | VM on **beast**     | 10  | 30 GB | CentOS 9   | NVMe (Longhorn + Ceph OSD)   |                                       |
 | 💪   | worker7   | VM on **beast**     | 10  | 30 GB | CentOS 9   | NVMe (Longhorn + Ceph OSD)   |                                       |
 | 🎮   | worker8   | VM on **beast**     | 10  | 55 GB | CentOS 9   | NVMe (Longhorn + Ceph OSD)   | NVIDIA **P40** (24 GB VRAM)           |
+| 🚀   | spark     | NVIDIA DGX Spark    | 20  | 128 GB| Ubuntu 24.04 | NVMe + 8 GPU slots         | NVIDIA **GB10** (Grace-Blackwell, 128 GB unified); arm64 · containerd outlier |
 
 ### Off-cluster infrastructure
 
@@ -150,7 +153,6 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 | **Z-Wave JS UI** | Z-Wave bridge (ZWA-2 stick on worker1) |
 | **Matter Server** | Matter protocol bridge |
 | **Frigate** | NVR + ML camera analysis (7+ cameras, Frigate+ trained model) |
-| **n8n** | Workflow automation (AlertManager → HolmesGPT, etc.) |
 | **NetBox** | IPAM / DCIM |
 | **wyoming-services** | Piper TTS + Whisper STT for voice |
 | **smtp-relay** | Maddy → Mailgun outbound mail |
@@ -179,11 +181,12 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 
 | App | Purpose |
 |-----|---------|
-| **Ollama** | Local LLM serving on the P40 (Qwen 2.5 7b/14b, DeepSeek-R1, etc.) |
+| **Ollama** (P40) | Local LLM serving on the Pascal P40 (≤8b-class models, embeddings) |
+| **Ollama Spark** | LLM serving on Spark/GB10 (qwen2.5:32b for the agent fleet + HolmesGPT + Open WebUI, bge-m3 embeddings) |
 | **ComfyUI** | Image generation workflows |
 | **Khoj** | Personal AI assistant over notes + docs |
 | **LangGraph Agents** | Custom multi-agent runtime (`rwlove/langgraph-agents`); Postgres-checkpointed; MCP-gateway client. See **AI agent pipeline** section below. |
-| **KubeClaw** | Workflow agent platform w/ browser automation (upstream chart); being phased out in favor of LangGraph |
+| **Langfuse** | LLM observability — traces, evals, prompt versioning for the agent fleet |
 | **MCP Inspector** | Model Context Protocol debugger UI |
 | **Paperless-AI** | Auto-tagging for paperless-ngx |
 | **sync-receiver** | Cross-host AI state sync endpoint |
@@ -197,6 +200,9 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 |-----|---------|
 | **kube-prometheus-stack** | Prometheus + AlertManager + node-exporter |
 | **Loki** | Log aggregation |
+| **Tempo** | Distributed tracing backend (SingleBinary mode) |
+| **OpenTelemetry Collector** | Trace ingestion pipeline (apps → OTel → Tempo) |
+| **Vector** | Log shipping (sources → Loki) |
 | **Grafana** | Dashboards + alerting UI |
 | **HolmesGPT** | LLM-backed alert investigation |
 | **kube-state-metrics / kube-ops-view** | Cluster state & visualization |
@@ -213,7 +219,7 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 
 | App | Purpose |
 |-----|---------|
-| **CloudNative-PG** | 24 Postgres clusters with WAL archiving to Garage |
+| **CloudNative-PG** | 25 Postgres clusters with WAL archiving to Garage |
 | **Dragonfly** | Redis-compatible in-memory store |
 | **Qdrant** | Vector DB for embeddings / RAG |
 | **pgAdmin** | Postgres admin UI |
@@ -241,6 +247,7 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 | **Flux2** | GitOps reconciler |
 | **Renovate** | Image & Helm chart update PRs |
 | **Kuadrant** | MCP server gateway (Authelia-gated JWT) |
+| **Kyverno** | Admission controller — namespace-delete blast-radius + audit-mode policies |
 | **actions-runner-controller** | Self-hosted GitHub Actions runners |
 | **ZOT** | Pull-through registry cache |
 
@@ -254,6 +261,9 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 | **Paperless-ngx** | Document scanning, OCR, tagging (CNPG-backed, offsite-backed) |
 | **Obsidian** + **obsidian-couchdb** | Notes sync (CouchDB w/ Cloudflare rate-limiting) |
 | **Zulip** | Self-hosted team chat (also wired into agent pipeline approvals) |
+| **Windmill** | Workflow automation (AlertManager → HolmesGPT, daily digests, DLQ watcher) |
+| **ntfy** | Self-hosted push notifications (operator approvals via Android tap actions) |
+| **BentoPDF** | Self-hosted PDF toolkit |
 | **Kitchenowl** | Shopping lists + recipe / meal management |
 | **Open WebUI** | Self-hosted LLM frontend (Ollama + MCP servers as tool servers) |
 | **SearXNG** | Privacy-respecting metasearch engine |
@@ -280,11 +290,12 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 | **paperless-mcp** | Paperless-ngx document search |
 | **netbox-mcp** | NetBox IPAM / DCIM |
 | **github-mcp** | GitHub repo + PR ops |
-| **n8n-mcp** | n8n workflow control |
 | **omada-mcp** | TP-Link Omada controller |
 | **searxng-mcp** | Privacy search through SearXNG |
-| **arr-mcp** | Library-search interface to *arr apps |
+| **arr-mcp** | Library-search interface to media-pull apps |
 | **time-mcp** | Time / timezone utilities (`rwlove/time-mcp` native-SHTTP build) |
+| **chrome-mcp** | Playwright-driven Chromium browser automation for agents |
+| **memory-mcp** | Cross-agent knowledge graph backed by Postgres + pgvector |
 
 </details>
 
@@ -302,23 +313,23 @@ flowchart TB
     subgraph Inputs[Inputs]
         AM[AlertManager alerts]
         Op[Operator chat / voice]
-        Cron[n8n cron + webhooks]
+        Cron[Windmill cron + webhooks]
     end
 
     subgraph Frontends[Frontends]
         OWUI[Open WebUI]
         HA[Home Assistant<br/>voice + conversation]
-        N8N[n8n workflows]
+        WM[Windmill workflows]
     end
 
     subgraph Orchestration[Orchestration]
         Holmes[HolmesGPT<br/>alert RCA]
         LG[LangGraph Agents<br/>agent fleet]
-        KC[KubeClaw<br/>retiring]
     end
 
     subgraph Inference[Inference]
-        Ollama[Ollama on P40<br/>qwen2.5:7b/14b]
+        OllamaP40[Ollama on P40<br/>≤8b + embeddings]
+        OllamaSpark[Ollama on Spark/GB10<br/>qwen2.5:32b + bge-m3]
         Claude[Claude API<br/>escalation only]
     end
 
@@ -329,7 +340,7 @@ flowchart TB
 
     subgraph Outputs[Outputs]
         Z[Zulip<br/>approvals + chat]
-        P[Pushover<br/>high-priority alerts]
+        N[ntfy<br/>Android tap-to-approve]
         V[(langgraph-vault<br/>drafts + reports)]
         DB[(Postgres CNPG<br/>checkpoints + memory)]
     end
@@ -337,25 +348,24 @@ flowchart TB
     AM --> Holmes
     Op --> OWUI
     Op --> HA
-    Cron --> N8N
+    Cron --> WM
 
-    OWUI --> Ollama
-    HA --> Ollama
-    N8N --> LG
+    OWUI --> OllamaSpark
+    HA --> OllamaP40
+    WM --> LG
 
-    Holmes --> Ollama
-    LG --> Ollama
+    Holmes --> OllamaSpark
+    LG --> OllamaSpark
+    LG --> OllamaP40
     LG -.-> Claude
-    KC --> Ollama
 
-    Holmes --> N8N
+    Holmes --> WM
     LG --> Gw
-    KC --> Gw
     OWUI --> Gw
     Gw --> Servers
 
-    N8N --> Z
-    N8N --> P
+    WM --> Z
+    WM --> N
     LG --> V
     LG --> DB
 ```
@@ -482,7 +492,7 @@ Four tiers, picked by what the data has to survive — node loss, Ceph loss, clu
 
 ### 🔐 Secrets — zero plain-text in Git
 
-All 109 ExternalSecrets resolve through External Secrets Operator from 1Password. Application credentials are templated into `ExternalSecret` resources and never live in YAML. Cross-namespace mirrors use the reflector pattern when consumer charts hard-code secret names.
+All 111 ExternalSecrets resolve through External Secrets Operator from 1Password. Application credentials are templated into `ExternalSecret` resources and never live in YAML. Cross-namespace mirrors use the reflector pattern when consumer charts hard-code secret names.
 
 ### 🪪 Authentication — single sign-on everywhere
 
@@ -490,11 +500,16 @@ Authelia (with LLDAP) is the OIDC identity provider; per-app oauth2-proxy instan
 
 ### 🔭 Observability — metrics, logs, AI triage
 
-kube-prometheus-stack scrapes everything; Loki ingests pod logs; Grafana stitches the dashboards. AlertManager fans alerts to Pushover and to **HolmesGPT**, which runs LLM-driven root-cause investigation against the cluster and posts findings back via n8n.
+kube-prometheus-stack scrapes everything; Loki ingests pod logs (via Vector); Tempo ingests traces (via OpenTelemetry Collector); Grafana stitches the dashboards. AlertManager fans alerts to ntfy and to **HolmesGPT**, which runs LLM-driven root-cause investigation against the cluster and posts findings back via Windmill.
 
 ### 🎮 GPU workloads
 
-A single NVIDIA P40 (24 GB VRAM) on worker8 drives Ollama (local LLM), ComfyUI (image gen), Whisper STT, Immich's CLIP face/pet recognition, and the immich-pet-tagger fork pinned to a P40-compatible PyTorch build. Driver lifecycle is handled by the NVIDIA GPU Operator.
+Two GPUs split the workload:
+
+- **NVIDIA P40 on worker8** (Pascal, 24 GB VRAM) — Ollama for ≤8b-class models + embeddings, ComfyUI, Whisper STT, Immich CLIP face/pet recognition, and the immich-pet-tagger fork pinned to a P40-compatible PyTorch build.
+- **NVIDIA GB10 on Spark** (Grace-Blackwell, 128 GB unified) — the larger Ollama deployment serving qwen2.5:32b for the LangGraph agent fleet, HolmesGPT, and Open WebUI, plus bge-m3 embeddings for the cross-agent knowledge graph and Paperless RAG.
+
+Driver lifecycle is handled by the NVIDIA GPU Operator. Spark is the lone containerd node in an otherwise CRI-O cluster; a NodeFeatureRule auto-skips the GPU container-toolkit DaemonSet on CRI-O nodes.
 
 ### 🛟 Disaster recovery
 

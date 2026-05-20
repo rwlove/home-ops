@@ -151,9 +151,15 @@ spec:
         # --- Phase 5b: critical-tier gateway-down alert.
         # Triggers HolmesGPT enrichment via the `windmill-investigate`
         # AlertManager route. If the broker is down, all MCP traffic
-        # stops — worth a 5-min `for:` rather than 15m. ---
+        # stops — worth a 5-min `for:` rather than 15m.
+        # Scrape target is the PodMonitor at
+        # kubernetes/apps/mcp-system/mcp-gateway/app/podmonitor.yaml
+        # (Istio Gateway pod's pilot-agent on :15020/stats/prometheus —
+        # the auto-generated `mcp-gateway-istio` Service doesn't expose
+        # a metrics port, so a Service-based ServiceMonitor is not an
+        # option here). ---
         - alert: MCPGatewayDown
-          expr: absent(up{namespace="mcp-system", service="mcp-gateway-istio"} == 1)
+          expr: absent(up{namespace="mcp-system", container="istio-proxy", pod=~"mcp-gateway-istio-.*"} == 1)
           for: 5m
           labels:
             severity: critical

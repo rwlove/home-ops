@@ -1,0 +1,72 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: langfuse-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/instance: langfuse
+  ingress:
+    # Envoy Gateway → langfuse-web (the chart's user-facing service).
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+            - port: "3030"
+              protocol: TCP
+
+    # langgraph-agents → langfuse-web for trace ingestion via the
+    # langfuse SDK (POST /api/public/ingestion). Same ai namespace
+    # but default-deny is enforced.
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: langgraph-agents
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+
+    # Intra-app: web ↔ worker, web ↔ clickhouse, web ↔ redis,
+    # web ↔ minio. Allow all intra-instance traffic.
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/instance: langfuse
+
+  egress:
+    # Postgres (external CNPG cluster in databases ns).
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: databases
+            cnpg.io/cluster: postgres-langfuse
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+
+    # Intra-app components.
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/instance: langfuse
+
+    # kube-dns.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+
+    # K8s API (chart hooks may issue API calls during install/upgrade).
+    - toEntities:
+        - kube-apiserver

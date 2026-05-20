@@ -1,0 +1,114 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: langfuse
+spec:
+  chart:
+    spec:
+      chart: langfuse
+      sourceRef:
+        kind: HelmRepository
+        name: langfuse
+      version: 1.5.31
+  interval: 30m
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+      strategy: rollback
+  values:
+    # ----- External Postgres -----
+    # Use the CNPG-managed `postgres-langfuse` cluster instead of the
+    # chart's bundled bitnami postgresql. The CNPG-generated secret is
+    # mirrored into the ai namespace by emberstack reflector (see
+    # databases/cloudnative-pg/config/langfuse/cluster.yaml).
+    postgresql:
+      deploy: false
+      auth:
+        existingSecret: postgres-langfuse-app
+        secretKeys:
+          # CNPG exposes the full DSN at key `uri`.
+          userPasswordKey: uri
+
+    # ----- Bundled dependencies the chart deploys in-namespace -----
+    # ClickHouse, Valkey (Redis), MinIO (S3) are all required by
+    # langfuse v3 — the chart deploys them with sane defaults.
+    # Persistent storage uses the cluster default (ceph-block via
+    # the rook-ceph default StorageClass).
+    clickhouse:
+      deploy: true
+    redis:
+      deploy: true
+    s3:
+      deploy: true
+
+    # ----- Langfuse web + worker -----
+    langfuse:
+      web:
+        replicas: 1
+      worker:
+        replicas: 1
+      # NextAuth + crypto config + first-boot bootstrap come from the
+      # langfuse-secret created by externalsecret.yaml. The
+      # postgres-langfuse-app secret's `uri` key carries the full
+      # `DATABASE_URL` (CNPG's standard output format).
+      additionalEnv:
+        - name: NEXTAUTH_URL
+          value: https://langfuse.${SECRET_DOMAIN}
+        - name: NEXTAUTH_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: langfuse-secret
+              key: NEXTAUTH_SECRET
+        - name: SALT
+          valueFrom:
+            secretKeyRef:
+              name: langfuse-secret
+              key: SALT
+        - name: ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: langfuse-secret
+              key: ENCRYPTION_KEY
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: postgres-langfuse-app
+              key: uri
+        - name: LANGFUSE_INIT_ORG_NAME
+          valueFrom:
+            secretKeyRef:
+              name: langfuse-secret
+              key: LANGFUSE_INIT_ORG_NAME
+              optional: true
+        - name: LANGFUSE_INIT_USER_NAME
+          valueFrom:
+            secretKeyRef:
+              name: langfuse-secret
+              key: LANGFUSE_INIT_USER_NAME
+              optional: true
+        - name: LANGFUSE_INIT_USER_EMAIL
+          valueFrom:
+            secretKeyRef:
+              name: langfuse-secret
+              key: LANGFUSE_INIT_USER_EMAIL
+              optional: true
+        - name: LANGFUSE_INIT_USER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: langfuse-secret
+              key: LANGFUSE_INIT_USER_PASSWORD
+              optional: true
+        - name: TELEMETRY_ENABLED
+          value: "false"
+
+    # ----- Native Ingress is disabled; we wire Gateway API HTTPRoute
+    # in a sibling route.yaml so the cluster's existing Envoy Gateway
+    # handles the edge.
+    ingress:
+      enabled: false

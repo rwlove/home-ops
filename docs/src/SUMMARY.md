@@ -6,6 +6,7 @@
 
 - [Workflow Automation: Agents, Approvals, and Push](workflow_automation.md)
 - [Memory MCP — Cross-Agent Knowledge Graph](memory_mcp.md)
+- [MCP Fleet Observability](mcp_observability.md)
 - [Power Outage Recovery](power-outage.md)
 - [Coral](coral.md)
 - [nVidia Tesla P40](p40.md)

@@ -1,0 +1,128 @@
+---
+# Audit policy for kube-apiserver — Phase 5.P (HOMELAB-SPEC Layer 5,
+# blast-radius PSA audit surface).
+#
+# Operator copies this file to /etc/kubernetes/audit-policy.yaml on
+# each control-plane node, then patches
+# /etc/kubernetes/manifests/kube-apiserver.yaml to add:
+#
+#   --audit-policy-file=/etc/kubernetes/audit-policy.yaml
+#   --audit-log-path=/var/log/kubernetes/audit.log
+#   --audit-log-maxage=14
+#   --audit-log-maxbackup=3
+#   --audit-log-maxsize=200
+#
+# See `~/vaults/claude/runbooks/home-ops/apiserver_audit_logging.md`
+# for the full per-node procedure (Inv 9 territory — operator runs
+# this; agents do not modify control-plane manifests autonomously).
+#
+# Volume: this policy aims at PSA-violation visibility + RBAC change
+# logging + cluster-state mutation traceability. NOT a complete
+# security-monitoring policy; tune as audit-data informs.
+
+apiVersion: audit.k8s.io/v1
+kind: Policy
+
+# Drop high-volume noise we know we don't care about (mostly read-only
+# leader-election + heartbeat traffic).
+omitStages:
+  - RequestReceived
+
+rules:
+  # ---- Tier 1: high-value security events at RequestResponse level ----
+
+  # PSA-violation events come back as Pod create/update audit entries
+  # with `pod-security.kubernetes.io/audit-violations` annotation.
+  # Recording at RequestResponse captures the full pod spec + admission
+  # decision; the size cost is acceptable at homelab volume.
+  - level: RequestResponse
+    verbs: ["create", "update", "patch"]
+    resources:
+      - group: ""
+        resources: ["pods"]
+
+  # RBAC changes (any role/binding mutation) — full payload so we can
+  # see what permissions changed.
+  - level: RequestResponse
+    verbs: ["create", "update", "patch", "delete"]
+    resources:
+      - group: "rbac.authorization.k8s.io"
+        resources:
+          - "roles"
+          - "rolebindings"
+          - "clusterroles"
+          - "clusterrolebindings"
+
+  # Secret access — full audit trail at metadata level. (Avoid
+  # RequestResponse on secrets; the value lands in the log.)
+  - level: Metadata
+    resources:
+      - group: ""
+        resources: ["secrets"]
+
+  # CRD lifecycle — major cluster-state change.
+  - level: RequestResponse
+    verbs: ["create", "update", "delete"]
+    resources:
+      - group: "apiextensions.k8s.io"
+        resources: ["customresourcedefinitions"]
+
+  # Namespace lifecycle — pairs with the Kyverno 5.O3 enforce policy.
+  - level: RequestResponse
+    verbs: ["create", "delete"]
+    resources:
+      - group: ""
+        resources: ["namespaces"]
+
+  # ---- Tier 2: cluster-state mutations at Metadata level ----
+
+  # Workload mutations (Deployments, StatefulSets, DaemonSets, Jobs,
+  # CronJobs) at Metadata — captures who-changed-what without the
+  # full spec.
+  - level: Metadata
+    verbs: ["create", "update", "patch", "delete"]
+    resources:
+      - group: "apps"
+      - group: "batch"
+
+  # NetworkPolicy + CiliumNetworkPolicy — security-adjacent.
+  - level: RequestResponse
+    verbs: ["create", "update", "patch", "delete"]
+    resources:
+      - group: "networking.k8s.io"
+        resources: ["networkpolicies"]
+      - group: "cilium.io"
+        resources: ["ciliumnetworkpolicies"]
+
+  # ---- Tier 3: everything else at Metadata, with high-volume drops ----
+
+  # Drop leader-election heartbeats (high volume, low value).
+  - level: None
+    users:
+      - "system:kube-controller-manager"
+      - "system:kube-scheduler"
+    resources:
+      - group: "coordination.k8s.io"
+        resources: ["leases"]
+
+  # Drop kubelet self-status updates (high volume).
+  - level: None
+    userGroups: ["system:nodes"]
+    resources:
+      - group: ""
+        resources: ["nodes/status", "pods/status"]
+
+  # Drop CSR approvals + cluster-info reads.
+  - level: None
+    nonResourceURLs:
+      - "/healthz*"
+      - "/readyz*"
+      - "/livez*"
+      - "/version"
+      - "/metrics"
+      - "/openapi/*"
+
+  # Everything else: Metadata.
+  - level: Metadata
+    omitStages:
+      - RequestReceived

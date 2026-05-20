@@ -1,0 +1,52 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/kyverno.io/clusterpolicy_v1.json
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-namespace-deletion-without-approval
+  annotations:
+    policies.kyverno.io/title: Disallow namespace deletion without approval
+    policies.kyverno.io/category: Blast Radius
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: Namespace
+    policies.kyverno.io/description: |
+      Per HOMELAB-SPEC Layer 5 blast-radius enforcement, namespace
+      deletion requires an explicit two-person approval annotation
+      `blast-radius.lovenet.io/two-person-approved: <approver>`.
+
+      Audit mode: violations land in PolicyReport CRs and Prometheus
+      metrics for review. Promotion to enforce is the 5.O3 step,
+      gated to a follow-on session per the 2026-05-20 D-A decision.
+spec:
+  validationFailureAction: Audit
+  background: false
+  rules:
+    - name: namespace-delete-needs-approval
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+              operations:
+                - DELETE
+      # Skip system namespaces; they're managed by the cluster
+      # itself, not by an operator delete.
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kube-public
+                - kube-node-lease
+                - default
+                - flux-system
+      validate:
+        message: >-
+          Namespace deletion requires the
+          `blast-radius.lovenet.io/two-person-approved: <approver>`
+          annotation per HOMELAB-SPEC Layer 5. Add the annotation
+          (with a real approver name, not your own) and retry.
+        pattern:
+          metadata:
+            annotations:
+              blast-radius.lovenet.io/two-person-approved: "?*"

@@ -1,0 +1,41 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/nfd.k8s-sigs.io/nodefeaturerule_v1alpha1.json
+apiVersion: nfd.k8s-sigs.io/v1alpha1
+kind: NodeFeatureRule
+metadata:
+  name: gpu-operator-runtime-override
+spec:
+  # The cluster runs CRI-O on every node except Spark (Ubuntu 24.04 +
+  # containerd). gpu-operator's `nvidia-container-toolkit-daemonset`
+  # writes containerd-specific config (`/etc/containerd/conf.d/99-nvidia.toml`)
+  # and SIGHUPs containerd via `/run/containerd/containerd.sock` — both
+  # of which are meaningless on a CRI-O host (no socket → crashloop).
+  #
+  # GPU still works on CRI-O nodes (worker8 currently runs 8 GPU
+  # workloads via the existing host-level NVIDIA hook setup); the
+  # toolkit DS just has nothing useful to do there.
+  #
+  # Mark CRI-O nodes (proxied here by `system-os_release.ID` since the
+  # cluster's 1:1 mapping is centos/fedora/rhel → CRI-O, ubuntu/talos →
+  # containerd) as opted-out of the toolkit DS via the documented
+  # gpu-operator label `nvidia.com/gpu.deploy.container-toolkit=false`.
+  # The other gpu-operator DSes (device-plugin, dcgm-exporter,
+  # operator-validator, gpu-feature-discovery, node-status-exporter)
+  # don't depend on the toolkit's containerd configuration and stay
+  # enabled on CRI-O nodes.
+  #
+  # When a new GPU node is added with a different OS, audit the OS↔
+  # runtime mapping before relying on this rule.
+  rules:
+    - name: gpu-operator-crio-toolkit-skip
+      labels:
+        nvidia.com/gpu.deploy.container-toolkit: "false"
+      matchFeatures:
+        - feature: system.osrelease
+          matchExpressions:
+            ID:
+              op: In
+              value:
+                - centos
+                - fedora
+                - rhel

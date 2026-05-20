@@ -40,12 +40,30 @@ spec:
     # langfuse v3 — the chart deploys them with sane defaults.
     # Persistent storage uses the cluster default (ceph-block via
     # the rook-ceph default StorageClass).
+    #
+    # Each subchart hard-requires either an inline `auth.password`
+    # or an `auth.existingSecret`. Point them at `langfuse-secret`
+    # with explicit key names; the ExternalSecret extension that
+    # populates those keys is a follow-up (the keys must be present
+    # in the 1P `langfuse-app` item before Flux can install the
+    # HelmRelease, but CI's `helm template` doesn't validate that —
+    # the render passes as long as the values structure is correct).
     clickhouse:
       deploy: true
+      auth:
+        existingSecret: langfuse-secret
+        existingSecretKey: CLICKHOUSE_PASSWORD
     redis:
       deploy: true
+      auth:
+        existingSecret: langfuse-secret
+        existingSecretPasswordKey: REDIS_PASSWORD
     s3:
       deploy: true
+      auth:
+        existingSecret: langfuse-secret
+        rootUserSecretKey: S3_ROOT_USER
+        rootPasswordSecretKey: S3_ROOT_PASSWORD
 
     # ----- Langfuse web + worker -----
     langfuse:
@@ -53,28 +71,36 @@ spec:
         replicas: 1
       worker:
         replicas: 1
-      # NextAuth + crypto config + first-boot bootstrap come from the
-      # langfuse-secret created by externalsecret.yaml. The
-      # postgres-langfuse-app secret's `uri` key carries the full
-      # `DATABASE_URL` (CNPG's standard output format).
+      # SALT / ENCRYPTION_KEY / NextAuth must use the chart's native
+      # `secretKeyRef` plumbing — the chart's worker/deployment.yaml
+      # renders these as secret env refs and aborts `helm template`
+      # if the values-side path is empty. (PR #11796 set them only
+      # via `additionalEnv` which is the pod-runtime path but does
+      # not satisfy the chart template's rendering.)
+      salt:
+        secretKeyRef:
+          name: langfuse-secret
+          key: SALT
+      encryptionKey:
+        secretKeyRef:
+          name: langfuse-secret
+          key: ENCRYPTION_KEY
+      nextauth:
+        url: https://langfuse.${SECRET_DOMAIN}
+        secret:
+          secretKeyRef:
+            name: langfuse-secret
+            key: NEXTAUTH_SECRET
+      features:
+        # Chart-side telemetry off (mirrors the old TELEMETRY_ENABLED
+        # additionalEnv entry; can't set both — chart validates).
+        telemetryEnabled: false
+      # DATABASE_URL stays in additionalEnv because the CNPG `uri`
+      # carries the full DSN, while the chart's
+      # `postgresql.auth.existingSecret` path only handles a
+      # username/password pair. First-boot bootstrap fields stay
+      # here too — the chart has no native value paths for those.
       additionalEnv:
-        - name: NEXTAUTH_URL
-          value: https://langfuse.${SECRET_DOMAIN}
-        - name: NEXTAUTH_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: langfuse-secret
-              key: NEXTAUTH_SECRET
-        - name: SALT
-          valueFrom:
-            secretKeyRef:
-              name: langfuse-secret
-              key: SALT
-        - name: ENCRYPTION_KEY
-          valueFrom:
-            secretKeyRef:
-              name: langfuse-secret
-              key: ENCRYPTION_KEY
         - name: DATABASE_URL
           valueFrom:
             secretKeyRef:
@@ -104,8 +130,6 @@ spec:
               name: langfuse-secret
               key: LANGFUSE_INIT_USER_PASSWORD
               optional: true
-        - name: TELEMETRY_ENABLED
-          value: "false"
 
     # ----- Native Ingress is disabled; we wire Gateway API HTTPRoute
     # in a sibling route.yaml so the cluster's existing Envoy Gateway

@@ -25,6 +25,19 @@ sources:
     node_annotation_fields:
       node_labels: ""
 
+  # Phase 5.P — apiserver audit log. The file only exists on
+  # control-plane nodes (after the operator follows
+  # `~/vaults/claude/runbooks/home-ops/apiserver_audit_logging.md`
+  # per node); on worker nodes the file is absent and Vector's
+  # file source quietly tails nothing.
+  kube_apiserver_audit_source:
+    type: file
+    include:
+      - /var/log/kubernetes/audit.log
+    read_from: beginning
+    fingerprint:
+      strategy: device_and_inode
+
 # Sinks
 sinks:
   journald:
@@ -40,6 +53,13 @@ sinks:
     version: "2"
     address: vector-aggregator-app.observability.svc.cluster.local:6000
     inputs: ["kubernetes_source"]
+
+  kube_apiserver_audit:
+    type: vector
+    compression: true
+    version: "2"
+    address: vector-aggregator-app.observability.svc.cluster.local:6000
+    inputs: ["kube_apiserver_audit_source"]
 
   prometheus_metrics:
     type: prometheus_exporter

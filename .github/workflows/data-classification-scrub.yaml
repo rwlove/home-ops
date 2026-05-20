@@ -1,0 +1,70 @@
+---
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: "Docs: Data Classification Scrub"
+
+# Per `.agents/instructions/data-classification.md` (HOMELAB-SPEC Inv 2)
+# — restricted-tier app names must not appear in narrative artifacts
+# that third parties can see. This job greps for them and fails the PR
+# if any leak through.
+#
+# Exceptions:
+#  - `.agents/instructions/data-classification.md` — defines the
+#    convention by naming the categories.
+#  - `.agents/skills/historian.md` — cites the convention by name.
+#  - `docs/src/audit/**` — historical audit artifacts, frozen
+#    (replaced going forward by the convention).
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  scrub:
+    name: Scan for restricted-tier names
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Grep restricted-tier names
+        run: |
+          set -euo pipefail
+          # Restricted apps per `.agents/instructions/data-classification.md`:
+          # arr stack + stash + download clients.
+          PATTERN='\bsonarr\b|\bradarr\b|\bprowlarr\b|\blidarr\b|\brecyclarr\b|\bsuggestarr\b|\bsoularr\b|\bqbittorrent\b|\bsabnzbd\b|\bslskd\b|\bjdownloader\b|\bautobrr\b|\bstash\b'
+
+          # Scope: every .md file in the repo, with exceptions.
+          # `git grep` respects .gitignore + ls-files semantics. The
+          # exception list lives below.
+          if git grep -nEi "${PATTERN}" -- '*.md' \
+              ':!.agents/instructions/data-classification.md' \
+              ':!.agents/skills/historian.md' \
+              ':!docs/src/audit/**'; then
+            echo
+            echo "❌ Restricted-tier names found in narrative artifacts."
+            echo "Per HOMELAB-SPEC Inv 2 +"
+            echo "  .agents/instructions/data-classification.md,"
+            echo "rewrite using the neutral category descriptors:"
+            echo "  - media-pull-stack (apps + download clients)"
+            echo "  - media-library-app"
+            echo
+            echo "If the match is in a manifest path (kubernetes/apps/..."
+            echo "directory or filename), this scrub does not apply — the"
+            echo "manifests themselves are exempt by the convention. Move"
+            echo "narrative content out of the .md and into a comment in"
+            echo "the manifest if you need to discuss the app."
+            exit 1
+          fi
+          echo "✅ No restricted-tier names found in narrative artifacts."

@@ -157,9 +157,11 @@ Streams.
 | Couples to graph state Postgres | no | yes | no |
 | Operating cost-to-build | M | L | M-L |
 
-## Recommendation
+## Decision
 
-**Option B — CNPG LISTEN/NOTIFY.**
+**Option B — CNPG LISTEN/NOTIFY.** Picked 2026-05-20.
+
+## Recommendation
 
 Rationale:
 
@@ -218,17 +220,12 @@ sweep PR or split into 3-4 small PRs:
 - `/inbox` cutover + back-compat flag
 - DLQ surface + dashboard
 
-## What I need from you
+## Next steps
 
-Reply with:
-
-- **A**, **B**, or **C** for the substrate choice.
-- Any constraint I missed (deployment timing, an existing failure
-  mode I should account for, a cluster-specific gotcha not surfaced
-  here).
-
-Once you decide, I update `docs/src/orchestration_substrate.md` to
-reference the chosen substrate and Phase 4 can start.
+Phase 4 build-out per the preview above. Schema for the new tables
+lives on `cnpg-langgraph-checkpoints` (re-use existing Cluster) or a
+new `cnpg-langgraph-queue` Cluster — to be decided when migration
+PR is drafted.
 
 ## See also
 

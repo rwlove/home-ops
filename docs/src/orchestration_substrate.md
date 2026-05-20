@@ -2,11 +2,15 @@
 
 ## Status
 
-**Not built as of 2026-05-20.** HOMELAB-SPEC Layer 5 references a task
-contract, queue substrate, DLQ, and per-mode workers that this cluster
-does not yet implement. This document names the gap, describes what
-exists today, and sketches the forward-looking shape so we don't lose
-the specs while we wait.
+**Not built as of 2026-05-20** — but substrate is decided. HOMELAB-SPEC
+Layer 5 references a task contract, queue substrate, DLQ, and per-mode
+workers that this cluster does not yet implement. This document names
+the gap, describes what exists today, and sketches the forward-looking
+shape so we don't lose the specs while we wait.
+
+**Substrate decision (2026-05-20):** CNPG LISTEN/NOTIFY — see
+[`task_queue_substrate_design.md`](task_queue_substrate_design.md) for
+the full evaluation. Phase 4 of the rollout plan builds it out.
 
 ## What exists today
 

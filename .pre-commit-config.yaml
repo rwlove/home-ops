@@ -1,0 +1,58 @@
+# yaml-language-server: $schema=https://json.schemastore.org/pre-commit-config.json
+
+# Pre-commit hooks for home-ops.
+#
+# Author-time defense matching CI's lint workflow. Per HOMELAB-SPEC
+# Inv 6 ("The PR is the artifact of a passing local run") and the
+# `.agents/skills/pre-submit.md` checklist.
+#
+# Install: `pre-commit install`
+# Run on all files once: `pre-commit run --all-files`
+
+repos:
+  # File hygiene
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+        exclude: ^(.*\.sops\..*|.*/resources/.*)$
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-symlinks
+      - id: end-of-file-fixer
+        exclude: ^(.*\.sops\..*|.*/resources/.*)$
+      - id: trailing-whitespace
+        exclude: ^(.*\.sops\..*|.*/resources/.*)$
+      - id: detect-private-key
+
+  # Secret scan — mirrors `.github/workflows/gitleaks.yaml`
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  # YAML lint — mirrors `.github/workflows/lint.yaml` yamllint job;
+  # uses `.yamllint.yaml` in repo root.
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.37.1
+    hooks:
+      - id: yamllint
+        args: [--strict, --config-file, .yamllint.yaml]
+
+  # Markdown lint — mirrors `.github/workflows/lint.yaml` markdownlint
+  # job; uses `.markdownlint.yaml` in repo root. The cli2 variant
+  # matches the bjw-s action used in CI.
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.18.1
+    hooks:
+      - id: markdownlint-cli2
+        args: [--config, .markdownlint.yaml]
+
+  # GitHub Actions lint — mirrors `.github/workflows/lint.yaml`
+  # actionlint job; uses `.github/actionlint.yaml`.
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.7
+    hooks:
+      - id: actionlint
+        args: [-config-file, .github/actionlint.yaml]

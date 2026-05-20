@@ -12,7 +12,7 @@ spec:
       sourceRef:
         kind: HelmRepository
         name: kyverno-charts
-        namespace: kube-system
+        namespace: kyverno
       version: 3.3.7
   interval: 30m
   install:
@@ -83,9 +83,22 @@ spec:
     # the safer default for an initial deploy where Kyverno owning
     # admission is new territory. Per-policy `failurePolicy` can be
     # tightened later for specific rules.
+    #
+    # `config.webhooks` matches the chart 3.3.7 default map shape
+    # (the chart's _helpers.tpl reads `matchExpressions` off
+    # `namespaceSelector` to merge in the kyverno-namespace
+    # exclusion). The list shape previously used here broke
+    # `helm template` because each list entry was expected to carry
+    # its own `namespaceSelector`.
     config:
       webhooks:
-        - failurePolicy: Ignore
+        namespaceSelector:
+          matchExpressions:
+            - key: kubernetes.io/metadata.name
+              operator: NotIn
+              values:
+                - kube-system
+        failurePolicy: Ignore
 
     # Policy reports — Kyverno generates `PolicyReport` CRs that
     # ServiceMonitor + Grafana can scrape. Audit-mode rules in 5.O2

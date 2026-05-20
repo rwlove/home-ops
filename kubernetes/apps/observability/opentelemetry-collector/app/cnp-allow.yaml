@@ -1,0 +1,49 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: opentelemetry-collector-allow
+spec:
+  # Chart deploys with `app.kubernetes.io/name: opentelemetry-collector`.
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: opentelemetry-collector
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # Cluster-wide OTLP ingress. Any pod (langgraph-agents, MCP
+    # backends, future OTel-instrumented apps) can push spans to the
+    # collector at :4317 (gRPC) or :4318 (HTTP). The k8sattributes
+    # processor in the pipeline tags every span with source pod
+    # metadata, so we don't lose attribution by accepting from
+    # `cluster` entities.
+    - fromEntities:
+        - cluster
+      toPorts:
+        - ports:
+            - port: "4317"
+              protocol: TCP
+            - port: "4318"
+              protocol: TCP
+  egress:
+    # Push to Tempo's OTLP gRPC receiver in the same namespace.
+    # Intra-ns is allowed by the baseline; this rule documents the
+    # dependency explicitly.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: tempo
+      toPorts:
+        - ports:
+            - port: "4317"
+              protocol: TCP
+    # k8sattributes processor needs to query the kube-apiserver for
+    # pod metadata. Allow egress to the apiserver (kube-system).
+    - toEntities:
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - port: "6443"
+              protocol: TCP

@@ -34,7 +34,7 @@ Status: **deployed** (`kubernetes/apps/home/windmill/`), CNPG-backed
 job queue with web UI, retry config, and `wait_result` semantics
 already used by the Triager webhook and approval flows.
 
-**Pros**
+#### Pros
 
 - Already in production. Workflows for inbox routing, approval-post,
   awaiting-user-sweep, cost-cap-watcher, daily-digest run here today.
@@ -45,7 +45,7 @@ already used by the Triager webhook and approval flows.
 - DLQ-ish behavior exists: failed flows surface in the UI with full
   context.
 
-**Cons**
+#### Cons
 
 - Worker bodies are JS/TS/Python/Bash by Windmill convention; calling
   back into langgraph-agents' Python codebase happens via HTTP rather
@@ -58,7 +58,7 @@ already used by the Triager webhook and approval flows.
   Windmill's HTTP-to-script boundary (doable; not free).
 - Web UI is operator-facing; not a user-facing queue.
 
-**Effort to operate as the substrate**
+#### Effort to operate as the substrate
 
 - Write a `task-router` Windmill flow that consumes the task envelope,
   dispatches to the appropriate mode worker (planner / executor /
@@ -72,7 +72,7 @@ Status: **plumbing deployed** — `cnpg-langgraph-checkpoints` and
 `cnpg-langgraph-memory` already exist; langgraph-agents already speaks
 to Postgres via the AsyncPostgresSaver checkpointer.
 
-**Pros**
+#### Pros
 
 - Native Python integration: psycopg async already in dependencies;
   `LISTEN ... NOTIFY` is a one-liner.
@@ -85,7 +85,7 @@ to Postgres via the AsyncPostgresSaver checkpointer.
   spec. ULID for `id`, JSON column for the rest.
 - DLQ is another table; failure path is one UPDATE.
 
-**Cons**
+#### Cons
 
 - Build-it-yourself: we own the visibility-timeout logic, the
   redelivery scheduler, the retry-backoff loop, the worker pool
@@ -99,7 +99,7 @@ to Postgres via the AsyncPostgresSaver checkpointer.
   message rates. At our scale (estimated <100 tasks/day), this isn't
   a real concern — but it's the textbook objection.
 
-**Effort to operate as the substrate**
+#### Effort to operate as the substrate
 
 - One migration to add `tasks` + `task_dlq` tables.
 - Worker loop in `agents/queue/` (new module): LISTEN, claim, run,
@@ -114,7 +114,7 @@ Status: **deployed** (`kubernetes/apps/databases/dragonfly/`,
 v1.38.1, 3 replicas). Redis-protocol compatible; supports Redis
 Streams.
 
-**Pros**
+#### Pros
 
 - Redis Streams is the most queue-shaped of the three substrates.
   Native consumer groups, native pending-entries list (PEL) ≈ visibility
@@ -124,7 +124,7 @@ Streams.
   Windmill UI isn't.
 - Python client (`redis-py`) is well-known.
 
-**Cons**
+#### Cons
 
 - Adds a dependency on Dragonfly that langgraph-agents doesn't have
   today. (Easy: add to pyproject.)
@@ -136,7 +136,7 @@ Streams.
   XCLAIM for re-delivery, but DLQ is a separate stream we'd maintain.
 - Operator UI: none.
 
-**Effort to operate as the substrate**
+#### Effort to operate as the substrate
 
 - New `agents/queue/` module with Redis-streams consumer-group worker.
 - DLQ-stream surface; cron sweeper.

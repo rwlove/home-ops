@@ -21,11 +21,28 @@ spec:
           reloader.stakater.com/auto: "true"
 
         pod:
-          # The yolo backend uses cuda:0; only worker8 has the
-          # nvidia.com/gpu resource via the gpu-operator. nodeSelector
-          # is belt-and-suspenders alongside the resource request below.
+          # Pinned to Spark/GB10 (Blackwell, arm64) after the multi-arch
+          # rebase (pump-cv v0.5.0 / pump-cv-base on nvcr.io/nvidia/pytorch).
+          # Previously bound to worker8 (Pascal P40, amd64); the cu121
+          # Pascal pin was dropped along with the base swap. One-way
+          # cutover — the new image won't run on P40 (sm_61 isn't in
+          # TORCH_CUDA_ARCH_LIST for the nvcr.io stack).
           nodeSelector:
-            nvidia.com/gpu.present: "true"
+            node-role.kubernetes.io/gpu: blackwell
+
+          tolerations:
+            # Spark is tainted kubernetes.io/arch=arm64:NoSchedule to
+            # keep amd64-only workloads off it. pump-cv v0.5.0 is
+            # multi-arch (linux/arm64 + linux/amd64) so tolerate
+            # explicitly.
+            - key: kubernetes.io/arch
+              operator: Equal
+              value: arm64
+              effect: NoSchedule
+            - key: nvidia.com/gpu
+              operator: Equal
+              value: "true"
+              effect: NoSchedule
 
         initContainers:
           # pump-cv config.py does not interpolate env vars in YAML, so

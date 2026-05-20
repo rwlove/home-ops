@@ -31,48 +31,42 @@ spec:
           for: 5m
           labels:
             severity: critical
-        # Pod is Ready but GPU power is at idle floor for an
-        # extended window. Sustained idle while the Pod claims
-        # Ready strongly suggests one of:
-        #   1. No consumer is actually routing here (env regression
-        #      on langgraph-agents / HolmesGPT / Open WebUI).
-        #   2. The Ollama worker is hung — restart sts.
-        #   3. Traffic legitimately stopped (low usage period).
-        # Threshold tuning history:
-        #   - v2 plan: 10 min. Would cry wolf during quiet hours.
-        #   - First ship: 1 h. Caught in PENDING during a quiet
-        #     window — incremental cron ingest finds 0 new docs and
-        #     completes in <5 s, leaving Spark at the ~10 W idle
-        #     floor for the rest of the 15-min window.
-        #   - Current: 4 h. Real wedged states (routing regression,
-        #     hung worker) won't recover on their own and will
-        #     trivially exceed 4 h. Quiet stretches up to half a
-        #     workday are normal for a homelab.
+        # Synthetic-probe wedge detector. Replaces the original
+        # DCGM power-draw heuristic, which couldn't distinguish
+        # "Ollama hung" from "no inference traffic." The
+        # ollama-spark-embed Probe (see
+        # kubernetes/apps/observability/exporters/blackbox-exporter/app/probes.yaml)
+        # POSTs against /api/embed every 5 min; if Ollama can't
+        # service the request, probe_success drops to 0 and this
+        # alert fires within 5 min. Side benefit: the probe itself
+        # is the heartbeat the alert annotation used to recommend,
+        # so quiet stretches no longer cause false positives or
+        # bge-m3 eviction.
+        #
+        # Companion alert: BlackboxProbeFailed (defined in the
+        # blackbox-exporter HelmRelease) is critical and will fire
+        # on the same probe. This alert duplicates it but carries
+        # ollama-spark-specific runbook context. Single root cause
+        # = 2 notifications; accept the dupe for richer triage.
         - alert: SparkOllamaWedged
           annotations:
-            summary: ollama-spark Pod Ready but GPU idle >4h — possibly wedged or unrouted
+            summary: ollama-spark synthetic embed probe failing (Spark inference unavailable)
             description: |
-              Spark GPU power draw has been <12 W (idle floor is
-              ~10 W; inference is 60-150 W) for the past 4 hours
-              while ollama-spark-0 reports Ready. Common causes:
+              The ollama-spark-embed Probe (POST /api/embed against
+              bge-m3) has been failing for ≥5 minutes. Pod may
+              report Ready, but Ollama isn't actually serving
+              inference. Common causes:
               (1) routing regression — verify
                   langgraph-agents/HolmesGPT/Open WebUI env still
                   points at ollama-spark;
               (2) Ollama worker hung — try
                   `kubectl -n ai rollout restart sts ollama-spark`;
-              (3) traffic legitimately stopped (overnight / no
-                  paperless ingest hits). If (3) is recurring,
-                  consider adding a heartbeat embedding cron.
-              GPU_UTIL/MEM_COPY_UTIL/FB_USED are broken on GB10 so
-              POWER is the only reliable activity signal.
+              (3) bge-m3 failed to load — `kubectl -n ai logs
+                  ollama-spark-0 -c main --tail=200`;
+              (4) probe payload changed / model removed — check the
+                  Probe + module definition.
           expr: |-
-            (
-              avg_over_time(DCGM_FI_DEV_POWER_USAGE{Hostname="spark.thesteamedcrab.com"}[10m]) < 12
-            )
-            and on()
-            (
-              kube_pod_status_ready{namespace="ai",pod=~"ollama-spark-.*",condition="true"} == 1
-            )
-          for: 4h
+            probe_success{instance=~"https?://ollama-spark.*"} == 0
+          for: 5m
           labels:
-            severity: warning
+            severity: critical

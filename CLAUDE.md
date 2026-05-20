@@ -1,11 +1,14 @@
 @.agents/instructions/configmap.resources.instructions.md
+@.agents/instructions/data-classification.md
 @.agents/instructions/flux.sorting.instructions.md
+@.agents/instructions/gpu-routing.md
 @.agents/instructions/helmfile.sorting.instructions.md
 @.agents/instructions/helmrelease.security.md
 @.agents/instructions/kustomize.config.sorting.instructions.md
 @.agents/instructions/persona.md
 @.agents/instructions/schema.correction.md
 @.agents/instructions/storage-class.instructions.md
+@.agents/instructions/workarounds.md
 
 # Home Operations - AI Assistant Guide
 

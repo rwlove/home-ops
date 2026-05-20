@@ -96,7 +96,7 @@ Add `prometheus-client>=0.20.0,<1` to the project's dependencies.
 
 **Local test before pushing:**
 
-```
+```sh
 python -c "import urllib.request; print(urllib.request.urlopen('http://localhost:<port>/metrics').read().decode()[:1000])"
 ```
 

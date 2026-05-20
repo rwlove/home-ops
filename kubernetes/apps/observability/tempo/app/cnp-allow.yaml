@@ -1,0 +1,43 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: tempo-allow
+spec:
+  # The single-binary chart deploys with `app.kubernetes.io/name: tempo`.
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: tempo
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # Grafana queries Tempo for trace data at port 3100 (HTTP).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: grafana
+      toPorts:
+        - ports:
+            - port: "3100"
+              protocol: TCP
+    # OTel collector (also in observability ns) pushes spans via OTLP
+    # gRPC 4317 and HTTP 4318. Cross-ns ingestion from ai/ namespace
+    # (langgraph-agents direct-OTLP path) covered by the same
+    # endpoint-selector match; we intentionally allow OTLP from any
+    # pod in the cluster to simplify Phase 3.K rollout. Tighten when
+    # the OTel collector becomes the canonical path.
+    - fromEntities:
+        - cluster
+      toPorts:
+        - ports:
+            - port: "4317"
+              protocol: TCP
+            - port: "4318"
+              protocol: TCP
+  egress:
+    # No external egress needed — single-binary mode with local
+    # storage. If metricsGenerator gets enabled later, add an egress
+    # rule to Prometheus remote-write endpoint.
+    []

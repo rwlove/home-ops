@@ -38,6 +38,7 @@ Ask the user for:
 ---
 
 **`kubernetes/apps/<namespace>/<app>/ks.yaml`**
+
 ```yaml
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/kustomization-kustomize-v1.json
@@ -65,6 +66,7 @@ spec:
 ---
 
 **`kubernetes/apps/<namespace>/<app>/app/kustomization.yaml`**
+
 ```yaml
 ---
 # yaml-language-server: $schema=https://json.schemastore.org/kustomization
@@ -84,6 +86,7 @@ for the app-template chart.
 ---
 
 **`kubernetes/apps/<namespace>/<app>/app/helmrelease.yaml`**
+
 ```yaml
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
@@ -165,6 +168,7 @@ mealie-mcp postmortem for an example.
 ---
 
 **`kubernetes/apps/<namespace>/<app>/app/externalsecret.yaml`** (optional)
+
 ```yaml
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/external-secrets.io/externalsecret_v1.json

@@ -21,7 +21,12 @@ CREATE TABLE IF NOT EXISTS kg.observations (
   id          BIGSERIAL PRIMARY KEY,
   entity_id   BIGINT NOT NULL REFERENCES kg.entities(id) ON DELETE CASCADE,
   content     TEXT NOT NULL,
-  embedding   vector(768),
+  -- 1024-dim per Phase A of the Spark-unblocks-RAG plan (bge-m3
+  -- beat nomic-embed-text by +23 MRR@10 pts on Paperless retrieval).
+  -- The 2026-05-20 migration ALTERed an existing 768-dim column
+  -- USING NULL + re-embedded inline; CREATE TABLE IF NOT EXISTS
+  -- here only affects fresh-cluster installs.
+  embedding   vector(1024),
   source      JSONB NOT NULL,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   deleted_at  TIMESTAMPTZ

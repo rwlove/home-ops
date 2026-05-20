@@ -7,7 +7,7 @@ catches up. Per HOMELAB-SPEC Layer 5 Workaround tracking.
 
 ## Annotation format
 
-```
+```text
 # workaround: <upstream-url> — remove when <condition>
 ```
 
@@ -19,7 +19,7 @@ catches up. Per HOMELAB-SPEC Layer 5 Workaround tracking.
   merged PR, a behavior change. "Eventually" is not a condition.
 - Example:
 
-  ```
+  ```text
   # workaround: https://github.com/cloudnative-pg/cloudnative-pg/issues/5489 — remove when v1.27 lands
   ```
 

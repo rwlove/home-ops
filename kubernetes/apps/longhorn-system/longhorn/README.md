@@ -64,7 +64,7 @@ The procedure below is for the UID-drift case — when the existing files need t
 
 - **Newly-provisioned PVC with `lost+found` issue** — that's a one-time `chmod 755 lost+found`, not a full chown sweep. See the memory.
 - **Symptom looks like "fresh PVC won't bind"** — that's usually a StorageClass / `volumeName` / capacity mismatch, not a permission issue. Check `kubectl describe pvc` first.
-- **App documented as needing root** (some images, e.g. older slskd builds) — running the procedure won't help; the app needs `runAsUser: 0` and the security defaults in `helmrelease.security.md` overridden. See the `project_slskd_readonly_rootfs` memory for that pattern.
+- **App documented as needing root** (some legacy images legitimately require it) — running the procedure won't help; the app needs `runAsUser: 0` and the security defaults in `helmrelease.security.md` overridden. See the memory for the canonical pattern.
 
 ## Related
 

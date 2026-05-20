@@ -87,7 +87,7 @@ Grouped from the 51 CNPs by destination shape:
 
 | Category | Example apps | Today's allow shape | Tractability |
 |---|---|---|---|
-| Package registries — CNAME-fronted | actions-runner-system (github.com, *.githubusercontent.com), media/recyclarr | `matchPattern: <fqdn>` works | High (already narrow) |
+| Package registries — CNAME-fronted | actions-runner-system (github.com, *.githubusercontent.com), media/\<media-pull-stack quality-rules app\> | `matchPattern: <fqdn>` works | High (already narrow) |
 | Provider APIs — canonical | external-secrets→1P Connect cloud, smtp-relay→mailgun, langgraph→Anthropic/Pushover, cert-manager→ACME, ai/khoj→HuggingFace | `matchPattern + .*` workaround OR `world:443` | Low (matchPattern silently fails on canonical) |
 | Container registries — pull-through via ZOT | n/a (in-cluster ZOT) | covered by `toEndpoints` | Already restricted |
 | S3 to AWS (offsite backups) | immich, paperless rclone CronJobs | `world:443` | Medium (AWS S3 IP ranges are published but rotate) |
@@ -249,7 +249,7 @@ A focused, targeted second pass on the existing CNPs:
   matchName: <fqdn>` per FQDN, using the paired `matchPattern:
   foo.com` and `matchPattern: foo.com.*` workaround for canonical
   FQDNs. Already the pattern in actions-runner-controller,
-  recyclarr, pump-cv, github-mcp, paperless-ai.
+  media-pull-stack quality-rules app, pump-cv, github-mcp, paperless-ai.
 - For apps with **inherently unbounded** egress (home-assistant,
   esphome, n8n, node-red, searxng, glance, glance-user, open-webui,
   runners, esphome/code, home-assistant/code): leave `world:443` and
@@ -360,18 +360,18 @@ each before declaring baseline).
 ### Phase 1 — Single-app pilot: detection alerting (1 week)
 
 Pick **one bounded-population app** with a stable, well-understood
-FQDN set. Recommendation: **media/recyclarr** — already on
+FQDN set. Recommendation: **a media-pull-stack quality-rules app** — already on
 `matchPattern + .*`, low blast radius, no real-time user dependency,
 flow volume is bounded (it scrapes TRaSH-Guides on a schedule).
 
 Steps:
 
 1. PR: add a Prometheus recording rule that counts per-pod egress
-   flows to destinations *outside* the recyclarr baseline JSON.
+   flows to destinations *outside* the pilot app's baseline JSON.
 2. PR: add an Alertmanager rule that fires (`severity=warning`,
    routed to Pushover) when that count is non-zero over a 5-minute
    window.
-3. **Wait 7 days.** Alert should never fire on legitimate recyclarr
+3. **Wait 7 days.** Alert should never fire on legitimate pilot-app
    behavior. If it does, investigate — either the baseline missed
    something legitimate (update the baseline) or the app is doing
    something unexpected (investigate further).
@@ -385,14 +385,14 @@ Apply the same detection pattern to the rest of the bounded
 population, one app per PR, in order of lowest-blast-radius first.
 Candidate order:
 
-1. recyclarr (Phase 1 pilot)
+1. media-pull-stack quality-rules app (Phase 1 pilot)
 2. external-secrets→1P Connect cloud
 3. cert-manager→ACME
 4. actions-runner-controller operator (not the runners — runners are
    unbounded)
 5. mcp-system/github-mcp
 6. mcp-system/immich-mcp
-7. media/lidarr, media/sonarr, media/radarr (per-app, sequential)
+7. media/<media-pull-stack apps> (per-app, sequential)
 8. observability/* exporters
 
 Each PR: one new alert rule + the per-app baseline JSON. No CNP

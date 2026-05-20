@@ -63,10 +63,10 @@ every `*-oauth2-proxy/app/helmrelease.yaml`. Affected:
 ai/khoj-oauth2-proxy
 collab/{glance,glance-user,pump,startpunkt}-oauth2-proxy
 collab/garage-webui-oauth2-proxy (under storage/)
-downloads/{prowlarr,jdownloader2,qbittorrent,sabnzbd,slskd}-oauth2-proxy
+downloads/<media-pull-stack apps>-oauth2-proxy
 home/frigate-oauth2-proxy
-media/{av1corrector,lidarr,medialyze,music-assistant,radarr,sonarr,soularr,
-       suggestarr,batocera-webdashboard-pro}-oauth2-proxy
+media/{av1corrector,medialyze,music-assistant,batocera-webdashboard-pro}-oauth2-proxy
+media/<media-pull-stack apps>-oauth2-proxy
 observability/{goldilocks,kube-ops-view,holmesgpt}-oauth2-proxy
 storage/garage-webui-oauth2-proxy
 ```
@@ -74,7 +74,7 @@ storage/garage-webui-oauth2-proxy
 Single PR per app to keep blast radius bounded, or one PR scoping the
 entire family — the latter is cheaper and the risk is uniform.
 
-### A2. `*arr` and similar app-template charts missing baseline
+### A2. media-pull-stack and similar app-template charts missing baseline
 
 Apps where the bjw-s `defaultPodOptions` aren't being inherited at the
 container level. Likely candidates for one-PR-each remediation:
@@ -101,7 +101,7 @@ auth/authelia
 collab/{paperless-offsite-backup,zulip-memcached,zulip-rabbitmq}
 home/{emqx,netbox}
 mcp-system/mcp-gateway-jwt-rotator
-media/{immich-offsite-backup,stash}
+media/{immich-offsite-backup,<media-library-app>}
 network/externaldns-cloudflare
 observability/{alertmanager,grafana,kube-prometheus-stack-operator,
               kube-state-metrics,prometheus-kube-prometheus-stack}

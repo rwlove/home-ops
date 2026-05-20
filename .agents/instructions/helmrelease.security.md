@@ -97,9 +97,9 @@ Two patterns to handle that:
          readOnlyRootFilesystem: false
    ```
 
-   Document **why** in a comment next to the override (e.g. "slskd 0.25
+   Document **why** in a comment next to the override (e.g. "FOO 1.2
    entrypoint runs `[ ! -w /app ]` self-check; see
-   `project_slskd_readonly_rootfs.md`"). If the override is permanent,
+   `project_foo_readonly_rootfs.md`"). If the override is permanent,
    it belongs in memory, not just a comment.
 
 `runAsUser/Group: 1000` is a *default*, not a rule — an app that needs

@@ -48,33 +48,39 @@ spec:
       deploy: true
 
     # ----- Langfuse web + worker -----
+    # The chart's worker deployment template references
+    # `.Values.langfuse.salt` directly (along with
+    # `.Values.langfuse.nextauth.secret` and
+    # `.Values.langfuse.encryptionKey`). These MUST be set at the
+    # top-level langfuse.* paths with the chart's `secretKeyRef`
+    # shape — putting them in `additionalEnv` worked for the web
+    # pod but left the worker pod's template unrenderable
+    # (`no valid value, secretKeyRef, fieldRef, or resourceFieldRef
+    # provided for langfuse.salt`).
     langfuse:
       web:
         replicas: 1
       worker:
         replicas: 1
-      # NextAuth + crypto config + first-boot bootstrap come from the
-      # langfuse-secret created by externalsecret.yaml. The
-      # postgres-langfuse-app secret's `uri` key carries the full
-      # `DATABASE_URL` (CNPG's standard output format).
+      salt:
+        secretKeyRef:
+          name: langfuse-secret
+          key: SALT
+      encryptionKey:
+        secretKeyRef:
+          name: langfuse-secret
+          key: ENCRYPTION_KEY
+      nextauth:
+        url: https://langfuse.${SECRET_DOMAIN}
+        secret:
+          secretKeyRef:
+            name: langfuse-secret
+            key: NEXTAUTH_SECRET
+      # DATABASE_URL + optional first-boot bootstrap stay in
+      # additionalEnv because they aren't first-class chart values.
+      # CNPG exposes the full DSN at the `uri` key on the
+      # postgres-langfuse-app secret.
       additionalEnv:
-        - name: NEXTAUTH_URL
-          value: https://langfuse.${SECRET_DOMAIN}
-        - name: NEXTAUTH_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: langfuse-secret
-              key: NEXTAUTH_SECRET
-        - name: SALT
-          valueFrom:
-            secretKeyRef:
-              name: langfuse-secret
-              key: SALT
-        - name: ENCRYPTION_KEY
-          valueFrom:
-            secretKeyRef:
-              name: langfuse-secret
-              key: ENCRYPTION_KEY
         - name: DATABASE_URL
           valueFrom:
             secretKeyRef:

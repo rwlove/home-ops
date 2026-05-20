@@ -1,0 +1,113 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app bentopdf
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+
+  interval: 30m
+  values:
+    controllers:
+      bentopdf:
+        pod:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 101
+            runAsGroup: 101
+            fsGroup: 101
+            fsGroupChangePolicy: OnRootMismatch
+        annotations:
+          reloader.stakater.com/auto: "true"
+        type: statefulset
+        containers:
+          app:
+            image:
+              repository: ghcr.io/alam00000/bentopdf
+              tag: 2.8.4@sha256:f54b9ed9c56b767e0098b525468206689b666323c2b500b9686c3cf41cdfa348
+
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /
+                    port: &port 8080
+                  initialDelaySeconds: 10
+                  periodSeconds: 30
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /
+                    port: *port
+                  initialDelaySeconds: 5
+                  periodSeconds: 10
+            resources:
+              requests:
+                cpu: 10m
+                memory: 32Mi
+              limits:
+                memory: 128Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+
+    service:
+      app:
+        controller: *app
+        ports:
+          http:
+            port: 80
+            targetPort: *port
+
+    route:
+      app:
+        annotations:
+          glance/name: "BentoPDF"
+          glance/show: "true"
+          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/bentopdf.png"
+          glance/id: "Collaboration"
+        hostnames:
+          - bentopdf.${SECRET_DOMAIN}
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: 80
+
+    # nginx-unprivileged needs writable temp paths under a read-only
+    # rootfs. Mirrors the bentopdf upstream chart's volumes:
+    # /etc/nginx/tmp (pid file), /var/cache/nginx, /var/run.
+    persistence:
+      nginx-tmp:
+        type: emptyDir
+        advancedMounts:
+          bentopdf:
+            app:
+              - path: /etc/nginx/tmp
+      nginx-cache:
+        type: emptyDir
+        advancedMounts:
+          bentopdf:
+            app:
+              - path: /var/cache/nginx
+      nginx-run:
+        type: emptyDir
+        advancedMounts:
+          bentopdf:
+            app:
+              - path: /var/run

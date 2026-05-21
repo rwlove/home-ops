@@ -5,15 +5,19 @@
 //
 // Replaces the n8n flow "AlertManager → HolmesGPT → Pushover".
 
-type AlertmanagerPayload = {
-    alerts: Array<{
-        labels: { alertname: string; severity?: string; namespace?: string; pod?: string };
-        annotations: { summary?: string; description?: string };
-    }>;
+type AlertmanagerAlert = {
+    labels: { alertname: string; severity?: string; namespace?: string; pod?: string };
+    annotations: { summary?: string; description?: string };
 };
 
-export async function main(body: AlertmanagerPayload) {
-    const a = body.alerts?.[0];
+// Windmill maps top-level JSON keys of the webhook body to function
+// args by name — it does NOT wrap the whole body into a single
+// parameter. Alertmanager POSTs `{"alerts": [...], "version": "4",
+// "groupKey": "...", ...}`; Windmill invokes
+// `main(alerts=[...], version="4", ...)`. Take `alerts` directly.
+// See memory `project_n8n_to_windmill_migration_done.md`.
+export async function main(alerts?: AlertmanagerAlert[]) {
+    const a = alerts?.[0];
     if (!a) {
         return { skip: true, reason: "no alerts in payload" };
     }

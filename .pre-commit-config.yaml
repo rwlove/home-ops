@@ -56,3 +56,29 @@ repos:
     hooks:
       - id: actionlint
         args: [-config-file, .github/actionlint.yaml]
+
+  # Repo-local lints — mirror `.github/workflows/lint.yaml`
+  # `readme-drift` and `cnp-empty-rules` jobs.
+  #
+  # readme-drift counts app dirs / HelmReleases / Postgres clusters /
+  # ExternalSecrets / hardware rows and compares to the README badges.
+  # Without this hook a PR that adds an app slips through commit-time
+  # and breaks CI on push. Quick to run (~200ms) so always_run is fine.
+  #
+  # cnp-empty-rules catches CiliumNetworkPolicies with an
+  # `endpointSelector` but no `ingress:` / `egress:` rules — Cilium
+  # 1.19 silently rejects them at apply time.
+  - repo: local
+    hooks:
+      - id: readme-drift
+        name: README badges match repo reality
+        entry: tools/lint-readme-drift.py
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: cnp-empty-rules
+        name: CiliumNetworkPolicy has rules
+        entry: tools/lint-cnp-empty-rules.py kubernetes
+        language: system
+        pass_filenames: false
+        files: \.yaml$

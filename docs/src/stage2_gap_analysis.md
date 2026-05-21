@@ -340,7 +340,36 @@ Per goal.md scope discipline:
 - **Per-step event streaming** (Q1 option (b)) — defer until v1 sync polling proves the design.
 - **MCP server for memory parity** — Tier 1 item #6 is real but I'd rather get the CLI shipped first and figure out memory in a v2 cycle. Flag for next gate.
 
+## 9. Operator decisions (2026-05-21)
+
+Rob answered Q1-Q5:
+
+1. **Q1 = (a) sync poll.** CLI polls `GET /admin/tasks/<id>/result` until terminal status. Defer SSE to v2.
+2. **Q2 = (a) separate `todo` table.** Distinct lifecycle from `task_queue`.
+3. **Q3 = (a) cloudflared / Authelia.** Public surface from day one — `hai.${SECRET_DOMAIN}` behind Authelia + oauth2-proxy, same pattern as Open WebUI / Khoj / etc. This changes the build plan: a new HTTPRoute for `/admin/*`, new oauth2-proxy instance (or reuse Open WebUI's), DNS via external-dns. The CLI uses a long-lived API token stored at `~/.config/hai/token`; minting flow TBD (likely a one-time `hai auth login` device flow, or operator-issued static token to start).
+4. **Q4 = (a) live in `langgraph-agents` repo.** CLI ships as a console_script in `pyproject.toml`.
+5. **Q5 = (b) pragmatic dogfood.** Acceptance is Rob's credible end-of-day "I used `hai` for everything I'd have asked Claude Code." No instrumented metric.
+
+### Build sequence (final, post-decisions)
+
+1. **langgraph-agents PR-A** — `"cli"` source enum + `GET /admin/tasks/<id>/result` + `todo` table migration + CRUD endpoints + Pydantic models. One PR, one migration.
+2. **home-ops PR-B** — new HTTPRoute `hai.${SECRET_DOMAIN}` → `langgraph-agents:8765`, oauth2-proxy in front (reuse `langgraph-agents-oauth2-proxy` pattern from existing apps), Authelia client config, external-dns A record, CNP egress. Self-contained infrastructure.
+3. **langgraph-agents PR-C** — the `hai` CLI: `cli/` subdir, console_script entry point in pyproject.toml, `hai task add/tail/ls/show`, `hai todo add/ls/done`, `hai cost`, `hai chat`, basic auth via token-file. Sync poll loop for results.
+4. **Image release** — tag `v0.2.35` after PR-A merges; later `v0.2.36` after PR-C merges. (Or batch into one release.)
+5. **home-ops PR-D** — image bump for the release(s) via renovate auto.
+6. **Dogfood day** — Rob installs `pip install langgraph-agents` (or uses `pipx`) on his laptop, runs `hai auth login`, replaces normal Claude Code usage with `hai`.
+7. **home-ops PR-E (Gate 2)** — evidence: dogfood log, transcript / sample tasks, confirmation that other non-CLI inputs still work (Zulip DM, voice, etc.), then your Gate 2 approval.
+
+### Open question for during build
+
+**Auth token issuance.** Three flavors:
+
+1. *Static operator-issued token* — simplest. Generate once, put in 1Password under a new `hai-cli` item, ExternalSecret materializes it in the cluster, CLI reads `~/.config/hai/token` populated by `hai auth set-token <value>`. v1 ships with this.
+2. *Device flow* — `hai auth login` opens a URL, Rob authorizes in browser, CLI receives refresh token. More user-friendly but more code; defer to v2.
+3. *Long-lived OAuth client credentials* — overkill for a single-user CLI.
+
+I'll go with **(1)** for v1 unless you say otherwise. The token can be replaced with device flow in a later iteration.
+
 ## End
 
-Per goal: showing you this before building. Answer Q1-Q5 (or
-just nod overall) and I'll start the build.
+Build starts after this PR merges.

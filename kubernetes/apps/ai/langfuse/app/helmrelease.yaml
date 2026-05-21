@@ -53,6 +53,21 @@ spec:
       auth:
         existingSecret: langfuse-secret
         existingSecretKey: CLICKHOUSE_PASSWORD
+      # Bitnami clickhouse subchart bundles zookeeper at the
+      # "micro" resourcesPreset (256Mi req / 384Mi limit). All
+      # three replicas were sitting at 90–99 % of the 384Mi limit
+      # under steady-state traffic (audit on 2026-05-21 — see
+      # docs/src/homeaiops_dod.md initial-state survey, item 3).
+      # zookeeper-2 was OOMKilled at 01:48 UTC the same day.
+      # Bumping to 768Mi req / 1Gi limit gives ~2.6× headroom
+      # over observed steady-state.
+      zookeeper:
+        resources:
+          requests:
+            cpu: 250m
+            memory: 768Mi
+          limits:
+            memory: 1Gi
     redis:
       deploy: true
       auth:
@@ -71,6 +86,18 @@ spec:
         replicas: 1
       worker:
         replicas: 1
+        # The worker container shipped with no resources block at
+        # all — `resources: {}` in the running pod spec. 26
+        # lifetime restarts with exit-137 came from node-level
+        # OOM pressure with no pod-level bound. Setting request
+        # +  limit constrains the failure to a single pod and
+        # gives the cluster something to schedule against.
+        resources:
+          requests:
+            cpu: 100m
+            memory: 512Mi
+          limits:
+            memory: 1Gi
       # SALT / ENCRYPTION_KEY / NextAuth must use the chart's native
       # `secretKeyRef` plumbing — the chart's worker/deployment.yaml
       # renders these as secret env refs and aborts `helm template`

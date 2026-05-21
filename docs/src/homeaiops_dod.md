@@ -331,3 +331,92 @@ issue, adds the symptom + recovery to the runbooks section.
 Gate 1 is reached when every row in every Class A and Class B
 table reads ✅ or 🟡, the smoke-test transcript is captured, and
 the top failure modes have entries in `docs/src/`.
+
+## Runbooks
+
+Failure modes encountered during Stage 1, with confirmation and
+recovery steps.
+
+### Stalled HelmRelease with `MissingRollbackTarget`
+
+**Symptom.** A HelmRelease shows `Ready=False` with condition
+`Stalled / MissingRollbackTarget`: "Failed to perform remediation:
+missing target release for rollback: cannot remediate failed
+release." `helm history -n <ns> <release>` shows **every** release
+in `failed` state — there is no successful version to roll back
+to. Underlying resources (Deployment, Service, etc.) may
+nevertheless be live and serving traffic.
+
+**How to confirm.**
+
+```sh
+kubectl get helmrelease -n <ns> <name> -o json \
+  | jq '.status.conditions[] | select(.type=="Stalled")'
+helm history <release> -n <ns>
+```
+
+If all release versions are `failed` and the underlying
+Deployment is `Available`, the chart's resources have converged
+despite Helm's history saying otherwise — Helm's wait/timeout
+fired before the pod became `Ready`.
+
+**Root cause.** The HelmRelease's effective install/upgrade
+timeout (`spec.timeout`, default 5 m) is shorter than the time
+the first Deployment took to become `Ready`. Common drivers:
+Istio sidecar warmup, slow image pull on first install, slow
+ExternalSecret resolution. Once the first install fails, Flux
+attempts retries; each retry also times out, and after the
+configured `retries` count the release is `Stalled` with no
+healthy version to remediate to.
+
+**Prevention.** Set `spec.timeout` on the HelmRelease to cover
+the slowest-realistic warmup for the workload (15 m is a safe
+default for Istio-injected pods). See
+`kubernetes/apps/mcp-system/windmill-mcp/app/helmrelease.yaml`
+for the canonical example.
+
+**Recovery.** *Destructive — propose to operator before running.*
+The Deployment and friends already exist; we need to make Helm's
+storage agree.
+
+1. Suspend Flux reconciliation so it doesn't fight the cleanup:
+
+   ```sh
+   flux suspend hr <name> -n <ns>
+   ```
+
+2. Verify the underlying Deployment is healthy:
+
+   ```sh
+   kubectl get deploy,svc,sa,httproute -n <ns> \
+     -l app.kubernetes.io/instance=<name>
+   ```
+
+3. Delete the chart resources and the failed Helm history
+   secrets together — Helm won't adopt resources it doesn't own,
+   so a brief downtime is unavoidable:
+
+   ```sh
+   kubectl delete deployment,svc,sa,httproute \
+     -n <ns> -l app.kubernetes.io/instance=<name>
+   kubectl delete secret -n <ns> -l owner=helm,name=<name>
+   ```
+
+4. Resume Flux and force reconcile; the HR will do a clean
+   `helm install`:
+
+   ```sh
+   flux resume hr <name> -n <ns>
+   flux reconcile hr <name> -n <ns> --force
+   ```
+
+5. Verify the HR becomes `Ready=True` within the new
+   `spec.timeout` window:
+
+   ```sh
+   kubectl get hr -n <ns> <name> -w
+   ```
+
+Time budget: 2–3 m of downtime per HR. Pick a maintenance
+window per `CLAUDE.md` if the component is operator- or
+Renee-facing.

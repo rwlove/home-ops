@@ -37,6 +37,19 @@ export async function main(task_id: string, paused_for: { approval_request: Appr
     const rejectTok = await signApprovalToken(task_id, r.action_class, serverName, method);
     const deferTok = await signApprovalToken(task_id, r.action_class, serverName, method);
 
+    // ntfy `click` URL is intentionally omitted. The previous value
+    // (`https://chat.thesteamedcrab.com/#narrow/stream/approvals/topic/…`)
+    // used the deprecated pre-2024 Zulip URL scheme; the current scheme
+    // is `#narrow/channel/<channel-id>-<name>/topic/<name>` and Zulip
+    // mobile / web reject the old `stream` form with "invalid URL".
+    // The Approve / Reject / Defer ntfy action buttons still work
+    // independently of the click target — they POST pre-signed HMAC
+    // tokens to the langgraph /approval endpoint directly.
+    //
+    // Adding a working click URL is a follow-up: needs the integer
+    // channel ID for the `approvals` stream and a robust topic
+    // encoding helper (Zulip uses a custom dotted-encoding scheme
+    // for topics that differs from encodeURIComponent).
     const ntfyResp = await publishNtfy({
         topic: "approvals",
         title: `🔔 Approval needed: Class ${r.action_class}`,
@@ -50,7 +63,6 @@ export async function main(task_id: string, paused_for: { approval_request: Appr
         priority: 5,
         tags: ["warning"],
         actions: buildApprovalActions(task_id, approveTok, rejectTok, deferTok),
-        click: `https://chat.thesteamedcrab.com/#narrow/stream/approvals/topic/${encodeURIComponent(topic)}`,
     });
 
     const zulipResp = await postZulipApprovalCard(task_id, r);

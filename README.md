@@ -11,7 +11,7 @@ _Production-grade Kubernetes for a household._
 
 [![Renovate](https://img.shields.io/github/actions/workflow/status/rwlove/home-ops/renovate.yaml?branch=main&label=Renovate&logo=renovatebot&style=for-the-badge&color=1A1F6C)](https://github.com/rwlove/home-ops/actions/workflows/renovate.yaml)
 [![Flux](https://img.shields.io/badge/Flux-managed-5468FF?style=for-the-badge&logo=flux&logoColor=white)](https://fluxcd.io)
-[![Documentation](https://img.shields.io/badge/docs-mdBook-success?style=for-the-badge&logo=mdbook&logoColor=white)](https://rwlove.github.io/home-ops/)
+[![Documentation](https://img.shields.io/badge/docs-Material_for_MkDocs-526CFE?style=for-the-badge&logo=materialformkdocs&logoColor=white)](https://rwlove.github.io/home-ops/)
 [![Check Links](https://img.shields.io/github/actions/workflow/status/rwlove/home-ops/lychee.yaml?label=links&style=for-the-badge)](https://github.com/rwlove/home-ops/actions/workflows/lychee.yaml)
 
 <br/>
@@ -549,7 +549,7 @@ Every change reaches the cluster through Git. Flux suspends are a deliberate man
 
 ## 📚 Documentation
 
-The full operator handbook lives in the mdBook site: **<https://rwlove.github.io/home-ops/>**.
+The full operator handbook lives at **<https://rwlove.github.io/home-ops/>**.
 
 Frequently referenced pages:
 

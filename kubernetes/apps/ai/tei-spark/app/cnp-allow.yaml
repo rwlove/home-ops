@@ -12,25 +12,21 @@ spec:
     egress: false
     ingress: false
   ingress:
-    # Open WebUI reranker traffic (Stream 2d cutover lands the
-    # corresponding egress rule on the open-webui CNP).
+    # API + metrics share port 3000 — TEI's HTTP variant serves
+    # /metrics on the main HTTP port; --prometheus-port does NOT open
+    # a separate listener (verified live against 121-sha-5bc4d88).
+    # Stream 2d cutover lands the corresponding egress rule on the
+    # open-webui CNP for the rerank path.
     - fromEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: collab
             app.kubernetes.io/name: open-webui
-      toPorts:
-        - ports:
-            - port: "3000"
-              protocol: TCP
-    # Prometheus scrape on the dedicated metrics port (TEI exposes
-    # /metrics on --prometheus-port, separate from the HTTP API).
-    - fromEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: observability
             app.kubernetes.io/name: prometheus
       toPorts:
         - ports:
-            - port: "9000"
+            - port: "3000"
               protocol: TCP
   egress:
     # HuggingFace Hub model download — bge-reranker-v2-m3 weights pulled

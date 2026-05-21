@@ -62,8 +62,13 @@ spec:
             env:
               MODEL_ID: BAAI/bge-reranker-v2-m3
               HOSTNAME: 0.0.0.0
+              # TEI's HTTP variant serves /metrics on the main API port;
+              # --prometheus-port / PROMETHEUS_PORT does NOT open a
+              # separate listener (verified live against 121-sha-5bc4d88
+              # — port 9000 connect-refused while /metrics on 3000 works).
+              # Single port keeps the Service + CNP + ServiceMonitor
+              # surface coherent.
               PORT: &httpPort 3000
-              PROMETHEUS_PORT: &metricsPort 9000
               HUGGINGFACE_HUB_CACHE: &cachePath /data
               # FP16 — bge-reranker-v2-m3 is XLM-RoBERTa (568M params);
               # FP16 halves VRAM use and is the default for CUDA backends.
@@ -136,8 +141,6 @@ spec:
         ports:
           http:
             port: *httpPort
-          metrics:
-            port: *metricsPort
 
     persistence:
       cache:

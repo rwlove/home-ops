@@ -249,7 +249,7 @@ audit).
 | `prometheus-mcp` | A | ⏳ | — |
 | `searxng-mcp` | A | ⏳ | — |
 | `time-mcp` | A | ⏳ | — |
-| `windmill-mcp` | A | ❌ HR stalled | — |
+| `windmill-mcp` | A | ✅ verified (HR recovered via preventive timeout bump alone — destructive procedure not needed) | [#11919](https://github.com/rwlove/home-ops/pull/11919) |
 | Qdrant | A | ⏳ | — |
 | Postgres CNPG `langgraph-checkpoints` (task_queue + task_dlq + checkpoints) | A | ⏳ | — |
 | Postgres CNPG `langgraph-memory` (pgvector KG) | A | ⏳ | — |
@@ -291,13 +291,15 @@ The Stage 1 baseline, captured before stabilization work begins.
 
 **Open issues identified by survey, blocking Stage 1 DoD:**
 
-1. **`mcp-system/windmill-mcp` HelmRelease stalled.** Condition
-   `Stalled / MissingRollbackTarget`: "missing target release for
-   rollback: cannot remediate failed release." Three upgrade
-   failures (timeout waiting for `Deployment …InProgress`). The
-   underlying Deployment is healthy (1/1 ready, 0 restarts, 157 m
-   uptime) — the failure is in Helm metadata only. Fix: clear the
-   failed history so Flux can re-converge.
+1. ~~**`mcp-system/windmill-mcp` HelmRelease stalled.**~~ ✅
+   **Resolved by [#11919](https://github.com/rwlove/home-ops/pull/11919)
+   on 2026-05-21.** The preventive `spec.timeout: 15m` bump alone
+   was enough — on the next Flux reconcile after merge, the
+   pending upgrade succeeded, v4 was marked `deployed`, v3 became
+   `superseded`, and `upgradeFailures` cleared. The destructive
+   recovery procedure in the runbook below was not needed. (Runbook
+   stays in place for harder-stuck cases where the chart resources
+   themselves are dead.)
 
 2. **`observability/grafana` HelmRelease stalled.** 3 upgrade
    failures, rolled back to v41. Pod healthy. Observability path is
@@ -305,10 +307,17 @@ The Stage 1 baseline, captured before stabilization work begins.
 
 3. **`ai/langfuse-zookeeper-2` OOMKilled (2026-05-21 01:48 UTC).**
    `exitCode=137`, one restart in 22 h. Critical alert still
-   firing.
+   firing. **Update post-survey**: all three zookeeper pods sitting
+   at 90–99 % of their 384 Mi limit (`kubectl top` after the
+   survey). zookeeper-1 at 381 / 384 Mi is OOM-imminent. Memory
+   bump required.
 
 4. **`ai/langfuse-worker` OOM pattern.** 26 lifetime restarts,
    exit-137 history; last restart 16 h ago. Currently stable.
+   **Update post-survey**: no `resources.limits.memory` set on the
+   worker container — exit 137s come from the node-level OOM
+   killer when pressure builds. Setting an explicit request +
+   limit will at least bound the failure mode.
 
 **Queue substrate baseline:**
 

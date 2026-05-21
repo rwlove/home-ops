@@ -816,6 +816,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#stuck-csi-rbd-unmap-ceph-pg-ghost-stuck" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stuck CSI RBD unmap (Ceph PG ghost-stuck)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#stalled-helmrelease-with-missingrollbacktarget" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2471,6 +2482,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#stuck-csi-rbd-unmap-ceph-pg-ghost-stuck" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stuck CSI RBD unmap (Ceph PG ghost-stuck)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#stalled-helmrelease-with-missingrollbacktarget" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3381,6 +3403,113 @@ to paste the value."</p>
 <p><strong>Prevention.</strong> When adding a new ExternalSecret template
 variable that maps from a 1P field, verify the field is non-
 empty before merging. A <code>wc -c</code> check is enough.</p>
+<h3 id="stuck-csi-rbd-unmap-ceph-pg-ghost-stuck">Stuck CSI RBD unmap (Ceph PG ghost-stuck)<a class="headerlink" href="#stuck-csi-rbd-unmap-ceph-pg-ghost-stuck" title="Permanent link">&para;</a></h3>
+<p><strong>Symptom.</strong> Pod with a <code>ceph-block</code> PVC stuck <code>ContainerCreating</code>
+for minutes with events:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>FailedMount  MountVolume.MountDevice failed: rpc error: code = Aborted
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>desc = an operation with the given Volume ID … already exists
+</span></code></pre></div>
+<p>Or, on the originating node, <code>rbd unmap /dev/rbdN</code> fails with
+exit status 16 (EBUSY) despite <strong>no userland processes</strong> holding
+the device (verified via <code>/proc/[0-9]*/maps</code>, <code>/proc/[0-9]*/fd</code>,
+and <code>/sys/block/rbdN/holders/</code> all empty).</p>
+<p><code>ceph -s</code> may report a stale <code>SLOW_OPS</code> aggregate, but per-OSD
+<code>dump_blocked_ops</code> (both via admin socket and via mon-routed
+<code>ceph tell osd.X</code>) shows <strong>zero blocked ops</strong>. The aggregate is
+the mgr's cached-but-not-decremented count from a prior real
+event — misleading.</p>
+<p><strong>Underlying issue.</strong> A specific PG owning the rbd_header object
+is "ghost-stuck": it can't be queried (<code>ceph pg N.M query</code> times
+out), it's not in <code>pg dump_stuck</code>, but raw <code>rados stat
+rbd_header.&lt;id&gt;</code> against it hangs. The OSD primary has cleared
+its blocked-ops queue but the PG's per-object lock or watcher
+state is wedged.</p>
+<p><strong>How to confirm.</strong></p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># 1. From a mon pod, with the embedded keyring:</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="nv">MON</span><span class="o">=</span><span class="k">$(</span>kubectl<span class="w"> </span>get<span class="w"> </span>pod<span class="w"> </span>-n<span class="w"> </span>rook-ceph<span class="w"> </span>-l<span class="w"> </span><span class="nv">app</span><span class="o">=</span>rook-ceph-mon<span class="w"> </span>-o<span class="w"> </span>name<span class="w"> </span><span class="p">|</span><span class="w"> </span>head<span class="w"> </span>-1<span class="k">)</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="nv">ARGS</span><span class="o">=</span><span class="s1">&#39;--conf /etc/ceph/ceph.conf</span>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="s1">      --keyring /etc/ceph/keyring-store/keyring</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="s1">      -m &quot;[v2:10.43.154.244:3300,v1:10.43.154.244:6789]&quot;&#39;</span><span class="w">   </span><span class="c1"># adjust mons</span>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="c1"># 2. Identify the image_id from the affected node&#39;s kernel state:</span>
+</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>kubectl<span class="w"> </span>debug<span class="w"> </span>node/&lt;node&gt;<span class="w"> </span>-it<span class="o">=</span><span class="nb">false</span><span class="w"> </span>--image<span class="o">=</span>busybox:1.36<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="w">  </span>cat<span class="w"> </span>/host/sys/bus/rbd/devices/&lt;N&gt;/image_id
+</span><span id="__span-9-10"><a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="c1"># → e.g. 0e6ed03d95369c</span>
+</span><span id="__span-9-11"><a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a>
+</span><span id="__span-9-12"><a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="c1"># 3. Find the PG that owns the header:</span>
+</span><span id="__span-9-13"><a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a>kubectl<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-n<span class="w"> </span>rook-ceph<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$MON</span><span class="s2">&quot;</span><span class="w"> </span>-c<span class="w"> </span>mon<span class="w"> </span>--<span class="w"> </span>bash<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;</span>
+</span><span id="__span-9-14"><a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a><span class="s2">  ceph </span><span class="nv">$ARGS</span><span class="s2"> osd map ceph-blockpool rbd_header.&lt;image_id&gt;</span>
+</span><span id="__span-9-15"><a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a><span class="s2">&quot;</span>
+</span><span id="__span-9-16"><a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a><span class="c1"># → &#39;pg P.Q -&gt; up [primary, ...] acting [primary, ...]&#39;</span>
+</span><span id="__span-9-17"><a id="__codelineno-9-17" name="__codelineno-9-17" href="#__codelineno-9-17"></a>
+</span><span id="__span-9-18"><a id="__codelineno-9-18" name="__codelineno-9-18" href="#__codelineno-9-18"></a><span class="c1"># 4. Confirm the PG itself is unresponsive:</span>
+</span><span id="__span-9-19"><a id="__codelineno-9-19" name="__codelineno-9-19" href="#__codelineno-9-19"></a>kubectl<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-n<span class="w"> </span>rook-ceph<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$MON</span><span class="s2">&quot;</span><span class="w"> </span>-c<span class="w"> </span>mon<span class="w"> </span>--<span class="w"> </span>bash<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;</span>
+</span><span id="__span-9-20"><a id="__codelineno-9-20" name="__codelineno-9-20" href="#__codelineno-9-20"></a><span class="s2">  timeout 15 ceph </span><span class="nv">$ARGS</span><span class="s2"> pg P.Q query</span>
+</span><span id="__span-9-21"><a id="__codelineno-9-21" name="__codelineno-9-21" href="#__codelineno-9-21"></a><span class="s2">&quot;</span>
+</span><span id="__span-9-22"><a id="__codelineno-9-22" name="__codelineno-9-22" href="#__codelineno-9-22"></a><span class="c1"># → exit 124 (timeout) is the signature</span>
+</span><span id="__span-9-23"><a id="__codelineno-9-23" name="__codelineno-9-23" href="#__codelineno-9-23"></a>
+</span><span id="__span-9-24"><a id="__codelineno-9-24" name="__codelineno-9-24" href="#__codelineno-9-24"></a><span class="c1"># 5. Confirm OSDs say they&#39;re idle (rules out a real slow op):</span>
+</span><span id="__span-9-25"><a id="__codelineno-9-25" name="__codelineno-9-25" href="#__codelineno-9-25"></a>kubectl<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-n<span class="w"> </span>rook-ceph<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$MON</span><span class="s2">&quot;</span><span class="w"> </span>-c<span class="w"> </span>mon<span class="w"> </span>--<span class="w"> </span>bash<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;</span>
+</span><span id="__span-9-26"><a id="__codelineno-9-26" name="__codelineno-9-26" href="#__codelineno-9-26"></a><span class="s2">  ceph </span><span class="nv">$ARGS</span><span class="s2"> tell osd.&lt;primary&gt; dump_blocked_ops</span>
+</span><span id="__span-9-27"><a id="__codelineno-9-27" name="__codelineno-9-27" href="#__codelineno-9-27"></a><span class="s2">&quot;</span>
+</span><span id="__span-9-28"><a id="__codelineno-9-28" name="__codelineno-9-28" href="#__codelineno-9-28"></a><span class="c1"># → empty / {ops: []}</span>
+</span><span id="__span-9-29"><a id="__codelineno-9-29" name="__codelineno-9-29" href="#__codelineno-9-29"></a>
+</span><span id="__span-9-30"><a id="__codelineno-9-30" name="__codelineno-9-30" href="#__codelineno-9-30"></a><span class="c1"># 6. Confirm raw RADOS read of the object also hangs:</span>
+</span><span id="__span-9-31"><a id="__codelineno-9-31" name="__codelineno-9-31" href="#__codelineno-9-31"></a>kubectl<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-n<span class="w"> </span>rook-ceph<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$MON</span><span class="s2">&quot;</span><span class="w"> </span>-c<span class="w"> </span>mon<span class="w"> </span>--<span class="w"> </span>bash<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;</span>
+</span><span id="__span-9-32"><a id="__codelineno-9-32" name="__codelineno-9-32" href="#__codelineno-9-32"></a><span class="s2">  timeout 15 rados </span><span class="nv">$ARGS</span><span class="s2"> -p ceph-blockpool stat rbd_header.&lt;image_id&gt;</span>
+</span><span id="__span-9-33"><a id="__codelineno-9-33" name="__codelineno-9-33" href="#__codelineno-9-33"></a><span class="s2">&quot;</span>
+</span></code></pre></div>
+<p><strong>Recovery — propose-then-execute.</strong> Three options, least-invasive first:</p>
+<ol>
+<li><em>Targeted blocklist of the watcher client</em> — works if the
+   watcher is on a distinct krbd nonce. Pull <code>client_addr</code> from
+   <code>/sys/bus/rbd/devices/N/client_addr</code> on the originating node,
+   confirm it's not shared with healthy rbd mappings on the same
+   node, then:</li>
+</ol>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>ceph<span class="w"> </span><span class="nv">$ARGS</span><span class="w"> </span>osd<span class="w"> </span>blocklist<span class="w"> </span>add<span class="w"> </span>&lt;addr&gt;/&lt;nonce&gt;<span class="w"> </span><span class="m">3600</span>
+</span></code></pre></div>
+<p>Retry <code>rbd unmap</code> from the node — should release within
+   seconds.</p>
+<ol>
+<li>
+<p><em>Force PG re-peering via <code>ceph osd down &lt;primary&gt;</code></em> — when
+   blocklist doesn't help (PG state itself is stuck, not just a
+   client lease). Marking the primary down triggers re-peering
+   via the replica OSDs; the daemon self-restarts under Rook
+   within ~30s; PGs primaried elsewhere are unaffected. The
+   acting set must have at least min_size replicas remaining
+   alive for safety (verify with <code>ceph osd tree</code>).</p>
+</li>
+<li>
+<p><em>Decouple via PVC delete-and-recreate (regenerable data
+   only)</em> — for caches like ZOT where the data is rebuildable
+   from upstream sources:</p>
+</li>
+<li>
+<p><code>kubectl scale statefulset/&lt;app&gt; --replicas=0</code></p>
+</li>
+<li><code>kubectl delete pvc &lt;pvc-name&gt;</code> (reclaim policy <code>Delete</code>
+     on the storage class will GC the underlying RBD image)</li>
+<li><code>kubectl scale statefulset/&lt;app&gt; --replicas=1</code></li>
+</ol>
+<p>This recovers the workload independently of the Ceph fix.
+   The underlying PG-ghost-stuck issue remains and needs
+   option 1 or 2 separately.</p>
+<p><strong>Prevention.</strong> The class of error appears tied to a prior
+cluster-network event (worker3 + worker7 network degradation
+on 2026-05-20 — see [[project_worker3_network_degraded_postgres_zulip]])
+that left rbd watchers in a broken state on the affected nodes.
+Stabilizing node-level network reliability is the long-term fix.
+Until then, document the rbd-device-to-image mapping so the
+identification step (3) is faster.</p>
+<p><strong>Operational follow-up.</strong> This cluster has no <code>rook-ceph-tools</code>
+pod deployed (<code>operator/helmrelease.yaml</code> lacks
+<code>toolbox.enabled: true</code>). All ceph CLI work has to go through a
+mon pod with explicit <code>--conf</code> / <code>--keyring</code> / <code>-m</code> flags as in
+step 1. Adding the toolbox to the rook-ceph operator helmrelease
+is a Stage 2 quality-of-life follow-up; see incident on
+2026-05-21 for the time cost without it.</p>
 <h3 id="stalled-helmrelease-with-missingrollbacktarget">Stalled HelmRelease with <code>MissingRollbackTarget</code><a class="headerlink" href="#stalled-helmrelease-with-missingrollbacktarget" title="Permanent link">&para;</a></h3>
 <p><strong>Symptom.</strong> A HelmRelease shows <code>Ready=False</code> with condition
 <code>Stalled / MissingRollbackTarget</code>: "Failed to perform remediation:
@@ -3390,9 +3519,9 @@ in <code>failed</code> state — there is no successful version to roll back
 to. Underlying resources (Deployment, Service, etc.) may
 nevertheless be live and serving traffic.</p>
 <p><strong>How to confirm.</strong></p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>helmrelease<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-o<span class="w"> </span>json<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">&#39;.status.conditions[] | select(.type==&quot;Stalled&quot;)&#39;</span>
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>helm<span class="w"> </span><span class="nb">history</span><span class="w"> </span>&lt;release&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>helmrelease<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-o<span class="w"> </span>json<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">&#39;.status.conditions[] | select(.type==&quot;Stalled&quot;)&#39;</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>helm<span class="w"> </span><span class="nb">history</span><span class="w"> </span>&lt;release&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;
 </span></code></pre></div>
 <p>If all release versions are <code>failed</code> and the underlying
 Deployment is <code>Available</code>, the chart's resources have converged
@@ -3417,35 +3546,35 @@ storage agree.</p>
 <ol>
 <li>Suspend Flux reconciliation so it doesn't fight the cleanup:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>flux<span class="w"> </span><span class="nb">suspend</span><span class="w"> </span>hr<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>flux<span class="w"> </span><span class="nb">suspend</span><span class="w"> </span>hr<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;
 </span></code></pre></div>
 <ol>
 <li>Verify the underlying Deployment is healthy:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>deploy,svc,sa,httproute<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span>-l<span class="w"> </span>app.kubernetes.io/instance<span class="o">=</span>&lt;name&gt;
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>deploy,svc,sa,httproute<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span>-l<span class="w"> </span>app.kubernetes.io/instance<span class="o">=</span>&lt;name&gt;
 </span></code></pre></div>
 <ol>
 <li>Delete the chart resources and the failed Helm history
    secrets together — Helm won't adopt resources it doesn't own,
    so a brief downtime is unavoidable:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>deployment,svc,sa,httproute<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>-l<span class="w"> </span>app.kubernetes.io/instance<span class="o">=</span>&lt;name&gt;
-</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>secret<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>-l<span class="w"> </span><span class="nv">owner</span><span class="o">=</span>helm,name<span class="o">=</span>&lt;name&gt;
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>deployment,svc,sa,httproute<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">  </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>-l<span class="w"> </span>app.kubernetes.io/instance<span class="o">=</span>&lt;name&gt;
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>secret<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>-l<span class="w"> </span><span class="nv">owner</span><span class="o">=</span>helm,name<span class="o">=</span>&lt;name&gt;
 </span></code></pre></div>
 <ol>
 <li>Resume Flux and force reconcile; the HR will do a clean
    <code>helm install</code>:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>flux<span class="w"> </span>resume<span class="w"> </span>hr<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;
-</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>flux<span class="w"> </span>reconcile<span class="w"> </span>hr<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>--force
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>flux<span class="w"> </span>resume<span class="w"> </span>hr<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>flux<span class="w"> </span>reconcile<span class="w"> </span>hr<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>--force
 </span></code></pre></div>
 <ol>
 <li>Verify the HR becomes <code>Ready=True</code> within the new
    <code>spec.timeout</code> window:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>hr<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-w
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>hr<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-w
 </span></code></pre></div>
 <p>Time budget: 2–3 m of downtime per HR. Pick a maintenance
 window per <code>CLAUDE.md</code> if the component is operator- or

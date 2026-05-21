@@ -42,7 +42,7 @@ flowchart LR
     Dev[👤 Operator] -->|git push| Repo[(📦 GitHub<br/>home-ops)]
     Renovate[🤖 Renovate] -.->|automated PRs| Repo
     Repo -->|reconciles| Flux[⚙️ Flux]
-    Flux -->|deploys| Cluster[☸️ Kubernetes<br/>11 nodes · 175 apps]
+    Flux -->|deploys| Cluster[☸️ Kubernetes<br/>11 nodes · 177 apps]
 
     Cluster --> Ceph[(🪨 Ceph<br/>block · default durable)]
     Cluster --> LH[(🐂 Longhorn<br/>+ recurring backups)]

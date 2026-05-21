@@ -201,8 +201,8 @@ blocking issue · ⏳ not yet audited · 🟥 aspirational (no audit).
 
 | Agent | Class | Status | Verifying PR |
 |---|---|---|---|
-| HolmesGPT | A | 🟢 batch-audit pass (HR Ready, pod Running 4h+) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
-| langgraph-agents (substrate) | B | 🟢 substrate batch-audit pass (HR Ready, pod 0.2.33 Running 3h+, queue `task_queue` 5 done / 0 pending / DLQ 0) — Claude API gate still cold, see [#11923](https://github.com/rwlove/home-ops/pull/11923) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
+| HolmesGPT | A | 🟢 batch-audit pass (HR Ready, pod Running 4h+) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| langgraph-agents (substrate) | B | 🟢 substrate batch-audit pass (HR Ready, pod 0.2.33 Running 3h+, queue `task_queue` 5 done / 0 pending / DLQ 0) — Claude API gate still cold, see [#11923](https://github.com/rwlove/home-ops/pull/11923) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
 | supervisor (langgraph specialist) | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
 | researcher | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
 | coder | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
@@ -216,45 +216,45 @@ blocking issue · ⏳ not yet audited · 🟥 aspirational (no audit).
 | errand-runner (local-only pin) | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
 | property-coordinator | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
 | health-tracker (local-only pin) | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
-| claude-runner pr-triage | A | 🟢 batch-audit pass (CronJob 13:00 UTC daily, last successful Completed pod visible) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
-| claude-runner cost-cap-commentary | A | 🟢 batch-audit pass (CronJob 22:00 UTC daily) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
+| claude-runner pr-triage | A | 🟢 batch-audit pass (CronJob 13:00 UTC daily, last successful Completed pod visible) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| claude-runner cost-cap-commentary | A | 🟢 batch-audit pass (CronJob 22:00 UTC daily) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
 | doc-writer / Scribner | C | 🟥 n/a | — |
 
 ### Inference backends
 
 | Backend | Class | Status | Verifying PR |
 |---|---|---|---|
-| ollama (P40) | A | 🟢 batch-audit pass (HR `Ready=True / UpgradeSucceeded`, pod 2d17h uptime, 0 restarts) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
-| ollama-spark (GB10) | A | 🟢 batch-audit pass (HR `Ready=True`, pod 41h uptime, 0 restarts) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
+| ollama (P40) | A | 🟢 batch-audit pass (HR `Ready=True / UpgradeSucceeded`, pod 2d17h uptime, 0 restarts) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| ollama-spark (GB10) | A | 🟢 batch-audit pass (HR `Ready=True`, pod 41h uptime, 0 restarts) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
 | Claude API (via langgraph) | B | 🚧 cold-gate (`ENABLE_CLAUDE_API: false`); secret-wiring single-source in [#11923](https://github.com/rwlove/home-ops/pull/11923) | [#11923](https://github.com/rwlove/home-ops/pull/11923) |
-| Claude Code (via claude-runner) | A | 🟢 batch-audit pass (CronJob-driven, `claude-runner-secret` has live 108-byte key) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
-| tei-spark (reranker) | A | 🟢 batch-audit pass (HR `Ready=True`, pod 4h32m uptime, 0 restarts) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
+| Claude Code (via claude-runner) | A | 🟢 batch-audit pass (CronJob-driven, `claude-runner-secret` has live 108-byte key) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| tei-spark (reranker) | A | 🟢 batch-audit pass (HR `Ready=True`, pod 4h32m uptime, 0 restarts) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
 
 ### Tool surfaces
 
 | Tool | Class | Status | Verifying PR |
 |---|---|---|---|
-| MCP Gateway (`mcp-gateway` + `-istio` + `-controller`) | A | 🟢 batch-audit pass (3 HRs Ready, all 3 pods Running 2d+) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
-| `arr-mcp` | A | 🟢 batch-audit pass (Running 11d) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
-| `chrome-mcp` | A | 🟢 batch-audit pass (Running 2d2h) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
-| `cilium-mcp` | A | 🟢 batch-audit pass (Running 17h) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
-| `github-mcp` | A | 🟢 batch-audit pass (Running 6d) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
-| `grafana-mcp` | A | 🟢 batch-audit pass (Running 7d6h) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
-| `ha-mcp` | A | 🟢 batch-audit pass (Running 6d20h) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
-| `immich-mcp` | A | 🟢 batch-audit pass (Running 25h) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
-| `kubectl-mcp` | A | 🟢 batch-audit pass (Running 17d) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
-| `memory-mcp` | A | 🟢 batch-audit pass (Running 27h; schema-init job Completed) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
-| `netbox-mcp` | A | 🟢 batch-audit pass (Running 41h) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
-| `omada-mcp` | A | 🟢 batch-audit pass (Running 17d) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
-| `paperless-mcp` | A | 🟢 batch-audit pass (Running 24h) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
-| `prometheus-mcp` | A | 🟢 batch-audit pass (Running 16d) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
-| `searxng-mcp` | A | 🟢 batch-audit pass (Running 17d) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
-| `time-mcp` | A | 🟢 batch-audit pass (Running 41h) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
+| MCP Gateway (`mcp-gateway` + `-istio` + `-controller`) | A | 🟢 batch-audit pass (3 HRs Ready, all 3 pods Running 2d+) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| `arr-mcp` | A | 🟢 batch-audit pass (Running 11d) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| `chrome-mcp` | A | 🟢 batch-audit pass (Running 2d2h) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| `cilium-mcp` | A | 🟢 batch-audit pass (Running 17h) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| `github-mcp` | A | 🟢 batch-audit pass (Running 6d) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| `grafana-mcp` | A | 🟢 batch-audit pass (Running 7d6h) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| `ha-mcp` | A | 🟢 batch-audit pass (Running 6d20h) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| `immich-mcp` | A | 🟢 batch-audit pass (Running 25h) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| `kubectl-mcp` | A | 🟢 batch-audit pass (Running 17d) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| `memory-mcp` | A | 🟢 batch-audit pass (Running 27h; schema-init job Completed) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| `netbox-mcp` | A | 🟢 batch-audit pass (Running 41h) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| `omada-mcp` | A | 🟢 batch-audit pass (Running 17d) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| `paperless-mcp` | A | 🟢 batch-audit pass (Running 24h) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| `prometheus-mcp` | A | 🟢 batch-audit pass (Running 16d) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| `searxng-mcp` | A | 🟢 batch-audit pass (Running 17d) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| `time-mcp` | A | 🟢 batch-audit pass (Running 41h) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
 | `windmill-mcp` | A | ✅ verified (HR recovered via preventive timeout bump alone — destructive procedure not needed) | [#11919](https://github.com/rwlove/home-ops/pull/11919) |
-| Qdrant | A | 🟢 batch-audit pass (HR Ready in databases ns) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
-| Postgres CNPG `langgraph-checkpoints` (task_queue + task_dlq + checkpoints) | A | 🟢 batch-audit pass (3/3 instances, phase=healthy) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
-| Postgres CNPG `langgraph-memory` (pgvector KG) | A | 🟢 batch-audit pass (3/3 instances, phase=healthy) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
-| Postgres CNPG `langfuse` | A | 🟢 batch-audit pass (3/3 instances, phase=healthy) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
+| Qdrant | A | 🟢 batch-audit pass (HR Ready in databases ns) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| Postgres CNPG `langgraph-checkpoints` (task_queue + task_dlq + checkpoints) | A | 🟢 batch-audit pass (3/3 instances, phase=healthy) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| Postgres CNPG `langgraph-memory` (pgvector KG) | A | 🟢 batch-audit pass (3/3 instances, phase=healthy) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| Postgres CNPG `langfuse` | A | 🟢 batch-audit pass (3/3 instances, phase=healthy) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
 
 ### Outputs
 
@@ -269,12 +269,12 @@ blocking issue · ⏳ not yet audited · 🟥 aspirational (no audit).
 
 | Component | Class | Status | Verifying PR |
 |---|---|---|---|
-| `langfuse-web` | A | 🟢 batch-audit pass (Running 25h, HR `langfuse@1.5.31` Ready) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
-| `langfuse-worker` | A | 🟢 batch-audit pass (post-[#11922](https://github.com/rwlove/home-ops/pull/11922), pod recreated with 1Gi mem limit) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
-| `langfuse-clickhouse` (3-shard) | A | 🟢 batch-audit pass (3 shards Running 25h, 12Gi mem limit each) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
-| `langfuse-redis` | A | 🟢 batch-audit pass (Running 19h) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
-| `langfuse-s3` | A | 🟢 batch-audit pass (Running 25h) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
-| `langfuse-zookeeper` (3-node) | A | 🟢 batch-audit pass (post-[#11922](https://github.com/rwlove/home-ops/pull/11922), all 3 pods rolled to 1Gi mem limit; usage 115-203 MiB) | [#11925](https://github.com/rwlove/home-ops/pull/11925) |
+| `langfuse-web` | A | 🟢 batch-audit pass (Running 25h, HR `langfuse@1.5.31` Ready) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| `langfuse-worker` | A | 🟢 batch-audit pass (post-[#11922](https://github.com/rwlove/home-ops/pull/11922), pod recreated with 1Gi mem limit) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| `langfuse-clickhouse` (3-shard) | A | 🟢 batch-audit pass (3 shards Running 25h, 12Gi mem limit each) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| `langfuse-redis` | A | 🟢 batch-audit pass (Running 19h) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| `langfuse-s3` | A | 🟢 batch-audit pass (Running 25h) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| `langfuse-zookeeper` (3-node) | A | 🟢 batch-audit pass (post-[#11922](https://github.com/rwlove/home-ops/pull/11922), all 3 pods rolled to 1Gi mem limit; usage 115-203 MiB) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
 
 ## Initial state (2026-05-21 cluster survey)
 

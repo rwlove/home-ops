@@ -1,0 +1,76 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: tei-spark-rules
+spec:
+  groups:
+    # GB10 DCGM utilization counters are broken on this arch — see
+    # reference_dcgm_gb10_broken_counters.md / ollama-spark
+    # prometheusrule.yaml. POWER_USAGE / SM_CLOCK are the only
+    # reliable signals on Spark. TEI shares the GPU with ollama-spark
+    # post-PR-3, so a power-draw heuristic here would conflate
+    # workloads — skipped on purpose. Pod liveness + request-success
+    # rate covers the failure modes we can actually act on.
+    - name: tei-spark.availability
+      rules:
+        # Pod-level failure. Until PR-3 lands (Open WebUI cutover),
+        # TEI is dark capacity, so this only fires on infra-level
+        # failure (image-pull, OOM, GPU-bind, node loss). Post-PR-3
+        # it covers user-visible RAG degradation: open-webui's
+        # external-reranker call 502s when the pod is unready.
+        - alert: SparkTeiRerankPodDown
+          annotations:
+            summary: tei-spark Pod not Ready (rerank surface unavailable)
+            description: |
+              Pod {{ $labels.namespace }}/{{ $labels.pod }} on Spark
+              has been not-Ready for >5 minutes. Inspect with
+              `kubectl -n ai describe pod {{ $labels.pod }}` and
+              `kubectl -n ai logs {{ $labels.pod }} --previous`.
+              Post-cutover impact: Open WebUI RAG queries fall back
+              to no-rerank (top-K by embedding similarity only).
+          expr: |-
+            kube_pod_status_ready{namespace="ai",pod=~"tei-spark-.*",condition="true"} == 0
+          for: 5m
+          labels:
+            severity: critical
+    - name: tei-spark.errors
+      rules:
+        # Elevated request-failure rate. TEI exposes te_request_count
+        # (total) and te_request_success separately; the difference
+        # over a rate window is the failure rate. Guarded by
+        # request_count rate > 0 so the alert is inert when there's
+        # no traffic (e.g., the pre-PR-3 dark-capacity window —
+        # division by zero would yield NaN anyway, but the explicit
+        # guard makes the intent obvious).
+        #
+        # 5% threshold over 10m matches "user-visible RAG quality
+        # degradation" rather than transient blips. Open WebUI
+        # retries don't show up in TEI's counters (each retry is a
+        # new request), so a 5% sustained failure rate translates
+        # to ~5% of user queries seeing degraded rerank.
+        - alert: SparkTeiRerankErrorRate
+          annotations:
+            summary: tei-spark rerank error rate elevated (>5% for 10m)
+            description: |
+              tei-spark rerank requests are failing at >5% over the
+              last 10 minutes. Check `kubectl -n ai logs deploy/tei-spark`
+              for backend errors (CUDA OOM, tokenizer faults, model
+              eviction). If the rate persists, revert open-webui to
+              in-process reranking until root cause is identified —
+              this is the only consumer of TEI's rerank surface.
+          expr: |-
+            sum(rate(te_request_count{job="tei-spark"}[5m])) > 0
+            and
+            (
+              sum(rate(te_request_count{job="tei-spark"}[5m]))
+              -
+              sum(rate(te_request_success{job="tei-spark"}[5m]))
+            )
+            /
+            sum(rate(te_request_count{job="tei-spark"}[5m]))
+            > 0.05
+          for: 10m
+          labels:
+            severity: warning

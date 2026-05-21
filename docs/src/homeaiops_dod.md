@@ -424,10 +424,97 @@ Full-fleet sweep deferred to a follow-up after first running the
 E2E smoke test (DoD #2) — keeping the maintenance-window blast
 radius narrow while Claude API enablement is in flight.
 
+### Batch 3 — 2026-05-21 Pod-level restart cycle
+
+Evidence for DoD #4 ("Survives a pod-level restart of each
+component"). Procedure: `kubectl delete pod <X>` → watch for a
+new pod in `Running` + `Ready=True`. Captured cycle time = delete
+→ `Ready=True`.
+
+Representative sample, covering Deployment + StatefulSet
+workloads on the inference, agent, MCP, and observability layers:
+
+```text
+ai/langgraph-agents      (Deployment)   Ready=True at t+31s
+ai/tei-spark             (Deployment)   Ready=True at t+21s
+ai/ollama-spark          (StatefulSet)  Ready=True at t~80s  (manual verify *)
+mcp-system/mcp-gateway   (Deployment)   Ready=True at t+10s
+mcp-system/memory-mcp    (Deployment)   Ready=True at t+21s
+observability/holmesgpt  (Deployment)   Ready=True at t+20s
+```
+
+*ollama-spark verification note*: StatefulSet pods keep the same
+name (`ollama-spark-0`) on restart, so the original test script's
+"find a pod with a different name" logic didn't fire its success
+branch. Verified manually via `kubectl get events`: pod was
+Killing at t=0, new container Started at t+10s, `Ready=True`
+within ~80s of delete (model state had to reload into VRAM —
+this is expected behaviour for an ollama statefulset and within
+the SLA we'd document if asked).
+
+All 6 components recovered without manual intervention. During
+the mcp-gateway restart, the Claude Code MCP tool surface went
+read-only for ~10 s while the istio sidecar drained and the new
+pod came up — visible to clients as transient connect-refused.
+No persistent failures.
+
+Full-fleet sweep deferred. The smoke test is the bigger gate.
+
 ## Runbooks
 
 Failure modes encountered during Stage 1, with confirmation and
 recovery steps.
+
+### ExternalSecret-extract field present but empty
+
+**Symptom.** A Secret populated by an ExternalSecret is missing
+the value an app needs. `kubectl get secret … -o yaml` shows the
+key exists; `... | base64 -d | wc -c` returns 0 or 1 bytes. The
+ExternalSecret itself reports `SecretSynced` cleanly — there is
+no operator-level error.
+
+**How to confirm.**
+
+```sh
+LEN=$(kubectl get secret -n <ns> <secret> \
+  -o jsonpath='{.data.<KEY>}' | base64 -d | wc -c)
+echo "decoded length: $LEN bytes"
+kubectl get externalsecret -n <ns> <name> \
+  -o jsonpath='{.status.conditions[?(@.type=="Ready")]}'
+```
+
+If the decoded length is 0–1 bytes and the ExternalSecret is
+`Ready=True`, the 1P field exists but is blank.
+
+**Root cause.** The 1P item has a placeholder field with the
+right name but no value behind it. `external-secrets-operator`
+copies the empty string into the target Secret — it can't tell
+the difference between "deliberately empty" and "operator forgot
+to paste the value."
+
+**Recovery.** Two paths:
+
+1. *Fill the empty 1P field.* Open the 1P item, paste the value,
+   force-sync:
+
+   ```sh
+   kubectl annotate externalsecret -n <ns> <name> \
+     force-sync=$(date +%s) --overwrite
+   ```
+
+2. *Point at the field the secret already lives under.* If the
+   value is already in a different 1P item under a different
+   field name (e.g. an empty `ANTHROPIC_API_KEY` here while the
+   live value is in another item's `anthropic_api_key`),
+   re-wire the ExternalSecret's `dataFrom` + template to pull
+   the live field. Single rotation surface beats duplicate
+   copies. The canonical example for this repo is the langgraph
+   Anthropic key fix in
+   [#11923](https://github.com/rwlove/home-ops/pull/11923).
+
+**Prevention.** When adding a new ExternalSecret template
+variable that maps from a 1P field, verify the field is non-
+empty before merging. A `wc -c` check is enough.
 
 ### Stalled HelmRelease with `MissingRollbackTarget`
 

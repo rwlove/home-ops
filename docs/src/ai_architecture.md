@@ -201,7 +201,7 @@ Cross-agent shared memory, not user-facing.
 | Agent | Surface | Status | Notes |
 |---|---|---|---|
 | HolmesGPT | `holmesgpt.observability` | ✅ live | qwen2.5:32b on ollama-spark; AlertManager-driven RCA; also a tool server for Open WebUI |
-| supervisor / researcher / coder / reviewer / triager / reporter / note-maker / homelab-engineer / smart-home-engineer / ml-tuner / errand-runner / property-coordinator / health-tracker | langgraph-agents fleet | 🟡 plumbed, cold | `ENABLE_CLAUDE_API: false`, no public route except `/approval`. Image `ghcr.io/rwlove/langgraph-agents:0.2.28` (post queue-substrate cutover, PR #11891). Vault PVCs mounted; checkpoint + memory Postgres ready. Gated on Claude key + cluster confidence. |
+| supervisor / researcher / coder / reviewer / triager / reporter / note-maker / homelab-engineer / smart-home-engineer / ml-tuner / errand-runner / property-coordinator / health-tracker | langgraph-agents fleet | 🟡 plumbed, cold | `ENABLE_CLAUDE_API: false`, no public route except `/approval`. Image `ghcr.io/rwlove/langgraph-agents:0.2.30` (post queue-substrate cutover, PR #11905 — #11891 was the initial attempt that #11901 reverted). Vault PVCs mounted; checkpoint + memory Postgres ready; queue substrate (`task_queue` + `task_dlq` tables) live in `postgres-langgraph-checkpoints` and the migration ran cleanly on 2026-05-21. Gated on Claude key + cluster confidence. |
 | doc-writer (Scribner) | langgraph-agents (planned) | 🟥 aspirational | Not built. Goal: drafts README + `docs/` patches as diffs when commits land. |
 | claude-runner pr-triage | `automation/claude-runner` CronJob | ✅ live | Daily 13:00 UTC. Reads open PRs via gh MCP, posts one Zulip card per PR. |
 | claude-runner cost-cap-commentary | `automation/claude-runner` CronJob | ✅ live | Daily 22:00 UTC. Projects monthly Claude spend, flags if trending past `$30/mo`. |
@@ -320,7 +320,7 @@ secret is mirrored into the `ai` namespace by emberstack reflector
 - **ollama-spark** (GB10) — `kubernetes/apps/ai/ollama-spark/app/`
 - **paperless-ai** — `kubernetes/apps/ai/paperless-ai/app/helmrelease.yaml`
 - **sync-receiver** — `kubernetes/apps/ai/sync-receiver/`
-- **tei-spark** — `kubernetes/apps/ai/tei-spark/` (unsuspended 2026-05-21, PR #11893)
+- **tei-spark** — `kubernetes/apps/ai/tei-spark/` (unsuspended 2026-05-21, PR #11893; PrometheusRule added in PR #11906)
 - **open-webui** — `kubernetes/apps/collab/open-webui/app/helmrelease.yaml`
 - **holmesgpt** — `kubernetes/apps/observability/holmesgpt/app/helmrelease.yaml`
 - **windmill** — `kubernetes/apps/home/windmill/app/helmrelease.yaml`

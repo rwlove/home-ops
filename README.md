@@ -305,7 +305,7 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 
 How local AI agents run, get work, ask for human approval, and produce reports — all without putting data in someone else's cloud unless a task genuinely needs it.
 
-> 📖 **Operator's guide**: see [`docs/src/workflow_automation.md`](docs/src/workflow_automation.md) for the
+> 📖 **Operator's guide**: see [`docs/src/workflow_automation.md`](https://github.com/rwlove/home-ops/blob/main/docs/src/workflow_automation.md) for the
 > end-to-end view — how to trigger jobs from Android, the approval lifecycle, and where results land.
 
 ```mermaid

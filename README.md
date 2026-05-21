@@ -310,7 +310,7 @@ Local-first by default — chat, agents, retrieval, alert triage, doc
 ops — with explicit, separately-gated escape hatches to Claude API
 and Claude Code when a task genuinely needs cloud capacity.
 
-> 📖 **Full chapter**: see [`docs/src/ai_architecture.md`](docs/src/ai_architecture.md)
+> 📖 **Full chapter**: see [`docs/src/ai_architecture.md`](https://github.com/rwlove/home-ops/blob/main/docs/src/ai_architecture.md)
 > for per-app integration paths, RAG pipelines, escalation matrix, and the file:line
 > references behind every claim here.
 

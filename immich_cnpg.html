@@ -148,9 +148,40 @@
                 <div id="content" class="content">
                     <main>
                         <h1 id="importing-an-immich-db-backup-into-a-new-cnpg-database"><a class="header" href="#importing-an-immich-db-backup-into-a-new-cnpg-database">Importing an Immich DB backup into a new CNPG database</a></h1>
-<p>Moved to the vault: <code>~/vaults/claude/runbooks/home-ops/immich_cnpg.md</code></p>
-<p>See HOMELAB-SPEC Layer 2 #5: the vault is canonical for runbooks.</p>
-
+<p>This is the <strong>alternate</strong> Immich DB restore path — for when you have an Immich-format SQL dump (from Immich's built-in backup) rather than a Barman-cloud backup. For the standard Barman recovery path used after a cluster rebuild, see <a href="cluster_rebuild.html#cnpg-recovery-from-garage">Cluster Rebuild</a>; for the offsite-S3 path, see <a href="offsite_recovery.html">Offsite Recovery</a>.</p>
+<h2 id="procedure"><a class="header" href="#procedure">Procedure</a></h2>
+<ol>
+<li>
+<p><strong>Create the target database</strong>:</p>
+<pre><code class="language-sh">kubectl cnpg -n databases psql &lt;cluster-name&gt; -- -c 'CREATE DATABASE immich;'
+</code></pre>
+</li>
+<li>
+<p><strong>Confirm you're against the primary</strong> (writes go to the primary; replicas are read-only):</p>
+<pre><code class="language-sh">kubectl cnpg -n databases status &lt;cluster-name&gt; | grep 'Primary instance:'
+</code></pre>
+</li>
+<li>
+<p><strong>Stream the dump in</strong> via the <a href="https://immich.app/docs/administration/backup-and-restore">Immich restore command</a>. The <code>sed</code> rewrite is required because Immich uses extensions whose <code>search_path</code> needs to be set explicitly during restore:</p>
+<pre><code class="language-sh">gunzip &lt; "immich-db-backup-1735455600013.sql.gz" \
+  | sed "s/SELECT pg_catalog.set_config('search_path', '', false);/SELECT pg_catalog.set_config('search_path', 'public, pg_catalog', true);/g" \
+  | kubectl cnpg -n databases psql &lt;cluster-name&gt; --
+</code></pre>
+</li>
+<li>
+<p><strong>Verify</strong> the row counts after restore (replace <code>&lt;dump-row-count&gt;</code> with what you'd expect from the source):</p>
+<pre><code class="language-sh">kubectl cnpg -n databases psql &lt;cluster-name&gt; -- -d immich -c 'SELECT COUNT(*) FROM assets;'
+</code></pre>
+</li>
+</ol>
+<h2 id="when-to-use-this-vs-the-barman-path"><a class="header" href="#when-to-use-this-vs-the-barman-path">When to use this vs the Barman path</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Situation</th><th>Use</th></tr></thead><tbody>
+<tr><td>Cluster rebuild, Barman backups in Garage</td><td><a href="cluster_rebuild.html#cnpg-recovery-from-garage">Cluster Rebuild → CNPG recovery from Garage</a></td></tr>
+<tr><td>Total loss, only S3 offsite backup survives</td><td><a href="offsite_recovery.html">Offsite Recovery → Step 4: Restore the database via Barman</a></td></tr>
+<tr><td>Have a <code>pg_dump</code> from inside Immich (admin → "Job Status" → backup)</td><td><strong>This doc.</strong></td></tr>
+<tr><td>Migrating Immich data between environments</td><td>This doc.</td></tr>
+</tbody></table>
+</div>
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">

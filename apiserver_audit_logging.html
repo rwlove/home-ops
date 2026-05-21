@@ -147,9 +147,146 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="apiserver-audit-logging-runbook"><a class="header" href="#apiserver-audit-logging-runbook">Apiserver Audit Logging Runbook</a></h1>
-<p>Moved to the vault: <code>~/vaults/claude/runbooks/home-ops/apiserver_audit_logging.md</code></p>
-<p>See HOMELAB-SPEC Layer 2 #5: the vault is canonical for runbooks.</p>
+                        <h1 id="apiserver-audit-logging--phase-5p-operator-runbook"><a class="header" href="#apiserver-audit-logging--phase-5p-operator-runbook">Apiserver Audit Logging — Phase 5.P operator runbook</a></h1>
+<p><strong>Operator-side.</strong> Per Inv 9, control-plane static-pod manifests are
+not modified by agents. Agents prep the policy file + Vector pipeline;
+the kubeadm patch + apiserver restart per node is yours.</p>
+<h2 id="what-this-gives-us"><a class="header" href="#what-this-gives-us">What this gives us</a></h2>
+<p>Per PSA labels shipped in PR #11615 plus the analysis in
+<code>docs/src/pod_security_audit.md</code>, the cluster currently has
+Pod-Security-Admission targeting per-namespace BUT no apiserver
+<code>--audit-log-path</code> configured. Violations are computed and discarded;
+the labels are inert.</p>
+<p>After this runbook:</p>
+<ul>
+<li>PSA <code>audit-violations</code> and <code>enforce-policy</code> annotations appear in
+the audit log on every pod admission decision</li>
+<li>RBAC changes are recorded at RequestResponse level</li>
+<li>Namespace lifecycle events pair with the Kyverno 5.O3 enforce policy
+for blast-radius traceability</li>
+<li>Vector ships <code>/var/log/kubernetes/audit.log</code> to Loki for query</li>
+</ul>
+<h2 id="prerequisites"><a class="header" href="#prerequisites">Prerequisites</a></h2>
+<ol>
+<li>Audit policy committed at <code>kubernetes/control-plane-config/audit-policy.yaml</code>
+(already in the repo as of Phase 5.P prep PR)</li>
+<li>Vector pipeline already shipping <code>/var/log/kubernetes/audit.log</code> to
+Loki (also in the Phase 5.P prep PR — gets it on each node via the
+agent DaemonSet that already mounts <code>/var/log</code> host path)</li>
+</ol>
+<h2 id="per-node-procedure"><a class="header" href="#per-node-procedure">Per-node procedure</a></h2>
+<p><strong>Run on ONE control-plane node at a time. Never two on the same day.</strong></p>
+<h3 id="step-1--copy-the-audit-policy-to-the-node"><a class="header" href="#step-1--copy-the-audit-policy-to-the-node">Step 1 — Copy the audit policy to the node</a></h3>
+<pre><code class="language-sh">scp kubernetes/control-plane-config/audit-policy.yaml \
+    root@masterN.${SECRET_DOMAIN}:/etc/kubernetes/audit-policy.yaml
+</code></pre>
+<p>Verify:</p>
+<pre><code class="language-sh">ssh root@masterN.${SECRET_DOMAIN} 'ls -la /etc/kubernetes/audit-policy.yaml'
+</code></pre>
+<h3 id="step-2--create-the-audit-log-directory"><a class="header" href="#step-2--create-the-audit-log-directory">Step 2 — Create the audit log directory</a></h3>
+<pre><code class="language-sh">ssh root@masterN.${SECRET_DOMAIN} 'mkdir -p /var/log/kubernetes &amp;&amp; touch /var/log/kubernetes/audit.log'
+</code></pre>
+<h3 id="step-3--patch-the-kube-apiserver-static-manifest"><a class="header" href="#step-3--patch-the-kube-apiserver-static-manifest">Step 3 — Patch the kube-apiserver static manifest</a></h3>
+<p>Open an SSH session, leave it open the whole time. If apiserver fails
+to restart cleanly, this session is your rollback path.</p>
+<pre><code class="language-sh">ssh root@masterN.${SECRET_DOMAIN}
+</code></pre>
+<p>Then on the node:</p>
+<pre><code class="language-sh">cp /etc/kubernetes/manifests/kube-apiserver.yaml \
+   /root/kube-apiserver.yaml.pre-audit
+</code></pre>
+<p>Edit <code>/etc/kubernetes/manifests/kube-apiserver.yaml</code> and add to the
+<code>spec.containers[0].command</code> array (insert anywhere after <code>kube-apiserver</code>):</p>
+<pre><code class="language-yaml">- --audit-policy-file=/etc/kubernetes/audit-policy.yaml
+- --audit-log-path=/var/log/kubernetes/audit.log
+- --audit-log-maxage=14
+- --audit-log-maxbackup=3
+- --audit-log-maxsize=200
+</code></pre>
+<p>Add these volume + mount entries to the same Pod spec:</p>
+<pre><code class="language-yaml"># Under spec.volumes:
+- name: audit-policy
+  hostPath:
+    path: /etc/kubernetes/audit-policy.yaml
+    type: File
+- name: audit-log
+  hostPath:
+    path: /var/log/kubernetes
+    type: DirectoryOrCreate
+
+# Under spec.containers[0].volumeMounts:
+- name: audit-policy
+  mountPath: /etc/kubernetes/audit-policy.yaml
+  readOnly: true
+- name: audit-log
+  mountPath: /var/log/kubernetes
+</code></pre>
+<h3 id="step-4--wait-for-kubelet-to-restart-the-apiserver"><a class="header" href="#step-4--wait-for-kubelet-to-restart-the-apiserver">Step 4 — Wait for kubelet to restart the apiserver</a></h3>
+<p>Kubelet watches the manifest file and restarts the apiserver pod
+automatically when the file changes (mtime-based).</p>
+<pre><code class="language-sh"># Watch the apiserver pod restart
+crictl ps --name kube-apiserver --all
+# OR via journalctl
+journalctl -u kubelet -f
+</code></pre>
+<p>Expected: <code>kube-apiserver</code> pod enters <code>Stopped</code> → new pod
+<code>Running</code>. Total downtime ~30-60s on this one apiserver. The other 2
+control-plane apiservers keep serving during this window.</p>
+<h3 id="step-5--verify-the-audit-log-is-being-written"><a class="header" href="#step-5--verify-the-audit-log-is-being-written">Step 5 — Verify the audit log is being written</a></h3>
+<pre><code class="language-sh">ssh root@masterN.${SECRET_DOMAIN} 'tail -n 5 /var/log/kubernetes/audit.log'
+</code></pre>
+<p>You should see JSON audit events. If empty after 30s, something is
+wrong — see Recovery below.</p>
+<h3 id="step-6--confirm-loki-is-receiving"><a class="header" href="#step-6--confirm-loki-is-receiving">Step 6 — Confirm Loki is receiving</a></h3>
+<p>From any host with kubectl access:</p>
+<pre><code class="language-sh"># Vector should be shipping; logs land with label app=kube-apiserver-audit
+# or similar. Query Loki:
+logcli query '{filename="/var/log/kubernetes/audit.log"}' --limit 5 --tail
+</code></pre>
+<h3 id="step-7--wait-at-least-24-hours-before-doing-the-next-node"><a class="header" href="#step-7--wait-at-least-24-hours-before-doing-the-next-node">Step 7 — Wait at least 24 hours before doing the next node</a></h3>
+<p>This gives the audit log time to accumulate; if anything's off,
+you'll see it before instrumenting the next master.</p>
+<h2 id="recovery--apiserver-wont-restart"><a class="header" href="#recovery--apiserver-wont-restart">Recovery — apiserver won't restart</a></h2>
+<p>If kubelet logs show the new apiserver crashlooping:</p>
+<pre><code class="language-sh"># Restore the pre-audit manifest:
+cp /root/kube-apiserver.yaml.pre-audit /etc/kubernetes/manifests/kube-apiserver.yaml
+
+# Kubelet picks up the change within ~10s. Apiserver returns to its
+# pre-audit config.
+</code></pre>
+<p>Then debug from the logs. Common gotchas:</p>
+<ul>
+<li><strong>Audit policy YAML invalid</strong> — apiserver rejects the policy file at
+startup; kubelet shows the apiserver pod stuck in CrashLoopBackOff
+with an error message about audit policy parse failure.</li>
+<li><strong>Audit log directory not writable</strong> — apiserver fails to open the
+log file. Check ownership on <code>/var/log/kubernetes/</code>.</li>
+<li><strong>Volume mount missing</strong> — apiserver can't read the policy file.
+Check the <code>volumes</code> + <code>volumeMounts</code> entries in the manifest.</li>
+</ul>
+<h2 id="schedule"><a class="header" href="#schedule">Schedule</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Step</th><th>Node</th><th>Earliest</th></tr></thead><tbody>
+<tr><td>5.P1</td><td>master1</td><td>Any low-traffic evening</td></tr>
+<tr><td>5.P2</td><td>master2</td><td>≥1 day after 5.P1 lands cleanly</td></tr>
+<tr><td>5.P3</td><td>master3</td><td>≥1 day after 5.P2 lands cleanly</td></tr>
+</tbody></table>
+</div>
+<p>Skip the next step if any prior step was anything other than
+uneventful.</p>
+<h2 id="disk-pressure"><a class="header" href="#disk-pressure">Disk pressure</a></h2>
+<p>Audit log defaults: 200MB max per file, 3 backups, 14d retention.
+That's up to 800MB per master = ~2.4GB across 3 masters. Tune via
+the <code>maxage</code>/<code>maxbackup</code>/<code>maxsize</code> flags if disk pressure shows up.</p>
+<h2 id="see-also"><a class="header" href="#see-also">See also</a></h2>
+<ul>
+<li><code>kubernetes/control-plane-config/audit-policy.yaml</code> — the policy</li>
+<li><code>docs/src/pod_security_audit.md</code> — what PSA already labels</li>
+<li><code>~/vaults/claude/runbooks/home-ops/cluster_rebuild.md</code> — adjacent
+control-plane procedure</li>
+<li><code>~/vaults/claude/runbooks/home-ops/master1_etcd_disk_swap.md</code> —
+prior precedent for master1-first instrumentation</li>
+<li>Memory: <code>project_psa_audit_privileged_is_noop</code> — the gap this closes</li>
+</ul>
 
                     </main>
 

@@ -148,10 +148,115 @@
                 <div id="content" class="content">
                     <main>
                         <h1 id="tei-on-spark--reranker-for-rag"><a class="header" href="#tei-on-spark--reranker-for-rag">TEI on Spark — reranker for RAG</a></h1>
-<p>Moved to the vault: <code>~/vaults/claude/runbooks/home-ops/tei_spark.md</code></p>
-<p>See HOMELAB-SPEC Layer 2 #5: the vault is canonical for runbooks.</p>
-<p>For cluster-level role of TEI in the RAG architecture, see the
-<a href="ai_architecture.html">AI Architecture</a> chapter.</p>
+<p><code>tei-spark</code> is a HuggingFace <code>text-embeddings-inference</code> deployment on the Spark node, serving <code>BAAI/bge-reranker-v2-m3</code> as an external cross-encoder for Open WebUI's RAG pipeline. It replaces Open WebUI's in-process reranker so the chat pod doesn't carry a 6 Gi GPU-less-reranker memory footprint and so reranking runs on Spark next to the bge-m3 embedder.</p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Upstream image</strong></td><td><code>ghcr.io/huggingface/text-embeddings-inference:121-sha-&lt;sha&gt;</code> (digest-pinned)</td></tr>
+<tr><td><strong>Model</strong></td><td><code>BAAI/bge-reranker-v2-m3</code></td></tr>
+<tr><td><strong>Manifests</strong></td><td><code>kubernetes/apps/ai/tei-spark/</code></td></tr>
+<tr><td><strong>Cluster service</strong></td><td><code>tei-spark.ai.svc.cluster.local:3000</code> (HTTP <code>/rerank</code>, <code>/metrics</code>)</td></tr>
+<tr><td><strong>Node</strong></td><td><code>spark.thesteamedcrab.com</code> (arm64, GB10, sm_121)</td></tr>
+<tr><td><strong>GPU</strong></td><td><code>nvidia.com/gpu: 1</code>, <code>ai-gpu-critical</code> priority</td></tr>
+<tr><td><strong>Model cache</strong></td><td>5 Gi <code>ceph-block</code> PVC (<code>tei-spark-cache-pvc</code>) at <code>/data</code></td></tr>
+</tbody></table>
+</div>
+<h2 id="why-this-shape"><a class="header" href="#why-this-shape">Why this shape</a></h2>
+<p><strong>Family-matched reranker.</strong> <code>bge-reranker-v2-m3</code> is BAAI's v2 reranker designed to pair with the <code>bge-m3</code> embedder (Phase A 2026-05-20). On BAAI's published MIRACL/BEIR/CMTEB benchmarks reranking <code>bge-m3</code> top-100 retrievals, v2-m3 beats <code>bge-reranker-large</code> in every multilingual setting. Don't substitute to a v1-family reranker for "TEI tier-1 supported" reasons (see Quirks).</p>
+<p><strong>Spark, not P40.</strong> The P40 is Pascal (sm_61). bge-reranker-v2-m3 wants FP16; Pascal handles FP16 poorly. Spark's Blackwell (sm_121) is the right home, and co-locating with the bge-m3 embedder eliminates a network hop.</p>
+<p><strong>External, not in-process.</strong> Open WebUI's in-process reranker shipped with a 6 Gi memory limit headroom even though the model wasn't always loaded. Pulling it out cleans the architecture for the day Open WebUI's KB external-Qdrant gap closes and rerank actually becomes hot.</p>
+<h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>
+<pre><code class="language-text">                  ┌────────────────────────────┐
+   Open WebUI ───▶│ tei-spark (Service:3000)   │
+                  │ - /rerank                  │
+                  │ - /health                  │
+                  │ - /metrics                 │
+                  └──────────┬─────────────────┘
+                             │ runs on
+                             ▼
+                  ┌────────────────────────────┐
+                  │ Spark node (arm64, GB10)   │
+                  │ TEI HTTP variant           │
+                  │ Candle CUDA backend        │
+                  │ FlashBert on sm_121        │
+                  │ dtype=float16              │
+                  └──────────┬─────────────────┘
+                             │ HF Hub download (first start only,
+                             │ cached on ceph-block PVC)
+                             ▼
+                  ┌────────────────────────────┐
+                  │ BAAI/bge-reranker-v2-m3    │
+                  │ XLM-RoBERTa-base (568M)    │
+                  └────────────────────────────┘
+</code></pre>
+<h2 id="quirks"><a class="header" href="#quirks">Quirks</a></h2>
+<h3 id="1-the-121--image-is-built-from-main-not-a-tagged-release"><a class="header" href="#1-the-121--image-is-built-from-main-not-a-tagged-release">1. The 121- image is built from <code>main</code>, not a tagged release</a></h3>
+<p>Upstream PRs <a href="https://github.com/huggingface/text-embeddings-inference/pull/840">#840</a> (multi-arch CUDA, sm_121) and <a href="https://github.com/huggingface/text-embeddings-inference/pull/852">#852</a> (restrict 12.1 to linux/arm64) merged 2026-03-31 but no TEI release tag has been cut since <code>v1.9.3</code> (pre-#840). The HelmRelease pins to <code>121-sha-&lt;sha&gt;@sha256:...</code> under a <code># workaround:</code> annotation. Remove the pin when TEI cuts a release containing #840.</p>
+<h3 id="2-bge-reranker-v2-m3-is-not-on-teis-documented-supported-rerankers-list"><a class="header" href="#2-bge-reranker-v2-m3-is-not-on-teis-documented-supported-rerankers-list">2. <code>bge-reranker-v2-m3</code> is not on TEI's documented supported-rerankers list</a></h3>
+<p>TEI's <code>docs/source/en/supported_models.md</code> lists <code>bge-reranker-base</code> / <code>bge-reranker-large</code> / GTE rerankers — not v2-m3. <strong>It still loads cleanly</strong> because TEI's <code>router/src/lib.rs::get_backend_model_type</code> dispatches XLM-RoBERTa Sequence Classification generically via <code>arch.ends_with("Classification")</code>; the Candle CUDA backend implements the forward pass. <a href="https://github.com/huggingface/text-embeddings-inference/issues/713">Issue #713</a> confirms it serving live on TEI 1.8.</p>
+<p>If TEI ever tightens the architecture allowlist, v2-m3 could break — keep an eye on release notes. Fallback options in priority order:</p>
+<ol>
+<li><strong>Same model, different server</strong> — <code>michaelfeil/infinity</code> lists v2-m3 in tested models, Blackwell support landed 2025-07.</li>
+<li><strong>Different model, same server</strong> — <code>bge-reranker-large</code> (TEI tier-1 listed) but it's the older v1 family and worse on multilingual.</li>
+</ol>
+<h3 id="3-metrics-is-on-the-http-port-not---prometheus-port"><a class="header" href="#3-metrics-is-on-the-http-port-not---prometheus-port">3. <code>/metrics</code> is on the HTTP port, not <code>--prometheus-port</code></a></h3>
+<p>TEI's HTTP variant serves <code>/metrics</code> on the main API port (3000 in this deploy). The <code>--prometheus-port</code> / <code>PROMETHEUS_PORT</code> setting does <strong>not</strong> open a separate listener — it's a no-op for the HTTP variant (likely applies only to the gRPC build). The HelmRelease originally set <code>PROMETHEUS_PORT: 9000</code> and the ServiceMonitor scraped <code>:9000</code>; the scrape silently failed with "connection refused" until corrected in PR #11898. Single port, single ServiceMonitor endpoint (<code>port: http</code>), CNP allows both Open WebUI and Prometheus on 3000.</p>
+<h3 id="4-cold-start-is-65-seconds-dominated-by-hf-hub-model-download"><a class="header" href="#4-cold-start-is-65-seconds-dominated-by-hf-hub-model-download">4. Cold start is ~65 seconds, dominated by HF Hub model download</a></h3>
+<p>First-boot timing on Spark:</p>
+<ul>
+<li>Image pull: ~30 s (the TEI 121- image is large; CUDA libs + Rust binary).</li>
+<li>HF Hub artifact download (configs, tokenizer): ~1 s.</li>
+<li>Model weights (safetensors, ~570 MB) → PVC: ~48 s.</li>
+<li>CUDA backend load + warmup: ~14 s.</li>
+<li>HTTP server up + <code>Ready</code>: total ~65 s.</li>
+</ul>
+<p>Subsequent pod restarts skip the HF Hub steps (PVC cache is warm) and complete in ~55 s. The <code>startupProbe</code> budget is 5 min (60 × 5 s) — comfortable margin, can be tightened to ~2 min if/when we want faster pod-failure detection.</p>
+<h3 id="5-dcgm-utilization-counters-are-broken-on-gb10"><a class="header" href="#5-dcgm-utilization-counters-are-broken-on-gb10">5. DCGM utilization counters are broken on GB10</a></h3>
+<p>Most DCGM utilization counters are broken on GB10: <code>GPU_UTIL</code>, <code>MEM_COPY_UTIL</code>, <code>GR_ENGINE_ACTIVE</code>, <code>FB_USED</code> are stuck at 0 or empty on Spark. Only <code>POWER_USAGE</code> and <code>SM_CLOCK</code> report. Don't write GPU-utilization-based alerts; use request-success metrics instead.</p>
+<h2 id="configuration-knobs"><a class="header" href="#configuration-knobs">Configuration knobs</a></h2>
+<p>In <code>kubernetes/apps/ai/tei-spark/app/helmrelease.yaml</code>:</p>
+<div class="table-wrapper"><table><thead><tr><th>Env</th><th>Value</th><th>Notes</th></tr></thead><tbody>
+<tr><td><code>MODEL_ID</code></td><td><code>BAAI/bge-reranker-v2-m3</code></td><td>Family-matched to bge-m3 embedder</td></tr>
+<tr><td><code>PORT</code></td><td><code>3000</code></td><td>HTTP + metrics share this port</td></tr>
+<tr><td><code>HUGGINGFACE_HUB_CACHE</code></td><td><code>/data</code></td><td>ceph-block PVC mount</td></tr>
+<tr><td><code>DTYPE</code></td><td><code>float16</code></td><td>Halves VRAM use, sm_121 native</td></tr>
+<tr><td><code>AUTO_TRUNCATE</code></td><td><code>true</code></td><td>Truncate over-long inputs rather than 413</td></tr>
+<tr><td><code>JSON_OUTPUT</code></td><td><code>true</code></td><td>Structured logs for Loki ingestion</td></tr>
+</tbody></table>
+</div>
+<h2 id="verification-recipes"><a class="header" href="#verification-recipes">Verification recipes</a></h2>
+<h3 id="service-is-live-and-reranking"><a class="header" href="#service-is-live-and-reranking">Service is live and reranking</a></h3>
+<pre><code class="language-sh">kubectl -n ai run --rm -i tei-smoke --image=curlimages/curl:8.10.1 --restart=Never \
+  -- curl -sS -X POST http://tei-spark.ai.svc.cluster.local:3000/rerank \
+  -H 'content-type: application/json' \
+  -d '{"query":"What is RAG?",
+       "texts":["RAG combines retrieval and generation.",
+                "Pizza is delicious.",
+                "Embeddings are vector representations."]}'
+</code></pre>
+<p>Expected: JSON array with <code>index 0</code> scored highest by an order of magnitude.</p>
+<h3 id="prometheus-scrape-is-healthy"><a class="header" href="#prometheus-scrape-is-healthy">Prometheus scrape is healthy</a></h3>
+<pre><code class="language-sh">kubectl -n observability port-forward sts/prometheus-kube-prometheus-stack 19090:9090 &amp;
+curl -sS 'http://localhost:19090/api/v1/targets' \
+  | jq '.data.activeTargets[] | select(.scrapeUrl | contains("tei-spark"))'
+</code></pre>
+<p>Expected: <code>"health": "up"</code>, scrapeUrl on port 3000.</p>
+<h3 id="alerts-are-loaded"><a class="header" href="#alerts-are-loaded">Alerts are loaded</a></h3>
+<p><code>SparkTeiRerankPodDown</code> (critical, 5 min) and <code>SparkTeiRerankErrorRate</code> (warning, 10 min, &gt;5%) ship in the same kustomization. Verify via Prom <code>/api/v1/rules</code> or the Alerts UI.</p>
+<h2 id="cutover-history"><a class="header" href="#cutover-history">Cutover history</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>PR</th><th>Description</th></tr></thead><tbody>
+<tr><td>#11886</td><td>PR-1 — scaffold HelmRelease (suspended)</td></tr>
+<tr><td>#11893</td><td>PR-2 — unsuspend; first pod up, smoke test against v2-m3 passes</td></tr>
+<tr><td>#11898</td><td>PR-2.1 — fix <code>/metrics</code> port wiring (was scraping wrong port)</td></tr>
+<tr><td>#11906</td><td>PR-4 — PrometheusRule (pod-down + error-rate alerts)</td></tr>
+<tr><td><em>pending</em></td><td>PR-3 — Open WebUI cutover to <code>RAG_RERANKING_ENGINE: external</code>; window-gated to Tue 2026-05-26 02:00 ET</td></tr>
+</tbody></table>
+</div>
+<p>Before PR-3 lands, TEI is dark capacity — no consumer routes to it, alerts are inert. Soak metrics on the Spark side (POWER_USAGE baseline, pod memory) can still be observed during this window.</p>
+<h2 id="common-failure-modes-anticipated-populate-as-encountered"><a class="header" href="#common-failure-modes-anticipated-populate-as-encountered">Common failure modes (anticipated; populate as encountered)</a></h2>
+<ul>
+<li><strong>HF Hub 429 during first start</strong> — model weights download fails. Fix: delete pod, retry. Hub rate limits are per-IP and brief. Long-term mitigation: pre-stage weights into the PVC via a one-shot Job.</li>
+<li><strong>CUDA OOM</strong> — bge-reranker-v2-m3 at FP16 needs ~1.5 Gi VRAM with batched requests; should never OOM on GB10's 128 Gi unified memory unless something else on the GPU is leaking. Check <code>nvidia-smi</code> on the Spark node.</li>
+<li><strong>Tokenizer panic on input</strong> — TEI logs the offending input; not seen yet in this deploy. <code>AUTO_TRUNCATE: true</code> should prevent this for length issues.</li>
+</ul>
 
                     </main>
 

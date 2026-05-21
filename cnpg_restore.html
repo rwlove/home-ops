@@ -148,8 +148,187 @@
                 <div id="content" class="content">
                     <main>
                         <h1 id="cnpg-cluster-restore-template"><a class="header" href="#cnpg-cluster-restore-template">CNPG Cluster Restore Template</a></h1>
-<p>Moved to the vault: <code>~/vaults/claude/runbooks/home-ops/cnpg_restore.md</code></p>
-<p>See HOMELAB-SPEC Layer 2 #5: the vault is canonical for runbooks.</p>
+<p>Per-cluster restore procedure for any of the ~25 CloudNativePG
+<code>Cluster</code> resources under
+<code>kubernetes/apps/databases/cloudnative-pg/config/&lt;app&gt;/</code>. Paper
+runbook — verify against the actual app's <code>cluster.yaml</code> +
+<code>objectstore.yaml</code> before executing.</p>
+<h2 id="when-to-use-this"><a class="header" href="#when-to-use-this">When to use this</a></h2>
+<p>The PGData volume is gone (ceph-block PVC lost, ceph cluster wipe,
+namespace deleted, etc.) but the Barman ObjectStore in Garage is
+intact. <strong>Most "the database is broken" cases are NOT this</strong> — see
+the gotchas section at the bottom first.</p>
+<h2 id="what-survives-in-garage"><a class="header" href="#what-survives-in-garage">What survives in Garage</a></h2>
+<p>Every CNPG cluster in this repo writes to a paired Barman
+ObjectStore (<code>barmancloud.cnpg.io/ObjectStore</code>). The bucket layout
+in Garage:</p>
+<ul>
+<li><code>&lt;cluster-name&gt;/base/&lt;backup-id&gt;/</code> — full base backups (daily
+cadence on most clusters, scheduled by <code>ScheduledBackup</code>)</li>
+<li><code>&lt;cluster-name&gt;/wals/</code> — WAL archive (continuous)</li>
+</ul>
+<p>Lose Garage and you lose the recovery target. See
+<code>garage_restore.md</code> for Garage substrate recovery.</p>
+<h2 id="recovery-scenarios"><a class="header" href="#recovery-scenarios">Recovery scenarios</a></h2>
+<h3 id="scenario-a--point-in-time-recovery-pitr"><a class="header" href="#scenario-a--point-in-time-recovery-pitr">Scenario A — point-in-time recovery (PITR)</a></h3>
+<p>The PGData is intact but the database state is wrong (bad
+migration, accidental <code>DELETE</code>, corrupted row). Restore to a
+specific timestamp without losing the cluster.</p>
+<ol>
+<li>
+<p>Identify the recovery target:</p>
+<pre><code class="language-sh">kubectl -n databases get cluster &lt;app&gt; -o yaml | yq '.spec.backup'
+# confirm the ObjectStore path
+kubectl -n databases logs &lt;app&gt;-1 -c postgres | grep -i 'archived'
+# find the latest WAL timestamp before the bad event
+</code></pre>
+</li>
+<li>
+<p>Edit <code>kubernetes/apps/databases/cloudnative-pg/config/&lt;app&gt;/cluster.yaml</code>
+to add <code>spec.bootstrap.recovery</code>:</p>
+<pre><code class="language-yaml">spec:
+  bootstrap:
+    recovery:
+      source: &lt;app&gt;
+      recoveryTarget:
+        targetTime: "2026-05-20 14:30:00.00+00"
+  externalClusters:
+    - name: &lt;app&gt;
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        parameters:
+          barmanObjectName: &lt;app&gt;
+          serverName: &lt;app&gt;
+</code></pre>
+</li>
+<li>
+<p><strong>Delete the existing cluster</strong> (destructive):</p>
+<pre><code class="language-sh">kubectl -n databases delete cluster &lt;app&gt;
+# Wait for full teardown; CNPG operator drops the PVCs too.
+</code></pre>
+</li>
+<li>
+<p>Reconcile Flux:</p>
+<pre><code class="language-sh">flux reconcile kustomization databases-cloudnative-pg-&lt;app&gt;
+</code></pre>
+</li>
+<li>
+<p>Watch the recovery:</p>
+<pre><code class="language-sh">kubectl -n databases logs -l cnpg.io/cluster=&lt;app&gt;,role=primary -c postgres -f
+</code></pre>
+<p>Recovery applies the base backup + WALs up to <code>targetTime</code>.</p>
+</li>
+<li>
+<p>Verify and remove the <code>bootstrap.recovery</code> block (or leave it
+commented out for next time) in a follow-up PR.</p>
+</li>
+</ol>
+<h3 id="scenario-b--total-cluster-loss"><a class="header" href="#scenario-b--total-cluster-loss">Scenario B — total cluster loss</a></h3>
+<p>PGData PVCs gone (ceph-block wipe, namespace nuked, etc.). Restore
+the cluster from scratch from the latest base backup + WALs to
+"now".</p>
+<p>Same as Scenario A but with <code>recoveryTarget</code> set to <code>latest</code>
+(omitting <code>targetTime</code>), or simply leave the cluster's normal spec
+in place and CNPG will bootstrap from the ObjectStore on its own —
+the <code>barmancloud.cnpg.io/ObjectStore</code> is the bootstrap source by
+convention in this repo.</p>
+<p>Concretely:</p>
+<ol>
+<li>
+<p>Verify the ObjectStore is intact:</p>
+<pre><code class="language-sh">kubectl -n databases get objectstore &lt;app&gt;
+# Check Garage bucket directly:
+AWS_ENDPOINT_URL_S3=https://s3.${SECRET_DOMAIN} \
+  aws s3 ls s3://cnpg-&lt;app&gt;/base/
+</code></pre>
+</li>
+<li>
+<p>Reconcile Flux to re-create the cluster CR. CNPG sees no
+PGData PVC and falls back to bootstrap-from-ObjectStore
+automatically (this is the default behavior with our setup).</p>
+</li>
+<li>
+<p>Watch logs as above. Recovery completes when the cluster
+pod reports <code>database system is ready to accept connections</code>.</p>
+</li>
+</ol>
+<h3 id="scenario-c--garage-substrate-gone"><a class="header" href="#scenario-c--garage-substrate-gone">Scenario C — Garage substrate gone</a></h3>
+<p>Both the database AND the Barman ObjectStore in Garage are lost.</p>
+<p><strong>For most clusters</strong>: full data loss — these apps' state isn't
+shipped offsite. App reconstruction depends on the app:</p>
+<ul>
+<li><code>atuin</code> — terminal history; gone, restart fresh</li>
+<li><code>home-assistant</code> — see <code>home-assistant-config/</code> for what's
+in-Git and what's runtime-only</li>
+<li>media-pull-stack apps — full data loss is non-recoverable beyond
+re-scraping from external sources</li>
+<li><code>medikeep</code> — full loss; manual reentry</li>
+<li><code>pump</code>, <code>sparkyfitness</code>, <code>videodupfinder</code>, <code>cutvideo</code> —
+application-specific; mostly recoverable from source data</li>
+<li><code>nametag</code>, <code>medialyze</code>, <code>windmill</code> — workflow / metadata; full
+loss</li>
+</ul>
+<p><strong>For Immich and Paperless</strong>: see <code>offsite_recovery.md</code> — these
+two have a separate offsite-backup pipeline to AWS Glacier Deep
+Archive, restored independently.</p>
+<h2 id="per-cluster-cheatsheet"><a class="header" href="#per-cluster-cheatsheet">Per-cluster cheatsheet</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Cluster</th><th>Garage bucket</th><th>Special considerations</th></tr></thead><tbody>
+<tr><td><code>atuin</code></td><td><code>cnpg-atuin</code></td><td>None — terminal history is ephemeral</td></tr>
+<tr><td><code>home-assistant</code></td><td><code>cnpg-home-assistant</code></td><td>Pair with HA backup (<code>.tar</code> in vault) for full restore</td></tr>
+<tr><td><code>immich</code></td><td><code>cnpg-immich</code></td><td>Also covered by offsite Glacier — see <code>offsite_recovery.md</code></td></tr>
+<tr><td><code>paperless</code></td><td><code>cnpg-paperless</code></td><td>Also covered by offsite Glacier — see <code>offsite_recovery.md</code></td></tr>
+<tr><td><code>langgraph-checkpoints</code></td><td><code>cnpg-langgraph-checkpoints</code></td><td>Ephemeral graph state — accept full loss</td></tr>
+<tr><td><code>langgraph-memory</code></td><td><code>cnpg-langgraph-memory</code></td><td>KG state — 35+ entities; rebuildable but expensive</td></tr>
+<tr><td><code>langfuse</code></td><td><code>cnpg-langfuse</code></td><td>Trace history — accept loss, traces regenerate</td></tr>
+<tr><td><code>windmill</code></td><td><code>cnpg-windmill</code></td><td>Workflow definitions in Git; secrets in 1P — runtime state can be re-bootstrapped</td></tr>
+<tr><td><code>zulip</code></td><td><code>cnpg-zulip</code></td><td>Message history — important; verify backups before any ceph-block work</td></tr>
+<tr><td>Others (25 total)</td><td><code>cnpg-&lt;app&gt;</code></td><td>Follow the template above</td></tr>
+</tbody></table>
+</div>
+<h2 id="gotchas"><a class="header" href="#gotchas">Gotchas</a></h2>
+<ul>
+<li><strong>CNPG <code>Cluster</code> <code>bootstrap.recovery</code> is honored only on initial
+bootstrap.</strong> Once a cluster has PGData, editing the recovery
+block does nothing. Must delete the cluster first to force
+re-bootstrap.</li>
+<li><strong>CNPG operator must be running</strong> before you delete a Cluster
+CR, or the finalizer hangs. Check
+<code>kubectl -n cnpg-system get pods</code> first.</li>
+<li><strong>Barman version compatibility</strong> — the ObjectStore CR version
+must match the CNPG operator. Bumping CNPG without bumping
+Barman (or vice versa) can render backups unreadable.</li>
+<li><strong>PostgreSQL major version</strong> in the ObjectStore must match the
+Cluster's <code>imageName</code>. PG16 base backup cannot bootstrap a PG17
+cluster.</li>
+<li><strong>Recovery is slow on large clusters.</strong> Immich and Paperless can
+take 30+ minutes on the base-backup restore alone, before WAL
+replay starts.</li>
+</ul>
+<h2 id="verification-checklist"><a class="header" href="#verification-checklist">Verification checklist</a></h2>
+<p>After any restore:</p>
+<ul>
+<li><input disabled="" type="checkbox"/>
+Cluster pod logs report <code>database system is ready</code></li>
+<li><input disabled="" type="checkbox"/>
+Application pod successfully connects (check app logs for
+ORM connection success)</li>
+<li><input disabled="" type="checkbox"/>
+Smoke a representative query: <code>kubectl -n databases exec -it &lt;app&gt;-1 -- psql -c "SELECT count(*) FROM &lt;known-table&gt;"</code></li>
+<li><input disabled="" type="checkbox"/>
+App-level health endpoint returns 200</li>
+<li><input disabled="" type="checkbox"/>
+Next <code>ScheduledBackup</code> runs successfully (catches the
+ObjectStore re-write path)</li>
+</ul>
+<h2 id="see-also"><a class="header" href="#see-also">See also</a></h2>
+<ul>
+<li><code>rook_ceph_dr.md</code> — restore underlying ceph-block first</li>
+<li><code>garage_restore.md</code> — restore the Barman backup target</li>
+<li><code>offsite_recovery.md</code> — Immich + Paperless Glacier-based restore</li>
+<li><code>docs/src/immich_cnpg.md</code> — Immich-specific CNPG migration history</li>
+<li>Memory: <code>project_phase_a_embedder_bge_m3</code> — langgraph-memory KG
+re-embedding context</li>
+</ul>
 
                     </main>
 

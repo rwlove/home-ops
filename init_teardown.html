@@ -148,8 +148,46 @@
                 <div id="content" class="content">
                     <main>
                         <h1 id="initialization--teardown"><a class="header" href="#initialization--teardown">Initialization &amp; Teardown</a></h1>
-<p>Moved to the vault: <code>~/vaults/claude/runbooks/home-ops/init_teardown.md</code></p>
-<p>See HOMELAB-SPEC Layer 2 #5: the vault is canonical for runbooks.</p>
+<p>The bare-command set to bring the cluster up from nothing, or tear it down to nothing. See <a href="cluster_rebuild.html">Cluster Rebuild</a> for the full preflight and verification procedure that wraps these commands.</p>
+<h2 id="prerequisites-laptop"><a class="header" href="#prerequisites-laptop">Prerequisites (laptop)</a></h2>
+<ul>
+<li><code>op</code> (1Password CLI) — for rendering <code>bootstrap/resources.yaml.j2</code></li>
+<li><code>minijinja-cli</code> — template renderer used by the bootstrap step</li>
+<li><code>yq</code> — YAML processing</li>
+<li><code>go-task</code> (alias <code>task</code>) — runs the <code>bootstrap/mod.just</code> recipes</li>
+</ul>
+<p>Install via <code>dnf</code> / <code>brew</code> / your package manager of choice. The bootstrap scripts will exit early if any of these are missing.</p>
+<h2 id="initialization"><a class="header" href="#initialization">Initialization</a></h2>
+<p>In order:</p>
+<ol>
+<li>
+<p><strong>On <code>master1</code></strong> (control-plane bootstrap):</p>
+<pre><code class="language-sh">./init/create-cluster.sh
+</code></pre>
+<p>Sets up kube-vip, runs <code>kubeadm init</code>, joins masters 2/3 and all workers, labels Longhorn-eligible nodes, makes <code>master1</code> schedulable.</p>
+</li>
+<li>
+<p><strong>On the laptop</strong> (in-cluster app bootstrap):</p>
+<pre><code class="language-sh">./init/initialize-cluster.sh
+</code></pre>
+<p>Pulls the kubeconfig from <code>master1</code>, creates bootstrap namespaces, renders 1Password-backed secrets, applies CRDs from <code>bootstrap/helmfile.d/00-crds.yaml</code>, then runs <code>helmfile sync</code> for <code>01-apps.yaml</code> (Cilium, CoreDNS, cert-manager, external-secrets, 1Password Connect, Flux operator + instance).</p>
+</li>
+<li>
+<p><strong>On the laptop</strong> (remove redundant static manifest):</p>
+<pre><code class="language-sh">ssh root@master1 rm /etc/kubernetes/manifests/kube-vip.yaml
+</code></pre>
+<p>Once Flux brings up the in-cluster kube-vip, the static pod is redundant and will fight for the VIP. Remove it after step 2 settles.</p>
+</li>
+</ol>
+<h2 id="teardown"><a class="header" href="#teardown">Teardown</a></h2>
+<p>Wipes the cluster, destroys Ceph OSDs, clears <code>/var/lib/{etcd,kubelet,longhorn,rook}</code>. Only run when reusing the same hardware — fresh hardware doesn't need this.</p>
+<pre><code class="language-sh">./init/destroy-cluster.sh
+</code></pre>
+<p><strong>This is destructive.</strong> See <a href="cluster_rebuild.html">Cluster Rebuild</a> → "Preflight" for the survival audit you should run <em>before</em> destroying anything. The Garage S3 buckets (CNPG backups) and any NFS-backed data are the only things that survive teardown — verify the NFS host is healthy first.</p>
+<h2 id="related"><a class="header" href="#related">Related</a></h2>
+<ul>
+<li><a href="cluster_rebuild.html">Cluster Rebuild</a> — full end-to-end recovery including post-bootstrap verification and CNPG recovery from Garage.</li>
+</ul>
 
                     </main>
 

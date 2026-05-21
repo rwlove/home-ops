@@ -148,8 +148,123 @@
                 <div id="content" class="content">
                     <main>
                         <h1 id="memory-mcp"><a class="header" href="#memory-mcp">Memory MCP</a></h1>
-<p>Moved to the vault: <code>~/vaults/claude/runbooks/home-ops/memory_mcp.md</code></p>
-<p>See HOMELAB-SPEC Layer 2 #5: the vault is canonical for runbooks.</p>
+<p><code>memory-mcp</code> is a knowledge-graph MCP server backed by Postgres + pgvector (vchord HNSW). It exposes entity / observation / relation tools to every MCP client in the cluster, so LangGraph agents, Claude Code sessions, Open WebUI tool callers, and HolmesGPT triage runs all share the same long-term memory substrate.</p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Source repo</strong></td><td><a href="https://github.com/rwlove/memory-mcp">https://github.com/rwlove/memory-mcp</a></td></tr>
+<tr><td><strong>Image</strong></td><td><code>ghcr.io/rwlove/memory-mcp</code> (digest-pinned in the HelmRelease)</td></tr>
+<tr><td><strong>Manifests</strong></td><td><code>kubernetes/apps/mcp-system/memory-mcp/</code></td></tr>
+<tr><td><strong>Backend</strong></td><td><code>postgres-langgraph-memory</code> CNPG cluster, schema <code>kg</code></td></tr>
+<tr><td><strong>Tool prefix at the gateway</strong></td><td><code>memory_</code></td></tr>
+</tbody></table>
+</div>
+<h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>
+<pre><code class="language-text">              ┌─ Claude Code (laptop) ──┐
+              │  + markdown auto-memory │  (per-project, parallel)
+              │  + memory_* MCP tools   │
+              └──────────┬──────────────┘
+                         │
+LangGraph agents ────────┤ ←  MCPMemoryStore(BaseStore) writes
+                         │     directly to kg.* via psycopg3
+Open WebUI / HolmesGPT ──┤
+                         │
+                         ▼
+            ┌──────────────────────────────┐
+            │  mcp-gateway (Envoy + Istio) │
+            └──────────────┬───────────────┘
+                           │ memory_* (toolPrefix)
+                           ▼
+            ┌──────────────────────────────┐
+            │  memory-mcp  (FastMCP)       │
+            │  streamable-http :8070       │
+            └──────────────┬───────────────┘
+                           │ psycopg / asyncpg
+                           ▼
+            ┌──────────────────────────────┐
+            │ postgres-langgraph-memory    │
+            │ pgvector + vchordrq HNSW     │
+            │ database: langgraph_memory   │
+            │ schema:   kg                 │
+            └──────────────────────────────┘
+</code></pre>
+<p>LangGraph agents bypass the MCP transport — they speak direct SQL to the same <code>kg.*</code> schema via <code>MCPMemoryStore(BaseStore)</code>. The two write paths converge on identical rows.</p>
+<h2 id="schema"><a class="header" href="#schema">Schema</a></h2>
+<p>Three tables under the <code>kg</code> schema:</p>
+<pre><code class="language-sql">kg.entities      (id, name UNIQUE, type, namespace, source JSONB,
+                  created_at, updated_at)
+kg.observations  (id, entity_id, content, embedding vector(768),
+                  source JSONB, created_at, deleted_at)
+kg.relations     (id, from_entity, to_entity, type, source JSONB,
+                  created_at, UNIQUE (from_entity, to_entity, type))
+</code></pre>
+<p>Indexes: <code>kg_obs_embedding_hnsw</code> using <code>vchordrq (embedding vector_cosine_ops)</code> for semantic search; per-column indexes on entity type + namespace.</p>
+<p>Embedding model is <code>nomic-embed-text</code> (768 dimensions). The model must be resident on Ollama — see <a href="./offsite_recovery.html">Ollama /api/embed reference</a> for the pull procedure (<code>POST /api/pull</code> with <code>{"model": "nomic-embed-text", "stream": false}</code>).</p>
+<p><strong>Soft delete only.</strong> <code>memory_delete_observation</code> sets <code>deleted_at = now()</code>, never DROPs. The principle is "don't silently delete memories across namespaces" — observation history stays inspectable even after a logical delete.</p>
+<h2 id="tool-surface-12-tools-prefix-memory_"><a class="header" href="#tool-surface-12-tools-prefix-memory_">Tool surface (12 tools, prefix <code>memory_</code>)</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Tool</th><th>Purpose</th></tr></thead><tbody>
+<tr><td><code>create_entity</code></td><td>Create node + initial observations</td></tr>
+<tr><td><code>add_observation</code></td><td>Append observation to existing entity</td></tr>
+<tr><td><code>get_entity</code></td><td>Fetch by name + (optionally) one-hop relations</td></tr>
+<tr><td><code>list_entities</code></td><td>Enumerate, filterable by type / namespace</td></tr>
+<tr><td><code>update_entity</code></td><td>Rename / retype / re-namespace; relations survive via id-based join</td></tr>
+<tr><td><code>update_observation</code></td><td>Replace content + re-embed in place</td></tr>
+<tr><td><code>delete_observation</code></td><td>Soft delete (<code>deleted_at</code>)</td></tr>
+<tr><td><code>create_relation</code></td><td>Typed directed edge between two entities</td></tr>
+<tr><td><code>link</code></td><td>Sugar for <code>create_relation</code> (default type <code>related_to</code>)</td></tr>
+<tr><td><code>search</code></td><td>Hybrid (semantic via vchord cosine, keyword via ILIKE)</td></tr>
+<tr><td><code>graph_walk</code></td><td>BFS to depth N (cap 4) from a start entity</td></tr>
+<tr><td><code>recent</code></td><td>Most-recent observations, filterable by agent / since / entity</td></tr>
+<tr><td><code>create_entities</code></td><td>Transactional bulk-create</td></tr>
+<tr><td><code>add_observations</code></td><td>Transactional bulk-append</td></tr>
+</tbody></table>
+</div>
+<h2 id="namespace-conventions"><a class="header" href="#namespace-conventions">Namespace conventions</a></h2>
+<p>Two distinct namespacings live in this schema:</p>
+<ol>
+<li><strong><code>entities.namespace</code></strong> — caller-supplied free-form grouping (e.g. <code>infra</code>, <code>cluster</code>, <code>software</code>, <code>people</code>). Filter via <code>memory_list_entities(namespace_filter=...)</code> or <code>memory_search(namespace_filter=...)</code>.</li>
+<li><strong><code>langgraph/*</code> prefix</strong> — entities created by <code>MCPMemoryStore</code> (the LangGraph BaseStore adapter) all live under <code>langgraph/{ns0}/{ns1}/...</code>, where the LangGraph <code>namespace: tuple[str, ...]</code> becomes the path. Their <code>type</code> is always <code>langgraph-store-item</code>. This keeps fleet writes visually separated from human-seeded entries (host/cnpg/service/etc.) when other agents query the graph.</li>
+</ol>
+<h2 id="provenance"><a class="header" href="#provenance">Provenance</a></h2>
+<p>Every write carries a <code>source</code> JSONB. Server stamps <code>at: ISO8601</code> if the caller didn't. Conventions:</p>
+<div class="table-wrapper"><table><thead><tr><th>Caller</th><th>Minimum source</th></tr></thead><tbody>
+<tr><td>Claude Code</td><td><code>{"agent": "claude-code", "claude_namespace": "&lt;encoded-cwd&gt;"}</code></td></tr>
+<tr><td>LangGraph fleet (via MCPMemoryStore)</td><td><code>{"agent": "langgraph", "store": "MCPMemoryStore"}</code> (set automatically)</td></tr>
+<tr><td>Open WebUI tool calls</td><td><code>{"agent": "open-webui"}</code></td></tr>
+<tr><td>HolmesGPT</td><td><code>{"agent": "holmesgpt"}</code></td></tr>
+</tbody></table>
+</div>
+<p>A <code>memory_recent(agent_filter="claude-code")</code> query shows just one agent's recent contributions.</p>
+<h2 id="observability"><a class="header" href="#observability">Observability</a></h2>
+<p><code>/metrics</code> exposes Prometheus scrape data:</p>
+<ul>
+<li><strong>Process / GC collectors</strong> (CPU, RSS, fd count, GC pauses) — <code>prometheus_client</code> defaults.</li>
+<li><strong><code>memory_mcp_tool_calls_total{tool, status}</code></strong> — counter per tool, status ∈ {success, error}. Tool-level negative responses (entity not found etc.) count as success.</li>
+<li><strong><code>memory_mcp_tool_call_duration_seconds{tool}</code></strong> — histogram, buckets <code>0.01..30s</code>.</li>
+<li><strong><code>memory_mcp_embed_calls_total{status}</code></strong> — embedding requests, status ∈ {success, empty, error}.</li>
+<li><strong><code>memory_mcp_embed_call_duration_seconds</code></strong> — embed latency histogram.</li>
+</ul>
+<p>A <code>ServiceMonitor</code> in <code>mcp-system</code> scrapes <code>/metrics</code> every 30s. This is currently the only instrumented MCP backend in the cluster — see <a href="https://github.com/rwlove/home-ops"><code>project_todo_mcp_layer_observability_gap</code></a> for fleet-wide rollout context.</p>
+<p>Probes:</p>
+<ul>
+<li><strong><code>/healthz</code></strong> — process up + Postgres <code>SELECT 1</code>. Used by liveness + startup probes.</li>
+<li><strong><code>/readyz</code></strong> — <code>/healthz</code> plus Ollama <code>/api/tags</code> reachable. Used by readiness probe; returns 503 if Ollama is degraded, dropping the pod from the Service rotation until embeddings work again.</li>
+</ul>
+<h2 id="schema-migrations"><a class="header" href="#schema-migrations">Schema migrations</a></h2>
+<p>The server <strong>does not</strong> apply schema. A one-shot <code>Job</code> (<code>memory-mcp-schema-init</code>) under the same Kustomization runs <code>psql -f /sql/schema.sql</code> on every Flux reconcile. All DDL is idempotent (<code>CREATE IF NOT EXISTS</code>), so re-runs are no-ops.</p>
+<p><strong>Job gotcha:</strong> Kubernetes <code>Job.spec.template</code> is immutable. Editing the <code>command</code> field (e.g. the diagnostic echo) without bumping the schema-init annotation or deleting the existing Job will deadlock Flux with <code>field is immutable</code>. Recovery: <code>kubectl delete job memory-mcp-schema-init -n mcp-system</code> and let Flux recreate.</p>
+<h2 id="troubleshooting"><a class="header" href="#troubleshooting">Troubleshooting</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Symptom</th><th>First check</th></tr></thead><tbody>
+<tr><td>Semantic search returns nothing</td><td><code>kubectl exec memory-mcp-... -- curl http://ollama.ai.svc:11434/api/embed -d '{"model":"nomic-embed-text","input":"x"}'</code> — 404 = model not pulled</td></tr>
+<tr><td>Pod <code>CrashLoopBackOff</code> on startup</td><td>Pod logs for <code>kg.&lt;table&gt; missing</code> — schema-init Job hasn't completed yet (or failed)</td></tr>
+<tr><td>Flux Kustomization stuck on <code>field is immutable</code></td><td>Job-template change without delete; see Schema migrations above</td></tr>
+<tr><td>Embed counter <code>error</code> spiking</td><td>Ollama unreachable or model unloaded; <code>/readyz</code> will already be 503</td></tr>
+<tr><td>Search returns 0 for a query that obviously matches</td><td>Run with <code>mode=keyword</code> to isolate. If keyword finds it but hybrid doesn't, semantic is broken (Ollama).</td></tr>
+</tbody></table>
+</div>
+<h2 id="see-also"><a class="header" href="#see-also">See also</a></h2>
+<ul>
+<li><a href="./offsite_recovery.html">Offsite Recovery (Postgres restore)</a> — for <code>postgres-langgraph-memory</code> backup recovery (Barman → Garage).</li>
+<li>The <a href="https://github.com/rwlove/home-ops">project_memory_mcp_phase0_done memory entry</a> records the rollout history (Phases 0-3) including v0.1.x bumps + Phase 1 seed.</li>
+</ul>
 
                     </main>
 

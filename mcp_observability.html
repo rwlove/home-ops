@@ -148,8 +148,205 @@
                 <div id="content" class="content">
                     <main>
                         <h1 id="mcp-fleet-observability"><a class="header" href="#mcp-fleet-observability">MCP Fleet Observability</a></h1>
-<p>Moved to the vault: <code>~/vaults/claude/runbooks/home-ops/mcp_observability.md</code></p>
-<p>See HOMELAB-SPEC Layer 2 #5: the vault is canonical for runbooks.</p>
+<p>The MCP fleet under <code>mcp-system</code> ships per-tool Prometheus metrics for the
+Class A backends we own (<code>memory-mcp</code>, <code>time-mcp</code>, <code>netbox-mcp</code>) plus
+Istio-sidecar RED metrics for everything else. Alerts and a Grafana
+dashboard sit on top.</p>
+<div class="table-wrapper"><table><thead><tr><th></th><th></th></tr></thead><tbody>
+<tr><td><strong>Dashboard</strong></td><td><code>mcp-system</code> (Grafana folder <code>mcp</code>)</td></tr>
+<tr><td><strong>Recording rules + alerts</strong></td><td><code>kubernetes/apps/mcp-system/observability/app/prometheusrule.yaml</code></td></tr>
+<tr><td><strong>Per-backend ServiceMonitors</strong></td><td><code>kubernetes/apps/mcp-system/&lt;backend&gt;/app/servicemonitor.yaml</code></td></tr>
+<tr><td><strong>Dashboard JSON</strong></td><td><code>kubernetes/apps/observability/grafana/dashboards/mcp-system.json</code></td></tr>
+<tr><td><strong>Plan archive</strong></td><td><code>~/.claude-personal/plans/on-a-plan-to-adaptive-ripple.md</code> (v5, 4-pass adversarial audit)</td></tr>
+</tbody></table>
+</div>
+<h2 id="whats-instrumented-today"><a class="header" href="#whats-instrumented-today">What's instrumented today</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Class</th><th>Backends</th><th>Layer</th></tr></thead><tbody>
+<tr><td>A — per-tool metrics</td><td><code>memory-mcp</code>, <code>time-mcp</code>, <code>netbox-mcp</code></td><td>App-level <code>prometheus-client</code> + <code>@track_tool</code> decorator + ServiceMonitor</td></tr>
+<tr><td>D — istio only</td><td><code>chrome-mcp</code>, <code>arr-mcp</code>, <code>github-mcp</code>, <code>grafana-mcp</code>, <code>ha-mcp</code>, <code>immich-mcp</code>, <code>kubectl-mcp</code>, <code>omada-mcp</code>, <code>paperless-mcp</code>, <code>prometheus-mcp</code>, <code>searxng-mcp</code></td><td>Envoy sidecar emits <code>istio_requests_total</code> per pod; no app-level work</td></tr>
+</tbody></table>
+</div>
+<p>Class B/C never materialized: a 2026-05-19 sweep found that none of the
+upstream third-party backends expose <code>/metrics</code> today
+(see <code>project_mcp_phase3_metrics_sweep.md</code>).</p>
+<h2 id="how-to-read-the-dashboard"><a class="header" href="#how-to-read-the-dashboard">How to read the dashboard</a></h2>
+<p>Two rows:</p>
+<p><strong>Row 1 — Fleet (istio sidecar)</strong> covers all 14 backends. Inbound +
+outbound rate panels + 5xx panels by <code>destination_workload</code> and
+<code>source_workload</code>. Especially useful for <code>chrome-mcp</code> / <code>searxng-mcp</code>
+where the meaningful metric is whether the outbound HTTPS calls
+succeeded.</p>
+<p><strong>Row 2 — Per-backend (<code>@track_tool</code>)</strong> is the deep view, gated by
+the <code>$backend</code> template variable. Panels query the normalized
+<code>mcp:tool_calls:rate5m{backend, ...}</code> / <code>mcp:tool_call_duration:p99_5m</code>
+recording rules, so adding a 4th Class A backend doesn't require panel
+edits — the variable enumerates from the recording rules.</p>
+<h2 id="alerts"><a class="header" href="#alerts">Alerts</a></h2>
+<p>Six alerts, six labels:</p>
+<div class="table-wrapper"><table><thead><tr><th>Alert</th><th>Tier</th><th>Routing</th><th>Fires when</th></tr></thead><tbody>
+<tr><td><code>MCPBackendScrapeFailed{backend=memory}</code></td><td>warning</td><td>Pushover</td><td><code>absent(up{...memory-mcp} == 1) for: 15m</code></td></tr>
+<tr><td><code>MCPBackendScrapeFailed{backend=time}</code></td><td>warning</td><td>Pushover</td><td>same, time-mcp</td></tr>
+<tr><td><code>MCPBackendScrapeFailed{backend=netbox}</code></td><td>warning</td><td>Pushover</td><td>same, netbox-mcp</td></tr>
+<tr><td><code>MCPBackendHighErrorRate</code></td><td>warning</td><td>Pushover</td><td>error/total &gt; 10% for 10m AND volume &gt; 0.05 calls/sec</td></tr>
+<tr><td><code>MCPBackendHighLatency</code></td><td>warning</td><td>Pushover</td><td><code>max by (backend) (mcp:tool_call_duration:p99_5m) &gt; 5s for: 10m</code></td></tr>
+<tr><td><code>MCPGatewayDown</code></td><td><strong>critical</strong></td><td><code>windmill-investigate</code> (HolmesGPT) → Pushover</td><td><code>absent(up{...mcp-gateway-istio} == 1) for: 5m</code></td></tr>
+</tbody></table>
+</div>
+<p>The error-rate volume gate (<code>&gt; 0.05 calls/sec</code>) prevents a single
+errored tool call on a quiet backend from triggering a 100%-error
+page. The latency <code>for: 10m</code> rides through transient downstream
+spikes (Ollama warm-up, Postgres vacuum).</p>
+<h2 id="adding-a-new-mcp-backend-with-metrics"><a class="header" href="#adding-a-new-mcp-backend-with-metrics">Adding a new MCP backend with metrics</a></h2>
+<p>Three places to touch:</p>
+<p><strong>1. Upstream code (the backend's source repo).</strong> Mirror the
+memory-mcp v0.1.4 template:</p>
+<pre><code class="language-python"># src/&lt;backend&gt;/metrics.py
+from prometheus_client import Counter, Histogram
+
+TOOL_CALLS_TOTAL = Counter(
+    "&lt;backend&gt;_mcp_tool_calls_total",
+    "Total tool calls into &lt;backend&gt;-mcp.",
+    labelnames=("tool", "status"),
+)
+TOOL_CALL_DURATION_SECONDS = Histogram(
+    "&lt;backend&gt;_mcp_tool_call_duration_seconds",
+    "Tool call latency in seconds.",
+    labelnames=("tool",),
+    buckets=(...),  # tune to expected latency
+)
+
+def track_tool(name): ...  # see memory_mcp/metrics.py
+</code></pre>
+<p>For backends with <strong>many tools</strong>, do not edit every <code>@mcp.tool()</code>
+manually. Add an <code>install_tracking(mcp)</code> helper that monkey-patches
+<code>mcp.tool</code> to wrap every subsequent registration (<code>netbox-mcp</code> does
+this — <code>rwlove/containers#20</code>).</p>
+<p>Register <code>/metrics</code> on the same FastMCP HTTP server via
+<code>mcp.custom_route("/metrics", methods=["GET"])</code>.</p>
+<p>Add <code>prometheus-client&gt;=0.20.0,&lt;1</code> to the project's dependencies.</p>
+<p><strong>Local test before pushing:</strong></p>
+<pre><code class="language-sh">python -c "import urllib.request; print(urllib.request.urlopen('http://localhost:&lt;port&gt;/metrics').read().decode()[:1000])"
+</code></pre>
+<p>Verify <code># HELP &lt;backend&gt;_mcp_tool_calls_total ...</code> and <code># TYPE</code>
+directives appear. Invoke each tool at least once; counters increment.</p>
+<p><strong>2. Cluster manifests.</strong> Add to
+<code>kubernetes/apps/mcp-system/&lt;backend&gt;/app/</code>:</p>
+<pre><code class="language-yaml"># servicemonitor.yaml — clone time-mcp's verbatim, change name + selector
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: &lt;backend&gt;-mcp
+  labels:
+    app.kubernetes.io/name: &lt;backend&gt;-mcp
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: &lt;backend&gt;-mcp
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+  namespaceSelector:
+    matchNames:
+      - mcp-system
+</code></pre>
+<p>Add <code>./servicemonitor.yaml</code> to the app's <code>kustomization.yaml</code>
+resources list.</p>
+<p><strong>3. Recording rule group.</strong> Append to
+<code>kubernetes/apps/mcp-system/observability/app/prometheusrule.yaml</code>:</p>
+<pre><code class="language-yaml">    - name: mcp.recording.&lt;backend&gt;.rules
+      interval: 1m
+      rules:
+        - record: mcp:tool_calls:rate5m
+          expr: sum by (tool, status) (rate(&lt;backend&gt;_mcp_tool_calls_total[5m]))
+          labels:
+            backend: &lt;backend&gt;
+        - record: mcp:tool_call_duration:p99_5m
+          expr: |
+            histogram_quantile(
+              0.99,
+              sum by (le, tool) (rate(&lt;backend&gt;_mcp_tool_call_duration_seconds_bucket[5m]))
+            )
+          labels:
+            backend: &lt;backend&gt;
+</code></pre>
+<p>After this lands, <code>MCPBackendHighErrorRate</code> and <code>MCPBackendHighLatency</code>
+automatically fan out to cover the new backend. <strong>You must also add a
+new <code>MCPBackendScrapeFailed</code> alert</strong> because each <code>absent()</code> clause
+needs its own selector (the per-backend split is the documented
+exception in the plan).</p>
+<p><strong>4. Optional: dashboard.</strong> The <code>$backend</code> template variable
+auto-enumerates from <code>label_values(mcp:tool_calls:rate5m, backend)</code>, so
+the dashboard surfaces the new backend without JSON edits.</p>
+<h2 id="silencing-alerts-during-planned-maintenance"><a class="header" href="#silencing-alerts-during-planned-maintenance">Silencing alerts during planned maintenance</a></h2>
+<p><code>silence-operator</code> (in the <code>observability</code> ns) translates declarative
+<code>Silence</code> CRs into AlertManager silences. For a planned maintenance
+window:</p>
+<pre><code class="language-yaml">apiVersion: observability.giantswarm.io/v1alpha2
+kind: Silence
+metadata:
+  name: mcp-maintenance-&lt;short-description&gt;
+  namespace: observability
+spec:
+  matchers:
+    - name: alertname
+      value: MCPBackendScrapeFailed
+      isRegex: false
+    - name: backend
+      value: netbox        # or omit for all backends
+      isRegex: false
+  comment: "Planned maintenance: &lt;link / context&gt;"
+  duration: 2h
+</code></pre>
+<p>Apply, do the work, delete the Silence (or let it expire).</p>
+<p>For the broader fleet you can match <code>namespace=mcp-system</code> instead of
+<code>alertname</code> — that catches <code>MCPGatewayDown</code> too.</p>
+<h2 id="cardinality-budget"><a class="header" href="#cardinality-budget">Cardinality budget</a></h2>
+<p>Per Class A backend (assuming ~10 tools, 11 latency buckets):</p>
+<ul>
+<li><code>_tool_calls_total{tool, status}</code>: 10 × 2 = <strong>20 series</strong></li>
+<li><code>_tool_call_duration_seconds_*{tool, le}</code>: 10 × (12 buckets + sum + count) = <strong>140 series</strong></li>
+<li>Embedder (memory-mcp only, <code>_embed_*</code>): <strong>17 series</strong></li>
+<li>Total: <strong>~177 series per backend</strong></li>
+</ul>
+<p>3 backends × 177 ≈ <strong>530 series</strong>. Plus istio sidecar's
+<code>istio_requests_total</code> + latency histograms — already scraped by
+the Istio control-plane SM, not new growth.</p>
+<p>Cluster Prometheus runs at several million series — adequate headroom
+for the next ~50 backends. <strong>Do not</strong> add high-cardinality labels
+(<code>user</code>, <code>session</code>, <code>request_id</code>, error messages, tool arguments).
+Those belong in log lines, not metric labels.</p>
+<h2 id="why-not-class-c--fork-upstream"><a class="header" href="#why-not-class-c--fork-upstream">Why not Class C / fork upstream?</a></h2>
+<p>The 2026-05-19 sweep checked <code>/metrics</code> on every third-party backend.
+All 9 returned 404. Three upstream repos (<code>jmtvms/tplink-omada-mcp</code>,
+<code>isokoliuk/mcp-searxng</code>, and an aplaceforallmystuff redirect) are gone
+from GitHub — only the published images remain on registries.</p>
+<p>For the remaining live upstream repos (<code>grafana/mcp-grafana</code>,
+<code>pab1it0/prometheus-mcp-server</code>, <code>rohitg00/kubectl-mcp-server</code>,
+<code>github/github-mcp-server</code>, <code>homeassistant-ai/ha-mcp</code>,
+<code>baruchiro/paperless-mcp</code>, <code>joeru/claw2immich</code>,
+<code>microsoft/playwright-mcp</code>), filing upstream issues is the
+documented next step <strong>only if a specific operational pain triggers
+it</strong> — not a checklist. The plan capped per-backend effort at 1
+upstream issue + 1 PR + 2-week wait, demote to Class D otherwise.</p>
+<p>For now: Istio sidecar's <code>istio_requests_total{destination_workload, response_code}</code> answers "is this backend serving traffic?" and "is it
+returning errors?" — the RED metrics. Per-tool granularity is the
+upgrade we'd buy by forking; not worth the ownership cost yet.</p>
+<h2 id="references"><a class="header" href="#references">References</a></h2>
+<ul>
+<li>Source code (per-tool decorator + <code>/metrics</code> template):
+<ul>
+<li><code>/home/rwlove/workspace/memory-mcp/src/memory_mcp/metrics.py</code> (canonical async version)</li>
+<li><code>/home/rwlove/workspace/containers/time-mcp/server.py</code> (sync variant)</li>
+<li><code>/home/rwlove/workspace/containers/netbox-mcp/src/netbox_mcp_server/metrics.py</code> (auto-install variant)</li>
+</ul>
+</li>
+<li>AlertManager routing: <code>kubernetes/apps/observability/kube-prometheus-stack/app/alertmanagerconfig.yaml</code></li>
+<li>Cluster scrape-failure convention (origin of the <code>absent(up{} == 1)</code> pattern):
+<code>kubernetes/apps/observability/exporters/snmp-exporter/app/apc-ups/prometheusrule.yaml</code></li>
+<li>Rollout PRs: home-ops #11741 (substrate), #11749 (Phase 1+2 cluster bumps), #11789 (Phase 5 alerts); rwlove/containers #19 (time-mcp v0.1.1), #20 (netbox-mcp v1.1.0)</li>
+</ul>
 
                     </main>
 

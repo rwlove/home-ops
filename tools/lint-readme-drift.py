@@ -19,8 +19,14 @@ it ensures a new hardware row is paired with a badge bump.
 
 Usage:
     tools/lint-readme-drift.py [README_PATH]
+    tools/lint-readme-drift.py --fix [README_PATH]
 
 Exits 0 if all badges match, 1 if any drift.
+
+With `--fix`, drift is corrected in-place and the script exits 0
+(or 2 if the only drift is the `k8s_nodes` badge — that one is
+operator-edited alongside the Hardware table, not auto-derivable from
+code, so we refuse to auto-rewrite it).
 """
 from __future__ import annotations
 
@@ -108,8 +114,26 @@ def parse_badges(readme_text: str) -> dict[str, str]:
     return out
 
 
+def rewrite_badge(text: str, label: str, new_value: str) -> str:
+    """Replace the value in a shields.io badge for `label` with `new_value`.
+
+    Operates on the exact pattern `/badge/<label>-<value>-` so we don't
+    touch the rest of the URL (color, style flags, logo, etc.).
+    """
+    pattern = re.compile(
+        rf"(/badge/{re.escape(label)}-)([^-]+)(-)",
+    )
+    return pattern.sub(rf"\g<1>{new_value}\g<3>", text, count=1)
+
+
 def main(argv: list[str]) -> int:
-    readme_path = Path(argv[1]) if len(argv) > 1 else REPO_ROOT / "README.md"
+    args = argv[1:]
+    fix = False
+    if args and args[0] == "--fix":
+        fix = True
+        args = args[1:]
+
+    readme_path = Path(args[0]) if args else REPO_ROOT / "README.md"
     text = readme_path.read_text()
     badges = parse_badges(text)
 
@@ -123,31 +147,60 @@ def main(argv: list[str]) -> int:
         "k8s_nodes": str(count_hardware_rows(text)),
     }
 
-    drift: list[str] = []
+    drift: list[tuple[str, str, str]] = []
     for label, expected in expectations.items():
         actual = badges.get(label)
         if actual is None:
-            drift.append(f"  - badge `{label}` not found in README")
+            drift.append((label, "<missing>", expected))
         elif actual != expected:
-            drift.append(
-                f"  - badge `{label}` says `{actual}`; repo reality is `{expected}`"
-            )
+            drift.append((label, actual, expected))
 
-    if drift:
-        print("❌ README.md is drifting from repo reality:")
-        for line in drift:
-            print(line)
-        print()
-        print("Update the badges + any matching body text in the same PR")
-        print("that changed the underlying counts, per CLAUDE.md:")
-        print('  "Repo README.md and docs/ are updated in the same PR as')
-        print('   the change they describe. Stale docs are bugs."')
-        return 1
+    if not drift:
+        print("✅ README badges match repo reality:")
+        for label, value in expectations.items():
+            print(f"   {label}: {value}")
+        return 0
 
-    print("✅ README badges match repo reality:")
-    for label, value in expectations.items():
-        print(f"   {label}: {value}")
-    return 0
+    if fix:
+        # Auto-fix all drift except `k8s_nodes` — that one is sourced
+        # from the README's own Hardware table, so fixing the badge
+        # would just paper over a stale table. Surface it instead.
+        unfixed: list[tuple[str, str, str]] = []
+        new_text = text
+        fixed = []
+        for label, actual, expected in drift:
+            if label == "k8s_nodes":
+                unfixed.append((label, actual, expected))
+                continue
+            if actual == "<missing>":
+                unfixed.append((label, actual, expected))
+                continue
+            new_text = rewrite_badge(new_text, label, expected)
+            fixed.append((label, actual, expected))
+
+        if fixed:
+            readme_path.write_text(new_text)
+            print("🛠  README badges auto-fixed:")
+            for label, actual, expected in fixed:
+                print(f"   {label}: {actual} → {expected}")
+        if unfixed:
+            print("⚠️  Drift NOT auto-fixed (requires manual edit):")
+            for label, actual, expected in unfixed:
+                print(f"   {label}: {actual} → {expected} (Hardware table or missing badge)")
+            return 2
+        return 0
+
+    print("❌ README.md is drifting from repo reality:")
+    for label, actual, expected in drift:
+        print(f"  - badge `{label}` says `{actual}`; repo reality is `{expected}`")
+    print()
+    print("Update the badges + any matching body text in the same PR")
+    print("that changed the underlying counts, per CLAUDE.md:")
+    print('  "Repo README.md and docs/ are updated in the same PR as')
+    print('   the change they describe. Stale docs are bugs."')
+    print()
+    print("Or run `tools/lint-readme-drift.py --fix` to auto-correct.")
+    return 1
 
 
 if __name__ == "__main__":

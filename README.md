@@ -185,7 +185,7 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 | **Ollama Spark** | LLM serving on Spark/GB10 (qwen2.5:32b for the agent fleet + HolmesGPT + Open WebUI, bge-m3 embeddings) |
 | **ComfyUI** | Image generation workflows |
 | **Khoj** + **khoj-oauth2-proxy** | Personal AI assistant over notes + docs (Authelia-gated) |
-| **LangGraph Agents** | Custom multi-agent runtime (`rwlove/langgraph-agents`, image `0.2.28`); Postgres-checkpointed; MCP-gateway client. See **AI architecture** section below. |
+| **LangGraph Agents** | Custom multi-agent runtime (`rwlove/langgraph-agents`, image `0.2.30`); Postgres-checkpointed with live `task_queue` + `task_dlq` substrate; MCP-gateway client. See **AI architecture** section below. |
 | **Langfuse** | LLM observability — OTLP trace sink for the langgraph-agents fleet (CNPG-backed; ClickHouse/Valkey/MinIO bundled) |
 | **claude-runner** (namespace `automation/`) | Cron-driven Claude Code workflows — daily Renovate PR triage + Claude-spend projection cards to Zulip |
 | **Paperless-AI** | Auto-tagging for paperless-ngx |
@@ -391,7 +391,7 @@ in 1Password.
 - **Open WebUI** (`collab/`) — primary chat UI. Defaults to qwen2.5:32b on Ollama-Spark; users can switch to any langgraph agent via the OpenAI-compatible API. RAG runs over Qdrant with bge-m3 embeds + BGE reranker-v2-m3 in-process. Tool servers wired in: HolmesGPT + the MCP gateway.
 - **Khoj** (`ai/`) — parallel personal-AI surface for notes + docs. Self-contained: own embedding pipeline (default gte-small, optionally ollama nomic-embed-text), chat via Ollama-P40. Does **not** consume MCP gateway or langgraph-agents.
 - **HolmesGPT** (`observability/`) — the only agent live in production. AlertManager firings reach it via Windmill's `alertmanager-holmesgpt-notify.ts`; it reasons over Prometheus + Loki + cluster state and posts a root-cause hypothesis to Zulip / ntfy. Open WebUI also surfaces it as a tool server.
-- **langgraph-agents** (`ai/`) — the FastAPI multi-agent runtime (`rwlove/langgraph-agents`, image `0.2.28`). Plumbed end-to-end (Postgres checkpoints + memory, vault PVCs, Windmill approval loop, cost caps in env) but cold: `ENABLE_CLAUDE_API: false` and no public route except `/approval`. Goes hot when the Claude key lands in 1Password.
+- **langgraph-agents** (`ai/`) — the FastAPI multi-agent runtime (`rwlove/langgraph-agents`, image `0.2.30`). Plumbed end-to-end (Postgres checkpoints + memory, live task-queue substrate in `postgres-langgraph-checkpoints`, vault PVCs, Windmill approval loop, cost caps in env) but cold: `ENABLE_CLAUDE_API: false` and no public route except `/approval`. Goes hot when the Claude key lands in 1Password.
 - **claude-runner** (`automation/`) — separate escalation lane. Two daily CronJobs (`pr-triage` 13:00 UTC, `cost-cap-commentary` 22:00 UTC) launch the Claude Code CLI with a `gh` MCP allowlist, post Zulip cards, then exit. Stateless; never consumes langgraph-agents.
 - **Windmill** (`home/`) — 12 checked-in TypeScript flows under `kubernetes/apps/home/windmill/workflows/` are the bridges that knit the surfaces above together. Every alert webhook, Zulip-triggered DM, approval round-trip, daily digest, DLQ retry, cost-cap pause, and Paperless RAG ingest is a `.ts` file there. n8n was retired during the ntfy migration.
 - **Langfuse** (`ai/`) — OTLP trace sink for langgraph-agents. Chart deploys ClickHouse + Valkey + MinIO bundled; Postgres comes from CNPG `postgres-langfuse`.

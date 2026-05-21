@@ -634,6 +634,130 @@ step 1. Adding the toolbox to the rook-ceph operator helmrelease
 is a Stage 2 quality-of-life follow-up; see incident on
 2026-05-21 for the time cost without it.
 
+### ZOT cold-start recovery — the secondary failure mode
+
+This runbook section pairs with the one above. When the
+underlying Ceph PG issue clears, ZOT itself doesn't immediately
+recover — it goes through a long cold-start sequence that can
+look like a fresh failure.
+
+**Symptom.** After the Ceph PG re-peer succeeds (osd.2 came
+back up, `rbd info` works again from a mon pod), `zot-0` enters
+a `CrashLoopBackOff` pattern even though the underlying volume
+is healthy. Each restart shows `parsing next repo` log lines
+walking through hundreds of cached images, but the pod gets
+killed by its liveness probe before reaching the end.
+
+```sh
+kubectl logs -n kube-system zot-0 --tail=5 | grep parsing
+# → "parsing next repo 'quay.io/...': total=272, progress=233"
+# Restart count climbs by 1 every ~30 s.
+```
+
+After this clears (post-parse + scrub + GC + retention all run
+on first boot), the pod becomes `Ready` but **serves chart
+manifests with 5-minute latency** for the next 30–60 min while
+background ops still contend for I/O.
+
+**How to confirm — phase 1 (parse loop).**
+
+```sh
+kubectl get pod -n kube-system zot-0
+# RESTARTS climbing by 1/30s — fingerprint
+kubectl logs -n kube-system zot-0 --previous --tail=10 | grep -c "parsing next repo"
+# → many; the parse never completes inside the liveness window
+kubectl get pod -n kube-system zot-0 -o jsonpath='{.spec.containers[0].livenessProbe}'
+# → check failureThreshold; default is 3 × 10s = 30 s — too short
+```
+
+**How to confirm — phase 2 (post-parse latency).**
+
+ZOT pod is `Ready=True`, but `helm template` against ZOT-mirrored
+charts times out from CI:
+
+```sh
+kubectl logs -n kube-system zot-0 --tail=20 | grep '"latency"'
+# Each manifest GET reports `"latency":"5m2s"` (or similar) —
+# fingerprint of disk contention from scrub + gc + retention
+kubectl logs -n kube-system zot-0 --tail=20 | grep -E "scrub|garbage collected|retention"
+# All three running concurrently on cold-start
+```
+
+**Root cause.** ZOT v2 runs three periodic maintenance ops:
+
+- *Scrub* — manifest/blob integrity check
+- *GC* — remove unreferenced blobs
+- *Retention* — delete tags per retention policy
+
+On a cold restart these all fire at once. With a 500 GiB
+ceph-block PVC and 272 cached repos, the first pass dominates
+disk I/O and serving threads starve. Steady-state runs touch
+only the small delta since the last run and are fast.
+
+**Recovery — phase 1 (parse loop).**
+
+Patch the liveness probe in-cluster to survive cold start:
+
+```sh
+kubectl patch statefulset -n kube-system zot --type=json -p='[
+  {"op":"replace",
+   "path":"/spec/template/spec/containers/0/livenessProbe/failureThreshold",
+   "value":60}
+]'
+```
+
+This bumps `failureThreshold` from 3 to 60 (10 min). The
+StatefulSet rolls a new pod; if Flux subsequently reconciles
+the HelmRelease, **the patch is overwritten** — see prevention
+below.
+
+**Recovery — phase 2 (post-parse latency).**
+
+Wait it out. Background ops settle in 30–60 min. CI can be
+unblocked by **admin-bypass merging** PRs whose CI failures are
+specifically `Extract images` / `Flux Local Test` chart-fetch
+timeouts against ZOT — the failures are pure infrastructure
+flake, not PR content.
+
+**Prevention — Stage 2 follow-ups.** The in-cluster patch in
+"Recovery phase 1" is a hotfix. The durable fix is in Git:
+
+1. Add a `startupProbe` to the ZOT HelmRelease in
+   `kubernetes/apps/kube-system/zot/app/helmrelease.yaml` so
+   liveness/readiness don't apply until startup completes:
+
+   ```yaml
+   probes:
+     startup:
+       enabled: true
+       custom: true
+       spec:
+         httpGet:
+           path: /v2/
+           port: 5000
+         initialDelaySeconds: 30
+         periodSeconds: 30
+         failureThreshold: 60   # 30 min cold-start budget
+   ```
+
+2. (Optional) Configure ZOT's `extensions.scrub.delay`,
+   `extensions.gc.delay`, and `retention.schedule` so the
+   first post-restart pass doesn't fire immediately. See
+   ZOT v2 config docs.
+
+3. Open a `workaround:` issue per
+   `.agents/instructions/workarounds.md` linking back to this
+   runbook section so the in-cluster patch isn't quietly lost
+   on the next HelmRelease reconcile.
+
+**Cross-reference.** The user-visible symptom that *first*
+exposes this on a busy cluster is "Django ADMINS email about
+postgres connection errors" — the postgres-zulip primary
+takes a brief connection flap during PG re-peering, Django's
+ADMINS hook fires. The Postgres process itself doesn't
+restart; reconnect is automatic; data is intact. See the
+2026-05-21 incident notes for the exact timing.
+
 ### Stalled HelmRelease with `MissingRollbackTarget`
 
 **Symptom.** A HelmRelease shows `Ready=False` with condition

@@ -31,21 +31,23 @@ spec:
             - port: "8080"
               protocol: TCP
   egress:
-    # LLM backend — ollama (P40) + ollama-spark (Blackwell) in ai ns
-    # (Pattern E). Both endpoints selected for parallel-routing readiness;
-    # current MODEL/OLLAMA_API_BASE target ollama-spark, but the rollback
-    # path is a one-env-flip back to ollama — keep both reachable.
-    - toEndpoints:
-        - matchLabels:
-            io.kubernetes.pod.namespace: ai
-            app.kubernetes.io/name: ollama
-        - matchLabels:
-            io.kubernetes.pod.namespace: ai
-            app.kubernetes.io/name: ollama-spark
+    # LLM backend — ollama (P40) + ollama-spark (Blackwell) in ai ns.
+    # Reaches both for parallel-routing readiness; current
+    # MODEL/OLLAMA_API_BASE target ollama-spark, with the P40 ollama
+    # endpoint kept reachable as a one-env-flip rollback.
+    #
+    # NB: a targeted `toEndpoints + toPorts: 11434` rule for ai/ollama
+    # + ai/ollama-spark was the original shape but Cilium 1.19 silently
+    # dropped Holmes → ollama-spark SYNs (Hubble verdict:
+    # `policy-verdict:none ... DENIED`) despite the selector → identity
+    # resolution succeeding. Same realization issue PR #11870 hit on
+    # blackbox-exporter against the same destinations. Using
+    # `toEntities: cluster` (the prometheus-allow pattern) sidesteps it.
+    # Tradeoff: any cluster pod on :11434 — in practice nothing else
+    # listens on 11434, so the effective destination set is unchanged.
+    - toEntities:
+        - cluster
       toPorts:
         - ports:
             - port: "11434"
               protocol: TCP
-    # HolmesGPT investigates k8s resources at runtime — needs to query
-    # prometheus + alertmanager + loki (intra-ns; baseline covers) and
-    # the apiserver (baseline covers). No external egress required.

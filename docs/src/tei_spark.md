@@ -80,7 +80,7 @@ Subsequent pod restarts skip the HF Hub steps (PVC cache is warm) and complete i
 
 ### 5. DCGM utilization counters are broken on GB10
 
-Per [reference_dcgm_gb10_broken_counters](../../reference_dcgm_gb10_broken_counters.md): `GPU_UTIL`, `MEM_COPY_UTIL`, `GR_ENGINE_ACTIVE`, `FB_USED` are stuck at 0 or empty on Spark. Only `POWER_USAGE` and `SM_CLOCK` report. Don't write GPU-utilization-based alerts; use request-success metrics instead.
+Most DCGM utilization counters are broken on GB10: `GPU_UTIL`, `MEM_COPY_UTIL`, `GR_ENGINE_ACTIVE`, `FB_USED` are stuck at 0 or empty on Spark. Only `POWER_USAGE` and `SM_CLOCK` report. Don't write GPU-utilization-based alerts; use request-success metrics instead.
 
 ## Configuration knobs
 

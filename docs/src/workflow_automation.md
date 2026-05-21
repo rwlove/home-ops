@@ -250,6 +250,5 @@ need attention:
   Zulip approval-receive path is unaffected; it stays as the
   reliable fallback.
 
-See the migration write-up at
-[`audit/n8n-to-windmill.md`](audit/n8n-to-windmill.md) (if present)
-or memory `project_n8n_to_windmill_migration_done` for the history.
+See memory `project_n8n_to_windmill_migration_done` for the history
+of the migration off n8n.

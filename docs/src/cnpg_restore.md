@@ -126,8 +126,7 @@ shipped offsite. App reconstruction depends on the app:
 - `atuin` — terminal history; gone, restart fresh
 - `home-assistant` — see `home-assistant-config/` for what's
   in-Git and what's runtime-only
-- `radarr/sonarr/lidarr/prowlarr/recyclarr/suggestarr/soularr` —
-  media-pull-stack apps; full data loss is non-recoverable beyond
+- media-pull-stack apps — full data loss is non-recoverable beyond
   re-scraping from external sources
 - `medikeep` — full loss; manual reentry
 - `pump`, `sparkyfitness`, `videodupfinder`, `cutvideo` —

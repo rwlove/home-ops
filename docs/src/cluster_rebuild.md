@@ -174,7 +174,7 @@ done
 
 **Commented** — block exists in the file but is commented out. Uncomment before the relevant Flux Kustomization runs on rebuild:
 
-- `cutvideo`, `lidarr`, `medikeep`, `netbox`, `prowlarr`, `pump`, `radarr`, `romm`, `sonarr`, `sparkyfitness`
+- `cutvideo`, `medikeep`, `netbox`, `pump`, `romm`, `sparkyfitness`, the media-pull-stack apps
 
 **No recovery block at all** — these clusters have never been wired for Barman recovery. **Add a `bootstrap.recovery` block (and confirm an `ObjectStore` + `ScheduledBackup` exist) before any rebuild that needs them to survive:**
 

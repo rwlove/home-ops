@@ -11,6 +11,11 @@ on:
       - README.md
       - .github/workflows/docs.yaml
       - kubernetes/**
+  pull_request:
+    paths:
+      - docs/**
+      - README.md
+      - .github/workflows/docs.yaml
 
 permissions:
   actions: write
@@ -20,6 +25,7 @@ permissions:
 
 jobs:
   publish:
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}
@@ -49,3 +55,35 @@ jobs:
           publish_dir: ./docs/book/html
           user_name: "rosey-the-renovator-bot[bot]"
           user_email: "rosey-the-renovator-bot <98764075+rosey-the-renovator-bot[bot]@users.noreply.github.com>"
+
+  material-preview:
+    # Preview-only build for the Material for MkDocs migration. Uploads
+    # the rendered site as a CI artifact so Rob can inspect the new
+    # look-and-feel before PR #2 swaps the live deploy. No deploy here.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: 3.14.x
+
+      - name: Install mkdocs-material
+        shell: bash
+        working-directory: docs
+        run: pip install -r requirements.txt
+
+      - name: Build with mkdocs
+        shell: bash
+        working-directory: docs
+        run: mkdocs build
+
+      - name: Upload preview artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: material-preview
+          path: docs/site/
+          retention-days: 7
+          if-no-files-found: error

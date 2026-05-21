@@ -1,0 +1,3038 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="GitOps-managed home Kubernetes cluster — runbooks, design docs, audits.">
+      
+      
+        <meta name="author" content="Bubba">
+      
+      
+        <link rel="canonical" href="https://rwlove.github.io/home-ops/pod_security_audit/">
+      
+      
+        <link rel="prev" href="../mtls_rollout_design/">
+      
+      
+        <link rel="next" href="../rbac_audit/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Pod Security Baseline Audit - Home Operations</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#pod-security-baseline-audit" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Home Operations" class="md-header__button md-logo" aria-label="Home Operations" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Home Operations
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Pod Security Baseline Audit
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/rwlove/home-ops" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rwlove/home-ops
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Home Operations" class="md-nav__button md-logo" aria-label="Home Operations" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Home Operations
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/rwlove/home-ops" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rwlove/home-ops
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+          
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href=".." class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Welcome
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_1" id="__nav_1_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Welcome
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../introduction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI & Workflow
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    AI & Workflow
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ai_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../homeaiops_dod/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HomeAIOps Definition of Done
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflow_automation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow Automation: Agents, Approvals, and Push
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../memory_mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Memory MCP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp_observability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Fleet Observability
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tei_spark/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TEI on Spark — reranker for RAG
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../coral/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coral Edge TPU
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../p40/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NVIDIA Tesla P40
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cluster Lifecycle
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Cluster Lifecycle
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cluster_rebuild/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cluster Rebuild Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cluster_upgrade/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cluster Upgrade Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../promote_worker_to_control_plane/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Promote a Worker to a Schedulable Control Plane
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../init_teardown/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Initialization &amp; Teardown
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../master1_etcd_disk_swap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    master1 etcd-Disk Swap Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../power-outage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Whole-home power outage / cold-start recovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DR & Restore
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    DR & Restore
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rook_ceph_dr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rook-Ceph DR Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cnpg_restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CNPG Cluster Restore Template
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../longhorn_restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Longhorn Restore Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../garage_restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Garage Substrate Restore Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../frigate_dr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Frigate + direct-NFS DR Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../immich_cnpg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Importing an Immich DB backup into a new CNPG database
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../offsite_recovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Offsite Recovery — Immich and Paperless
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Network & Security
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Network & Security
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../per-route-cert-migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Per-Route Cert Migration Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../apiserver_audit_logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Apiserver Audit Logging — Phase 5.P operator runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../networkpolicy_rollout_plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NetworkPolicy Rollout Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../egress_restriction_design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Egress Restriction Design Proposal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mtls_rollout_design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Istio mTLS Rollout Design Proposal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pod Security Baseline Audit
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pod Security Baseline Audit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scope
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#findings-by-deviation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Findings by deviation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#group-a-easy-remediation-chart-values-change-low-risk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Group A — Easy remediation (chart-values change, low risk)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Group A — Easy remediation (chart-values change, low risk)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a1-oauth2-proxy-helmreleases-24-instances-all-violate-everything" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A1. oauth2-proxy HelmReleases (24 instances, all violate everything)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a2-media-pull-stack-and-similar-app-template-charts-missing-baseline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A2. media-pull-stack and similar app-template charts missing baseline
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a3-fsgroupchangepolicy-missing-on-hr-owned-pods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A3. fsGroupChangePolicy missing on HR-owned pods
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#group-b-medium-likely-needs-testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Group B — Medium (likely needs testing)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Group B — Medium (likely needs testing)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#b1-app-writes-to-rootfs-at-startup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B1. App writes to rootfs at startup
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b2-uid-0-in-user-apps-needs-per-app-review" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B2. UID 0 in user apps — needs per-app review
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#group-c-hard-accept-deviation-document-why" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Group C — Hard / accept deviation (document why)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Group C — Hard / accept deviation (document why)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#c1-storage-csi-drivers-rook-ceph-longhorn-system" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C1. Storage CSI drivers (rook-ceph, longhorn-system)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#c2-network-path-containers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C2. Network path containers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#c3-hardware-probes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C3. Hardware probes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#top-3-most-concerning-findings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Top 3 most concerning findings
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#top-3-intentional-deviations-to-keep" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Top 3 intentional deviations to keep
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#psa-enforcement-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PSA enforcement plan
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="PSA enforcement plan">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#decision-built-in-psa-labels-not-kyverno" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decision: built-in PSA labels, not Kyverno
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#per-namespace-audit-level" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-namespace audit level
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reading-psa-audit-mode-violations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reading PSA audit-mode violations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ramp-criteria-audit-warn-enforce" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ramp criteria: audit → warn → enforce
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-audit-doesnt-do" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this audit doesn't do
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#methodology" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Methodology
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rbac_audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RBAC Audit Findings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Substrate & Orchestration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Substrate & Orchestration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../orchestration_substrate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Orchestration substrate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task_queue_substrate_design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task Queue Substrate — design proposal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../github_webhook/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub Webhook → Flux
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../limits/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resources: Limits and Requests Philosophy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audits
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Audits
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../audit/post-spark-tool-call-leakage-2026-05-18/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Post-Spark tool-call-JSON leakage audit (2026-05-18)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../debugging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debugging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scope
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#findings-by-deviation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Findings by deviation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#group-a-easy-remediation-chart-values-change-low-risk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Group A — Easy remediation (chart-values change, low risk)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Group A — Easy remediation (chart-values change, low risk)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a1-oauth2-proxy-helmreleases-24-instances-all-violate-everything" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A1. oauth2-proxy HelmReleases (24 instances, all violate everything)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a2-media-pull-stack-and-similar-app-template-charts-missing-baseline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A2. media-pull-stack and similar app-template charts missing baseline
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a3-fsgroupchangepolicy-missing-on-hr-owned-pods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A3. fsGroupChangePolicy missing on HR-owned pods
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#group-b-medium-likely-needs-testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Group B — Medium (likely needs testing)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Group B — Medium (likely needs testing)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#b1-app-writes-to-rootfs-at-startup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B1. App writes to rootfs at startup
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b2-uid-0-in-user-apps-needs-per-app-review" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B2. UID 0 in user apps — needs per-app review
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#group-c-hard-accept-deviation-document-why" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Group C — Hard / accept deviation (document why)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Group C — Hard / accept deviation (document why)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#c1-storage-csi-drivers-rook-ceph-longhorn-system" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C1. Storage CSI drivers (rook-ceph, longhorn-system)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#c2-network-path-containers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C2. Network path containers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#c3-hardware-probes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C3. Hardware probes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#top-3-most-concerning-findings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Top 3 most concerning findings
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#top-3-intentional-deviations-to-keep" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Top 3 intentional deviations to keep
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#psa-enforcement-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PSA enforcement plan
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="PSA enforcement plan">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#decision-built-in-psa-labels-not-kyverno" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decision: built-in PSA labels, not Kyverno
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#per-namespace-audit-level" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-namespace audit level
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reading-psa-audit-mode-violations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reading PSA audit-mode violations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ramp-criteria-audit-warn-enforce" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ramp criteria: audit → warn → enforce
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-audit-doesnt-do" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this audit doesn't do
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#methodology" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Methodology
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/rwlove/home-ops/edit/main/docs/src/pod_security_audit.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="pod-security-baseline-audit">Pod Security Baseline Audit<a class="headerlink" href="#pod-security-baseline-audit" title="Permanent link">&para;</a></h1>
+<p>Status: <strong>PSA audit labels applied per-namespace (audit-mode only, no warn/enforce).</strong> Group A remediation in flight (PRs #11600/#11604/#11606/#11607/#11608/#11609/#11611/#11612). Enforcement ramp is per-namespace and gated on log observation.
+Owner: home-ops
+Last updated: 2026-05-18</p>
+<p>Audits running pods against the baseline defined in
+<a href="https://github.com/rwlove/home-ops/blob/main/.agents/instructions/helmrelease.security.md"><code>.agents/instructions/helmrelease.security.md</code></a>.</p>
+<h2 id="scope">Scope<a class="headerlink" href="#scope" title="Permanent link">&para;</a></h2>
+<p>Snapshot taken 2026-05-18. Audited 422 pods / 524 containers across 20
+namespaces. Excluded <code>kube-system</code>, <code>flux-system</code>, <code>istio-system</code>, and
+<code>cilium-secrets</code> (perimeter/system control plane; out of scope for this
+audit's threat model — same rationale as the network policy rollout).</p>
+<p>Workload classes:</p>
+<table>
+<thead>
+<tr>
+<th>Class</th>
+<th>Containers</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>User app (HelmRelease-controlled)</td>
+<td>325</td>
+<td>18 namespaces; we own the values.yaml</td>
+</tr>
+<tr>
+<td>Infra operator (rook-ceph, longhorn-system)</td>
+<td>199</td>
+<td>Operator-controlled pod templates; deviations mostly inherent</td>
+</tr>
+</tbody>
+</table>
+<p>The audit baseline:</p>
+<p><strong>Pod-level</strong>: <code>runAsNonRoot: true</code>, non-zero <code>runAsUser</code>/<code>runAsGroup</code>, <code>fsGroup</code>, <code>fsGroupChangePolicy: OnRootMismatch</code>.
+<strong>Container-level</strong>: <code>allowPrivilegeEscalation: false</code>, <code>readOnlyRootFilesystem: true</code>, <code>capabilities.drop: [ALL]</code>, <code>seccompProfile.type: RuntimeDefault</code>.</p>
+<h2 id="findings-by-deviation">Findings by deviation<a class="headerlink" href="#findings-by-deviation" title="Permanent link">&para;</a></h2>
+<p>Counts below are containers (not pods — DaemonSet replicas inflate
+pod counts), split into user-app vs infra-operator. Workload-level
+remediation effort is keyed off <strong>distinct HelmRelease</strong>, not container
+count.</p>
+<table>
+<thead>
+<tr>
+<th>Deviation</th>
+<th style="text-align: right;">User-app</th>
+<th style="text-align: right;">Infra-op</th>
+<th style="text-align: right;">Total</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Defaults to root (no <code>runAsUser</code>, no <code>runAsNonRoot</code>)</td>
+<td style="text-align: right;">99</td>
+<td style="text-align: right;">n/a</td>
+<td style="text-align: right;">99</td>
+</tr>
+<tr>
+<td>Explicit <code>runAsUser: 0</code></td>
+<td style="text-align: right;">32</td>
+<td style="text-align: right;">17</td>
+<td style="text-align: right;">49</td>
+</tr>
+<tr>
+<td><code>readOnlyRootFilesystem</code> != true</td>
+<td style="text-align: right;">151</td>
+<td style="text-align: right;">198</td>
+<td style="text-align: right;">349</td>
+</tr>
+<tr>
+<td>Privileged container</td>
+<td style="text-align: right;">26</td>
+<td style="text-align: right;">91</td>
+<td style="text-align: right;">117</td>
+</tr>
+<tr>
+<td>Missing <code>capabilities.drop: [ALL]</code></td>
+<td style="text-align: right;">124</td>
+<td style="text-align: right;">165</td>
+<td style="text-align: right;">289</td>
+</tr>
+<tr>
+<td>Missing <code>seccompProfile</code> (effective)</td>
+<td style="text-align: right;">197</td>
+<td style="text-align: right;">199</td>
+<td style="text-align: right;">396</td>
+</tr>
+<tr>
+<td>Explicit <code>allowPrivilegeEscalation: true</code></td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">24</td>
+<td style="text-align: right;">24</td>
+</tr>
+<tr>
+<td>Capabilities added (<code>NET_ADMIN</code>, <code>SYS_ADMIN</code>, etc.)</td>
+<td style="text-align: right;">19</td>
+<td style="text-align: right;">24</td>
+<td style="text-align: right;">43</td>
+</tr>
+<tr>
+<td><code>fsGroup</code> set without <code>OnRootMismatch</code></td>
+<td style="text-align: right;">24 (HR-owned)</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">24</td>
+</tr>
+</tbody>
+</table>
+<p>54 user-app containers (~17%) pass every baseline check today.</p>
+<h2 id="group-a-easy-remediation-chart-values-change-low-risk">Group A — Easy remediation (chart-values change, low risk)<a class="headerlink" href="#group-a-easy-remediation-chart-values-change-low-risk" title="Permanent link">&para;</a></h2>
+<h3 id="a1-oauth2-proxy-helmreleases-24-instances-all-violate-everything">A1. oauth2-proxy HelmReleases (24 instances, all violate everything)<a class="headerlink" href="#a1-oauth2-proxy-helmreleases-24-instances-all-violate-everything" title="Permanent link">&para;</a></h3>
+<p><code>quay.io/oauth2-proxy/oauth2-proxy</code> containers across 24 HelmReleases
+have <strong>zero</strong> <code>securityContext</code> set. The binary is a stateless
+reverse proxy — runs fine as non-root, doesn't write to rootfs, doesn't
+need any caps.</p>
+<p><strong>Proposed</strong>: stamp the baseline pod + container <code>securityContext</code> onto
+every <code>*-oauth2-proxy/app/helmrelease.yaml</code>. Affected:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>ai/khoj-oauth2-proxy
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>collab/{glance,glance-user,pump,startpunkt}-oauth2-proxy
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>collab/garage-webui-oauth2-proxy (under storage/)
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>downloads/&lt;media-pull-stack apps&gt;-oauth2-proxy
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>home/frigate-oauth2-proxy
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>media/{av1corrector,medialyze,music-assistant,batocera-webdashboard-pro}-oauth2-proxy
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>media/&lt;media-pull-stack apps&gt;-oauth2-proxy
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>observability/{goldilocks,kube-ops-view,holmesgpt}-oauth2-proxy
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>storage/garage-webui-oauth2-proxy
+</span></code></pre></div>
+<p>Single PR per app to keep blast radius bounded, or one PR scoping the
+entire family — the latter is cheaper and the risk is uniform.</p>
+<h3 id="a2-media-pull-stack-and-similar-app-template-charts-missing-baseline">A2. media-pull-stack and similar app-template charts missing baseline<a class="headerlink" href="#a2-media-pull-stack-and-similar-app-template-charts-missing-baseline" title="Permanent link">&para;</a></h3>
+<p>Apps where the bjw-s <code>defaultPodOptions</code> aren't being inherited at the
+container level. Likely candidates for one-PR-each remediation:</p>
+<ul>
+<li><code>collab/{it-tools,nametag,paperless,pump,pump-cv,swiparr,kitchenowl}</code></li>
+<li><code>media/{flaresolverr,immich-power-tools,videodupfinder,theme-park,immichkiosk}</code></li>
+<li><code>home/wyoming-services-{kokoro,openwakeword,whisper}</code></li>
+<li><code>ai/{paperless-ai,sync-receiver}</code></li>
+</ul>
+<p>Each is a stateless or near-stateless app reading from a configMap or
+PVC; readOnlyRootFilesystem should land with at most a <code>tmpfs</code>
+<code>/tmp</code> mount.</p>
+<h3 id="a3-fsgroupchangepolicy-missing-on-hr-owned-pods">A3. <code>fsGroupChangePolicy</code> missing on HR-owned pods<a class="headerlink" href="#a3-fsgroupchangepolicy-missing-on-hr-owned-pods" title="Permanent link">&para;</a></h3>
+<p>24 HelmRelease-owned workloads set <code>fsGroup</code> but not
+<code>fsGroupChangePolicy: OnRootMismatch</code>. Cosmetic for already-chowned
+PVCs, but adds startup latency on large volumes (Immich, paperless,
+n8n). One-line fix per app:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>ai/{langgraph-agents}
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>auth/authelia
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>collab/{paperless-offsite-backup,zulip-memcached,zulip-rabbitmq}
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>home/{emqx,netbox}
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>mcp-system/mcp-gateway-jwt-rotator
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>media/{immich-offsite-backup,&lt;media-library-app&gt;}
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>network/externaldns-cloudflare
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>observability/{alertmanager,grafana,kube-prometheus-stack-operator,
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>              kube-state-metrics,prometheus-kube-prometheus-stack}
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>renovate/renovate-operator + 3 RenovateJob pods
+</span></code></pre></div>
+<p>(CNPG <code>postgres-*</code> pods are operator-managed — separately addressed by
+upgrading the cnpg chart or PRing upstream, not by editing values here.)</p>
+<h2 id="group-b-medium-likely-needs-testing">Group B — Medium (likely needs testing)<a class="headerlink" href="#group-b-medium-likely-needs-testing" title="Permanent link">&para;</a></h2>
+<h3 id="b1-app-writes-to-rootfs-at-startup">B1. App writes to rootfs at startup<a class="headerlink" href="#b1-app-writes-to-rootfs-at-startup" title="Permanent link">&para;</a></h3>
+<p>Likely needs a tmpfs <code>/tmp</code> or <code>/var/cache</code> mount to satisfy
+<code>readOnlyRootFilesystem: true</code>. Candidate workloads — each needs a
+test cycle:</p>
+<ul>
+<li><code>media/jellyfin</code> (writes transcode cache; check <code>/cache</code> mount)</li>
+<li><code>media/gonic</code> (scans library, may write tmp)</li>
+<li><code>media/beets</code> (config + library import)</li>
+<li><code>media/romm</code> (scan state)</li>
+<li><code>home/home-assistant</code> (Python venvs, writes <code>__pycache__</code>)</li>
+<li><code>home/n8n</code>, <code>home/node-red</code> (Node-style app dirs)</li>
+<li><code>home/emqx</code> (Erlang VM cache)</li>
+<li><code>home/esphome-code</code>, <code>home/home-assistant-code</code> (code-server: writes
+  to <code>/home/coder</code> — already PVC-backed, ROOTFS itself should be
+  fine; needs test)</li>
+<li><code>ai/{comfyui,khoj,ollama,paperless-ai}</code> (ML model caches; some are
+  already PVC-mounted)</li>
+<li><code>collab/{obsidian-couchdb,zulip,open-webui,paperless}</code></li>
+<li><code>network/wg-easy</code> (writes config at startup)</li>
+</ul>
+<h3 id="b2-uid-0-in-user-apps-needs-per-app-review">B2. UID 0 in user apps — needs per-app review<a class="headerlink" href="#b2-uid-0-in-user-apps-needs-per-app-review" title="Permanent link">&para;</a></h3>
+<p>32 user-app containers explicitly <code>runAsUser: 0</code>. Most are infra-y or
+have a structural reason:</p>
+<ul>
+<li><code>observability/node-exporter</code> — needs RAPL (<code>runAsUser:0</code> is the
+  documented fix; see <code>project_node_exporter_rapl_root_required</code>).
+  <strong>Keep.</strong></li>
+<li><code>observability/smartctl-exporter</code> — needs SMART ioctls. <strong>Keep.</strong></li>
+<li><code>home/matter-server</code> — Matter SDK requires root for bluetooth/IPv6
+  multicast. <strong>Likely keep — confirm.</strong></li>
+<li><code>downloads/*/gateway-sidecar</code> (all 5 <em>arr + jd2) — pod-gateway
+  sidecar runs as root by design. </em><em>Keep, document.</em>*</li>
+<li><code>collab/zulip</code> — Zulip image expects root entrypoint that drops to
+  <code>zulip</code> user internally. <strong>Verify drop-privs is real, then keep.</strong></li>
+<li><code>home/{esphome-code,home-assistant-code}</code> — code-server images start
+  as root then drop. <strong>Verify, then keep.</strong></li>
+<li><code>mcp-system/immich-mcp</code> — review whether image supports non-root.</li>
+<li><code>ai/khoj</code> — review.</li>
+<li><code>media/immichkiosk-transcode</code> — review (likely needs ffmpeg perms).</li>
+</ul>
+<h2 id="group-c-hard-accept-deviation-document-why">Group C — Hard / accept deviation (document why)<a class="headerlink" href="#group-c-hard-accept-deviation-document-why" title="Permanent link">&para;</a></h2>
+<h3 id="c1-storage-csi-drivers-rook-ceph-longhorn-system">C1. Storage CSI drivers (rook-ceph, longhorn-system)<a class="headerlink" href="#c1-storage-csi-drivers-rook-ceph-longhorn-system" title="Permanent link">&para;</a></h3>
+<p><strong>107 privileged + add-caps containers</strong>. CSI node plugins need
+<code>privileged: true</code> + <code>SYS_ADMIN</code> to bind-mount inside the host's mount
+namespace. This is inherent to the CSI architecture.</p>
+<ul>
+<li><code>rook-ceph</code> osd, csi-rbdplugin, csi-cephfsplugin — privileged</li>
+<li><code>longhorn-system</code> longhorn-manager, instance-manager, share-manager,
+  longhorn-csi-plugin — privileged</li>
+<li>These are operator-managed; remediation = upstream chart change, not
+  values override.</li>
+</ul>
+<p><strong>Action</strong>: document as accepted deviation. No PR.</p>
+<h3 id="c2-network-path-containers">C2. Network path containers<a class="headerlink" href="#c2-network-path-containers" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>vpn/downloads-gateway-pod-gateway-main</code> — needs <code>NET_ADMIN</code> +
+  <code>NET_RAW</code> to set up the gluetun tunnel and route table.</li>
+<li><code>network/multus</code> — CNI plugin, needs <code>NET_ADMIN</code>.</li>
+<li><code>network/wg-easy</code> — wireguard kernel ops need <code>NET_ADMIN</code>. Already
+  privileged; could potentially be reduced to <code>NET_ADMIN</code> cap-only.</li>
+<li><code>observability/blackbox-exporter</code> — <code>NET_RAW</code> for ICMP probes.</li>
+<li><code>home/{esphome,node-red}</code> — <code>NET_RAW</code>/<code>NET_ADMIN</code> for IoT discovery.</li>
+</ul>
+<p><strong>Action</strong>: accept, document per-app why elevation is necessary.</p>
+<h3 id="c3-hardware-probes">C3. Hardware probes<a class="headerlink" href="#c3-hardware-probes" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>observability/{node-exporter,smartctl-exporter}</code> — root + hostPID
+  required for hardware metrics (RAPL energy probes, SMART self-tests).</li>
+<li><code>home/{frigate,zigbee2mqtt,zwave-js-ui}</code> — privileged for direct USB
+  device passthrough on the IoT bus.</li>
+</ul>
+<p><strong>Action</strong>: accept, document.</p>
+<h2 id="top-3-most-concerning-findings">Top 3 most concerning findings<a class="headerlink" href="#top-3-most-concerning-findings" title="Permanent link">&para;</a></h2>
+<ol>
+<li>
+<p><strong>24 oauth2-proxy HelmReleases with zero securityContext.</strong> These
+   sit in front of every authenticated app; if any oauth2-proxy is
+   compromised it has unrestricted container capabilities, rootfs
+   write, root UID. Easy fix, broad blast radius reduction. Should
+   be PR #1.</p>
+</li>
+<li>
+<p><strong><code>network/wg-easy</code> is privileged</strong> even though it could likely
+   run with just <code>NET_ADMIN</code> + <code>NET_RAW</code>. wg-easy is the only OOB
+   access path back into the cluster (see memory: <code>wg-easy is the
+   only OOB access path</code>); a compromise gets you everything.
+   Worth a focused harden-down PR with extra care.</p>
+</li>
+<li>
+<p><strong>99 user-app containers default to root</strong> (no <code>runAsUser</code>, no
+   <code>runAsNonRoot</code>). The image's <code>USER</code> directive saves us most of the
+   time, but every one of these is a "trust the upstream image" bet
+   that we can convert to an explicit guarantee with one chart-values
+   block per app.</p>
+</li>
+</ol>
+<h2 id="top-3-intentional-deviations-to-keep">Top 3 intentional deviations to keep<a class="headerlink" href="#top-3-intentional-deviations-to-keep" title="Permanent link">&para;</a></h2>
+<ol>
+<li>
+<p><strong>Rook-Ceph + Longhorn CSI plugins</strong> (privileged, SYS_ADMIN).
+   Architectural — CSI nodeplugins bind-mount in the host namespace.
+   Re-prosecuting this is wasted effort.</p>
+</li>
+<li>
+<p><strong><code>node-exporter</code> + <code>smartctl-exporter</code></strong> (UID 0, privileged).
+   RAPL energy probes are root-only (per memory:
+   <code>node-exporter RAPL needs runAsUser:0</code>), and smartctl needs ioctls
+   no userspace cap exposes.</p>
+</li>
+<li>
+<p><strong><code>vpn/downloads-gateway-pod-gateway-main</code></strong> (NET_ADMIN, NET_RAW,
+   UID 0 on sidecars). Pod-gateway architecture; sidecars need to
+   manipulate the netns. Already isolated to one namespace.</p>
+</li>
+</ol>
+<h2 id="psa-enforcement-plan">PSA enforcement plan<a class="headerlink" href="#psa-enforcement-plan" title="Permanent link">&para;</a></h2>
+<h3 id="decision-built-in-psa-labels-not-kyverno">Decision: built-in PSA labels, not Kyverno<a class="headerlink" href="#decision-built-in-psa-labels-not-kyverno" title="Permanent link">&para;</a></h3>
+<p>Choices considered for new-workload enforcement:</p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Pros</th>
+<th>Cons</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Built-in PSA</strong> (<code>pod-security.kubernetes.io/&lt;mode&gt;</code> labels)</td>
+<td>No new component; zero CRDs; built into apiserver since v1.25; one label-line per namespace</td>
+<td>Three modes only (privileged/baseline/restricted); no per-pod exception model; cluster-wide policy not expressible as code</td>
+</tr>
+<tr>
+<td><strong>Kyverno</strong></td>
+<td>Full policy DSL, per-workload exceptions, mutation, image-signature checks</td>
+<td>Another operator to upgrade; webhook in admission path adds latency + a failure mode; CRDs to learn</td>
+</tr>
+</tbody>
+</table>
+<p>For a 1-operator / ~400-pod home lab, the PSA labels are the right
+size. Decision: ship PSA labels, revisit Kyverno only if we hit a
+policy expressiveness limit (e.g. per-workload exception inside an
+otherwise-restricted namespace).</p>
+<h3 id="per-namespace-audit-level">Per-namespace audit level<a class="headerlink" href="#per-namespace-audit-level" title="Permanent link">&para;</a></h3>
+<p>Applied as <code>pod-security.kubernetes.io/audit: &lt;level&gt;</code> +
+<code>pod-security.kubernetes.io/audit-version: latest</code>. No <code>warn</code> or
+<code>enforce</code> yet — audit-only logs violations into the apiserver's pod
+log without admitting/rejecting. Out-of-scope namespaces (<code>kube-system</code>,
+<code>flux-system</code>, <code>cilium-secrets</code>, <code>kuadrant</code> (empty/dormant)) carry no
+PSA labels — same boundary as the netpol rollout.</p>
+<table>
+<thead>
+<tr>
+<th>Namespace</th>
+<th>Audit level</th>
+<th>Rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>actions-runner-system</code></td>
+<td><code>baseline</code></td>
+<td>ARC runners spawn user-defined workloads</td>
+</tr>
+<tr>
+<td><code>ai</code></td>
+<td><code>restricted</code></td>
+<td>App-template HRs; partially hardened</td>
+</tr>
+<tr>
+<td><code>auth</code></td>
+<td><code>restricted</code></td>
+<td>Authelia + LLDAP already meet baseline</td>
+</tr>
+<tr>
+<td><code>cert-manager</code></td>
+<td><code>restricted</code></td>
+<td>Upstream pods are clean</td>
+</tr>
+<tr>
+<td><code>collab</code></td>
+<td><code>restricted</code></td>
+<td>oauth2-proxy hardened; zulip will fire</td>
+</tr>
+<tr>
+<td><code>databases</code></td>
+<td><code>baseline</code></td>
+<td>CNPG operator-managed; tighten later</td>
+</tr>
+<tr>
+<td><code>downloads</code></td>
+<td><code>baseline</code></td>
+<td>pod-gateway-sidecar root + NET_ADMIN</td>
+</tr>
+<tr>
+<td><code>external-secrets</code></td>
+<td><code>restricted</code></td>
+<td>ESO controller is clean</td>
+</tr>
+<tr>
+<td><code>home</code></td>
+<td><code>baseline</code></td>
+<td>frigate/z2m/zwave-js need privileged USB</td>
+</tr>
+<tr>
+<td><code>istio-system</code></td>
+<td><code>baseline</code></td>
+<td>istio CNI installer needs privileged init</td>
+</tr>
+<tr>
+<td><code>longhorn-system</code></td>
+<td><code>privileged</code></td>
+<td>CSI architecture (audit doc C1)</td>
+</tr>
+<tr>
+<td><code>mcp-system</code></td>
+<td><code>restricted</code></td>
+<td>Stateless services</td>
+</tr>
+<tr>
+<td><code>media</code></td>
+<td><code>baseline</code></td>
+<td>Rootfs writes (jellyfin/gonic/romm)</td>
+</tr>
+<tr>
+<td><code>network</code></td>
+<td><code>baseline</code></td>
+<td>multus/wg-easy need NET_ADMIN</td>
+</tr>
+<tr>
+<td><code>observability</code></td>
+<td><code>privileged</code></td>
+<td>node-exporter/smartctl/vector hostPID</td>
+</tr>
+<tr>
+<td><code>renovate</code></td>
+<td><code>restricted</code></td>
+<td>Stateless workers</td>
+</tr>
+<tr>
+<td><code>rook-ceph</code></td>
+<td><code>privileged</code></td>
+<td>CSI + OSDs (audit doc C1)</td>
+</tr>
+<tr>
+<td><code>selfhosted</code></td>
+<td><code>restricted</code></td>
+<td>Small stateless set</td>
+</tr>
+<tr>
+<td><code>storage</code></td>
+<td><code>baseline</code></td>
+<td>Garage is near-clean</td>
+</tr>
+<tr>
+<td><code>vpn</code></td>
+<td><code>privileged</code></td>
+<td>Already enforce-privileged; audit aligned</td>
+</tr>
+</tbody>
+</table>
+<h3 id="reading-psa-audit-mode-violations">Reading PSA audit-mode violations<a class="headerlink" href="#reading-psa-audit-mode-violations" title="Permanent link">&para;</a></h3>
+<p>PSA violations land in the kube-apiserver pod's stdout (each control-plane
+node) as warnings. Vector-agent scrapes them into Loki. From Grafana
+Explore:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>{namespace=&quot;kube-system&quot;, pod=~&quot;kube-apiserver-.*&quot;}
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>  |~ &quot;would violate PodSecurity&quot;
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>  | json
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>  | line_format `{{.violations}} ns={{.namespace}} pod={{.name}}`
+</span></code></pre></div>
+<p>Each violation line includes the failing field (<code>runAsNonRoot</code>,
+<code>seccompProfile</code>, etc.), the offending namespace, and the requesting
+user/serviceAccount. For a focused look at a single ns:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>{namespace=&quot;kube-system&quot;, pod=~&quot;kube-apiserver-.*&quot;}
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>  |~ &quot;would violate PodSecurity&quot;
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>  |~ `ns=\&quot;observability\&quot;`
+</span></code></pre></div>
+<p>The same data is also emitted as a <code>policy_violation</code> annotation on
+<code>Events</code> in the namespace of the rejected workload, queryable with:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>events<span class="w"> </span>-A<span class="w"> </span>--field-selector<span class="w"> </span><span class="nv">reason</span><span class="o">=</span>FailedCreate<span class="w"> </span>-o<span class="w"> </span>yaml<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-B1<span class="w"> </span>-A5<span class="w"> </span><span class="s1">&#39;would violate PodSecurity&#39;</span>
+</span></code></pre></div>
+<h3 id="ramp-criteria-audit-warn-enforce">Ramp criteria: audit → warn → enforce<a class="headerlink" href="#ramp-criteria-audit-warn-enforce" title="Permanent link">&para;</a></h3>
+<p>Per-namespace, advance one step at a time once the prior step has been
+stable for the window:</p>
+<ul>
+<li><strong><code>audit</code> → <code>warn</code></strong>: ≥7 days of audit logs with zero unexplained
+  violations (i.e. every violation maps to a known accepted-deviation
+  pod from this audit doc, or to a Group A/B remediation TODO). Adding
+  <code>warn</code> surfaces violations to the user creating the workload at
+  apply-time, which is where you want them.</li>
+<li><strong><code>warn</code> → <code>enforce</code></strong>: ≥14 days of <code>warn</code> with zero new violation
+  classes (operators have learned the rule; the noise has settled to
+  steady-state). Flip via <code>pod-security.kubernetes.io/enforce: &lt;level&gt;</code>
+  in the same namespace.yaml — the level should match <code>audit</code>. After
+  enforce lands, the audit + warn labels become belt-and-suspenders;
+  leave them in place so version bumps continue logging.</li>
+</ul>
+<p>Per-namespace tracking lives in this section's table as the levels are
+ramped.</p>
+<h2 id="what-this-audit-doesnt-do">What this audit doesn't do<a class="headerlink" href="#what-this-audit-doesnt-do" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>No drift detection beyond audit-mode logs.</strong> Group A/B remediation
+  PRs still have to be authored by hand. PSA admission catches <em>new</em>
+  workloads that violate the level; it doesn't migrate the existing
+  fleet.</li>
+<li><strong>Doesn't replace HelmRelease defaults.</strong> PSA is the floor;
+  <code>helmrelease.security.md</code> is the ceiling. New HRs should still meet
+  the helmrelease.security baseline even if the namespace's PSA level
+  doesn't require it (defense in depth + makes future ramps free).</li>
+</ul>
+<h2 id="methodology">Methodology<a class="headerlink" href="#methodology" title="Permanent link">&para;</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-A<span class="w"> </span>-o<span class="w"> </span>json<span class="w"> </span>&gt;<span class="w"> </span>all-pods.json
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="c1"># In-scope: exclude system namespaces</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>jq<span class="w"> </span>-r<span class="w"> </span><span class="s1">&#39;.items[]</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="s1">  | select(.metadata.namespace</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="s1">      | test(&quot;^(kube-system|flux-system|istio-system|cilium-secrets)$&quot;)</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="s1">      | not)&#39;</span><span class="w"> </span>all-pods.json
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="c1"># Per-container effective securityContext (container overrides pod)</span>
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="c1"># - eff_runAsUser = container.runAsUser || pod.runAsUser</span>
+</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="c1"># - eff_runAsNonRoot = container.runAsNonRoot || pod.runAsNonRoot</span>
+</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="c1"># - eff_seccomp = container.securityContext.seccompProfile.type</span>
+</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="c1">#                 || pod.securityContext.seccompProfile.type</span>
+</span></code></pre></div>
+<p>Raw output and per-pod classification are reproducible from
+<code>kubectl get pods -A -o json</code>; the jq expressions live in this PR's
+description.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../mtls_rollout_design/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Istio mTLS Rollout Design Proposal">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Istio mTLS Rollout Design Proposal
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../rbac_audit/" class="md-footer__link md-footer__link--next" aria-label="Next: RBAC Audit Findings">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                RBAC Audit Findings
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "navigation.footer", "search.highlight", "search.share", "search.suggest", "content.code.copy", "content.code.annotate", "content.action.edit", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

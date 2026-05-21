@@ -1,0 +1,3400 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="GitOps-managed home Kubernetes cluster — runbooks, design docs, audits.">
+      
+      
+        <meta name="author" content="Bubba">
+      
+      
+        <link rel="canonical" href="https://rwlove.github.io/home-ops/per-route-cert-migration/">
+      
+      
+        <link rel="prev" href="../offsite_recovery/">
+      
+      
+        <link rel="next" href="../apiserver_audit_logging/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Per-Route Cert Migration Runbook - Home Operations</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#per-route-cert-migration-runbook" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Home Operations" class="md-header__button md-logo" aria-label="Home Operations" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Home Operations
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Per-Route Cert Migration Runbook
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/rwlove/home-ops" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rwlove/home-ops
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Home Operations" class="md-nav__button md-logo" aria-label="Home Operations" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Home Operations
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/rwlove/home-ops" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rwlove/home-ops
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+          
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href=".." class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Welcome
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_1" id="__nav_1_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Welcome
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../introduction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI & Workflow
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    AI & Workflow
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ai_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../homeaiops_dod/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HomeAIOps Definition of Done
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflow_automation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow Automation: Agents, Approvals, and Push
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../memory_mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Memory MCP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp_observability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Fleet Observability
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tei_spark/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TEI on Spark — reranker for RAG
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../coral/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coral Edge TPU
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../p40/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NVIDIA Tesla P40
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cluster Lifecycle
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Cluster Lifecycle
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cluster_rebuild/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cluster Rebuild Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cluster_upgrade/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cluster Upgrade Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../promote_worker_to_control_plane/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Promote a Worker to a Schedulable Control Plane
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../init_teardown/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Initialization &amp; Teardown
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../master1_etcd_disk_swap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    master1 etcd-Disk Swap Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../power-outage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Whole-home power outage / cold-start recovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DR & Restore
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    DR & Restore
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rook_ceph_dr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rook-Ceph DR Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cnpg_restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CNPG Cluster Restore Template
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../longhorn_restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Longhorn Restore Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../garage_restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Garage Substrate Restore Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../frigate_dr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Frigate + direct-NFS DR Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../immich_cnpg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Importing an Immich DB backup into a new CNPG database
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../offsite_recovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Offsite Recovery — Immich and Paperless
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Network & Security
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Network & Security
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Per-Route Cert Migration Runbook
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Per-Route Cert Migration Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#state-at-the-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        State at the start
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#target-state-split-by-exposure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Target state — split by exposure
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Target state — split by exposure">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-split" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why split
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rate-limit-math-acme-side-22-certs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rate-limit math (ACME side, ~22 certs)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#critical-gotchas-learned-the-hard-way" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Critical gotchas (learned the hard way)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Critical gotchas (learned the hard way)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-the-gateway-shim-must-be-explicitly-enabled" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. The gateway-shim must be explicitly enabled
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-the-reflector-pattern-fights-the-gateway-shim-across-namespaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. The reflector pattern fights the gateway-shim across namespaces
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-httproute-sectionname-has-no-fallback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. HTTPRoute sectionName has no fallback
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-0-annotation-prep" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 0 — Annotation prep
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 0 — Annotation prep">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#01-pre-flight-test-one-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.1 Pre-flight test (one-time)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#02-add-the-annotations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.2 Add the annotations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#03-verify" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.3 Verify
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-1-internal-gateway-private-ca-parallel-track" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1 — Internal Gateway → private CA (parallel track)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 1 — Internal Gateway → private CA (parallel track)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11-set-up-the-private-ca" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.1 Set up the private CA
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12-distribute-the-root-to-client-devices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.2 Distribute the root to client devices
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#13-migrate-the-internal-gateway" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.3 Migrate the internal Gateway
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-2-public-gateways-canary-1-app" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2 — Public Gateways canary (1 app)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 2 — Public Gateways canary (1 app)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-add-a-per-app-listener" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 Add a per-app listener
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22-flip-the-httproutes-sectionname" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2 Flip the HTTPRoute's sectionName
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23-verify-and-soak" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3 Verify and soak
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-3-wave-migration-on-public-gateways" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3 — Wave migration on public Gateways
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 3 — Wave migration on public Gateways">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#per-wave-procedure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-wave procedure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#recommended-wave-order" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommended wave order
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-to-do-if-you-hit-a-rate-limit-error" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What to do if you hit a rate-limit error
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-4-cleanup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4 — Cleanup
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 4 — Cleanup">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#40-istio-gateway-migration-prerequisite" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.0 istio Gateway migration (prerequisite)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#41-verify-no-consumers-reference-the-wildcard-secret" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 Verify no consumers reference the wildcard Secret
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-remove-the-wildcard-listener-from-each-gateway" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 Remove the wildcard listener from each Gateway
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-delete-the-wildcard-certificate-manifest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 Delete the wildcard Certificate manifest
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#44-final-verify" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.4 Final verify
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rollback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rollback
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-to-watch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What to watch
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-to-stop-and-ask" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When to stop and ask
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#alternative-all-acme-no-private-ca" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Alternative: all-ACME (no private CA)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../apiserver_audit_logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Apiserver Audit Logging — Phase 5.P operator runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../networkpolicy_rollout_plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NetworkPolicy Rollout Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../egress_restriction_design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Egress Restriction Design Proposal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mtls_rollout_design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Istio mTLS Rollout Design Proposal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pod_security_audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pod Security Baseline Audit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rbac_audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RBAC Audit Findings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Substrate & Orchestration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Substrate & Orchestration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../orchestration_substrate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Orchestration substrate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task_queue_substrate_design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task Queue Substrate — design proposal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../github_webhook/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub Webhook → Flux
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../limits/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resources: Limits and Requests Philosophy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audits
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Audits
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../audit/post-spark-tool-call-leakage-2026-05-18/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Post-Spark tool-call-JSON leakage audit (2026-05-18)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../debugging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debugging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#state-at-the-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        State at the start
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#target-state-split-by-exposure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Target state — split by exposure
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Target state — split by exposure">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-split" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why split
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rate-limit-math-acme-side-22-certs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rate-limit math (ACME side, ~22 certs)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#critical-gotchas-learned-the-hard-way" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Critical gotchas (learned the hard way)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Critical gotchas (learned the hard way)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-the-gateway-shim-must-be-explicitly-enabled" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. The gateway-shim must be explicitly enabled
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-the-reflector-pattern-fights-the-gateway-shim-across-namespaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. The reflector pattern fights the gateway-shim across namespaces
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-httproute-sectionname-has-no-fallback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. HTTPRoute sectionName has no fallback
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-0-annotation-prep" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 0 — Annotation prep
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 0 — Annotation prep">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#01-pre-flight-test-one-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.1 Pre-flight test (one-time)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#02-add-the-annotations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.2 Add the annotations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#03-verify" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.3 Verify
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-1-internal-gateway-private-ca-parallel-track" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1 — Internal Gateway → private CA (parallel track)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 1 — Internal Gateway → private CA (parallel track)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11-set-up-the-private-ca" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.1 Set up the private CA
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12-distribute-the-root-to-client-devices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.2 Distribute the root to client devices
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#13-migrate-the-internal-gateway" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.3 Migrate the internal Gateway
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-2-public-gateways-canary-1-app" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2 — Public Gateways canary (1 app)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 2 — Public Gateways canary (1 app)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-add-a-per-app-listener" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 Add a per-app listener
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22-flip-the-httproutes-sectionname" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2 Flip the HTTPRoute's sectionName
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23-verify-and-soak" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3 Verify and soak
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-3-wave-migration-on-public-gateways" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3 — Wave migration on public Gateways
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 3 — Wave migration on public Gateways">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#per-wave-procedure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-wave procedure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#recommended-wave-order" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommended wave order
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-to-do-if-you-hit-a-rate-limit-error" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What to do if you hit a rate-limit error
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-4-cleanup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4 — Cleanup
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 4 — Cleanup">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#40-istio-gateway-migration-prerequisite" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.0 istio Gateway migration (prerequisite)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#41-verify-no-consumers-reference-the-wildcard-secret" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 Verify no consumers reference the wildcard Secret
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-remove-the-wildcard-listener-from-each-gateway" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 Remove the wildcard listener from each Gateway
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-delete-the-wildcard-certificate-manifest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 Delete the wildcard Certificate manifest
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#44-final-verify" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.4 Final verify
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rollback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rollback
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-to-watch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What to watch
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-to-stop-and-ask" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When to stop and ask
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#alternative-all-acme-no-private-ca" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Alternative: all-ACME (no private CA)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/rwlove/home-ops/edit/main/docs/src/per-route-cert-migration.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="per-route-cert-migration-runbook">Per-Route Cert Migration Runbook<a class="headerlink" href="#per-route-cert-migration-runbook" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p><strong>Status as of 2026-05-17:</strong> plan-only; not yet executed. The cluster
+still runs on the wildcard <code>${SECRET_DOMAIN}</code> Certificate reflected
+into <code>network</code> / <code>istio-system</code> / <code>mcp-system</code>. HTTPRoute count under
+<code>${SECRET_DOMAIN}</code> has grown from ~70 → ~100 since this runbook was
+written, which makes the rate-limit math tighter; re-derive Wave size
+before executing. The <code>istio</code> Gateway in <code>istio-system</code> has also been
+retired since this was written — the live Gateway set is now
+<code>external</code> + <code>internal</code> (both in <code>network</code>) + <code>mcp-gateway</code> (in
+<code>mcp-system</code>), three Gateways total.</p>
+</blockquote>
+<p>This runbook covers migrating from one shared wildcard ACME certificate
+(<code>${SECRET_DOMAIN}</code> covering <code>*.${SECRET_DOMAIN}</code>) to per-listener
+fine-grained short-term certificates, using cert-manager's Gateway API
+shim to auto-provision a Certificate per HTTPRoute hostname.</p>
+<p><strong>Why</strong>: smaller blast radius per renewal failure, per-host visibility,
+no reflector dependency for new namespaces, faster rotation.</p>
+<p><strong>Why this needs to be paced</strong>: Let's Encrypt limits issuance to 50
+certificates per Registered Domain per rolling 7-day window. The
+cluster has ~70 HTTPRoutes under <code>${SECRET_DOMAIN}</code> — too many to
+flag-day onto ACME without breaching the limit and locking out <em>all</em>
+issuance for ~7 days.</p>
+<h2 id="state-at-the-start">State at the start<a class="headerlink" href="#state-at-the-start" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>Reality</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Cert manifest</td>
+<td>One <code>Certificate</code> (<code>${SECRET_DOMAIN}</code>) producing <code>${SECRET_DOMAIN/./-}-tls</code></td>
+</tr>
+<tr>
+<td>Cert SANs</td>
+<td>apex, <code>*.${SECRET_DOMAIN}</code>, <code>*.app.…</code>, <code>*.mcp.…</code></td>
+</tr>
+<tr>
+<td>Reflection</td>
+<td>Secret reflected to <code>network</code>, <code>istio-system</code>, <code>mcp-system</code></td>
+</tr>
+<tr>
+<td>Issuer</td>
+<td><code>letsencrypt-production</code> (DNS01 via Cloudflare)</td>
+</tr>
+<tr>
+<td>Gateways</td>
+<td>4 — <code>external</code> (network), <code>internal</code> (network), <code>istio</code> (istio-system), <code>mcp-gateway</code> (mcp-system)</td>
+</tr>
+<tr>
+<td>HTTPRoutes per Gateway</td>
+<td>external: 11, internal: 50+, mcp-gateway: 9, istio: 2</td>
+</tr>
+<tr>
+<td>Existing TTL</td>
+<td>LE default 90d, autorenew at ~30d remaining</td>
+</tr>
+</tbody>
+</table>
+<h2 id="target-state-split-by-exposure">Target state — split by exposure<a class="headerlink" href="#target-state-split-by-exposure" title="Permanent link">&para;</a></h2>
+<p>The 70+ routes split into two cohorts:</p>
+<ul>
+<li><strong>Public-facing</strong> (~22): <code>external</code> (11), <code>mcp-gateway</code> (9), <code>istio</code> (2).
+  These need browser-trusted certs → <strong>ACME via <code>letsencrypt-production</code></strong>.</li>
+<li><strong>Internal-only</strong> (~50): everything on the <code>internal</code> Gateway. These
+  never face the public internet → <strong>private CA</strong>, issued by an
+  in-cluster ClusterIssuer. Zero rate-limit concern, instant
+  issuance, no public CT log entries leaking internal hostnames.</li>
+</ul>
+<h3 id="why-split">Why split<a class="headerlink" href="#why-split" title="Permanent link">&para;</a></h3>
+<p>A "just ACME everything" plan would burn the entire 50/week budget
+twice over and leave no headroom for retries or the existing
+wildcard's renewal. Splitting halves the scope of the rate-limited
+work and removes the public CT log noise for internal services.</p>
+<p>The cost of the split is <strong>one-time</strong>: distribute the private CA root
+to every device that visits internal hostnames (browsers, mobile
+devices, anything that calls internal APIs). That's a manual import on
+each device.</p>
+<p>If that operational cost is unacceptable, see "Alternative: all-ACME"
+at the bottom of this runbook.</p>
+<h2 id="rate-limit-math-acme-side-22-certs">Rate-limit math (ACME side, ~22 certs)<a class="headerlink" href="#rate-limit-math-acme-side-22-certs" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Hard ceiling</strong>: 50 issuances / 7d / Registered Domain</li>
+<li><strong>Total ACME target certs</strong>: ~22</li>
+<li><strong>Renewal exemption</strong>: renewals (same FQDN set, same account) are
+  exempt from the 50/week ceiling but still subject to a 5/week
+  Duplicate Certificate cap <em>per FQDN set</em>. With <code>duration: 168h</code> /
+  <code>renewBefore: 48h</code>, each cert renews ~1.4×/week — well under 5/week.</li>
+<li><strong>Sustainable initial-issuance rate</strong>: <code>50 ÷ 7 ≈ 7/day</code>. The 7-day
+  window is rolling, not calendar — at 10/day you hit the cap on day
+  5, not day 7.</li>
+<li><strong>Wave size</strong>: 5/day. Buffer of 2/day for retries and the existing
+  wildcard's renewal pressure.</li>
+<li><strong>Total elapsed</strong>: ~5 days for 22 certs.</li>
+</ul>
+<h2 id="critical-gotchas-learned-the-hard-way">Critical gotchas (learned the hard way)<a class="headerlink" href="#critical-gotchas-learned-the-hard-way" title="Permanent link">&para;</a></h2>
+<p>Three things bit us during the first execution attempt on 2026-05-02.
+Read these <em>before</em> writing any YAML.</p>
+<h3 id="1-the-gateway-shim-must-be-explicitly-enabled">1. The gateway-shim must be explicitly enabled<a class="headerlink" href="#1-the-gateway-shim-must-be-explicitly-enabled" title="Permanent link">&para;</a></h3>
+<p>cert-manager v1.16+ does <strong>not</strong> enable the gateway-shim by default,
+contrary to what some release notes suggest. You need
+<code>config.enableGatewayAPI: true</code> in the Helm values. Without it,
+annotating a Gateway with <code>cert-manager.io/cluster-issuer</code> is <strong>silently
+inert</strong> — no Certificate is ever created. Verify before Phase 0:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>cm<span class="w"> </span>-n<span class="w"> </span>cert-manager<span class="w"> </span>cert-manager<span class="w"> </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.data.config\.yaml}&#39;</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="c1"># Expect to see: enableGatewayAPI: true</span>
+</span></code></pre></div>
+<p>If absent, set it in the chart values and roll out cert-manager <em>first</em>.</p>
+<h3 id="2-the-reflector-pattern-fights-the-gateway-shim-across-namespaces">2. The reflector pattern fights the gateway-shim across namespaces<a class="headerlink" href="#2-the-reflector-pattern-fights-the-gateway-shim-across-namespaces" title="Permanent link">&para;</a></h3>
+<p>This cluster mirrors <code>network/${SECRET_DOMAIN/./-}-tls</code> to <code>istio-system</code>
+and <code>mcp-system</code> via reflector. The gateway-shim is <strong>per-namespace</strong>:
+it creates a Certificate in the same namespace as the Gateway. So
+annotating the istio Gateway whose listener references the
+reflector-mirrored Secret causes:</p>
+<ol>
+<li>shim creates a <code>Certificate</code> in <code>istio-system</code> targeting the
+   mirrored Secret's name</li>
+<li>cert-manager re-issues from ACME because "Secret was previously
+   issued by a different issuer" (1 ACME order against the budget)</li>
+<li>ongoing fight: shim's Certificate vs reflector for ownership of
+   the Secret</li>
+</ol>
+<p><strong>Don't annotate any Gateway whose listener still references a
+reflector-mirrored Secret.</strong> Migrate that Gateway's HTTPRoutes to
+per-app listeners with their own Secret names <em>first</em>, then remove
+the wildcard listener and the reflector dependency, then add the
+shim annotation.</p>
+<p>For this cluster: the istio Gateway is excluded from Phase 0. It gets
+annotated only after its (small) HTTPRoute set is migrated and the
+wildcard listener is removed.</p>
+<h3 id="3-httproute-sectionname-has-no-fallback">3. HTTPRoute <code>sectionName</code> has no fallback<a class="headerlink" href="#3-httproute-sectionname-has-no-fallback" title="Permanent link">&para;</a></h3>
+<p>A HTTPRoute attached to a listener that goes <code>Programmed=False</code>
+<strong>does not fall back to other listeners</strong> that match its hostname.
+The route is just down. The wildcard listener you keep around
+"as a backstop" only catches HTTPRoutes that explicitly point at it
+via <code>sectionName</code>.</p>
+<p><strong>Implication for the canary</strong>: don't pick an app whose downtime is
+unacceptable. The canary's listener is <code>Programmed=False</code> until ACME
+issues, which can be ~30s but can be much longer if anything's wrong.</p>
+<h2 id="phase-0-annotation-prep">Phase 0 — Annotation prep<a class="headerlink" href="#phase-0-annotation-prep" title="Permanent link">&para;</a></h2>
+<p>Verified 2026-05-02 against cert-manager v1.17.1 with
+<code>config.enableGatewayAPI: true</code>: when the shim sees a listener whose
+referenced Secret doesn't exist (or isn't owned by an in-namespace
+Certificate), it creates one. When an in-namespace Certificate already
+owns the Secret, the shim is a no-op.</p>
+<p>For this cluster, that means it's <strong>safe</strong> to annotate Gateways in the
+<code>network</code> namespace (which holds the manual <code>${SECRET_DOMAIN}</code>
+Certificate that owns <code>${SECRET_DOMAIN/./-}-tls</code>), and <strong>unsafe</strong> to
+annotate Gateways in <code>istio-system</code> or <code>mcp-system</code> while they still
+reference the reflector-mirrored Secret.</p>
+<h3 id="01-pre-flight-test-one-time">0.1 Pre-flight test (one-time)<a class="headerlink" href="#01-pre-flight-test-one-time" title="Permanent link">&para;</a></h3>
+<p>Confirm the shim creates Certificates for new Secret refs:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>-<span class="w"> </span><span class="s">&lt;&lt;&#39;EOF&#39;</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="s">---</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="s">apiVersion: v1</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="s">kind: Namespace</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="s">metadata: { name: shim-test }</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="s">---</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="s">apiVersion: cert-manager.io/v1</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="s">kind: Issuer</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="s">metadata: { name: ss, namespace: shim-test }</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="s">spec: { selfSigned: {} }</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="s">---</span>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="s">apiVersion: gateway.networking.k8s.io/v1</span>
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="s">kind: Gateway</span>
+</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="s">metadata:</span>
+</span><span id="__span-1-15"><a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="s">  name: scratch</span>
+</span><span id="__span-1-16"><a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="s">  namespace: shim-test</span>
+</span><span id="__span-1-17"><a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="s">  annotations:</span>
+</span><span id="__span-1-18"><a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="s">    cert-manager.io/issuer: ss</span>
+</span><span id="__span-1-19"><a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="s">spec:</span>
+</span><span id="__span-1-20"><a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="s">  gatewayClassName: envoy</span>
+</span><span id="__span-1-21"><a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a><span class="s">  listeners:</span>
+</span><span id="__span-1-22"><a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a><span class="s">    - name: https</span>
+</span><span id="__span-1-23"><a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a><span class="s">      protocol: HTTPS</span>
+</span><span id="__span-1-24"><a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a><span class="s">      port: 443</span>
+</span><span id="__span-1-25"><a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a><span class="s">      hostname: bar.shim-test.${SECRET_DOMAIN}</span>
+</span><span id="__span-1-26"><a id="__codelineno-1-26" name="__codelineno-1-26" href="#__codelineno-1-26"></a><span class="s">      allowedRoutes: { namespaces: { from: Same } }</span>
+</span><span id="__span-1-27"><a id="__codelineno-1-27" name="__codelineno-1-27" href="#__codelineno-1-27"></a><span class="s">      tls:</span>
+</span><span id="__span-1-28"><a id="__codelineno-1-28" name="__codelineno-1-28" href="#__codelineno-1-28"></a><span class="s">        certificateRefs: [{ kind: Secret, name: bar-shim-tls }]</span>
+</span><span id="__span-1-29"><a id="__codelineno-1-29" name="__codelineno-1-29" href="#__codelineno-1-29"></a><span class="s">EOF</span>
+</span><span id="__span-1-30"><a id="__codelineno-1-30" name="__codelineno-1-30" href="#__codelineno-1-30"></a>sleep<span class="w"> </span><span class="m">20</span>
+</span><span id="__span-1-31"><a id="__codelineno-1-31" name="__codelineno-1-31" href="#__codelineno-1-31"></a>kubectl<span class="w"> </span>get<span class="w"> </span>certificate<span class="w"> </span>-n<span class="w"> </span>shim-test
+</span><span id="__span-1-32"><a id="__codelineno-1-32" name="__codelineno-1-32" href="#__codelineno-1-32"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>namespace<span class="w"> </span>shim-test
+</span></code></pre></div>
+<p>Expected: a <code>bar-shim-tls</code> Certificate appears, <code>Ready: True</code>. If
+nothing appears within 30s, the shim isn't running — fix that before
+proceeding.</p>
+<h3 id="02-add-the-annotations">0.2 Add the annotations<a class="headerlink" href="#02-add-the-annotations" title="Permanent link">&para;</a></h3>
+<p>Annotate <strong>only</strong> the <code>external</code> and <code>internal</code> Gateways
+(<code>network</code> namespace). Skip <code>istio</code> and <code>mcp-gateway</code> for now —
+they're in namespaces that depend on the reflector. They'll be
+annotated in Phase 5 after their HTTPRoutes have moved off the
+shared Secret.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">metadata</span><span class="p">:</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">annotations</span><span class="p">:</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="c1"># ...existing annotations...</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="nt">cert-manager.io/cluster-issuer</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">letsencrypt-production</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="nt">cert-manager.io/duration</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;168h&quot;</span><span class="w">      </span><span class="c1"># 7d</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="nt">cert-manager.io/renew-before</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;48h&quot;</span>
+</span></code></pre></div>
+<blockquote>
+<p><strong>What <code>duration</code> actually does.</strong> Let's Encrypt's default profile
+always issues 90-day certificates regardless of the <code>duration</code>
+requested by ACME. The <code>cert-manager.io/duration</code> annotation controls
+only cert-manager's <em>renewal cadence</em> — it tells cert-manager "treat
+this cert as expiring after 168h" so it renews early. You still get
+90-day certs, just rotated every ~5 days.</p>
+<p>For actually-short LE certs, opt into the <code>tlsserver</code> profile (~6-day
+validity) by adding <code>acme.cert-manager.io/order-profile-name:
+tlsserver</code> on the per-listener Certificate or via cert-manager's
+issuer-level configuration. That changes the LE order profile and
+the issued cert is genuinely short-lived. Verify with
+<code>openssl s_client … | openssl x509 -noout -dates</code> after issuance.</p>
+</blockquote>
+<p>For the <code>internal</code> Gateway, swap the issuer to the private CA once
+Phase 1 is done:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="w">    </span><span class="nt">cert-manager.io/cluster-issuer</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cluster-internal-ca</span>
+</span></code></pre></div>
+<h3 id="03-verify">0.3 Verify<a class="headerlink" href="#03-verify" title="Permanent link">&para;</a></h3>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Cert count must be unchanged after reconcile.</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>certificate<span class="w"> </span>-A
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1"># If a new Certificate appears in any namespace, the shim hit</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="c1"># something it shouldn&#39;t have. Stop and investigate.</span>
+</span></code></pre></div>
+<p>If a Certificate appeared, check whether it's in a namespace whose
+Gateway you annotated. If yes, you almost certainly hit case (2) above
+— the listener references a reflector-mirrored Secret. Revert the
+annotation and migrate that Gateway separately later.</p>
+<h2 id="phase-1-internal-gateway-private-ca-parallel-track">Phase 1 — Internal Gateway → private CA (parallel track)<a class="headerlink" href="#phase-1-internal-gateway-private-ca-parallel-track" title="Permanent link">&para;</a></h2>
+<p>This phase is independent of the ACME phases below — it has no rate
+limit concerns and can run in any order or in parallel.</p>
+<h3 id="11-set-up-the-private-ca">1.1 Set up the private CA<a class="headerlink" href="#11-set-up-the-private-ca" title="Permanent link">&para;</a></h3>
+<p>(One-time. Skip if already present.)</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># cert-manager: bootstrap a self-signed root + ClusterIssuer</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="nn">---</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cert-manager.io/v1</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ClusterIssuer</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="nt">metadata</span><span class="p">:</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">selfsigned-bootstrap</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="nt">spec</span><span class="p">:</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">  </span><span class="nt">selfSigned</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{}</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="nn">---</span>
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cert-manager.io/v1</span>
+</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Certificate</span>
+</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="nt">metadata</span><span class="p">:</span>
+</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cluster-internal-ca</span>
+</span><span id="__span-5-14"><a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cert-manager</span>
+</span><span id="__span-5-15"><a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a><span class="nt">spec</span><span class="p">:</span>
+</span><span id="__span-5-16"><a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="w">  </span><span class="nt">isCA</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-5-17"><a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a><span class="w">  </span><span class="nt">commonName</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${SECRET_DOMAIN} Internal CA</span>
+</span><span id="__span-5-18"><a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a><span class="w">  </span><span class="nt">secretName</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cluster-internal-ca-tls</span>
+</span><span id="__span-5-19"><a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a><span class="w">  </span><span class="nt">duration</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">87600h</span><span class="w">  </span><span class="c1"># 10y root</span>
+</span><span id="__span-5-20"><a id="__codelineno-5-20" name="__codelineno-5-20" href="#__codelineno-5-20"></a><span class="w">  </span><span class="nt">renewBefore</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">720h</span>
+</span><span id="__span-5-21"><a id="__codelineno-5-21" name="__codelineno-5-21" href="#__codelineno-5-21"></a><span class="w">  </span><span class="nt">privateKey</span><span class="p">:</span>
+</span><span id="__span-5-22"><a id="__codelineno-5-22" name="__codelineno-5-22" href="#__codelineno-5-22"></a><span class="w">    </span><span class="nt">algorithm</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ECDSA</span>
+</span><span id="__span-5-23"><a id="__codelineno-5-23" name="__codelineno-5-23" href="#__codelineno-5-23"></a><span class="w">    </span><span class="nt">size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">256</span>
+</span><span id="__span-5-24"><a id="__codelineno-5-24" name="__codelineno-5-24" href="#__codelineno-5-24"></a><span class="w">  </span><span class="nt">issuerRef</span><span class="p">:</span>
+</span><span id="__span-5-25"><a id="__codelineno-5-25" name="__codelineno-5-25" href="#__codelineno-5-25"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">selfsigned-bootstrap</span>
+</span><span id="__span-5-26"><a id="__codelineno-5-26" name="__codelineno-5-26" href="#__codelineno-5-26"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ClusterIssuer</span>
+</span><span id="__span-5-27"><a id="__codelineno-5-27" name="__codelineno-5-27" href="#__codelineno-5-27"></a><span class="nn">---</span>
+</span><span id="__span-5-28"><a id="__codelineno-5-28" name="__codelineno-5-28" href="#__codelineno-5-28"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cert-manager.io/v1</span>
+</span><span id="__span-5-29"><a id="__codelineno-5-29" name="__codelineno-5-29" href="#__codelineno-5-29"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ClusterIssuer</span>
+</span><span id="__span-5-30"><a id="__codelineno-5-30" name="__codelineno-5-30" href="#__codelineno-5-30"></a><span class="nt">metadata</span><span class="p">:</span>
+</span><span id="__span-5-31"><a id="__codelineno-5-31" name="__codelineno-5-31" href="#__codelineno-5-31"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cluster-internal-ca</span>
+</span><span id="__span-5-32"><a id="__codelineno-5-32" name="__codelineno-5-32" href="#__codelineno-5-32"></a><span class="nt">spec</span><span class="p">:</span>
+</span><span id="__span-5-33"><a id="__codelineno-5-33" name="__codelineno-5-33" href="#__codelineno-5-33"></a><span class="w">  </span><span class="nt">ca</span><span class="p">:</span>
+</span><span id="__span-5-34"><a id="__codelineno-5-34" name="__codelineno-5-34" href="#__codelineno-5-34"></a><span class="w">    </span><span class="nt">secretName</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cluster-internal-ca-tls</span>
+</span></code></pre></div>
+<h3 id="12-distribute-the-root-to-client-devices">1.2 Distribute the root to client devices<a class="headerlink" href="#12-distribute-the-root-to-client-devices" title="Permanent link">&para;</a></h3>
+<p>This is the non-zero operational cost. Export the CA cert and import
+it into:</p>
+<ul>
+<li>Each laptop / desktop browser (or system trust store)</li>
+<li>Each phone / tablet</li>
+<li>Any in-cluster client that calls internal hostnames over TLS</li>
+</ul>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>secret<span class="w"> </span>-n<span class="w"> </span>cert-manager<span class="w"> </span>cluster-internal-ca-tls<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.data.tls\.crt}&#39;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>base64<span class="w"> </span>-d<span class="w"> </span>&gt;<span class="w"> </span>internal-ca.crt
+</span></code></pre></div>
+<p>Don't proceed past 1.2 until you've imported and verified the root on
+at least your primary device. (Open <code>https://glance.${SECRET_DOMAIN}</code>
+post-migration and confirm no cert warning.)</p>
+<h3 id="13-migrate-the-internal-gateway">1.3 Migrate the internal Gateway<a class="headerlink" href="#13-migrate-the-internal-gateway" title="Permanent link">&para;</a></h3>
+<p>Add <code>cert-manager.io/cluster-issuer: cluster-internal-ca</code> annotation
+to <code>kubernetes/apps/network/envoy-gateway/config/internal.yaml</code>. Then,
+in batches of 10 for review-ability, add a per-app listener and flip
+the corresponding HTTPRoute's <code>sectionName</code>. Issuance is instant —
+no soak required between batches; just verify each Certificate goes
+Ready before moving on.</p>
+<p>The wildcard listener stays alive until every internal HTTPRoute is
+migrated, so rollback is the same as the ACME track: revert
+<code>sectionName</code> and the route falls back to the wildcard.</p>
+<h2 id="phase-2-public-gateways-canary-1-app">Phase 2 — Public Gateways canary (1 app)<a class="headerlink" href="#phase-2-public-gateways-canary-1-app" title="Permanent link">&para;</a></h2>
+<p>Pick a low-stakes route on the <strong>external</strong> Gateway (the highest
+public visibility). Avoid the highest-traffic apps (immich, jellyfin)
+until after canary; pick something like the github webhook or a
+seldom-used bookmark.</p>
+<blockquote>
+<p>⚠ <strong>No fallback.</strong> Once you flip the HTTPRoute's <code>sectionName</code> to
+the new per-app listener, the route is bound to that listener
+<em>only</em>. If ACME issuance fails or is slow, the route returns 404 (or
+connection refused) until the cert lands — the wildcard listener
+does <strong>not</strong> serve as a backstop. Pick a canary you can afford to
+have down for ~30s in the happy case and several minutes in the
+failure case.</p>
+</blockquote>
+<h3 id="21-add-a-per-app-listener">2.1 Add a per-app listener<a class="headerlink" href="#21-add-a-per-app-listener" title="Permanent link">&para;</a></h3>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nt">spec</span><span class="p">:</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">listeners</span><span class="p">:</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">    </span><span class="c1"># existing http and wildcard https listeners untouched</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https-&lt;app&gt;</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">      </span><span class="nt">protocol</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">HTTPS</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">      </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">443</span>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">      </span><span class="nt">hostname</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&lt;app&gt;.${SECRET_DOMAIN}&quot;</span>
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">      </span><span class="nt">allowedRoutes</span><span class="p">:</span>
+</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">        </span><span class="nt">namespaces</span><span class="p">:</span>
+</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="w">          </span><span class="nt">from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">All</span>
+</span><span id="__span-7-11"><a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="w">      </span><span class="nt">tls</span><span class="p">:</span>
+</span><span id="__span-7-12"><a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="w">        </span><span class="nt">certificateRefs</span><span class="p">:</span>
+</span><span id="__span-7-13"><a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Secret</span>
+</span><span id="__span-7-14"><a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a><span class="w">            </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;app&gt;-tls</span>
+</span></code></pre></div>
+<p>The Gateway already carries the shim annotations from Phase 0; this
+new listener picks them up automatically. cert-manager will create a
+<code>&lt;app&gt;-tls</code> Certificate within seconds of the listener appearing.</p>
+<h3 id="22-flip-the-httproutes-sectionname">2.2 Flip the HTTPRoute's sectionName<a class="headerlink" href="#22-flip-the-httproutes-sectionname" title="Permanent link">&para;</a></h3>
+<div class="language-diff highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="w"> </span>  parentRefs:
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w"> </span>    - name: external
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w"> </span>      namespace: network
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="gd">-      sectionName: https</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="gi">+      sectionName: https-&lt;app&gt;</span>
+</span></code></pre></div>
+<h3 id="23-verify-and-soak">2.3 Verify and soak<a class="headerlink" href="#23-verify-and-soak" title="Permanent link">&para;</a></h3>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Cert issues in seconds for staging, ~30s for production</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>certificate<span class="w"> </span>-n<span class="w"> </span>network<span class="w"> </span>-w
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="c1"># Confirm the SAN is just the one hostname and duration ≈ 7d</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="nb">echo</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>openssl<span class="w"> </span>s_client<span class="w"> </span>-connect<span class="w"> </span>&lt;app&gt;.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span>:443<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="w">  </span>-servername<span class="w"> </span>&lt;app&gt;.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span><span class="m">2</span>&gt;/dev/null<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>openssl<span class="w"> </span>x509<span class="w"> </span>-noout<span class="w"> </span>-subject<span class="w"> </span>-ext<span class="w"> </span>subjectAltName<span class="w"> </span>-dates
+</span></code></pre></div>
+<p>Soak 24h. If anything is wrong, <strong>revert the HTTPRoute sectionName</strong>.
+The wildcard listener still serves the old wildcard cert; no user
+impact.</p>
+<p>Don't proceed past Phase 2 until this canary has cleanly soaked AND
+auto-renewed at least once (<code>renewBefore: 48h</code> means renewal kicks in
+on day 5 — wait for that).</p>
+<h2 id="phase-3-wave-migration-on-public-gateways">Phase 3 — Wave migration on public Gateways<a class="headerlink" href="#phase-3-wave-migration-on-public-gateways" title="Permanent link">&para;</a></h2>
+<p>Goal: migrate the remaining ~19 public-facing HTTPRoutes on Gateways
+that are already annotated (<code>external</code> 10, <code>mcp-gateway</code> 9) at
+<strong>5 per day</strong> with 12h soaks. The 2 istio routes are deferred to
+Phase 5.</p>
+<h3 id="per-wave-procedure">Per-wave procedure<a class="headerlink" href="#per-wave-procedure" title="Permanent link">&para;</a></h3>
+<p>For each batch of 5:</p>
+<ol>
+<li>Add 5 listeners to the appropriate Gateway. Sort listeners
+   alphabetically inside the <code>listeners:</code> block.</li>
+<li>Flip 5 HTTPRoute <code>sectionName</code>s.</li>
+<li>Commit + push. One PR per wave. Title: <code>feat(network): per-app TLS
+   migration wave N (X/Y)</code>.</li>
+<li>Watch issuance:</li>
+</ol>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>certificate<span class="w"> </span>-A<span class="w"> </span>-w
+</span></code></pre></div>
+<p>All 5 should reach Ready within ~2 min. Anything stuck → check
+   <code>kubectl describe certificate &lt;name&gt; -n network</code> and the Order /
+   Challenge resources.
+5. Soak ~12h between waves. Watch the issuer for rate-limit warnings:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>kubectl<span class="w"> </span>describe<span class="w"> </span>clusterissuer<span class="w"> </span>letsencrypt-production
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>challenge<span class="w"> </span>-A
+</span></code></pre></div>
+<h3 id="recommended-wave-order">Recommended wave order<a class="headerlink" href="#recommended-wave-order" title="Permanent link">&para;</a></h3>
+<p>Public Gateway with the manual <code>Certificate</code> first (lower risk —
+that's where Phase 0 was verified safe):</p>
+<ol>
+<li>Wave 1: <code>external</code> (5 of 10; canary already done)</li>
+<li>Wave 2: <code>external</code> (the other 5)</li>
+<li>Wave 3: <code>mcp-gateway</code> (5 of 9)</li>
+<li>Wave 4: <code>mcp-gateway</code> (the other 4)</li>
+</ol>
+<p>Total ~4 calendar days at one wave per ~12h. The 2 istio routes are
+handled in Phase 5 once the reflector dependency is removed.</p>
+<h3 id="what-to-do-if-you-hit-a-rate-limit-error">What to do if you hit a rate-limit error<a class="headerlink" href="#what-to-do-if-you-hit-a-rate-limit-error" title="Permanent link">&para;</a></h3>
+<p>cert-manager surfaces LE rate-limit responses in the Order resource:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>order<span class="w"> </span>-A<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-i<span class="w"> </span>rate
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>kubectl<span class="w"> </span>describe<span class="w"> </span>order<span class="w"> </span>-n<span class="w"> </span>network<span class="w"> </span>&lt;order&gt;
+</span></code></pre></div>
+<p>If hit:</p>
+<ul>
+<li><strong>Stop the next wave immediately.</strong></li>
+<li><strong>Don't delete failing Certificates</strong> — that doesn't reset the
+  counter and can cause cert-manager to retry, eating more budget.</li>
+<li>The window is rolling; just wait. The first issuance from N days
+  ago drops off after 7d.</li>
+<li>Resume waves once <code>kubectl get certificate -A</code> shows no Pending or
+  Failing.</li>
+</ul>
+<h2 id="phase-4-cleanup">Phase 4 — Cleanup<a class="headerlink" href="#phase-4-cleanup" title="Permanent link">&para;</a></h2>
+<p>Run only after every HTTPRoute on every Gateway has been migrated
+and soaked for 7+ days.</p>
+<h3 id="40-istio-gateway-migration-prerequisite">4.0 istio Gateway migration (prerequisite)<a class="headerlink" href="#40-istio-gateway-migration-prerequisite" title="Permanent link">&para;</a></h3>
+<p>The istio Gateway was excluded from Phase 0 / Phase 3 because its
+listener references the reflector-mirrored Secret. Migrate any
+remaining HTTPRoutes on it <em>before</em> deleting the wildcard
+Certificate.</p>
+<p>For each istio HTTPRoute (<code>&lt;app&gt;</code> = the HTTPRoute name):</p>
+<ol>
+<li>Create a manual Certificate in <code>istio-system</code> (no shim
+   involvement — the istio Gateway is still un-annotated):</li>
+</ol>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cert-manager.io/v1</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Certificate</span>
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="nt">metadata</span><span class="p">:</span>
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;app&gt;</span>
+</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">istio-system</span>
+</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="nt">spec</span><span class="p">:</span>
+</span><span id="__span-13-7"><a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="w">  </span><span class="nt">secretName</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;app&gt;-tls</span>
+</span><span id="__span-13-8"><a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="w">  </span><span class="nt">issuerRef</span><span class="p">:</span>
+</span><span id="__span-13-9"><a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">letsencrypt-production</span>
+</span><span id="__span-13-10"><a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ClusterIssuer</span>
+</span><span id="__span-13-11"><a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a><span class="w">  </span><span class="nt">dnsNames</span><span class="p">:</span>
+</span><span id="__span-13-12"><a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;app&gt;.${SECRET_DOMAIN}</span>
+</span><span id="__span-13-13"><a id="__codelineno-13-13" name="__codelineno-13-13" href="#__codelineno-13-13"></a><span class="w">  </span><span class="nt">duration</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">168h</span>
+</span><span id="__span-13-14"><a id="__codelineno-13-14" name="__codelineno-13-14" href="#__codelineno-13-14"></a><span class="w">  </span><span class="nt">renewBefore</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">48h</span>
+</span></code></pre></div>
+<ol>
+<li>
+<p>Wait for it to be Ready (1 ACME issuance per cert).</p>
+</li>
+<li>
+<p>Add a per-app listener to the istio Gateway referencing
+   <code>&lt;app&gt;-tls</code>, then flip the HTTPRoute's <code>sectionName</code>.</p>
+</li>
+<li>
+<p>Soak briefly. Confirm the HTTPRoute serves via the new listener.</p>
+</li>
+</ol>
+<p>After all istio HTTPRoutes are migrated:</p>
+<ol>
+<li>
+<p>Remove the wildcard listener from the istio Gateway.</p>
+</li>
+<li>
+<p>Remove <code>istio-system</code> from the wildcard Certificate's
+   <code>reflector...reflection-allowed-namespaces</code> annotation list (in
+   <code>kubernetes/apps/network/envoy-gateway/config/certificate.yaml</code>).
+   This stops new mirroring; existing Secret in istio-system can be
+   deleted manually if desired (no consumers).</p>
+</li>
+<li>
+<p>Now the istio Gateway has no reflector-mirrored Secret. Add the
+   <code>cert-manager.io/cluster-issuer</code> annotations from Phase 0. The
+   shim is now safe — every listener's referenced Secret is owned by
+   an in-namespace manual Certificate. (Optionally, delete the manual
+   Certificates afterward and let the shim recreate them, at the
+   cost of one ACME order per cert.)</p>
+</li>
+</ol>
+<h3 id="41-verify-no-consumers-reference-the-wildcard-secret">4.1 Verify no consumers reference the wildcard Secret<a class="headerlink" href="#41-verify-no-consumers-reference-the-wildcard-secret" title="Permanent link">&para;</a></h3>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>grep<span class="w"> </span>-rn<span class="w"> </span><span class="s1">&#39;${SECRET_DOMAIN/./-}-tls\|${SECRET_DOMAIN/./-}-tls&#39;</span><span class="w"> </span>kubernetes/
+</span></code></pre></div>
+<p>Anything still referencing the wildcard Secret needs to migrate first.
+Particular attention: Gateways in <code>istio-system</code> and <code>mcp-system</code> may
+still be using the reflector-mirrored copy.</p>
+<h3 id="42-remove-the-wildcard-listener-from-each-gateway">4.2 Remove the wildcard listener from each Gateway<a class="headerlink" href="#42-remove-the-wildcard-listener-from-each-gateway" title="Permanent link">&para;</a></h3>
+<p>Delete the <code>name: https</code> block (with <code>hostname: "*.${SECRET_DOMAIN}"</code>)
+from each of:</p>
+<ul>
+<li><code>kubernetes/apps/network/envoy-gateway/config/external.yaml</code></li>
+<li><code>kubernetes/apps/network/envoy-gateway/config/internal.yaml</code></li>
+<li><code>kubernetes/apps/istio-system/gateway/gateway.yaml</code></li>
+<li><code>kubernetes/apps/mcp-system/mcp-gateway/app/gateway.yaml</code></li>
+</ul>
+<h3 id="43-delete-the-wildcard-certificate-manifest">4.3 Delete the wildcard Certificate manifest<a class="headerlink" href="#43-delete-the-wildcard-certificate-manifest" title="Permanent link">&para;</a></h3>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>git<span class="w"> </span>rm<span class="w"> </span>kubernetes/apps/network/envoy-gateway/config/certificate.yaml
+</span></code></pre></div>
+<p>Also remove the entry from
+<code>kubernetes/apps/network/envoy-gateway/config/kustomization.yaml</code>.</p>
+<p>The reflector annotations on the (now-deleted) Certificate's
+<code>secretTemplate</code> go away automatically; reflector stops mirroring;
+the reflected Secret copies in <code>istio-system</code> and <code>mcp-system</code> are
+garbage-collected.</p>
+<h3 id="44-final-verify">4.4 Final verify<a class="headerlink" href="#44-final-verify" title="Permanent link">&para;</a></h3>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="c1"># No wildcard cert in any namespace</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>certificate<span class="w"> </span>-A<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-i<span class="w"> </span>wildcard
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="c1"># Per-app certs all present and Ready</span>
+</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a>kubectl<span class="w"> </span>get<span class="w"> </span>certificate<span class="w"> </span>-A
+</span><span id="__span-16-6"><a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a>
+</span><span id="__span-16-7"><a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a><span class="c1"># All public certs are short-duration; private CA certs may be longer</span>
+</span><span id="__span-16-8"><a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a>kubectl<span class="w"> </span>get<span class="w"> </span>certificate<span class="w"> </span>-A<span class="w"> </span>-o<span class="w"> </span>json<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-16-9"><a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a><span class="w">  </span>jq<span class="w"> </span>-r<span class="w"> </span><span class="s1">&#39;.items[] | &quot;\(.metadata.namespace)/\(.metadata.name) duration=\(.spec.duration // &quot;unset&quot;)&quot;&#39;</span>
+</span><span id="__span-16-10"><a id="__codelineno-16-10" name="__codelineno-16-10" href="#__codelineno-16-10"></a>
+</span><span id="__span-16-11"><a id="__codelineno-16-11" name="__codelineno-16-11" href="#__codelineno-16-11"></a><span class="c1"># Smoke test from outside (public) and from a CA-trusting device (internal)</span>
+</span><span id="__span-16-12"><a id="__codelineno-16-12" name="__codelineno-16-12" href="#__codelineno-16-12"></a><span class="k">for</span><span class="w"> </span>host<span class="w"> </span><span class="k">in</span><span class="w"> </span>glance.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span>photos.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span>...<span class="w"> </span><span class="p">;</span><span class="w"> </span><span class="k">do</span>
+</span><span id="__span-16-13"><a id="__codelineno-16-13" name="__codelineno-16-13" href="#__codelineno-16-13"></a><span class="w">  </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$host</span><span class="s2">:&quot;</span>
+</span><span id="__span-16-14"><a id="__codelineno-16-14" name="__codelineno-16-14" href="#__codelineno-16-14"></a><span class="w">  </span><span class="nb">echo</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>openssl<span class="w"> </span>s_client<span class="w"> </span>-connect<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$host</span><span class="s2">:443&quot;</span><span class="w"> </span>-servername<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$host</span><span class="s2">&quot;</span><span class="w"> </span><span class="m">2</span>&gt;/dev/null<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-16-15"><a id="__codelineno-16-15" name="__codelineno-16-15" href="#__codelineno-16-15"></a><span class="w">    </span><span class="p">|</span><span class="w"> </span>openssl<span class="w"> </span>x509<span class="w"> </span>-noout<span class="w"> </span>-subject<span class="w"> </span>-dates
+</span><span id="__span-16-16"><a id="__codelineno-16-16" name="__codelineno-16-16" href="#__codelineno-16-16"></a><span class="k">done</span>
+</span></code></pre></div>
+<h2 id="rollback">Rollback<a class="headerlink" href="#rollback" title="Permanent link">&para;</a></h2>
+<p>The wildcard cert + listeners stay alive through Phase 1, 2, and 3.
+Rollback during those phases is just reverting the HTTPRoute's
+<code>sectionName</code>. Even after deleting some per-app listeners, the
+wildcard listener catches the route.</p>
+<p>Phase 4 is irreversible by <code>git revert</code> alone — once the wildcard
+Certificate is deleted, re-creating it kicks off a new ACME order
+(counts against rate limit). If you must roll back from Phase 4:</p>
+<ol>
+<li>Restore the Certificate manifest via git revert</li>
+<li>cert-manager re-issues — costs 1 against the 50/week budget</li>
+<li>Restore the wildcard listeners</li>
+<li>Flip HTTPRoutes back to <code>sectionName: https</code></li>
+</ol>
+<p>So don't enter Phase 4 unless you're confident in the new state.</p>
+<h2 id="what-to-watch">What to watch<a class="headerlink" href="#what-to-watch" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>kubectl get certificate -A</code> — column <code>READY</code> should always be <code>True</code></li>
+<li><code>kubectl get order -A</code> — should be empty in steady state (orders
+  exist transiently during issuance/renewal)</li>
+<li><code>kubectl describe clusterissuer letsencrypt-production</code> — surfaces
+  ACME backoff messages if rate-limited</li>
+<li>ACME audit log at <a href="https://crt.sh/?Identity=${SECRET_DOMAIN}">https://crt.sh/?Identity=${SECRET_DOMAIN}</a> —
+  external counter you don't control, useful sanity check</li>
+</ul>
+<h2 id="when-to-stop-and-ask">When to stop and ask<a class="headerlink" href="#when-to-stop-and-ask" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Any wave produces &gt;0 failed Certificates after 5 min</li>
+<li>Total Pending+Failing Certificates count &gt;3 across the cluster</li>
+<li>Any rate-limit error in Order events</li>
+<li>More than one wave in the rolling 7d window has produced retries</li>
+<li>Phase 0.1 test result was ambiguous</li>
+</ul>
+<h2 id="alternative-all-acme-no-private-ca">Alternative: all-ACME (no private CA)<a class="headerlink" href="#alternative-all-acme-no-private-ca" title="Permanent link">&para;</a></h2>
+<p>If managing a private CA root on every client device is unacceptable:</p>
+<ul>
+<li>Skip Phase 1 entirely</li>
+<li>All ~70 routes go through ACME</li>
+<li>Wave size still 5/day; total elapsed ~14 days</li>
+<li>Internal hostnames will appear in public CT logs
+  (<a href="https://crt.sh/?Identity=${SECRET_DOMAIN}">https://crt.sh/?Identity=${SECRET_DOMAIN}</a>) — anyone can
+  enumerate your service catalog from the cert transparency feed.
+  Mitigate with hostnames that don't betray service identity if this
+  matters.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../offsite_recovery/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Offsite Recovery — Immich and Paperless">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Offsite Recovery — Immich and Paperless
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../apiserver_audit_logging/" class="md-footer__link md-footer__link--next" aria-label="Next: Apiserver Audit Logging — Phase 5.P operator runbook">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Apiserver Audit Logging — Phase 5.P operator runbook
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "navigation.footer", "search.highlight", "search.share", "search.suggest", "content.code.copy", "content.code.annotate", "content.action.edit", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

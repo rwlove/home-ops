@@ -1,0 +1,2951 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="GitOps-managed home Kubernetes cluster — runbooks, design docs, audits.">
+      
+      
+        <meta name="author" content="Bubba">
+      
+      
+        <link rel="canonical" href="https://rwlove.github.io/home-ops/egress_restriction_design/">
+      
+      
+        <link rel="prev" href="../networkpolicy_rollout_plan/">
+      
+      
+        <link rel="next" href="../mtls_rollout_design/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Egress Restriction Design Proposal - Home Operations</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#egress-restriction-design-proposal" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Home Operations" class="md-header__button md-logo" aria-label="Home Operations" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Home Operations
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Egress Restriction Design Proposal
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/rwlove/home-ops" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rwlove/home-ops
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Home Operations" class="md-nav__button md-logo" aria-label="Home Operations" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Home Operations
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/rwlove/home-ops" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rwlove/home-ops
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+          
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href=".." class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Welcome
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_1" id="__nav_1_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Welcome
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../introduction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI & Workflow
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    AI & Workflow
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ai_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../homeaiops_dod/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HomeAIOps Definition of Done
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflow_automation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow Automation: Agents, Approvals, and Push
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../memory_mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Memory MCP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp_observability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Fleet Observability
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tei_spark/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TEI on Spark — reranker for RAG
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../coral/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coral Edge TPU
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../p40/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NVIDIA Tesla P40
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cluster Lifecycle
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Cluster Lifecycle
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cluster_rebuild/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cluster Rebuild Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cluster_upgrade/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cluster Upgrade Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../promote_worker_to_control_plane/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Promote a Worker to a Schedulable Control Plane
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../init_teardown/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Initialization &amp; Teardown
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../master1_etcd_disk_swap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    master1 etcd-Disk Swap Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../power-outage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Whole-home power outage / cold-start recovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DR & Restore
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    DR & Restore
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rook_ceph_dr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rook-Ceph DR Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cnpg_restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CNPG Cluster Restore Template
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../longhorn_restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Longhorn Restore Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../garage_restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Garage Substrate Restore Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../frigate_dr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Frigate + direct-NFS DR Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../immich_cnpg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Importing an Immich DB backup into a new CNPG database
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../offsite_recovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Offsite Recovery — Immich and Paperless
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Network & Security
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Network & Security
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../per-route-cert-migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Per-Route Cert Migration Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../apiserver_audit_logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Apiserver Audit Logging — Phase 5.P operator runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../networkpolicy_rollout_plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NetworkPolicy Rollout Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Egress Restriction Design Proposal
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Egress Restriction Design Proposal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#implementation-notes-2026-05-18" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implementation notes (2026-05-18)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#problem-statement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Problem statement
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#goal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Goal
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#current-egress-inventory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Current egress inventory
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#approaches-considered" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Approaches considered
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Approaches considered">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-tocidr-lists-per-service" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A. toCIDR lists per service
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b-cluster-wide-http-connect-proxy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B. Cluster-wide HTTP CONNECT proxy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#c-dns-based-with-longer-cache-ttl-accept-matchpattern-caveats" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C. DNS-based with longer cache TTL + accept matchPattern caveats
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#d-cilium-120-fqdn-improvements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D. Cilium 1.20+ FQDN improvements
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#e-hybrid-keep-world443-layer-hubble-alerting-for-unusual-destinations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        E. Hybrid: keep world:443, layer Hubble alerting for unusual destinations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#f-narrow-whats-narrow-able-leave-the-rest-broad" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        F. Narrow what's narrow-able; leave the rest broad
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#g-perimeter-brain-firewalld-egress-filtering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        G. Perimeter (brain firewalld) egress filtering
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#recommendation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommendation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phased-rollout-sketch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phased rollout sketch
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phased rollout sketch">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#phase-0-baseline-measurement-1-2-weeks-passive" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 0 — Baseline measurement (1-2 weeks, passive)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-1-single-app-pilot-detection-alerting-1-week" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1 — Single-app pilot: detection alerting (1 week)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-2-bounded-app-rollout-4-6-weeks-one-app-per-pr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2 — Bounded-app rollout (4-6 weeks, one app per PR)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-3-unbounded-app-posture-1-week-design-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3 — Unbounded-app posture (1 week, design + documentation)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-4-convergence-with-cilium-upgrade-when-121-lands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4 — Convergence with Cilium upgrade (when 1.21 lands)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-design-explicitly-does-not-do" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this design explicitly does not do
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mtls_rollout_design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Istio mTLS Rollout Design Proposal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pod_security_audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pod Security Baseline Audit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rbac_audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RBAC Audit Findings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Substrate & Orchestration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Substrate & Orchestration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../orchestration_substrate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Orchestration substrate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task_queue_substrate_design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task Queue Substrate — design proposal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../github_webhook/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub Webhook → Flux
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../limits/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resources: Limits and Requests Philosophy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audits
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Audits
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../audit/post-spark-tool-call-leakage-2026-05-18/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Post-Spark tool-call-JSON leakage audit (2026-05-18)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../debugging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debugging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#implementation-notes-2026-05-18" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implementation notes (2026-05-18)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#problem-statement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Problem statement
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#goal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Goal
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#current-egress-inventory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Current egress inventory
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#approaches-considered" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Approaches considered
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Approaches considered">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-tocidr-lists-per-service" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A. toCIDR lists per service
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b-cluster-wide-http-connect-proxy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B. Cluster-wide HTTP CONNECT proxy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#c-dns-based-with-longer-cache-ttl-accept-matchpattern-caveats" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C. DNS-based with longer cache TTL + accept matchPattern caveats
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#d-cilium-120-fqdn-improvements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D. Cilium 1.20+ FQDN improvements
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#e-hybrid-keep-world443-layer-hubble-alerting-for-unusual-destinations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        E. Hybrid: keep world:443, layer Hubble alerting for unusual destinations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#f-narrow-whats-narrow-able-leave-the-rest-broad" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        F. Narrow what's narrow-able; leave the rest broad
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#g-perimeter-brain-firewalld-egress-filtering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        G. Perimeter (brain firewalld) egress filtering
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#recommendation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommendation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phased-rollout-sketch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phased rollout sketch
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phased rollout sketch">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#phase-0-baseline-measurement-1-2-weeks-passive" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 0 — Baseline measurement (1-2 weeks, passive)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-1-single-app-pilot-detection-alerting-1-week" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1 — Single-app pilot: detection alerting (1 week)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-2-bounded-app-rollout-4-6-weeks-one-app-per-pr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2 — Bounded-app rollout (4-6 weeks, one app per PR)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-3-unbounded-app-posture-1-week-design-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3 — Unbounded-app posture (1 week, design + documentation)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-4-convergence-with-cilium-upgrade-when-121-lands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4 — Convergence with Cilium upgrade (when 1.21 lands)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-design-explicitly-does-not-do" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this design explicitly does not do
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/rwlove/home-ops/edit/main/docs/src/egress_restriction_design.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="egress-restriction-design-proposal">Egress Restriction Design Proposal<a class="headerlink" href="#egress-restriction-design-proposal" title="Permanent link">&para;</a></h1>
+<p>Status: <strong>Phases 1–3 implemented 2026-05-18.</strong> Detection-first hybrid
+(approach E) live; per-app narrowing (approach F) is opportunistic and
+ongoing. Tier 3 of the network security roadmap.
+Owner: home-ops
+Last updated: 2026-05-18</p>
+<h2 id="implementation-notes-2026-05-18">Implementation notes (2026-05-18)<a class="headerlink" href="#implementation-notes-2026-05-18" title="Permanent link">&para;</a></h2>
+<p>The Hubble metrics in this cluster don't expose what the original
+design assumed:</p>
+<ul>
+<li><code>hubble_dns_queries_total</code> has a <code>query</code> label but no source-pod
+  attribution out of the box — only the cilium-agent pod observing the
+  query. Fixed by adding <code>labelsContext=source_namespace,source_pod</code>
+  to the <code>dns:</code> metric in
+  <code>kubernetes/apps/kube-system/cilium/app/values.yaml</code>.</li>
+<li><code>hubble_flows_processed_total</code> has no <code>destination_fqdn</code> label at
+  all in Cilium 1.19 — that pairing exists in the flow logs but not
+  in the Prometheus export. For Phase 3 (egress-volume anomaly) we
+  use <code>container_network_transmit_bytes_total</code> from cAdvisor instead,
+  since byte counts aren't in any Hubble metric.</li>
+</ul>
+<p>The shipped recording rules + alerts live in
+<code>kubernetes/apps/observability/kube-prometheus-stack/app/prometheusrule-egress-detection.yaml</code>.
+The Phase-0 "baseline JSON exported to git" step is deferred — the
+detection alert fires on novel destinations relative to a live 24h
+window rather than a frozen baseline file, which trades some signal
+quality for not needing to commit and refresh a per-app FQDN
+manifest.</p>
+<h2 id="problem-statement">Problem statement<a class="headerlink" href="#problem-statement" title="Permanent link">&para;</a></h2>
+<p>The 2026-05 NetworkPolicy rollout (<code>networkpolicy_rollout_plan.md</code>)
+locked down ingress and intra-cluster egress across 19 namespaces, but
+the <strong>outbound-to-internet</strong> posture remains coarse. A grep of
+<code>kubernetes/apps/</code> shows:</p>
+<ul>
+<li>51 CNP files use <code>toEntities</code>.</li>
+<li><strong>50 of them include <code>world</code></strong> (almost always paired with <code>:443</code>).</li>
+<li>Only 12 files use <code>toFQDNs</code>, and most of those still fall back to
+  <code>toEntities: [world]</code> for any canonical (non-CNAME) FQDN per the
+  <code>project_cilium_matchpattern_fqdn_limits.md</code> workaround.</li>
+</ul>
+<p>In effect, every workload that needs <strong>any</strong> outbound HTTPS today has
+unrestricted outbound HTTPS. A compromised pod inside the cluster can
+exfiltrate to any address on the public internet on 443 (and 465 for
+smtp-relay, etc.).</p>
+<p>The proximate cause is not laziness — it is <code>matchPattern</code>'s silent
+failure on K8s-DNS-search-augmented canonical FQDNs. The repo's CNP
+authors consistently chose "broad allow that actually works" over
+"narrow allow that silently breaks." That tradeoff was correct under
+the rollout's time pressure but leaves real exposure.</p>
+<p>This document evaluates approaches for closing that gap <strong>without</strong>
+re-introducing the silent-failure modes that drove the original choice.</p>
+<h2 id="goal">Goal<a class="headerlink" href="#goal" title="Permanent link">&para;</a></h2>
+<p>Meaningful egress restriction with these constraints:</p>
+<ol>
+<li><strong>No regression of the user's verification step.</strong> The 2026-05-18
+   full rollback (see <code>networkpolicy_rollout_plan.md</code> § "Full rollback
+   2026-05-18") established that <em>real browser-path verification</em> is
+   the only acceptable gate for policy changes. Any egress design
+   must be testable from the user's actual workflow, not a simulated
+   one.</li>
+<li><strong>No new piece of infrastructure to operate.</strong> Single operator,
+   home-lab scale. A new always-on proxy pod or sidecar that the
+   operator has to monitor, upgrade, and triage is a non-starter
+   absent strong justification.</li>
+<li><strong>Stays within Cilium primitives where possible.</strong> Cilium 1.19 is
+   the cluster's CNI; standing up a parallel egress data plane (e.g.
+   a separate proxy mesh) duplicates that investment.</li>
+<li><strong>Compatible with GitOps + per-app PR rhythm.</strong> Whatever ships
+   should be expressible in <code>kubernetes/components/</code> or per-app
+   overlays, not require out-of-band cluster state.</li>
+<li><strong>The L7 DNS proxy in <code>network-policy/baseline/allow-dns</code> stays
+   intact.</strong> It is load-bearing for every FQDN egress rule and for
+   Cilium's FQDN cache; removal silently breaks all toFQDNs.</li>
+</ol>
+<h2 id="current-egress-inventory">Current egress inventory<a class="headerlink" href="#current-egress-inventory" title="Permanent link">&para;</a></h2>
+<p>Grouped from the 51 CNPs by destination shape:</p>
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th>Example apps</th>
+<th>Today's allow shape</th>
+<th>Tractability</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Package registries — CNAME-fronted</td>
+<td>actions-runner-system (github.com, *.githubusercontent.com), media/\&lt;media-pull-stack quality-rules app&gt;</td>
+<td><code>matchPattern: &lt;fqdn&gt;</code> works</td>
+<td>High (already narrow)</td>
+</tr>
+<tr>
+<td>Provider APIs — canonical</td>
+<td>external-secrets→1P Connect cloud, smtp-relay→mailgun, langgraph→Anthropic/Pushover, cert-manager→ACME, ai/khoj→HuggingFace</td>
+<td><code>matchPattern + .*</code> workaround OR <code>world:443</code></td>
+<td>Low (matchPattern silently fails on canonical)</td>
+</tr>
+<tr>
+<td>Container registries — pull-through via ZOT</td>
+<td>n/a (in-cluster ZOT)</td>
+<td>covered by <code>toEndpoints</code></td>
+<td>Already restricted</td>
+</tr>
+<tr>
+<td>S3 to AWS (offsite backups)</td>
+<td>immich, paperless rclone CronJobs</td>
+<td><code>world:443</code></td>
+<td>Medium (AWS S3 IP ranges are published but rotate)</td>
+</tr>
+<tr>
+<td>LAN-internal hosts (host identity)</td>
+<td>longhorn→beast NFS, snmp/omada→LAN devices</td>
+<td><code>toEntities: [host, remote-node, world]</code> mix</td>
+<td>Already non-internet but <code>world</code> is the catch-all</td>
+</tr>
+<tr>
+<td>Truly broad / user-driven</td>
+<td>home-assistant, esphome, n8n, node-red, searxng, glance, glance-user, open-webui, runners</td>
+<td><code>world:443</code> (sometimes + 80)</td>
+<td>Inherently broad</td>
+</tr>
+<tr>
+<td>ESPHome compile / runners arbitrary code</td>
+<td>esphome/code, actions-runner-system/runners</td>
+<td><code>world</code> + <code>matchPattern: "*"</code></td>
+<td>Inherently broad</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Distinct legitimate external destinations</strong> (deduped across all apps):
+roughly 25-30 FQDN families. The bulk of <code>world:443</code> rules collapse to
+~6 categories: GitHub/GHCR, HuggingFace + R2, 1Password (cloud + Connect),
+Cloudflare API, ACME endpoints, Mailgun, Pushover, Anthropic. The
+rest — home-assistant, esphome, searxng, n8n, runners, ESPHome
+compile, recipe scrapers, etc. — are <em>inherently</em> broad because the
+operator-installable surface is user-driven.</p>
+<p>So the cluster has two qualitatively different egress populations:</p>
+<ul>
+<li><strong>Bounded apps</strong> (a known FQDN list, even if Cilium can't narrow
+  it today) — ~70% of the CNPs by file count.</li>
+<li><strong>Inherently unbounded apps</strong> — home, automation, dashboards,
+  user-driven aggregators, code-execution sandboxes. ~30%.</li>
+</ul>
+<p>A meaningful design must address the bounded population while leaving
+the unbounded population workable.</p>
+<h2 id="approaches-considered">Approaches considered<a class="headerlink" href="#approaches-considered" title="Permanent link">&para;</a></h2>
+<h3 id="a-tocidr-lists-per-service">A. <code>toCIDR</code> lists per service<a class="headerlink" href="#a-tocidr-lists-per-service" title="Permanent link">&para;</a></h3>
+<p>Maintain <code>toCIDR</code> allowlists per app: <code>api.cloudflare.com</code> → maintained
+list of CF anycast prefixes, <code>acme-v02.api.letsencrypt.org</code> → ACME's
+published ranges, etc.</p>
+<p><strong>Pro:</strong> Bypasses matchPattern entirely. Cilium handles CIDR matching
+reliably (when not against host-net identities — see
+<code>project_cilium_ipblock_apiserver.md</code>, but kube-apiserver isn't the
+target here). Static, GitOps-able, auditable.</p>
+<p><strong>Con:</strong> Maintenance burden is the killer. Cloudflare's IP ranges
+rotate. Anthropic uses AWS/GCP. HuggingFace fronts via CloudFront.
+1Password Connect's cloud endpoint is on AWS. The provider lists either
+get out of date (silent breakage on rotation) or require a
+Renovate-style update bot pointed at upstream IP-range manifests. None
+of the providers we'd target publish those manifests in a
+machine-readable form we already consume.</p>
+<p><strong>Verdict:</strong> Discard. The maintenance signal-to-noise ratio is worse
+than today's <code>world:443</code> — instead of "broad allow that works," we get
+"narrow allow that silently breaks on provider IP rotation," which is
+exactly the failure mode that drove the original <code>world:443</code> choice.</p>
+<h3 id="b-cluster-wide-http-connect-proxy">B. Cluster-wide HTTP CONNECT proxy<a class="headerlink" href="#b-cluster-wide-http-connect-proxy" title="Permanent link">&para;</a></h3>
+<p>Stand up a forwarding HTTPS proxy (e.g. Squid, Envoy, or a
+purpose-built one) in a dedicated namespace. Every app's egress CNP
+allows only <code>toEndpoints: &lt;proxy&gt;</code>. The proxy enforces an FQDN
+allowlist at L7, and pods configure <code>HTTPS_PROXY=http://proxy:3128</code>.</p>
+<p><strong>Pro:</strong> Centralizes the allowlist. L7 FQDN matching at the proxy is
+not subject to Cilium's K8s-DNS-search-augmentation quirk — Squid sees
+the literal CONNECT host header. Cleanly auditable: one log stream
+shows every external request the cluster makes.</p>
+<p><strong>Con:</strong> Violates constraint #2 (no new infrastructure). It's a new
+SPOF in the egress path; if the proxy pod crashloops or its allowlist
+ConfigMap has a typo, <strong>every</strong> internet-needing workload in the
+cluster breaks simultaneously. Also: <code>HTTPS_PROXY</code> env var support is
+inconsistent — many apps respect it (curl, Python requests, npm); many
+don't (Go's <code>net/http</code> only if explicitly configured, some Java HTTP
+clients, anything statically built against a non-proxy-aware library).
+Apps that ignore the proxy bypass it entirely, recreating today's
+posture silently. Some apps (esphome compile, runners) intentionally
+fan out to arbitrary destinations and would need bypass rules
+<em>anyway</em>.</p>
+<p><strong>Verdict:</strong> Discard. Operating a new always-on proxy and the
+allowlist-as-config story for a single-operator cluster is a step
+function in operational complexity, and the bypass-via-non-proxy-aware
+clients gap reproduces the same silent-failure mode we're trying to
+escape.</p>
+<h3 id="c-dns-based-with-longer-cache-ttl-accept-matchpattern-caveats">C. DNS-based with longer cache TTL + accept matchPattern caveats<a class="headerlink" href="#c-dns-based-with-longer-cache-ttl-accept-matchpattern-caveats" title="Permanent link">&para;</a></h3>
+<p>Keep <code>toFQDNs</code> as the primary mechanism. Configure Cilium's DNS proxy
+with longer minimum TTLs (so the FQDN→IP cache survives provider DNS
+TTL jitter). Accept that matchPattern will continue to fail on
+canonical FQDNs and audit-fix per app when it surfaces.</p>
+<p><strong>Pro:</strong> No new infrastructure. Leverages existing primitives.</p>
+<p><strong>Con:</strong> This is the status quo we're trying to escape. The
+<code>project_cilium_matchpattern_fqdn_limits.md</code> failure mode is not about
+cache lifetime — it's about the pattern matcher not seeing the
+augmented FQDN. Longer TTL doesn't fix it. Continuing the per-app
+audit-and-widen-to-world cycle is what got us to "50 of 51 use world."</p>
+<p><strong>Verdict:</strong> Discard. Doesn't move the posture forward.</p>
+<h3 id="d-cilium-120-fqdn-improvements">D. Cilium 1.20+ FQDN improvements<a class="headerlink" href="#d-cilium-120-fqdn-improvements" title="Permanent link">&para;</a></h3>
+<p>Cilium 1.20 (released 2025-Q4) shipped improvements to the FQDN proxy,
+including better handling of DNS search domain expansion and the new
+<code>--dns-proxy-enable-transparent-mode</code> option that intercepts DNS at
+the eBPF layer rather than via iptables redirect. The 1.21 line
+(in-development, target 2026-Q2) adds explicit support for
+<code>matchName</code> against canonical FQDNs (release-notes commit
+<code>cilium/cilium#36418</code>, the upstream fix for the exact failure mode
+documented in <code>project_cilium_matchpattern_fqdn_limits.md</code>).</p>
+<p><strong>Pro:</strong> Fixes the root cause of why we fell back to <code>world:443</code>. Same
+data plane, no new infrastructure. CNPs stay in the same shape; we
+just stop hitting the silent-failure trap.</p>
+<p><strong>Con:</strong> Requires a Cilium upgrade (we're on 1.19.4). 1.19 → 1.20 is
+not a config-only bump — it touches every node's CNI agent and a few
+agent-config defaults changed. Risk is non-trivial in a one-operator
+cluster. 1.21 isn't GA yet, so the <em>real</em> matchName-canonical fix is
+~6+ months out. In the interim, 1.20 alone doesn't close the gap; it
+just makes the matchPattern hack more reliable for the apps that
+were already on it.</p>
+<p><strong>Verdict:</strong> Hold. Track upstream; revisit when 1.21 reaches stable.
+The Cilium upgrade is the right cluster work to plan, but as a
+separate workstream — it shouldn't gate this design.</p>
+<h3 id="e-hybrid-keep-world443-layer-hubble-alerting-for-unusual-destinations">E. Hybrid: keep <code>world:443</code>, layer Hubble alerting for unusual destinations<a class="headerlink" href="#e-hybrid-keep-world443-layer-hubble-alerting-for-unusual-destinations" title="Permanent link">&para;</a></h3>
+<p>Leave the CNP posture as-is. Use Hubble's flow data — already exported
+to the metrics pipeline — to detect <em>unusual</em> egress destinations per
+app. Define a baseline (the FQDNs each app legitimately reaches over
+~7 days) and alert when a flow's destination falls outside that
+baseline.</p>
+<p><strong>Pro:</strong> Detection-not-prevention is the right primitive when
+prevention has been demonstrated to silently fail. No new
+infrastructure (Hubble + kube-prometheus-stack + Alertmanager are
+already running; Alertmanager → ntfy/Pushover routing exists). Catches
+the exfiltration scenario the threat model actually cares about
+(compromised pod talks to attacker-controlled C2) without breaking
+legitimate broad-egress apps. Reusable across the bounded <em>and</em>
+unbounded populations. Failure mode is "alert noise" rather than "app
+silently down" — the operationally-safer direction.</p>
+<p><strong>Con:</strong> Doesn't <em>prevent</em> exfiltration to an unknown destination; the
+attacker gets one trip out before the alert fires. The "baseline" has
+to be built and maintained (per-app FQDN sets drift as configs
+change). Alert-fatigue risk if the baseline isn't tight — searxng,
+home-assistant, n8n will routinely surface novel destinations.</p>
+<p><strong>Verdict:</strong> <strong>Adopt as primary.</strong> Detection plus per-app narrowing
+(approach F below) where genuinely tractable.</p>
+<h3 id="f-narrow-whats-narrow-able-leave-the-rest-broad">F. Narrow what's narrow-able; leave the rest broad<a class="headerlink" href="#f-narrow-whats-narrow-able-leave-the-rest-broad" title="Permanent link">&para;</a></h3>
+<p>A focused, targeted second pass on the existing CNPs:</p>
+<ul>
+<li>For apps with a <strong>stable, finite, documented</strong> external FQDN set
+  (the bounded population): convert <code>world:443</code> to <code>toFQDNs:
+  matchName: &lt;fqdn&gt;</code> per FQDN, using the paired <code>matchPattern:
+  foo.com</code> and <code>matchPattern: foo.com.*</code> workaround for canonical
+  FQDNs. Already the pattern in actions-runner-controller,
+  media-pull-stack quality-rules app, pump-cv, github-mcp, paperless-ai.</li>
+<li>For apps with <strong>inherently unbounded</strong> egress (home-assistant,
+  esphome, n8n, node-red, searxng, glance, glance-user, open-webui,
+  runners, esphome/code, home-assistant/code): leave <code>world:443</code> and
+  document the design decision in a per-CNP comment.</li>
+<li>For apps that fall in between (e.g. ai/ollama, ai/comfyui pulling
+  models from huggingface + R2 + pypi): keep <code>world:443</code> but tighten
+  the <em>port set</em> — drop port 80 if it isn't actively used (most apps
+  don't need it).</li>
+</ul>
+<p><strong>Pro:</strong> Concrete, incremental, no infrastructure cost. Each app's
+narrowing is one PR with per-app browser-path verification (the gate
+established in the 2026-05-18 rollback retrospective).</p>
+<p><strong>Con:</strong> Doesn't reduce the count of <code>world:443</code> rules much — the
+unbounded population is structurally broad. Most of the value comes
+from the bounded apps that <em>already</em> use <code>matchPattern</code> correctly.
+The "audit and narrow" pass is real work for modest CNP-count
+reduction.</p>
+<p><strong>Verdict:</strong> <strong>Adopt as secondary</strong>, paired with E. Approach E
+provides the meaningful security gain; approach F is documentation
+hygiene that surfaces design intent in each CNP.</p>
+<h3 id="g-perimeter-brain-firewalld-egress-filtering">G. Perimeter (brain firewalld) egress filtering<a class="headerlink" href="#g-perimeter-brain-firewalld-egress-filtering" title="Permanent link">&para;</a></h3>
+<p>The cluster's actual internet egress all routes through <code>brain</code>
+(192.168.6.1, the home router). brain runs firewalld and already has
+the OOB SSH pinhole from the 2026-05-14 work. Apply L4 egress filtering
+at brain for known-bad destinations (geo-blocked countries, known C2
+prefixes from threat-intel feeds) or known-good allowlists per source
+host.</p>
+<p><strong>Pro:</strong> Filtering at the perimeter is a defense-in-depth layer that
+catches cluster-side bypass scenarios (a compromised CNI agent that
+ignores CNPs, a misconfigured pod-gateway leak). Single chokepoint to
+maintain. brain config is already version-controlled in
+<code>rwlove/lovenet-network-configuration</code>.</p>
+<p><strong>Con:</strong> brain firewalld can't see into Cilium's per-pod identity —
+every cluster-egress flow looks like "Kubernetes node IP → external
+IP" from brain's perspective. The granularity is per-node, not
+per-pod or per-app. So perimeter filtering can do "drop traffic to
+known-malicious prefixes" but not "allow comfyui to reach
+huggingface but not anywhere else." Different threat model, different
+control. Doesn't address the per-pod compromise scenario this
+roadmap is targeting.</p>
+<p><strong>Verdict:</strong> Out of scope here, in-scope for a different roadmap
+tier. The right layer for threat-intel-feed blocking, but not for
+per-app egress restriction.</p>
+<h2 id="recommendation">Recommendation<a class="headerlink" href="#recommendation" title="Permanent link">&para;</a></h2>
+<p><strong>Adopt E + F as a paired strategy.</strong> Detection-first via Hubble
+alerting, with opportunistic per-app narrowing where the FQDN set is
+known-stable.</p>
+<p>Rationale tied to the cluster's constraints:</p>
+<ol>
+<li><strong>One operator on call.</strong> Prevention controls that silently fail
+   create user-discovered outages (the 2026-05-18 rollback proved
+   this). Detection controls fail in a noisier, more recoverable
+   direction (alert fires, operator investigates, no app is broken).</li>
+<li><strong>GitOps + per-app PR rhythm.</strong> Both halves fit. The Hubble
+   baselining is a one-shot dashboard + alert-rule PR. Per-app
+   narrowing is one CNP PR per app with the established
+   browser-verification gate.</li>
+<li><strong>No new infrastructure.</strong> Hubble, kube-prometheus-stack,
+   Alertmanager, and the Pushover Provider are all already running.
+   No new pod, no new mesh, no new control plane.</li>
+<li><strong>Compatible with the eventual Cilium 1.21 upgrade.</strong> When the
+   matchName-canonical fix lands upstream, this design's "narrow
+   what's narrow-able" pass converges naturally — the
+   <code>matchPattern + .*</code> hack collapses to clean <code>matchName</code> lines and
+   <code>world:443</code> rules drop further. The Hubble alerting stays
+   useful regardless.</li>
+<li><strong>Threat-model-aligned.</strong> The realistic threat we're hardening
+   against is a compromised app phoning home or exfiltrating
+   credentials — not a sophisticated CNI-evading rootkit (where the
+   right control is at the host or perimeter, see approach G).
+   Detection catches the realistic case; we're not pretending to
+   solve the harder one with CNP changes.</li>
+</ol>
+<h2 id="phased-rollout-sketch">Phased rollout sketch<a class="headerlink" href="#phased-rollout-sketch" title="Permanent link">&para;</a></h2>
+<h3 id="phase-0-baseline-measurement-1-2-weeks-passive">Phase 0 — Baseline measurement (1-2 weeks, passive)<a class="headerlink" href="#phase-0-baseline-measurement-1-2-weeks-passive" title="Permanent link">&para;</a></h3>
+<p>Build the Hubble destination baseline. No CNP changes. Two
+deliverables:</p>
+<ol>
+<li><strong>Per-app egress-FQDN Grafana panel.</strong> Source: Hubble flow data
+   already in the metrics pipeline. Group by <code>source_pod_namespace +
+   source_pod_labels.app.kubernetes.io/name → destination_fqdn</code>. Show
+   the unique FQDN set per app, with first-seen and last-seen
+   timestamps. Use the existing observability stack — no new
+   exporters.</li>
+<li><strong>Per-app baseline JSON exported to git.</strong> Once the panel settles
+   (≥7 days of data), snapshot the per-app FQDN sets into a
+   <code>kubernetes/components/network-policy/egress-baselines/</code> directory
+   (one file per app, FQDN list). This is the <em>expected egress</em>
+   manifest, version-controlled so changes are reviewable.</li>
+</ol>
+<p><strong>Success criterion:</strong> Baseline captured for every app currently using
+<code>toEntities: [world]</code>, with no false-positive surprises (e.g. apps
+talking to FQDNs that the operator didn't know about — investigate
+each before declaring baseline).</p>
+<h3 id="phase-1-single-app-pilot-detection-alerting-1-week">Phase 1 — Single-app pilot: detection alerting (1 week)<a class="headerlink" href="#phase-1-single-app-pilot-detection-alerting-1-week" title="Permanent link">&para;</a></h3>
+<p>Pick <strong>one bounded-population app</strong> with a stable, well-understood
+FQDN set. Recommendation: <strong>a media-pull-stack quality-rules app</strong> — already on
+<code>matchPattern + .*</code>, low blast radius, no real-time user dependency,
+flow volume is bounded (it scrapes TRaSH-Guides on a schedule).</p>
+<p>Steps:</p>
+<ol>
+<li>PR: add a Prometheus recording rule that counts per-pod egress
+   flows to destinations <em>outside</em> the pilot app's baseline JSON.</li>
+<li>PR: add an Alertmanager rule that fires (<code>severity=warning</code>,
+   routed to Pushover) when that count is non-zero over a 5-minute
+   window.</li>
+<li><strong>Wait 7 days.</strong> Alert should never fire on legitimate pilot-app
+   behavior. If it does, investigate — either the baseline missed
+   something legitimate (update the baseline) or the app is doing
+   something unexpected (investigate further).</li>
+</ol>
+<p><strong>Success criterion:</strong> 7-day quiet period. No false-positive alerts.
+Operator gains confidence the detection mechanic works.</p>
+<h3 id="phase-2-bounded-app-rollout-4-6-weeks-one-app-per-pr">Phase 2 — Bounded-app rollout (4-6 weeks, one app per PR)<a class="headerlink" href="#phase-2-bounded-app-rollout-4-6-weeks-one-app-per-pr" title="Permanent link">&para;</a></h3>
+<p>Apply the same detection pattern to the rest of the bounded
+population, one app per PR, in order of lowest-blast-radius first.
+Candidate order:</p>
+<ol>
+<li>media-pull-stack quality-rules app (Phase 1 pilot)</li>
+<li>external-secrets→1P Connect cloud</li>
+<li>cert-manager→ACME</li>
+<li>actions-runner-controller operator (not the runners — runners are
+   unbounded)</li>
+<li>mcp-system/github-mcp</li>
+<li>mcp-system/immich-mcp</li>
+<li>media/<media-pull-stack apps> (per-app, sequential)</li>
+<li>observability/* exporters</li>
+</ol>
+<p>Each PR: one new alert rule + the per-app baseline JSON. No CNP
+changes.</p>
+<p>In parallel, opportunistic approach-F PRs where an app's <code>world:443</code>
+rule can collapse to a small <code>matchPattern</code> list with confidence —
+but only when the operator has bandwidth to do the
+browser-verification step on each.</p>
+<h3 id="phase-3-unbounded-app-posture-1-week-design-documentation">Phase 3 — Unbounded-app posture (1 week, design + documentation)<a class="headerlink" href="#phase-3-unbounded-app-posture-1-week-design-documentation" title="Permanent link">&para;</a></h3>
+<p>For the unbounded population (home-assistant, esphome, n8n, node-red,
+searxng, glance, glance-user, open-webui, runners, /code variants):</p>
+<ol>
+<li><strong>Don't try to baseline.</strong> The baseline would churn constantly
+   and generate alert fatigue.</li>
+<li><strong>Document the design decision</strong> in a comment block in each CNP:
+   "Unbounded egress is intentional — see
+   <code>docs/src/egress_restriction_design.md</code> § Unbounded apps." This
+   makes the broad allow legible as design rather than oversight.</li>
+<li><strong>Consider a coarser alert</strong> (per-app egress-volume anomaly:
+   "home-assistant just sent 100x its 24h rolling-average egress
+   bytes"). Catches the bulk-exfil scenario without needing an
+   FQDN allowlist. Cheap to implement; tune the threshold over time.</li>
+</ol>
+<h3 id="phase-4-convergence-with-cilium-upgrade-when-121-lands">Phase 4 — Convergence with Cilium upgrade (when 1.21 lands)<a class="headerlink" href="#phase-4-convergence-with-cilium-upgrade-when-121-lands" title="Permanent link">&para;</a></h3>
+<p>When Cilium 1.21 ships with the matchName-canonical fix:</p>
+<ol>
+<li>Cilium upgrade as its own workstream (not in this roadmap).</li>
+<li>Once upgraded, sweep the <code>matchPattern + .*</code> hack across all
+   CNPs back to clean <code>matchName: &lt;fqdn&gt;</code>. Mechanical change, one
+   PR per namespace, reuse the existing PR-per-namespace pattern.</li>
+<li>Re-evaluate which <code>world:443</code> rules can collapse to narrow
+   <code>toFQDNs</code> rules now that matchName works on canonical FQDNs.</li>
+<li>Keep the Hubble detection layer regardless — it catches
+   exfiltration scenarios that CNP narrowing cannot.</li>
+</ol>
+<h2 id="what-this-design-explicitly-does-not-do">What this design explicitly does not do<a class="headerlink" href="#what-this-design-explicitly-does-not-do" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Does not</strong> stand up a forwarding proxy (approach B).</li>
+<li><strong>Does not</strong> introduce a maintained CIDR allowlist for provider
+  endpoints (approach A).</li>
+<li><strong>Does not</strong> propose a Cilium upgrade as part of this work
+  (approach D). Track upstream, plan separately.</li>
+<li><strong>Does not</strong> touch brain firewalld for cluster-egress filtering
+  (approach G). That's a different control at a different layer for
+  a different threat.</li>
+<li><strong>Does not</strong> add a new piece of infrastructure for the operator
+  to maintain — only new alert rules + version-controlled baseline
+  manifests, both within the existing observability stack.</li>
+</ul>
+<h2 id="references">References<a class="headerlink" href="#references" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>docs/src/networkpolicy_rollout_plan.md</code> — the underlying CNP
+  rollout, including the 2026-05-18 full-rollback retrospective.</li>
+<li><code>project_cilium_matchpattern_fqdn_limits.md</code> — why matchPattern
+  silently fails on canonical FQDNs and why we ended up with
+  <code>world:443</code> everywhere.</li>
+<li><code>project_cilium_l4_port_targetport.md</code> — the socket-lb-rewrite
+  gotcha that breaks naive Pattern A overlays.</li>
+<li><code>feedback_netpol_rollout_needs_per_app_browser_test.md</code> — the
+  verification-gate decision that constrains any future netpol
+  change.</li>
+<li><code>project_cilium_ipblock_apiserver.md</code> — why <code>toCIDR: 0.0.0.0/0</code>
+  doesn't work for some destinations; relevant context for why
+  approach A is fragile beyond just IP-rotation.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../networkpolicy_rollout_plan/" class="md-footer__link md-footer__link--prev" aria-label="Previous: NetworkPolicy Rollout Plan">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                NetworkPolicy Rollout Plan
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../mtls_rollout_design/" class="md-footer__link md-footer__link--next" aria-label="Next: Istio mTLS Rollout Design Proposal">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Istio mTLS Rollout Design Proposal
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "navigation.footer", "search.highlight", "search.share", "search.suggest", "content.code.copy", "content.code.annotate", "content.action.edit", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

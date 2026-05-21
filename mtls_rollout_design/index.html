@@ -1,0 +1,3570 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="GitOps-managed home Kubernetes cluster — runbooks, design docs, audits.">
+      
+      
+        <meta name="author" content="Bubba">
+      
+      
+        <link rel="canonical" href="https://rwlove.github.io/home-ops/mtls_rollout_design/">
+      
+      
+        <link rel="prev" href="../egress_restriction_design/">
+      
+      
+        <link rel="next" href="../pod_security_audit/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Istio mTLS Rollout Design Proposal - Home Operations</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#istio-mtls-rollout-design-proposal" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Home Operations" class="md-header__button md-logo" aria-label="Home Operations" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Home Operations
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Istio mTLS Rollout Design Proposal
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/rwlove/home-ops" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rwlove/home-ops
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Home Operations" class="md-nav__button md-logo" aria-label="Home Operations" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Home Operations
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/rwlove/home-ops" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rwlove/home-ops
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+          
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href=".." class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Welcome
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_1" id="__nav_1_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Welcome
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../introduction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI & Workflow
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    AI & Workflow
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ai_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../homeaiops_dod/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HomeAIOps Definition of Done
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflow_automation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow Automation: Agents, Approvals, and Push
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../memory_mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Memory MCP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp_observability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Fleet Observability
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tei_spark/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TEI on Spark — reranker for RAG
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../coral/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coral Edge TPU
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../p40/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NVIDIA Tesla P40
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cluster Lifecycle
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Cluster Lifecycle
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cluster_rebuild/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cluster Rebuild Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cluster_upgrade/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cluster Upgrade Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../promote_worker_to_control_plane/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Promote a Worker to a Schedulable Control Plane
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../init_teardown/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Initialization &amp; Teardown
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../master1_etcd_disk_swap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    master1 etcd-Disk Swap Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../power-outage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Whole-home power outage / cold-start recovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DR & Restore
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    DR & Restore
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rook_ceph_dr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rook-Ceph DR Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cnpg_restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CNPG Cluster Restore Template
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../longhorn_restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Longhorn Restore Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../garage_restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Garage Substrate Restore Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../frigate_dr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Frigate + direct-NFS DR Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../immich_cnpg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Importing an Immich DB backup into a new CNPG database
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../offsite_recovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Offsite Recovery — Immich and Paperless
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Network & Security
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Network & Security
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../per-route-cert-migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Per-Route Cert Migration Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../apiserver_audit_logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Apiserver Audit Logging — Phase 5.P operator runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../networkpolicy_rollout_plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NetworkPolicy Rollout Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../egress_restriction_design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Egress Restriction Design Proposal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Istio mTLS Rollout Design Proposal
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Istio mTLS Rollout Design Proposal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#problem-statement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Problem statement
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#goal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Goal
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-threat-model-what-mtls-catches-that-default-deny-does-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Threat model — what mTLS catches that default-deny does not
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Threat model — what mTLS catches that default-deny does not">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#scenario-a-lateral-movement-via-shared-namespace-label-collision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scenario A: lateral movement via shared-namespace label collision
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scenario-b-compromised-node-taps-pod-to-pod-overlay-traffic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scenario B: compromised node taps pod-to-pod overlay traffic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scenario-c-a-future-cilium-identity-confusion-bug" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scenario C: a future Cilium identity-confusion bug
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-mtls-does-not-add" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What mTLS does NOT add
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-inventory-services-with-native-mtls-today-vs-what-istio-would-add" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Inventory — services with native mTLS today vs. what Istio would add
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Inventory — services with native mTLS today vs. what Istio would add">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-already-has-tlsmtls-in-flight" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What already has TLS/mTLS in flight
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-istio-sidecar-would-add" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Istio sidecar would add
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pods-that-cannot-run-a-sidecar-sidecar-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pods that cannot run a sidecar (sidecar mode)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pods-that-should-not-join-the-mesh-judgment-not-technical" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pods that should NOT join the mesh (judgment, not technical)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#whats-left-the-mesh-eligible-surface" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What's left — the mesh-eligible surface
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-architectural-choice-sidecar-mode-vs-ambient-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Architectural choice — sidecar mode vs. ambient mode
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Architectural choice — sidecar mode vs. ambient mode">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sidecar-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sidecar mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ambient-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ambient mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#recommendation-for-this-cluster" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommendation for this cluster
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-phased-rollout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Phased rollout
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Phased rollout">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#phase-0-control-plane-scoping-1-2-days" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 0 — control-plane scoping (1-2 days)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-1-pilot-namespace-selfhosted-2-weeks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1 — pilot namespace: selfhosted (2 weeks)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-2-second-pilot-collabpump-collabpump-cv-only-3-weeks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2 — second pilot: collab/pump + collab/pump-cv only (3 weeks)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-3-spread-one-namespace-at-a-time-2-4-months-elapsed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3 — spread one namespace at a time (2-4 months elapsed)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-4-strict-mtls-at-the-mesh-default-level-after-80-adoption" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4 — STRICT mTLS at the mesh-default level (after 80% adoption)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-n-never-fully-mesh-acceptance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase N — never-fully-mesh acceptance
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-operational-cost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Operational cost
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Operational cost">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#resource-overhead-sidecar-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resource overhead (sidecar mode)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#resource-overhead-ambient-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resource overhead (ambient mode)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#management-complexity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Management complexity
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#debugging-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Debugging changes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#new-spofs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        New SPOFs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-recommendation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Recommendation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Recommendation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#rationale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rationale
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#revisit-triggers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Revisit triggers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-ships-instead" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What ships instead
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-is-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this is NOT
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pod_security_audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pod Security Baseline Audit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rbac_audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RBAC Audit Findings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Substrate & Orchestration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Substrate & Orchestration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../orchestration_substrate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Orchestration substrate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task_queue_substrate_design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task Queue Substrate — design proposal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../github_webhook/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub Webhook → Flux
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../limits/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resources: Limits and Requests Philosophy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audits
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Audits
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../audit/post-spark-tool-call-leakage-2026-05-18/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Post-Spark tool-call-JSON leakage audit (2026-05-18)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../debugging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debugging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#problem-statement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Problem statement
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#goal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Goal
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-threat-model-what-mtls-catches-that-default-deny-does-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Threat model — what mTLS catches that default-deny does not
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Threat model — what mTLS catches that default-deny does not">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#scenario-a-lateral-movement-via-shared-namespace-label-collision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scenario A: lateral movement via shared-namespace label collision
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scenario-b-compromised-node-taps-pod-to-pod-overlay-traffic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scenario B: compromised node taps pod-to-pod overlay traffic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scenario-c-a-future-cilium-identity-confusion-bug" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scenario C: a future Cilium identity-confusion bug
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-mtls-does-not-add" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What mTLS does NOT add
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-inventory-services-with-native-mtls-today-vs-what-istio-would-add" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Inventory — services with native mTLS today vs. what Istio would add
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Inventory — services with native mTLS today vs. what Istio would add">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-already-has-tlsmtls-in-flight" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What already has TLS/mTLS in flight
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-istio-sidecar-would-add" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Istio sidecar would add
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pods-that-cannot-run-a-sidecar-sidecar-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pods that cannot run a sidecar (sidecar mode)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pods-that-should-not-join-the-mesh-judgment-not-technical" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pods that should NOT join the mesh (judgment, not technical)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#whats-left-the-mesh-eligible-surface" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What's left — the mesh-eligible surface
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-architectural-choice-sidecar-mode-vs-ambient-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Architectural choice — sidecar mode vs. ambient mode
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Architectural choice — sidecar mode vs. ambient mode">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sidecar-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sidecar mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ambient-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ambient mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#recommendation-for-this-cluster" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommendation for this cluster
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-phased-rollout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Phased rollout
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Phased rollout">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#phase-0-control-plane-scoping-1-2-days" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 0 — control-plane scoping (1-2 days)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-1-pilot-namespace-selfhosted-2-weeks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1 — pilot namespace: selfhosted (2 weeks)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-2-second-pilot-collabpump-collabpump-cv-only-3-weeks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2 — second pilot: collab/pump + collab/pump-cv only (3 weeks)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-3-spread-one-namespace-at-a-time-2-4-months-elapsed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3 — spread one namespace at a time (2-4 months elapsed)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-4-strict-mtls-at-the-mesh-default-level-after-80-adoption" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4 — STRICT mTLS at the mesh-default level (after 80% adoption)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-n-never-fully-mesh-acceptance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase N — never-fully-mesh acceptance
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-operational-cost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Operational cost
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Operational cost">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#resource-overhead-sidecar-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resource overhead (sidecar mode)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#resource-overhead-ambient-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resource overhead (ambient mode)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#management-complexity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Management complexity
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#debugging-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Debugging changes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#new-spofs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        New SPOFs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-recommendation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Recommendation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Recommendation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#rationale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rationale
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#revisit-triggers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Revisit triggers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-ships-instead" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What ships instead
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-is-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this is NOT
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/rwlove/home-ops/edit/main/docs/src/mtls_rollout_design.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="istio-mtls-rollout-design-proposal">Istio mTLS Rollout Design Proposal<a class="headerlink" href="#istio-mtls-rollout-design-proposal" title="Permanent link">&para;</a></h1>
+<p>Status: <strong>Proposal — research only, not implemented.</strong> Tier 4 of the
+network security roadmap (after NetworkPolicy lockdown and egress
+restriction).
+Owner: home-ops
+Last updated: 2026-05-18</p>
+<h2 id="problem-statement">Problem statement<a class="headerlink" href="#problem-statement" title="Permanent link">&para;</a></h2>
+<p>Istio is installed today but scoped to a single namespace (<code>mcp-system</code>).
+Eleven MCP server pods carry <code>sidecar.istio.io/inject: "true"</code> and
+participate in the mesh; the istiod control plane's allow-list
+(<a href="https://github.com/rwlove/home-ops/blob/main/kubernetes/apps/istio-system/istio/app/istiod/cnp-allow.yaml"><code>cnp-allow.yaml</code></a>)
+deliberately opens XDS to <code>fromEntities: cluster</code> because "new sidecars
+can appear in any namespace" — i.e. the door is held open for expansion,
+but no other namespace has walked through it.</p>
+<p>The cluster's current network posture (see
+<a href="../networkpolicy_rollout_plan/">NetworkPolicy Rollout Plan</a> and
+<a href="../egress_restriction_design/">Egress Restriction Design</a>) gives us
+<strong>L3/L4</strong> controls: which pod can talk to which pod on which port,
+based on Cilium identities. What it does <strong>not</strong> give us:</p>
+<ul>
+<li><strong>Cryptographic peer identity.</strong> A CNP allow rule that says
+  "<code>pump-cv</code> can reach <code>immich</code>" trusts that the source pod really is
+  <code>pump-cv</code> because Cilium says so based on labels. If an attacker
+  takes over a different pod in <code>collab</code> and shares enough label
+  surface, the identity model can be coaxed.</li>
+<li><strong>In-flight confidentiality.</strong> Pod-to-pod traffic on the cluster
+  overlay is plaintext. A compromised node, a misconfigured tap, or
+  a future Cilium CVE that leaks pod-to-pod frames exposes every
+  database session and HTTP header in the cluster.</li>
+<li><strong>Per-workload authentication at L7.</strong> Istio
+  <code>AuthorizationPolicy</code> can require an mTLS-verified SPIFFE identity
+  before accepting a request, which is a strictly tighter check than
+  "the packet arrived from a pod in namespace X."</li>
+</ul>
+<p>mTLS via Istio would close those gaps. The question this doc evaluates
+is whether the cost of running a service mesh across more than the
+existing single namespace is justified at this cluster's scale.</p>
+<h2 id="goal">Goal<a class="headerlink" href="#goal" title="Permanent link">&para;</a></h2>
+<p>Evaluate, but do not commit to, extending Istio mTLS beyond <code>mcp-system</code>.
+Produce:</p>
+<ol>
+<li>A concrete threat model that distinguishes what mTLS catches that
+   default-deny CNPs do not.</li>
+<li>A phased rollout that the operator could execute incrementally and
+   roll back at any point.</li>
+<li>A clear-eyed recommendation on whether to ship, defer, or never.</li>
+</ol>
+<p>Constraints from the cluster's reality:</p>
+<ul>
+<li><strong>Single operator.</strong> Every new control plane component is a thing
+  one person must understand, monitor, and triage at 02:00.</li>
+<li><strong>Approximately 422 pods.</strong> Of those, ~75% would be candidates for
+  sidecar injection (the rest are hostNetwork, daemonsets, batch
+  jobs, or operators).</li>
+<li><strong>Cilium 1.19 is CNI today.</strong> No plan to replace it. Istio sidecar
+  and Cilium are well-tested together; ambient mode requires more
+  care (see § Architectural choice).</li>
+<li><strong>NetworkPolicy rollout is freshly rolled back</strong> (2026-05-18) after
+  a verification-gap incident. The cluster has lost trust in
+  "lock-down then verify" workflows; any mTLS rollout has to do
+  better.</li>
+</ul>
+<h2 id="1-threat-model-what-mtls-catches-that-default-deny-does-not">1. Threat model — what mTLS catches that default-deny does not<a class="headerlink" href="#1-threat-model-what-mtls-catches-that-default-deny-does-not" title="Permanent link">&para;</a></h2>
+<p>The NetworkPolicy work answers the question "which pods can talk to
+which other pods." mTLS answers the question "is the pod on the other
+end of this connection actually the workload it claims to be, and is
+the channel between us tamper-proof."</p>
+<p>Three concrete scenarios where the answers diverge:</p>
+<h3 id="scenario-a-lateral-movement-via-shared-namespace-label-collision">Scenario A: lateral movement via shared-namespace label collision<a class="headerlink" href="#scenario-a-lateral-movement-via-shared-namespace-label-collision" title="Permanent link">&para;</a></h3>
+<p>A vulnerability in <code>collab/searxng</code> (user-driven web scraper, broad
+egress allow per egress design's "inherently broad" bucket) gets RCE.
+The attacker controls a pod in <code>collab</code>.</p>
+<ul>
+<li><strong>What CNPs catch.</strong> Any cross-namespace flow that wasn't explicitly
+  allowed. The attacker cannot reach <code>databases</code> directly because no
+  CNP allows <code>collab/searxng → databases/*</code>.</li>
+<li><strong>What CNPs miss.</strong> The <code>allow-intra-namespace</code> baseline CNP lets
+  any pod in <code>collab</code> talk to any other pod in <code>collab</code>. The attacker
+  can reach <code>pump</code>, <code>pump-cv</code>, <code>obsidian-couchdb</code>, <code>paperless</code>, etc.
+  on whatever ports their respective allow-CNPs expose.</li>
+<li><strong>What mTLS adds.</strong> With <code>STRICT</code> PeerAuthentication and an
+  AuthorizationPolicy on (e.g.) <code>pump</code> that requires
+  <code>principals: ["cluster.local/ns/collab/sa/pump"]</code>, a request from
+  <code>collab/searxng</code> is rejected at the receiving sidecar even though
+  the L4 connection succeeded. The attacker needs to also steal a
+  ServiceAccount token <em>and</em> prove possession of its X.509 cert,
+  which the sidecar refuses to issue without a valid SA.</li>
+</ul>
+<p>This is the highest-value scenario. The cluster's threat surface is
+shaped like "many apps in one namespace per concern" — <code>collab</code> has
+17 apps, <code>media</code> has 30+. Intra-namespace movement is the unfilled
+gap.</p>
+<h3 id="scenario-b-compromised-node-taps-pod-to-pod-overlay-traffic">Scenario B: compromised node taps pod-to-pod overlay traffic<a class="headerlink" href="#scenario-b-compromised-node-taps-pod-to-pod-overlay-traffic" title="Permanent link">&para;</a></h3>
+<p>A worker node is compromised — disk image stolen, kubelet credentials
+extracted, or the host gets RCE via a kernel CVE. The attacker can
+run <code>tcpdump</code> on the node's interfaces and see every cni0/vxlan
+frame transiting it.</p>
+<ul>
+<li><strong>What CNPs catch.</strong> Nothing — CNPs gate which connections form,
+  not what's on the wire after they do.</li>
+<li><strong>What mTLS adds.</strong> Every mesh-internal connection is wrapped in
+  TLS 1.3 with workload-cert client + server auth. Captured frames
+  are encrypted; the attacker would also need the receiving pod's
+  private key (only present inside the receiving sidecar's memory).</li>
+</ul>
+<p>This scenario is real but lower-probability in a home lab. The
+mitigation that already exists is <em>node access control</em> — physical
+access, no shared tenants, hardened kubelet. mTLS adds defense in
+depth here, not a new primary control.</p>
+<h3 id="scenario-c-a-future-cilium-identity-confusion-bug">Scenario C: a future Cilium identity-confusion bug<a class="headerlink" href="#scenario-c-a-future-cilium-identity-confusion-bug" title="Permanent link">&para;</a></h3>
+<p>The 2026-05-17/18 rollback discovered that Cilium's identity model
+can be wrong in subtle ways: socket-lb rewrites destinations before
+policy evaluation; <code>matchPattern</code> silently fails on canonical FQDNs;
+VXLAN-encapsulated broadcast frames are dropped because identity
+doesn't propagate. None of those were attacker-exploitable, but they
+were <em>correctness</em> bugs in the very mechanism mTLS would protect
+against. If a future Cilium CVE lets an attacker spoof a pod's
+identity to a peer pod (presented to the receiving CNP as a different
+endpoint), CNPs no longer protect anything.</p>
+<ul>
+<li><strong>What mTLS adds.</strong> Workload identity is bound to a Kubernetes
+  ServiceAccount via an X.509 cert issued by istiod. It is <strong>not</strong>
+  derived from Cilium identity. An attacker who can confuse Cilium's
+  identity table still cannot present a <code>pump.collab.svc.cluster.local</code>
+  client cert without compromising the istiod CA or stealing the
+  pump SA token.</li>
+</ul>
+<p>This is the "defense in depth against tools we already rely on"
+argument. The strength of this argument is proportional to how much
+you trust Cilium's identity model — and our recent rollout chewed
+through some of that trust.</p>
+<h3 id="what-mtls-does-not-add">What mTLS does NOT add<a class="headerlink" href="#what-mtls-does-not-add" title="Permanent link">&para;</a></h3>
+<p>To be honest about what we get:</p>
+<ul>
+<li><strong>No protection against compromised mTLS-participating pods.</strong> If
+  <code>pump-cv</code> is itself compromised, it has a valid cert and the mesh
+  trusts it.</li>
+<li><strong>No protection at the ingress edge.</strong> External traffic
+  (cloudflared → envoy gateway → backend) is already TLS-terminated
+  at envoy. mTLS inside the cluster doesn't change the public
+  threat model.</li>
+<li><strong>No mitigation for the data-exfil class.</strong> Egress to the internet
+  is bound by Cilium FQDN/entity rules, not mesh policy.</li>
+<li><strong>No protection against control-plane (istiod) compromise.</strong>
+  istiod is the CA. It's a new SPOF.</li>
+</ul>
+<h2 id="2-inventory-services-with-native-mtls-today-vs-what-istio-would-add">2. Inventory — services with native mTLS today vs. what Istio would add<a class="headerlink" href="#2-inventory-services-with-native-mtls-today-vs-what-istio-would-add" title="Permanent link">&para;</a></h2>
+<h3 id="what-already-has-tlsmtls-in-flight">What already has TLS/mTLS in flight<a class="headerlink" href="#what-already-has-tlsmtls-in-flight" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Channel</th>
+<th>Mechanism</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Cloudflared → Envoy Gateway</td>
+<td>external ingress</td>
+<td>Envoy TLS termination with per-route certs from cert-manager</td>
+</tr>
+<tr>
+<td>Envoy Gateway → some backends</td>
+<td>internal HTTPS</td>
+<td>Re-encrypted backends (jellyfin, immich on TLS); most are plaintext</td>
+</tr>
+<tr>
+<td>CNPG client → CNPG primary</td>
+<td>DB replication + barman</td>
+<td>CNPG generates server certs; client <code>verify-ca</code> mode</td>
+</tr>
+<tr>
+<td>Cilium agent → Hubble</td>
+<td>telemetry</td>
+<td>Cilium-managed certs</td>
+</tr>
+<tr>
+<td><code>mcp-system</code> sidecars ↔ istiod</td>
+<td>XDS</td>
+<td>Already mTLS (port 15012) — this is the deployed slice</td>
+</tr>
+</tbody>
+</table>
+<h3 id="what-istio-sidecar-would-add">What Istio sidecar would add<a class="headerlink" href="#what-istio-sidecar-would-add" title="Permanent link">&para;</a></h3>
+<p>For any pod with <code>sidecar.istio.io/inject: "true"</code>:</p>
+<ul>
+<li>Outbound: all traffic transparently routed through the sidecar,
+  upgraded to mTLS when the destination is also in the mesh.</li>
+<li>Inbound: all traffic terminated by the sidecar, mTLS verified.</li>
+<li>Per-port plaintext fallback (<code>PERMISSIVE</code> PeerAuthentication) until
+  every peer is in the mesh.</li>
+</ul>
+<h3 id="pods-that-cannot-run-a-sidecar-sidecar-mode">Pods that cannot run a sidecar (sidecar mode)<a class="headerlink" href="#pods-that-cannot-run-a-sidecar-sidecar-mode" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Pod type</th>
+<th>Examples</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>hostNetwork: true</code></td>
+<td><code>kube-vip</code> (daemonset), <code>etcd-defrag</code> (cronjob)</td>
+<td>Sidecar's iptables redirect doesn't work in host net namespace</td>
+</tr>
+<tr>
+<td>Daemonsets serving node-level data</td>
+<td><code>cilium-agent</code>, <code>node-exporter</code>, <code>node-problem-detector</code>, <code>node-tuning</code></td>
+<td>Same reason; many also need raw socket / capability access incompatible with sidecar UID</td>
+</tr>
+<tr>
+<td>Multi-interface pods</td>
+<td><code>vpn/pod-gateway</code>, <code>downloads/*</code> clients (VXLAN to gateway)</td>
+<td>Sidecar redirect interferes with VXLAN tunnel; verified-incompatible by the netpol rollout's pod-gateway carve-out</td>
+</tr>
+<tr>
+<td>Bare TCP non-HTTP that's deeply protocol-coupled</td>
+<td>EMQX MQTT brokers, Zigbee2MQTT, Z-Wave-JS, EsphomeAPI</td>
+<td>Istio supports TCP-only services, but loses L7 features (AuthorizationPolicy reduces to L4 source identity only)</td>
+</tr>
+<tr>
+<td>Pods that read <code>/proc</code> or use host PID/network</td>
+<td><code>node-tuning</code>, <code>gpu-operator</code> driver daemons</td>
+<td>Same as daemonset bucket</td>
+</tr>
+<tr>
+<td>Operators that talk to apiserver only</td>
+<td><code>cnpg-controller</code>, <code>external-secrets</code>, <code>cert-manager</code>, <code>flux-system/*</code></td>
+<td>Adds latency + complexity for ~zero security benefit; apiserver traffic is already mTLS via SA tokens</td>
+</tr>
+<tr>
+<td>Init-container-heavy short-lived workloads</td>
+<td><code>cnpg-bootstrap</code>, longhorn engine restore jobs</td>
+<td>Sidecar startup timing makes init containers flaky; documented Istio quirk</td>
+</tr>
+</tbody>
+</table>
+<h3 id="pods-that-should-not-join-the-mesh-judgment-not-technical">Pods that should NOT join the mesh (judgment, not technical)<a class="headerlink" href="#pods-that-should-not-join-the-mesh-judgment-not-technical" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Bucket</th>
+<th>Reason</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>flux-system</code> controllers</td>
+<td>Rollback substrate. Adding sidecars to flux-controller is "modify the tool you use to fix mistakes."</td>
+</tr>
+<tr>
+<td><code>cilium-*</code> (in <code>kube-system</code> + <code>cilium-secrets</code>)</td>
+<td>Cilium is the data plane Istio runs on top of. Circular dependency on bootstrap.</td>
+</tr>
+<tr>
+<td><code>rook-ceph</code> operator + agents</td>
+<td>Sidecars on storage data path add latency and a new failure mode for the very PVCs the mesh apps depend on.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="whats-left-the-mesh-eligible-surface">What's left — the mesh-eligible surface<a class="headerlink" href="#whats-left-the-mesh-eligible-surface" title="Permanent link">&para;</a></h3>
+<p>Approximately 75% of cluster pods, concentrated in: <code>collab</code>, <code>media</code>,
+<code>ai</code>, <code>home</code>, <code>mcp-system</code> (already done), <code>auth</code>, <code>databases</code>
+(CNPG primaries can be meshed; replication channels stay native),
+<code>observability</code> (grafana/loki/prometheus can be meshed; alloy/vector
+daemonsets cannot).</p>
+<h2 id="3-architectural-choice-sidecar-mode-vs-ambient-mode">3. Architectural choice — sidecar mode vs. ambient mode<a class="headerlink" href="#3-architectural-choice-sidecar-mode-vs-ambient-mode" title="Permanent link">&para;</a></h2>
+<p>Istio 1.22+ ships <strong>ambient mode</strong> as an alternative to per-pod
+sidecars. The choice is load-bearing for everything that follows.</p>
+<h3 id="sidecar-mode">Sidecar mode<a class="headerlink" href="#sidecar-mode" title="Permanent link">&para;</a></h3>
+<p><strong>How it works.</strong> Every meshed pod gets an injected <code>istio-proxy</code>
+container (Envoy). All inbound + outbound pod traffic is redirected
+to the sidecar via init-container iptables rules. The sidecar
+performs mTLS, policy enforcement, L7 telemetry.</p>
+<p><strong>Pros for this cluster:</strong></p>
+<ul>
+<li>Battle-tested. Sidecar mode is what mcp-system runs today; we have
+  six months of operational experience.</li>
+<li>Per-pod blast radius. A failing sidecar takes down one pod, not a
+  node.</li>
+<li>Well-supported by <code>app-template</code> chart via pod annotations — no
+  new chart machinery needed.</li>
+</ul>
+<p><strong>Cons:</strong></p>
+<ul>
+<li><strong>Resource overhead.</strong> Each sidecar costs ~50-100m CPU and ~100Mi
+  RAM steady-state. At ~315 meshed pods that's ~16-32 vCPU and
+  ~31 GiB RAM — non-trivial on a cluster where worker8 already runs
+  92% allocated and P40-era workers are P40-era.</li>
+<li><strong>Pod-startup latency.</strong> Sidecar must be ready before the app
+  can serve. Adds 5-15s to cold starts (already a known pain point
+  for media-pull-stack apps, immich-ml, and others — see
+  <a href="https://github.com/rwlove/home-ops">HelmReleases needing disableWait</a> memory note).</li>
+<li><strong>Init container ordering.</strong> Some apps' init containers need
+  network before the sidecar is ready. Workarounds exist
+  (<code>holdApplicationUntilProxyStarts</code>) but add per-app config.</li>
+<li><strong>Per-app debug.</strong> A connection failure could be Cilium CNP, Istio
+  AuthorizationPolicy, Istio PeerAuthentication, sidecar config,
+  or app-level TLS. Five layers, four owners (we own all four).</li>
+</ul>
+<h3 id="ambient-mode">Ambient mode<a class="headerlink" href="#ambient-mode" title="Permanent link">&para;</a></h3>
+<p><strong>How it works.</strong> No sidecars. A per-node "ztunnel" daemon handles
+mTLS for L4 traffic. An optional per-namespace "waypoint" pod handles
+L7 features (AuthorizationPolicy by HTTP method/path, rate limiting,
+etc.) when needed. Apps are unchanged — joining the mesh means
+labeling a namespace.</p>
+<p><strong>Pros for this cluster:</strong></p>
+<ul>
+<li><strong>Per-node overhead instead of per-pod.</strong> One ztunnel per node
+  (~100m CPU, ~200Mi RAM each × 9 worker nodes ≈ 900m CPU,
+  1.8 GiB RAM) instead of one Envoy per pod. ~20x reduction.</li>
+<li><strong>No app restart to join the mesh.</strong> Label the namespace; existing
+  pods are meshed on next packet. Reversible by removing the label.</li>
+<li><strong>No init-container ordering issues.</strong> Apps see normal traffic;
+  ztunnel does the mTLS off-pod.</li>
+<li><strong>No 5-15s sidecar warmup on pod restart.</strong></li>
+<li><strong>Conceptually cleaner for the "all pods L4-mTLS, only some pods
+  L7" pattern</strong> — which describes our cluster's mostly-internal HTTP
+  with a few bare-TCP services well.</li>
+</ul>
+<p><strong>Cons:</strong></p>
+<ul>
+<li><strong>Newer.</strong> Istio 1.22 (May 2024) GA'd ambient; 1.29 is what we run.
+  Production track record is shorter than sidecar mode.</li>
+<li><strong>ztunnel + Cilium overlap.</strong> Both want to be the per-node data
+  plane. Cilium's chaining mode is supported but documented as
+  "complex." Specifically, Cilium's socket-lb rewrite (which already
+  bit us once) interacts with ztunnel's transparent capture. We
+  would need to validate the combination on a non-production cluster
+  before committing.</li>
+<li><strong>AuthorizationPolicy L7 requires waypoints,</strong> which are
+  per-namespace pods — back to a sidecar-shaped overhead just for the
+  L7 enforcement paths.</li>
+<li><strong>Smaller upstream community + fewer Stack-Overflow-quality answers</strong>
+  for debugging at 02:00.</li>
+</ul>
+<h3 id="recommendation-for-this-cluster">Recommendation for this cluster<a class="headerlink" href="#recommendation-for-this-cluster" title="Permanent link">&para;</a></h3>
+<p><strong>If we ship, use sidecar mode for the first 2-3 namespaces, evaluate
+ambient on the pilot's lessons.</strong> Rationale:</p>
+<ul>
+<li>mcp-system is already sidecar; matching it removes operational
+  complexity.</li>
+<li>Sidecar mode's worst case is "one pod restart loops" — recoverable.
+  Ambient mode's worst case is "ztunnel + Cilium data-plane conflict
+  takes the node off the mesh" — harder to triage with one operator.</li>
+<li>The ambient-vs-sidecar resource math becomes compelling only
+  beyond ~50 meshed pods. The pilot won't get there.</li>
+<li>If sidecar mode shows it scales to 3-4 namespaces without operator
+  fatigue, that's the answer. If it doesn't, ambient becomes the
+  forced-rewrite alternative — and we'll have real numbers to
+  evaluate it against by then.</li>
+</ul>
+<h2 id="4-phased-rollout">4. Phased rollout<a class="headerlink" href="#4-phased-rollout" title="Permanent link">&para;</a></h2>
+<p>The phasing mirrors the NetworkPolicy rollout's "smallest first, real
+verification, one operator-owned change at a time" pattern. The
+NetworkPolicy rollback (2026-05-18) established that audit-mode soak +
+in-cluster smoke tests are <em>not</em> sufficient verification gates.
+<strong>Every phase below has a user-driven browser verification step</strong>
+before the next phase starts.</p>
+<h3 id="phase-0-control-plane-scoping-1-2-days">Phase 0 — control-plane scoping (1-2 days)<a class="headerlink" href="#phase-0-control-plane-scoping-1-2-days" title="Permanent link">&para;</a></h3>
+<p>Today istiod is configured to accept sidecars from any namespace
+(<code>cnp-allow.yaml</code> uses <code>fromEntities: cluster</code>). That is the right
+shape for the long run, but istiod has no namespace-discovery
+restriction today — it watches every namespace's services + endpoints.</p>
+<ul>
+<li>Add <code>discoverySelectors</code> to istiod values, scoped to only the
+  namespaces actively in the mesh. Reduces istiod memory + control
+  loop cost as more namespaces join.</li>
+<li>Verify mcp-system continues working post-change.</li>
+</ul>
+<p>Exit criteria: istiod CPU/memory unchanged or lower; mcp-system MCP
+servers continue serving traffic.</p>
+<p><strong>No new namespace joins the mesh in this phase.</strong></p>
+<h3 id="phase-1-pilot-namespace-selfhosted-2-weeks">Phase 1 — pilot namespace: <code>selfhosted</code> (2 weeks)<a class="headerlink" href="#phase-1-pilot-namespace-selfhosted-2-weeks" title="Permanent link">&para;</a></h3>
+<p>Why <code>selfhosted</code>:</p>
+<ul>
+<li>Two pods (<code>webhook</code> deployment). Bounded blast radius.</li>
+<li>Already used as the canary for the NetworkPolicy rollout — same
+  shape of "smallest, lowest-traffic namespace" gives consistency.</li>
+<li>No CNPG dependency, no external integrations that would obscure
+  mesh-introduced failures.</li>
+<li>Already has CNPs in place (<code>cnp-allow-from-gateway.yaml</code>), so
+  CNP-vs-mesh interaction is exercisable.</li>
+</ul>
+<p>Steps:</p>
+<ol>
+<li>Label <code>selfhosted</code> namespace with <code>istio-injection: enabled</code>.</li>
+<li>Restart the <code>webhook</code> deployment (forces sidecar injection).</li>
+<li><strong>User browser test.</strong> Trigger a webhook end-to-end (the same way
+   it gets used in production).</li>
+<li>Apply <code>PeerAuthentication: PERMISSIVE</code> namespace-scoped — allows
+   both mTLS and plaintext during the transition. The mesh
+   participant accepts mTLS from other mesh peers and plaintext from
+   non-mesh (envoy, callers in other namespaces).</li>
+<li>Soak 1 week. Watch istiod logs for cert issuance errors; watch
+   webhook for new restart patterns; watch CPU/memory on the worker
+   running the pod.</li>
+</ol>
+<p>Exit criteria: webhook serves traffic through sidecar; no new
+restart patterns; sidecar CPU under 50m, RAM under 150Mi.</p>
+<h3 id="phase-2-second-pilot-collabpump-collabpump-cv-only-3-weeks">Phase 2 — second pilot: <code>collab/pump</code> + <code>collab/pump-cv</code> only (3 weeks)<a class="headerlink" href="#phase-2-second-pilot-collabpump-collabpump-cv-only-3-weeks" title="Permanent link">&para;</a></h3>
+<p>Why this specific cut, not all of <code>collab</code>:</p>
+<ul>
+<li>pump + pump-cv are a <em>real</em> multi-pod app with internal
+  collab-to-collab traffic (pump-cv is the computer-vision worker
+  for pump). Exercises the intra-namespace mTLS path.</li>
+<li>pump is OIDC-protected via Authelia — exercises the
+  mesh-to-non-mesh boundary at the ingress edge.</li>
+<li>The 2026-05-18 NetworkPolicy rollback's most-impactful failure
+  was <code>collab/pump</code> OIDC. Re-meshing it provides a "did we learn
+  from the netpol incident" feedback signal: if mesh adoption breaks
+  pump again, our verification process is still broken, and we should
+  stop.</li>
+</ul>
+<p>Steps:</p>
+<ol>
+<li>Label <code>pump</code> and <code>pump-cv</code> pods individually with
+   <code>sidecar.istio.io/inject: "true"</code> (do NOT label the namespace
+   yet — keeps other collab apps untouched).</li>
+<li>Restart pump first; user browser-tests OIDC login end-to-end.</li>
+<li>Restart pump-cv; user browser-tests image upload + CV worker
+   processing end-to-end.</li>
+<li><strong>One full week of normal use before any further action.</strong></li>
+<li>After soak: add <code>AuthorizationPolicy</code> on pump-cv requiring
+   <code>principals: ["cluster.local/ns/collab/sa/pump"]</code>. This is the
+   first real workload-identity check.</li>
+<li>User browser-tests again to confirm AuthorizationPolicy didn't
+   break the pump → pump-cv call.</li>
+</ol>
+<p>Exit criteria: pump + pump-cv serving normally; AuthorizationPolicy
+in place; no operator alerts.</p>
+<h3 id="phase-3-spread-one-namespace-at-a-time-2-4-months-elapsed">Phase 3 — spread one namespace at a time (2-4 months elapsed)<a class="headerlink" href="#phase-3-spread-one-namespace-at-a-time-2-4-months-elapsed" title="Permanent link">&para;</a></h3>
+<p>Order, low-to-high risk:</p>
+<ol>
+<li><code>ai</code> — most apps already restart frequently from model swaps; new
+   restart pattern is masked.</li>
+<li><code>home</code> — careful: home-assistant + esphome + zigbee2mqtt have
+   multi-interface and TCP/MQTT patterns. Selectively mesh
+   home-assistant first; leave brokers (emqx, z2m) out per § 2.</li>
+<li><code>media</code> — large surface (30+ apps); take *arr stack first as a
+   logical sub-bundle.</li>
+<li><code>collab</code> (full namespace) — once pump pilot is stable, extend to
+   sibling apps.</li>
+</ol>
+<p>Each namespace gets:</p>
+<ul>
+<li>Sidecar injection per-pod via existing app-template
+  <code>pod.annotations</code> (no namespace-label cascade).</li>
+<li>PERMISSIVE PeerAuthentication first, soak 1 week, then STRICT
+  per-namespace.</li>
+<li>One user browser-test per OIDC app in the namespace before
+  declaring the namespace done.</li>
+</ul>
+<p><strong>Rate limit: one namespace per 2 weeks maximum.</strong> No parallel
+rollouts; one operator can't triage two simultaneous mesh failures.</p>
+<h3 id="phase-4-strict-mtls-at-the-mesh-default-level-after-80-adoption">Phase 4 — STRICT mTLS at the mesh-default level (after 80% adoption)<a class="headerlink" href="#phase-4-strict-mtls-at-the-mesh-default-level-after-80-adoption" title="Permanent link">&para;</a></h3>
+<p>Once every namespace that's going to be meshed <em>is</em> meshed and on
+namespace-scoped STRICT PeerAuthentication, replace the per-namespace
+PeerAuthentications with a single mesh-scoped one in <code>istio-system</code>:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">security.istio.io/v1</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">PeerAuthentication</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="nt">metadata</span><span class="p">:</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">istio-system</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="nt">spec</span><span class="p">:</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="nt">mtls</span><span class="p">:</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">    </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">STRICT</span>
+</span></code></pre></div>
+<p>This makes mTLS the cluster default. Any new namespace gets STRICT
+automatically; opt-out requires an explicit PeerAuthentication.</p>
+<p>Exit criteria: no mesh-internal plaintext traffic visible in Kiali /
+istio metrics.</p>
+<h3 id="phase-n-never-fully-mesh-acceptance">Phase N — never-fully-mesh acceptance<a class="headerlink" href="#phase-n-never-fully-mesh-acceptance" title="Permanent link">&para;</a></h3>
+<p>The pods enumerated in § 2 ("Pods that cannot run a sidecar") stay
+out of the mesh permanently. Their traffic to meshed pods is allowed
+via PeerAuthentication <code>PERMISSIVE</code> boundary at the receiving side
+or by AuthorizationPolicy carve-outs for specific source identities.</p>
+<p>This is fine. The threat model in § 1 already acknowledges that
+host-network and daemonset pods have a different trust posture.</p>
+<h2 id="5-operational-cost">5. Operational cost<a class="headerlink" href="#5-operational-cost" title="Permanent link">&para;</a></h2>
+<h3 id="resource-overhead-sidecar-mode">Resource overhead (sidecar mode)<a class="headerlink" href="#resource-overhead-sidecar-mode" title="Permanent link">&para;</a></h3>
+<p>Empirical numbers from the mcp-system deployment (11 sidecars
+currently):</p>
+<table>
+<thead>
+<tr>
+<th>Per-sidecar resource</th>
+<th>Steady-state</th>
+<th>P99</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CPU</td>
+<td>30-70m</td>
+<td>150m</td>
+</tr>
+<tr>
+<td>RAM</td>
+<td>80-120Mi</td>
+<td>200Mi</td>
+</tr>
+<tr>
+<td>Startup time added</td>
+<td>5-10s</td>
+<td>15s</td>
+</tr>
+</tbody>
+</table>
+<p>Extrapolated to a hypothetical 80% mesh coverage (~315 pods):</p>
+<table>
+<thead>
+<tr>
+<th>Cluster-wide cost</th>
+<th>Lower bound</th>
+<th>Upper bound</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CPU</td>
+<td>9.5 vCPU</td>
+<td>22 vCPU</td>
+</tr>
+<tr>
+<td>RAM</td>
+<td>25 GiB</td>
+<td>38 GiB</td>
+</tr>
+</tbody>
+</table>
+<p>Cluster has ~80 vCPU and ~520 GiB usable across 9 workers. CPU is
+the binding constraint — 22 vCPU is 27% of total. Beast is fine; P40
+workers (worker8 already at 92% allocation) are not.</p>
+<h3 id="resource-overhead-ambient-mode">Resource overhead (ambient mode)<a class="headerlink" href="#resource-overhead-ambient-mode" title="Permanent link">&para;</a></h3>
+<p>Estimated from upstream docs + ambient-mode performance benchmarks:</p>
+<table>
+<thead>
+<tr>
+<th>Cluster-wide cost</th>
+<th>Estimate</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ztunnel CPU (9 nodes × ~100m)</td>
+<td>0.9 vCPU</td>
+</tr>
+<tr>
+<td>ztunnel RAM (9 nodes × ~250Mi)</td>
+<td>2.3 GiB</td>
+</tr>
+<tr>
+<td>Waypoint CPU (estimate, 5 namespaces with L7 policy × ~100m)</td>
+<td>0.5 vCPU</td>
+</tr>
+<tr>
+<td>Waypoint RAM (5 × 200Mi)</td>
+<td>1.0 GiB</td>
+</tr>
+<tr>
+<td><strong>Total</strong></td>
+<td><strong>~1.4 vCPU, ~3.3 GiB</strong></td>
+</tr>
+</tbody>
+</table>
+<p>~15x cheaper. This is the strongest argument for ambient if we get
+past the Cilium-interaction concern.</p>
+<h3 id="management-complexity">Management complexity<a class="headerlink" href="#management-complexity" title="Permanent link">&para;</a></h3>
+<p>New CRDs in active use:</p>
+<ul>
+<li><code>PeerAuthentication</code> (mTLS mode)</li>
+<li><code>AuthorizationPolicy</code> (workload identity gates)</li>
+<li><code>DestinationRule</code> (per-destination connection settings; mostly
+  unused but learning curve to write one when needed)</li>
+<li><code>VirtualService</code> + <code>Gateway</code> (overlap with our existing Envoy
+  Gateway / HTTPRoute; we would <em>not</em> migrate ingress to Istio
+  gateways)</li>
+<li><code>ServiceEntry</code> (for non-mesh external destinations from meshed
+  pods)</li>
+</ul>
+<p>Per-namespace conventions to establish:</p>
+<ul>
+<li>ServiceAccount-per-pod (today many apps share <code>default</code>); without
+  per-app SAs, AuthorizationPolicy degrades to namespace-level
+  granularity.</li>
+<li>Naming convention for <code>AuthorizationPolicy</code> resources to avoid
+  cross-app confusion.</li>
+<li>Whether each app belongs in <code>network-policy/baseline/</code> style
+  shared components, or stays per-app.</li>
+</ul>
+<p>Observability additions:</p>
+<ul>
+<li>Kiali (mesh topology view) — currently in repo but namespace
+  disabled (per netpol plan § Phase 6 — kuadrant ns dormant; same
+  story for kiali).</li>
+<li>Istio control-plane dashboards in Grafana (already shipped by
+  kube-prometheus-stack).</li>
+<li>Mesh-aware log fields in Loki — modest work.</li>
+</ul>
+<h3 id="debugging-changes">Debugging changes<a class="headerlink" href="#debugging-changes" title="Permanent link">&para;</a></h3>
+<p>A failed connection currently has 3 possible causes:</p>
+<ol>
+<li>CNP denies it.</li>
+<li>App-level error (auth, app bug).</li>
+<li>Network plumbing (DNS, kube-proxy, etc.).</li>
+</ol>
+<p>With a partial mesh, add five more:</p>
+<ol>
+<li>PeerAuthentication mismatch (PERMISSIVE vs STRICT cross-boundary).</li>
+<li>AuthorizationPolicy denies it.</li>
+<li>Sidecar config error (port not in services, hostNetwork conflict).</li>
+<li>Cert rotation in flight (ms-scale, but real).</li>
+<li>Sidecar OOMKilled.</li>
+</ol>
+<p>The cluster's MTTR for current-state issues is ~15-30 minutes per
+incident. Doubling the failure dimensions plausibly doubles MTTR.
+This is the operator-cost line item that matters most for a
+one-person operation.</p>
+<h3 id="new-spofs">New SPOFs<a class="headerlink" href="#new-spofs" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>istiod.</strong> If istiod is down, new pods can join the mesh but
+  can't get certs; existing sidecars use cached certs until expiry
+  (default 24h). Recoverable, but a new "thing that must be running."</li>
+<li><strong>Sidecar liveness.</strong> A failing sidecar = a failing pod even if
+  the app is fine. New restart patterns to triage.</li>
+<li><strong>Mesh CA root key.</strong> Rotation procedure exists but is operationally
+  finicky; documented Istio gotcha.</li>
+</ul>
+<h2 id="6-recommendation">6. Recommendation<a class="headerlink" href="#6-recommendation" title="Permanent link">&para;</a></h2>
+<p><strong>Defer.</strong> Specifically: keep the current <code>mcp-system</code>-scoped
+deployment as-is; do not extend mTLS to other namespaces in 2026.</p>
+<h3 id="rationale">Rationale<a class="headerlink" href="#rationale" title="Permanent link">&para;</a></h3>
+<ol>
+<li>
+<p><strong>The L4/L7 gap mTLS closes is narrower than it looks here.</strong>
+   The cluster's biggest unfixed exposure surface is <em>egress to the
+   internet</em> (50 of 51 CNPs allow <code>world:443</code>), not pod-to-pod
+   confidentiality. The
+   <a href="../egress_restriction_design/">egress restriction design</a> addresses
+   the higher-value gap first.</p>
+</li>
+<li>
+<p><strong>The verification-gap lesson from the NetworkPolicy rollback
+   (2026-05-18) still applies.</strong> That rollout had stronger
+   verification than mesh adoption would have (audit mode + in-cluster
+   smoke), and still produced 5+ user-impacting failures. Mesh
+   adoption's failure modes (PeerAuthentication mismatches,
+   AuthorizationPolicy denies) are <em>harder</em> to discover from
+   in-cluster tests than CNP drops are, because they're application-
+   level and require real authenticated calls to surface.</p>
+</li>
+<li>
+<p><strong>The operator-cost line is the binding constraint.</strong> One person.
+   MTTR doubles with the new failure dimensions. The hours that would
+   go into mesh expansion are better spent on the egress restriction,
+   the OS migration program (worker2 → master2, beast Stream 9 → 10,
+   Talos pilot), and the Spark-arrival-conditional LangGraph
+   activation — all of which are higher-leverage for the cluster's
+   current shape.</p>
+</li>
+<li>
+<p><strong>Sidecar resource overhead is non-trivial at this scale.</strong> ~15-32
+   vCPU and ~25-38 GiB RAM is plausibly the difference between
+   "comfortable headroom" and "next workload needs a new node."
+   Ambient mode would solve this, but ambient + Cilium socket-lb
+   interaction is exactly the kind of "two clever data planes
+   fighting" problem the rollback documented us being bad at.</p>
+</li>
+</ol>
+<h3 id="revisit-triggers">Revisit triggers<a class="headerlink" href="#revisit-triggers" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>A cluster-internal compromise.</strong> If we ever have a confirmed
+  lateral-movement incident, the ROI calculation flips immediately
+  and Phase 1 starts the next week.</li>
+<li><strong>Cilium identity-confusion CVE.</strong> A real one would force the
+  "don't trust Cilium identity alone" argument from § 1 Scenario C
+  from speculative to concrete.</li>
+<li><strong>Cluster doubles in size.</strong> At ~800 pods + multi-operator (e.g.
+  if the home-ops repo gains a collaborator), the per-operator
+  debug-burden math changes.</li>
+<li><strong>Ambient mode + Cilium chaining gets a "production ready" story
+  with multiple home-lab references.</strong> Today the references are
+  thin; in 12 months that may change.</li>
+</ul>
+<h3 id="what-ships-instead">What ships instead<a class="headerlink" href="#what-ships-instead" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Document this evaluation (this PR).</li>
+<li>Mention in
+  <a href="../networkpolicy_rollout_plan/">NetworkPolicy Rollout Plan § Out of scope</a>
+  that mesh-layer policy was evaluated and deferred. Done already
+  in that doc.</li>
+<li>Re-run this evaluation in 2027-Q1 or upon a revisit trigger,
+  whichever is sooner.</li>
+</ul>
+<h2 id="what-this-is-not">What this is NOT<a class="headerlink" href="#what-this-is-not" title="Permanent link">&para;</a></h2>
+<ul>
+<li>A teardown of <code>mcp-system</code>'s Istio. That deployment serves a
+  specific need (XDS-mediated MCP server discovery via Kuadrant)
+  and is justified by <em>that</em> requirement, not by mTLS-for-mTLS-sake.
+  It stays.</li>
+<li>A claim that mTLS is bad. mTLS is genuinely better security than
+  CNPs alone. The recommendation is about <em>cost in this cluster</em>,
+  not <em>security value in general</em>.</li>
+<li>A permanent "no." It is a "not now, with concrete triggers for
+  reconsideration."</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../egress_restriction_design/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Egress Restriction Design Proposal">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Egress Restriction Design Proposal
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../pod_security_audit/" class="md-footer__link md-footer__link--next" aria-label="Next: Pod Security Baseline Audit">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Pod Security Baseline Audit
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "navigation.footer", "search.highlight", "search.share", "search.suggest", "content.code.copy", "content.code.annotate", "content.action.edit", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

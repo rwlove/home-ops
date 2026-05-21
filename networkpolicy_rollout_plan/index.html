@@ -1,0 +1,3929 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="GitOps-managed home Kubernetes cluster — runbooks, design docs, audits.">
+      
+      
+        <meta name="author" content="Bubba">
+      
+      
+        <link rel="canonical" href="https://rwlove.github.io/home-ops/networkpolicy_rollout_plan/">
+      
+      
+        <link rel="prev" href="../apiserver_audit_logging/">
+      
+      
+        <link rel="next" href="../egress_restriction_design/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>NetworkPolicy Rollout Plan - Home Operations</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#networkpolicy-rollout-plan" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Home Operations" class="md-header__button md-logo" aria-label="Home Operations" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Home Operations
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              NetworkPolicy Rollout Plan
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/rwlove/home-ops" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rwlove/home-ops
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Home Operations" class="md-nav__button md-logo" aria-label="Home Operations" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Home Operations
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/rwlove/home-ops" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rwlove/home-ops
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+          
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href=".." class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Welcome
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_1" id="__nav_1_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Welcome
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../introduction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI & Workflow
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    AI & Workflow
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ai_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../homeaiops_dod/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HomeAIOps Definition of Done
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflow_automation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow Automation: Agents, Approvals, and Push
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../memory_mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Memory MCP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp_observability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Fleet Observability
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tei_spark/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TEI on Spark — reranker for RAG
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../coral/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coral Edge TPU
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../p40/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NVIDIA Tesla P40
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cluster Lifecycle
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Cluster Lifecycle
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cluster_rebuild/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cluster Rebuild Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cluster_upgrade/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cluster Upgrade Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../promote_worker_to_control_plane/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Promote a Worker to a Schedulable Control Plane
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../init_teardown/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Initialization &amp; Teardown
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../master1_etcd_disk_swap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    master1 etcd-Disk Swap Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../power-outage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Whole-home power outage / cold-start recovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DR & Restore
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    DR & Restore
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rook_ceph_dr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rook-Ceph DR Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cnpg_restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CNPG Cluster Restore Template
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../longhorn_restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Longhorn Restore Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../garage_restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Garage Substrate Restore Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../frigate_dr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Frigate + direct-NFS DR Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../immich_cnpg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Importing an Immich DB backup into a new CNPG database
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../offsite_recovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Offsite Recovery — Immich and Paperless
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Network & Security
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Network & Security
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../per-route-cert-migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Per-Route Cert Migration Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../apiserver_audit_logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Apiserver Audit Logging — Phase 5.P operator runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NetworkPolicy Rollout Plan
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NetworkPolicy Rollout Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#decisions-locked" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decisions (locked)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rollout-completion-summary-2026-05-17" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rollout completion summary (2026-05-17)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#downloads-vpn-carve-out-2026-05-18" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Downloads + vpn carve-out (2026-05-18)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#full-rollback-2026-05-18-reset-and-redesign" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Full rollback 2026-05-18 — reset and redesign
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-the-testing-missed-honest-retrospective" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the testing missed (honest retrospective)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-learnings-memorialized-to-agent-memory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key learnings (memorialized to agent memory)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#notable-design-choices-made-during-rollout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Notable design choices made during rollout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#known-follow-ups-outside-this-rollout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known follow-ups outside this rollout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#goal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Goal
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#current-state-snapshot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Current state (snapshot)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#guiding-principles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Guiding principles
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#baseline-policies-per-namespace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Baseline policies (per-namespace)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Baseline policies (per-namespace)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-allow-dnsyaml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. allow-dns.yaml
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-allow-apiserveryaml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. allow-apiserver.yaml
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-allow-intra-namespaceyaml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. allow-intra-namespace.yaml
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-allow-monitoring-scrapeyaml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. allow-monitoring-scrape.yaml
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-default-denyyaml-applied-last-separate-kustomization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. default-deny.yaml (applied LAST, separate Kustomization)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#app-specific-allow-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        App-specific allow patterns
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="App-specific allow patterns">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pattern-a-ingress-only-web-app-authelia-glance-public-web-uis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pattern A: ingress-only web app (Authelia, Glance, public web UIs)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pattern-b-web-app-cnpg-database-same-cluster-cross-namespace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pattern B: web app + CNPG database (same cluster, cross-namespace)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pattern-c-cnpg-cluster-the-database-itself-garage-backup-target" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pattern C: CNPG cluster (the database itself) + Garage backup target
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pattern-d-media-pull-stack-internal-deps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pattern D: media-pull-stack internal deps
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pattern-e-vpn-routed-app-pod-gateway-client" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pattern E: VPN-routed app (pod-gateway client)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pattern-f-camera-ingress-frigate-reolink-on-iot-vlan-19216845" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pattern F: Camera ingress (Frigate → Reolink on iot VLAN 192.168.4/5)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pattern-g-egress-to-lb-ip-on-same-cluster-mealie-garage-etc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pattern G: Egress to LB IP on same cluster (Mealie → Garage, etc.)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pattern-h-external-dns-external-secrets-cert-manager-egress" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pattern H: external-dns, external-secrets, cert-manager egress
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cilium-gotchas-read-before-writing-any-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cilium gotchas (read before writing any policy)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cross-cluster-external-dependencies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cross-cluster / external dependencies
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phasing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phasing
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phasing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#phase-0-audit-instrumentation-1-week" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 0 — Audit &amp; instrumentation (1 week)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-1-canary-namespace-selfhosted-1-week" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1 — Canary namespace: selfhosted (1 week)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-2-stateless-app-namespaces-2-3-weeks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2 — Stateless app namespaces (2-3 weeks)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-3-stateful-ingress-critical-namespaces-1-2-weeks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3 — Stateful &amp; ingress-critical namespaces (1-2 weeks)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-4-storage-namespaces-1-week" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4 — Storage namespaces (1 week)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-5-gateway-cert-secrets-namespaces-1-week" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 5 — Gateway / cert / secrets namespaces (1 week)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-6-remaining-system-namespaces-last-with-extra-care" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 6 — Remaining system namespaces (last, with extra care)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rollout-mechanics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rollout mechanics
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#risk-register" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Risk register
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#estimated-timeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Estimated timeline
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#out-of-scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Out of scope
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../egress_restriction_design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Egress Restriction Design Proposal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mtls_rollout_design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Istio mTLS Rollout Design Proposal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pod_security_audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pod Security Baseline Audit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rbac_audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RBAC Audit Findings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Substrate & Orchestration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Substrate & Orchestration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../orchestration_substrate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Orchestration substrate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task_queue_substrate_design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task Queue Substrate — design proposal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../github_webhook/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub Webhook → Flux
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../limits/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resources: Limits and Requests Philosophy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audits
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Audits
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../audit/post-spark-tool-call-leakage-2026-05-18/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Post-Spark tool-call-JSON leakage audit (2026-05-18)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../debugging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debugging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#decisions-locked" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decisions (locked)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rollout-completion-summary-2026-05-17" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rollout completion summary (2026-05-17)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#downloads-vpn-carve-out-2026-05-18" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Downloads + vpn carve-out (2026-05-18)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#full-rollback-2026-05-18-reset-and-redesign" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Full rollback 2026-05-18 — reset and redesign
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-the-testing-missed-honest-retrospective" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the testing missed (honest retrospective)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-learnings-memorialized-to-agent-memory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key learnings (memorialized to agent memory)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#notable-design-choices-made-during-rollout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Notable design choices made during rollout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#known-follow-ups-outside-this-rollout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known follow-ups outside this rollout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#goal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Goal
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#current-state-snapshot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Current state (snapshot)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#guiding-principles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Guiding principles
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#baseline-policies-per-namespace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Baseline policies (per-namespace)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Baseline policies (per-namespace)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-allow-dnsyaml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. allow-dns.yaml
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-allow-apiserveryaml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. allow-apiserver.yaml
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-allow-intra-namespaceyaml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. allow-intra-namespace.yaml
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-allow-monitoring-scrapeyaml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. allow-monitoring-scrape.yaml
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-default-denyyaml-applied-last-separate-kustomization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. default-deny.yaml (applied LAST, separate Kustomization)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#app-specific-allow-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        App-specific allow patterns
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="App-specific allow patterns">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pattern-a-ingress-only-web-app-authelia-glance-public-web-uis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pattern A: ingress-only web app (Authelia, Glance, public web UIs)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pattern-b-web-app-cnpg-database-same-cluster-cross-namespace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pattern B: web app + CNPG database (same cluster, cross-namespace)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pattern-c-cnpg-cluster-the-database-itself-garage-backup-target" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pattern C: CNPG cluster (the database itself) + Garage backup target
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pattern-d-media-pull-stack-internal-deps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pattern D: media-pull-stack internal deps
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pattern-e-vpn-routed-app-pod-gateway-client" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pattern E: VPN-routed app (pod-gateway client)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pattern-f-camera-ingress-frigate-reolink-on-iot-vlan-19216845" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pattern F: Camera ingress (Frigate → Reolink on iot VLAN 192.168.4/5)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pattern-g-egress-to-lb-ip-on-same-cluster-mealie-garage-etc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pattern G: Egress to LB IP on same cluster (Mealie → Garage, etc.)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pattern-h-external-dns-external-secrets-cert-manager-egress" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pattern H: external-dns, external-secrets, cert-manager egress
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cilium-gotchas-read-before-writing-any-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cilium gotchas (read before writing any policy)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cross-cluster-external-dependencies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cross-cluster / external dependencies
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phasing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phasing
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phasing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#phase-0-audit-instrumentation-1-week" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 0 — Audit &amp; instrumentation (1 week)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-1-canary-namespace-selfhosted-1-week" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1 — Canary namespace: selfhosted (1 week)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-2-stateless-app-namespaces-2-3-weeks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2 — Stateless app namespaces (2-3 weeks)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-3-stateful-ingress-critical-namespaces-1-2-weeks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3 — Stateful &amp; ingress-critical namespaces (1-2 weeks)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-4-storage-namespaces-1-week" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4 — Storage namespaces (1 week)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-5-gateway-cert-secrets-namespaces-1-week" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 5 — Gateway / cert / secrets namespaces (1 week)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-6-remaining-system-namespaces-last-with-extra-care" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 6 — Remaining system namespaces (last, with extra care)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rollout-mechanics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rollout mechanics
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#risk-register" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Risk register
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#estimated-timeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Estimated timeline
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#out-of-scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Out of scope
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/rwlove/home-ops/edit/main/docs/src/networkpolicy_rollout_plan.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="networkpolicy-rollout-plan">NetworkPolicy Rollout Plan<a class="headerlink" href="#networkpolicy-rollout-plan" title="Permanent link">&para;</a></h1>
+<p>Status: <strong>19 of 21 in-scope namespaces locked down (default-deny enforced). <code>downloads</code> + <code>vpn</code> carved out due to VXLAN DHCP broadcast incompat with cilium default-deny.</strong>
+Owner: home-ops
+Last updated: 2026-05-18</p>
+<h2 id="decisions-locked">Decisions (locked)<a class="headerlink" href="#decisions-locked" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong><code>flux-system</code> and <code>kube-system</code> are out of scope.</strong> Neither
+   namespace gets a default-deny. Documented in "Out of scope" below.
+   Rationale: blast radius of breaking either is loss of the rollback
+   mechanism itself; the perimeter (1P/SSO/CF tunnel/firewalld zones)
+   already provides the meaningful threat boundary for these namespaces.</li>
+<li><strong>One PR per namespace.</strong> Branch <code>netpol/&lt;ns&gt;</code>. The
+   default-deny ships as a <em>separate</em> PR after the allow-policies
+   have soaked ≥24h with zero unexplained Hubble drops.</li>
+<li><strong>Audit mode first.</strong> Every default-deny lands with
+   <code>policy.cilium.io/audit-mode: enabled</code> on a single canary pod
+   (Phase 1) or the whole namespace (Phase 2+); flip to enforce only
+   after Hubble shows zero unexplained <code>DROPPED-AUDITED</code> verdicts
+   for the per-phase window (48h–2 weeks depending on phase).</li>
+<li><strong><code>policy-cidr-match-mode</code> left at default.</strong> All node /
+   apiserver flows use entity selectors (<code>reserved:host</code>,
+   <code>reserved:remote-node</code>, <code>reserved:kube-apiserver</code>). No <code>ipBlock</code>
+   for node IPs anywhere.</li>
+</ol>
+<h2 id="rollout-completion-summary-2026-05-17">Rollout completion summary (2026-05-17)<a class="headerlink" href="#rollout-completion-summary-2026-05-17" title="Permanent link">&para;</a></h2>
+<p><strong>Outcome:</strong> 19 of 21 in-scope namespaces have default-deny + per-app
+allow CNPs. <code>flux-system</code> and <code>kube-system</code> remain unconstrained per
+Decision #1. <code>downloads</code> + <code>vpn</code> carved out 2026-05-18 — see
+"Downloads + vpn carve-out" below.</p>
+<table>
+<thead>
+<tr>
+<th>Phase</th>
+<th>Namespaces locked down</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>selfhosted</td>
+</tr>
+<tr>
+<td>2</td>
+<td>ai, actions-runner-system, renovate, mcp-system, home, collab, media</td>
+</tr>
+<tr>
+<td>3</td>
+<td>auth, databases, vpn, downloads</td>
+</tr>
+<tr>
+<td>4</td>
+<td>storage, longhorn-system, rook-ceph</td>
+</tr>
+<tr>
+<td>5</td>
+<td>network (v2 — initial attempt reverted due to envoy port mismatch), cert-manager, external-secrets</td>
+</tr>
+<tr>
+<td>6</td>
+<td>observability, kuadrant (CNP scaffolded but ns disabled cluster-side; dormant-correct), istio-system, cilium-secrets (special: standalone Flux Kustomization since cilium chart owns the namespace)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>~35 PRs merged</strong> across baselines, lockdowns, fixes, and follow-ups.</p>
+<h2 id="downloads-vpn-carve-out-2026-05-18">Downloads + vpn carve-out (2026-05-18)<a class="headerlink" href="#downloads-vpn-carve-out-2026-05-18" title="Permanent link">&para;</a></h2>
+<p>After the initial lockdown of <code>downloads</code> + <code>vpn</code> (Phase 3) shipped
+and soaked, the gateway-sidecar's init container began crashlooping.
+Sequence reconstructed from pod logs and Hubble:</p>
+<ol>
+<li>Sidecar runs <code>ping -c 1 10.42.4.4</code> (gateway pod) → DROPPED under
+   default-deny. Fixed by PR #11548 — Pattern E cross-ns ICMP allow
+   from <code>downloads/*</code> → <code>vpn/pod-gateway-main</code>.</li>
+<li>With ICMP allowed, the VXLAN tunnel comes up successfully.</li>
+<li><code>udhcpc -i vxlan0</code> sends a DHCP discover broadcast
+   (255.255.255.255) encapsulated inside the VXLAN unicast tunnel
+   to <code>vpn/pod-gateway-main-0</code>.</li>
+<li>dnsmasq on the gateway side logs DHCPACK going out — but the
+   client never sees it. <code>udhcpc</code> retries 5×, exits 1, init exits 1,
+   container crashloops.</li>
+</ol>
+<p><strong>Root cause:</strong> cilium's security identity for the broadcast frame
+inside the VXLAN tunnel doesn't match <code>vpn/pod-gateway</code>'s identity,
+so the OFFER is silently dropped. This is L2-broadcast-inside-L3-VXLAN,
+something cilium's identity model doesn't handle the way it handles
+unicast pod-to-pod traffic.</p>
+<p><strong>Decision:</strong> carve out <code>downloads</code> + <code>vpn</code> from default-deny. PR
+#11555 removed the <code>default-deny</code> component from both
+<code>kubernetes/apps/downloads/kustomization.yaml</code> and
+<code>kubernetes/apps/vpn/kustomization.yaml</code>. The <code>baseline</code> component
+(allow-dns/apiserver/intra-ns/monitoring) stays. The per-app <code>allow-*</code>
+CNPs stay (so cross-namespace access still requires explicit allow
+rules at the consumer side). What's lost is the deny-by-default
+posture inside these two namespaces.</p>
+<p><strong>Revisit triggers:</strong></p>
+<ul>
+<li>cilium ships better broadcast-identity handling (track upstream)</li>
+<li>we replace pod-gateway with a static-IP wireguard pattern that
+  doesn't need DHCP (eliminates the issue entirely)</li>
+<li>a different VPN egress model that uses node-level routing instead
+  of a sidecar (also eliminates the issue)</li>
+</ul>
+<p><strong>Net posture:</strong> 19 of 21 namespaces have full default-deny;
+downloads + vpn rely on cluster-perimeter controls (1P/SSO/firewalld,
+no public ingress to these workloads, only <code>bt.thesteamedcrab.com</code> +
+media-pull-stack UIs which are still gated by oauth2-proxy).</p>
+<h2 id="full-rollback-2026-05-18-reset-and-redesign">Full rollback 2026-05-18 — reset and redesign<a class="headerlink" href="#full-rollback-2026-05-18-reset-and-redesign" title="Permanent link">&para;</a></h2>
+<p><strong>Outcome:</strong> All default-deny CNPs deleted from the 19 remaining
+locked-down namespaces. <code>cluster-apps</code> Flux Kustomization SUSPENDED
+to persist the rollback before this commit lands. Posture is now
+<strong>zero default-deny</strong> cluster-wide. Baseline + per-app allow CNPs
+remain in git and in-cluster but have no enforcement effect without
+a default-deny.</p>
+<p><strong>Trigger:</strong> User browser-testing on 2026-05-18 surfaced 5+ broken
+apps despite every namespace passing audit-mode soak and in-cluster
+smoke tests:</p>
+<ul>
+<li><code>collab/pump</code> — OIDC <code>/oauth2/callback</code> token exchange failing
+  (fixed in PR #11559 ahead of the rollback; the fix shape became
+  the canonical pattern for every oauth2-proxy CNP).</li>
+<li><code>media/&lt;media-pull-stack apps&gt;</code>, <code>media/av1corrector</code>,
+  <code>media/medialyze</code>, <code>media/music-assistant</code> — same OIDC token
+  exchange failure as pump.</li>
+<li><code>observability/kube-ops-view</code>, <code>observability/goldilocks</code>,
+  <code>observability/netdata</code>, <code>observability/blackbox</code> — non-oauth
+  reachability gaps from various directions (not all root-caused
+  yet).</li>
+</ul>
+<p><strong>Why a full reset rather than incremental fixes:</strong> the failures
+were not a handful of edge cases — they were a systemic blind spot
+in the verification step. The audit-mode soak window cannot exercise
+flows that don't happen during the soak (server-side OIDC
+<code>/oauth2/callback</code> only fires when a user actually completes a
+browser login), and in-cluster <code>curl --resolve</code> smoke tests bypass
+the socket-lb rewrite path that breaks the policy match (see
+<code>project_cilium_l4_port_targetport.md</code>). Continuing to land
+incremental fixes on top of a partially-broken lockdown would
+keep extending the user-impact window every time a new app's
+OIDC pattern surfaces.</p>
+<p><strong>What was rolled back in git (this commit):</strong></p>
+<ol>
+<li>Removed the <code>network-policy/default-deny</code> component import from
+   all 19 namespace <code>kustomization.yaml</code> files that previously had
+   it. <code>baseline</code> (DNS, apiserver, intra-ns, monitoring scrape,
+   host probes) stays — these allows are harmless without a
+   default-deny.</li>
+<li>Corrected the 20 oauth2-proxy CNPs cluster-wide to the
+   <code>envoy:10443</code> egress pattern (was <code>toEntities:[world]:443</code> +
+   direct <code>authelia:9091</code>, which doesn't match the socket-lb-rewritten
+   destination). Mirrors the pump fix (PR #11559) and the storage
+   fix (PR #11560). These rules are inert under the current
+   no-default-deny posture but will be correct when the next
+   re-rollout enables enforcement.</li>
+</ol>
+<p><strong>Re-rollout plan (when work resumes):</strong></p>
+<ul>
+<li>One namespace at a time, smallest first (start with <code>selfhosted</code>).</li>
+<li>After enabling default-deny on a namespace, <strong>user performs real
+  external-URL browser verification</strong> (laptop → DNS → cloudflared →
+  envoy → backend → oauth2-proxy callback completes → app loads)
+  before the next namespace is touched.</li>
+<li>Pattern-A CNPs are no longer accepted as "verified" by <code>curl URL</code>
+  returning 302 — the full OIDC round-trip must be exercised by a
+  human session.</li>
+<li>The audit-mode soak window stays as a discovery mechanism but is
+  no longer the <em>gate</em> for flipping enforce; the user's browser
+  check is.</li>
+</ul>
+<h2 id="where-the-testing-missed-honest-retrospective">Where the testing missed (honest retrospective)<a class="headerlink" href="#where-the-testing-missed-honest-retrospective" title="Permanent link">&para;</a></h2>
+<p>The network-operator agent's prime directive is "you cannot break
+the network." It broke things. The user discovered failures rather
+than the agent catching them. This is what slipped by:</p>
+<ol>
+<li>
+<p><strong>In-cluster smoke tests gave false confidence.</strong> Lockdown
+   agents tested with <code>curl --resolve</code> from inside the cluster,
+   bypassing the actual external path (laptop → DNS → cloudflared
+   → envoy → backend). The initial network-ns lockdown (PR #11524)
+   passed all in-cluster checks while every external URL was
+   timing out cluster-wide. User noticed first.</p>
+</li>
+<li>
+<p><strong>Pattern A 302 != working OIDC.</strong> Smoke tests treated "URL
+   returns 302" as success. But oauth2-proxy returns 302 to the
+   login page even when its server-side token exchange (the call
+   from oauth2-proxy pod → authelia after browser-side login) is
+   blocked. The actual user-visible failure happens at the
+   <code>/oauth2/callback</code> step, which isn't exercised by <code>curl URL</code>.
+   User discovered pump login hanging the morning after collab
+   lockdown shipped.</p>
+</li>
+<li>
+<p><strong><code>matchPattern</code> for canonical FQDNs was assumed to work</strong> based
+   on its name. It silently fails for FQDNs without CNAME chains
+   (1Password Connect, ACME, pushover, mailgun, auth.${SECRET_DOMAIN}).
+   When paperless OIDC surfaced this mid-rollout, the fix was
+   applied only to paperless instead of immediately auditing every
+   matchPattern allow. Six hours of silent breakage elapsed before
+   the user prompted the audit.</p>
+</li>
+<li>
+<p><strong>Cilium socket-lb rewrite happens BEFORE policy check.</strong>
+   In-cluster pods that hit a public hostname via split-horizon
+   DNS get their destination rewritten from LB IP to envoy pod IP
+   plus targetPort BEFORE BPF L4 policy evaluates. A
+   <code>toEntities: [world]</code> plus port 443 allow doesn't match the
+   rewritten destination (<code>network/envoy:10443</code>). Cross-ns
+   Pattern E to envoy is also required. Missed during the FQDN
+   audit and surfaced when the user reported pump's <code>/oauth2/</code>
+   URL hanging.</p>
+</li>
+<li>
+<p><strong>No end-to-end OIDC test gate.</strong> Pattern A overlays were
+   verified by curl returning 302. There was no test that
+   completed a full OIDC login (curl with cookie jar through the
+   full redirect + callback chain). Every oauth2-proxy app in the
+   cluster was potentially affected by gaps #2-4 above.</p>
+</li>
+</ol>
+<p>These are not learnings about Cilium — they are testing strategy
+gaps in the network-operator agent's verification step. Future
+network changes should verify from the user's actual path, not
+from an idealized in-cluster path that bypasses the failure mode.</p>
+<h2 id="key-learnings-memorialized-to-agent-memory">Key learnings (memorialized to agent memory)<a class="headerlink" href="#key-learnings-memorialized-to-agent-memory" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Cilium L4 policy evaluates against pod <code>targetPort</code>, not Service
+  <code>port</code></strong> — <code>project_cilium_l4_port_targetport.md</code>. Bit us on
+  netbox (svc:80 → pod:8080) and envoy data planes
+  (svc:443 → pod:10443, caused the initial network-ns lockdown to
+  break cluster-wide ingress; reverted as #11527, redesigned as
+  #11529).</li>
+<li><strong><code>toFQDNs.matchPattern</code> works only for FQDNs with CNAME chains</strong>
+  — <code>project_cilium_matchpattern_fqdn_limits.md</code>. For canonical
+  FQDNs (1Password Connect, ACME endpoints, pushover, mailgun,
+  s3.${SECRET_DOMAIN}, etc.) the K8s search-domain augmentation
+  makes matchPattern silently fail. Use <code>toEntities: [world] + port</code>
+  instead. Audited and fixed across 8 namespaces in PRs #11535–11542.</li>
+<li><strong><code>policy-audit-mode: enabled</code> in cilium-config disables policy
+  enforcement entirely WITHOUT capturing audit verdicts</strong> in Cilium
+  1.19 with this stack. Don't use as a discovery mechanism. Use
+  Hubble flow data on the non-locked baseline as the discovery
+  signal instead.</li>
+<li><strong><code>fromEntities: [world, host, remote-node]</code> on broker pods</strong> is
+  the correct shape for LAN-client ingress (EMQX MQTT brokers,
+  jellyfin via LB IP, wg-easy VPN). Pure <code>cluster</code> doesn't cover
+  it because LB IP traffic enters via host identity.</li>
+<li><strong>Adding a new agent to <code>rwlove/langgraph-agents</code> requires updating
+  5 hardcoded places</strong> — <code>project_langgraph_specialist_5_places.md</code>.
+  Caught during the network-operator port (PR #4).</li>
+<li><strong>Lint must pass on agent-authored PRs</strong> —
+  <code>feedback_lint_must_pass_on_agent_prs.md</code>. Run <code>markdownlint-cli2</code>
+  locally before any markdown commit.</li>
+</ul>
+<h2 id="notable-design-choices-made-during-rollout">Notable design choices made during rollout<a class="headerlink" href="#notable-design-choices-made-during-rollout" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Direct-enforce (skip audit window) when canary proves the
+  mechanic</strong> — used for selfhosted (1 idle app) and ai (after
+  audit-mode discovery proved broken). Tradeoff: missed patterns
+  surface as user-impact, rolled back fast via <code>flux suspend</code> +
+  <code>kubectl delete cnp</code>.</li>
+<li><strong>One PR per namespace</strong> held throughout (Decision #2). Multi-app
+  follow-up fixes shipped as separate PRs.</li>
+<li><strong>Conservative defaults for "tool" or "scan" apps</strong> that fan out
+  arbitrarily (renovate scan jobs, GitHub actions runners,
+  search-engine scrapers like searxng, smart-home glue like n8n and
+  home-assistant): use <code>toEntities: [world]</code> with comment explaining
+  the by-design broad allow.</li>
+<li><strong>Reusable kustomize components</strong>: <code>network-policy/baseline</code> (5
+  additive allows: DNS, apiserver, host-probes, intra-ns,
+  monitoring-scrape) + <code>network-policy/default-deny</code> (1 CNP, no
+  audit-mode annotation). Per-namespace <code>default-deny</code> ships as
+  separate Flux Kustomization after baseline soaks.</li>
+</ul>
+<h2 id="known-follow-ups-outside-this-rollout">Known follow-ups outside this rollout<a class="headerlink" href="#known-follow-ups-outside-this-rollout" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Issue #11493</strong>: arr-mcp (legacy SSE vs streamable-http) and
+  github-mcp (missing auth config) — not netpol. Recommend opening
+  as separate issues.</li>
+<li><strong>kuadrant ns</strong> is dormant in cluster (<code>kustomization.yaml</code>
+  commented out). Lockdown applies when kuadrant is re-enabled.</li>
+<li><strong>Cert renewal end-to-end test</strong> hasn't been triggered post-FQDN
+  fix; first ACME renewal in ~60 days will validate.</li>
+</ul>
+<h2 id="goal">Goal<a class="headerlink" href="#goal" title="Permanent link">&para;</a></h2>
+<p>Lock the cluster down with deny-by-default <code>CiliumNetworkPolicy</code>
+(CNP) so pod-to-pod and pod-to-egress traffic is permitted only by
+explicit allow rules. Keep the cluster fully operational during the
+rollout: no app outage, no Flux reconciliation stall, no apiserver
+isolation, no DNS isolation.</p>
+<h2 id="current-state-snapshot">Current state (snapshot)<a class="headerlink" href="#current-state-snapshot" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Cilium 1.19, <code>enable-policy=default</code>, <code>policy-cidr-match-mode=""</code>
+  (this is the precondition for the apiserver footgun — see Risks).</li>
+<li>Hubble enabled cluster-wide, <code>hubble-network-policy-correlation-enabled=true</code>,
+  metrics on <code>:9965</code> already scraped. We have flow visibility today.</li>
+<li>Existing policies are sparse and intentional:</li>
+<li><code>vpn/downloads-gateway-pod-gateway</code> + reflected copy in <code>default</code>
+    (pod-gateway VXLAN/WireGuard allow).</li>
+<li><code>flux-system/allow-webhooks-from-gateway</code> + <code>flux-operator-web</code>.</li>
+<li>A handful of chart-shipped K8s <code>NetworkPolicy</code> resources
+    (zulip-memcached/rabbitmq, pgadmin, grafana-image-renderer).</li>
+<li>Flux's bundled NetworkPolicies are <strong>disabled</strong> in
+  <code>flux-instance</code> values (<code>cluster.networkPolicy: false</code>) — Flux
+  controller egress is currently unrestricted, which simplifies
+  rollout (we don't risk source-controller losing GitHub access on
+  day one).</li>
+<li>DNS = CoreDNS in <code>kube-system</code>, selector
+  <code>{k8s-app: kube-dns, app.kubernetes.io/name: coredns}</code>.</li>
+<li>Ingress = Envoy Gateway pods in <code>network</code> ns
+  (<code>external</code> LB 10.45.0.13, <code>internal</code> 10.45.0.12).</li>
+<li>Nodes are spread across <code>192.168.1.x</code> (trusted LAN) and
+  <code>192.168.4.x</code> (VLAN 20, also trusted at the cluster layer).</li>
+<li>Gateway = brain at <code>192.168.6.1</code> (router) and <code>192.168.6.66</code>
+  (BIND/pihole) — both reachable as <code>reserved:host</code> from pods'
+  perspective via Cilium identity.</li>
+</ul>
+<p>This means <strong>today</strong> we have flow visibility, a working pod-gateway
+allow, and zero default-deny. Good starting position.</p>
+<hr />
+<h2 id="guiding-principles">Guiding principles<a class="headerlink" href="#guiding-principles" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>Standardize on <code>CiliumNetworkPolicy</code>, not vanilla K8s
+   <code>NetworkPolicy</code>.</strong> Cilium's identity-based selectors
+   (<code>reserved:kube-apiserver</code>, <code>reserved:host</code>, <code>fromEntities</code>,
+   <code>toFQDNs</code>, <code>toServices</code>) are the only way to safely allow some
+   flows in this cluster. Mixing the two forms makes precedence and
+   debugging painful.</li>
+<li><strong>No <code>toCIDR: 0.0.0.0/0</code> for cluster-internal targets.</strong> Per
+   <code>project_cilium_ipblock_apiserver.md</code>, <code>0.0.0.0/0</code> does <strong>not</strong>
+   match <code>kube-apiserver</code> (host-network identity). Use entity
+   selectors. The pod-gateway egress is the documented exception
+   (WireGuard UDP/51820 to true world).</li>
+<li><strong>Allow before deny.</strong> Every namespace gets the baseline
+   allow-policies merged and Hubble-verified <em>before</em> the
+   default-deny policy lands in the same PR. Default-deny is the
+   <em>last</em> manifest applied in a namespace, never the first.</li>
+<li><strong>One namespace per PR.</strong> Blast radius capped at one namespace,
+   one Flux Kustomization, one revert.</li>
+<li><strong>System namespaces last.</strong> <code>kube-system</code>, <code>flux-system</code>,
+   <code>cilium-secrets</code>, <code>rook-ceph</code>, <code>longhorn-system</code>,
+   <code>external-secrets</code>, <code>cert-manager</code>, <code>network</code> — these get
+   default-deny <em>after</em> every app namespace is locked down and
+   stable. Breaking one of these breaks the cluster.</li>
+<li><strong>Suspended Kustomizations are not in scope.</strong> If a Flux
+   Kustomization is <code>spec.suspend: true</code>, skip its namespace until
+   it's unsuspended. Don't touch suspended state.</li>
+</ol>
+<hr />
+<h2 id="baseline-policies-per-namespace">Baseline policies (per-namespace)<a class="headerlink" href="#baseline-policies-per-namespace" title="Permanent link">&para;</a></h2>
+<p>These four CNPs ship together as a reusable component at
+<code>kubernetes/components/network-policy/baseline/</code> and get added to
+each namespace's <code>kustomization.yaml</code> as the namespace enters the
+rollout. The default-deny is in a <strong>separate</strong> Kustomization
+applied <em>after</em> the allow-policies have soaked for at least 24h.</p>
+<h3 id="1-allow-dnsyaml">1. allow-dns.yaml<a class="headerlink" href="#1-allow-dnsyaml" title="Permanent link">&para;</a></h3>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nn">---</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cilium.io/v2</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CiliumNetworkPolicy</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="nt">metadata</span><span class="p">:</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">allow-dns</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="nt">spec</span><span class="p">:</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="nt">endpointSelector</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{}</span><span class="w">            </span><span class="c1"># all pods in namespace</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">  </span><span class="nt">egress</span><span class="p">:</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">toEndpoints</span><span class="p">:</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">matchLabels</span><span class="p">:</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">            </span><span class="nt">io.kubernetes.pod.namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">kube-system</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">            </span><span class="nt">k8s-app</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">kube-dns</span>
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">      </span><span class="nt">toPorts</span><span class="p">:</span>
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">ports</span><span class="p">:</span>
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;53&quot;</span>
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">              </span><span class="nt">protocol</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">UDP</span>
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;53&quot;</span>
+</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="w">              </span><span class="nt">protocol</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">TCP</span>
+</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="w">          </span><span class="nt">rules</span><span class="p">:</span>
+</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="w">            </span><span class="nt">dns</span><span class="p">:</span>
+</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="w">              </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">matchPattern</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;*&quot;</span>
+</span></code></pre></div>
+<p>The L7 DNS rule is critical — it enables Cilium's DNS-FQDN cache
+so we can later write <code>toFQDNs:</code> rules for external egress
+(GitHub, Cloudflare, etc.).</p>
+<h3 id="2-allow-apiserveryaml">2. allow-apiserver.yaml<a class="headerlink" href="#2-allow-apiserveryaml" title="Permanent link">&para;</a></h3>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nn">---</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cilium.io/v2</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CiliumNetworkPolicy</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="nt">metadata</span><span class="p">:</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">allow-apiserver</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="nt">spec</span><span class="p">:</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">  </span><span class="nt">endpointSelector</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{}</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">  </span><span class="nt">egress</span><span class="p">:</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">toEntities</span><span class="p">:</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">kube-apiserver</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">      </span><span class="nt">toPorts</span><span class="p">:</span>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">ports</span><span class="p">:</span>
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;6443&quot;</span>
+</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">              </span><span class="nt">protocol</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">TCP</span>
+</span></code></pre></div>
+<p><strong>Do not</strong> use <code>toCIDR</code> for this. The <code>reserved:kube-apiserver</code>
+entity is the only form that works given our current
+<code>policy-cidr-match-mode=""</code>.</p>
+<h3 id="3-allow-intra-namespaceyaml">3. allow-intra-namespace.yaml<a class="headerlink" href="#3-allow-intra-namespaceyaml" title="Permanent link">&para;</a></h3>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nn">---</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cilium.io/v2</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CiliumNetworkPolicy</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="nt">metadata</span><span class="p">:</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">allow-intra-namespace</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="nt">spec</span><span class="p">:</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">  </span><span class="nt">endpointSelector</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{}</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">  </span><span class="nt">ingress</span><span class="p">:</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">fromEndpoints</span><span class="p">:</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">matchLabels</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{}</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">  </span><span class="nt">egress</span><span class="p">:</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">toEndpoints</span><span class="p">:</span>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">matchLabels</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{}</span>
+</span></code></pre></div>
+<p>Permits the common "deployment X talks to its sidecar/companion
+deployment Y in the same namespace" pattern without per-app rules.</p>
+<h3 id="4-allow-monitoring-scrapeyaml">4. allow-monitoring-scrape.yaml<a class="headerlink" href="#4-allow-monitoring-scrapeyaml" title="Permanent link">&para;</a></h3>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nn">---</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cilium.io/v2</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CiliumNetworkPolicy</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="nt">metadata</span><span class="p">:</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">allow-monitoring-scrape</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="nt">spec</span><span class="p">:</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">  </span><span class="nt">endpointSelector</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{}</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">  </span><span class="nt">ingress</span><span class="p">:</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">fromEndpoints</span><span class="p">:</span>
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">matchLabels</span><span class="p">:</span>
+</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="w">            </span><span class="nt">io.kubernetes.pod.namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">observability</span>
+</span></code></pre></div>
+<p>Prometheus and Hubble metrics scraping work without enumerating
+every <code>/metrics</code> port.</p>
+<h3 id="5-default-denyyaml-applied-last-separate-kustomization">5. default-deny.yaml (applied LAST, separate Kustomization)<a class="headerlink" href="#5-default-denyyaml-applied-last-separate-kustomization" title="Permanent link">&para;</a></h3>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nn">---</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cilium.io/v2</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CiliumNetworkPolicy</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="nt">metadata</span><span class="p">:</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default-deny</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="nt">spec</span><span class="p">:</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">  </span><span class="nt">endpointSelector</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{}</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">  </span><span class="nt">ingressDeny</span><span class="p">:</span>
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{}</span>
+</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="w">  </span><span class="nt">egressDeny</span><span class="p">:</span>
+</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{}</span>
+</span></code></pre></div>
+<p>Use Cilium's <code>ingressDeny</code>/<code>egressDeny</code> (1.14+) instead of the
+empty-allow pattern — it's explicit and composable. With
+<code>enable-non-default-deny-policies=true</code> already set (confirmed in
+cilium-config), this is the right primitive.</p>
+<hr />
+<h2 id="app-specific-allow-patterns">App-specific allow patterns<a class="headerlink" href="#app-specific-allow-patterns" title="Permanent link">&para;</a></h2>
+<p>Each pattern below is a template overlay that sits <em>next to</em> the
+baseline in the app's namespace. The endpointSelector should
+target the specific app's pod label (typically
+<code>app.kubernetes.io/name</code>).</p>
+<h3 id="pattern-a-ingress-only-web-app-authelia-glance-public-web-uis">Pattern A: ingress-only web app (Authelia, Glance, public web UIs)<a class="headerlink" href="#pattern-a-ingress-only-web-app-authelia-glance-public-web-uis" title="Permanent link">&para;</a></h3>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nn">---</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cilium.io/v2</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CiliumNetworkPolicy</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="nt">metadata</span><span class="p">:</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">allow-ingress-from-gateway</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="nt">spec</span><span class="p">:</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">  </span><span class="nt">endpointSelector</span><span class="p">:</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">    </span><span class="nt">matchLabels</span><span class="p">:</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">      </span><span class="nt">app.kubernetes.io/name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;app&gt;</span>
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">  </span><span class="nt">ingress</span><span class="p">:</span>
+</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">fromEndpoints</span><span class="p">:</span>
+</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">matchLabels</span><span class="p">:</span>
+</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="w">            </span><span class="nt">io.kubernetes.pod.namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">network</span>
+</span><span id="__span-5-14"><a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="w">            </span><span class="nt">app.kubernetes.io/name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">envoy</span>
+</span></code></pre></div>
+<h3 id="pattern-b-web-app-cnpg-database-same-cluster-cross-namespace">Pattern B: web app + CNPG database (same cluster, cross-namespace)<a class="headerlink" href="#pattern-b-web-app-cnpg-database-same-cluster-cross-namespace" title="Permanent link">&para;</a></h3>
+<p>Add to Pattern A:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="w">  </span><span class="nt">egress</span><span class="p">:</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">toEndpoints</span><span class="p">:</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">matchLabels</span><span class="p">:</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">            </span><span class="nt">io.kubernetes.pod.namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">databases</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">            </span><span class="nt">cnpg.io/cluster</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;pg-cluster-name&gt;</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">      </span><span class="nt">toPorts</span><span class="p">:</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">ports</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[{</span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;5432&quot;</span><span class="p p-Indicator">,</span><span class="nt"> protocol</span><span class="p">:</span><span class="w"> </span><span class="nv">TCP</span><span class="p p-Indicator">}]</span>
+</span></code></pre></div>
+<p>CNPG pods carry the <code>cnpg.io/cluster: &lt;name&gt;</code> label — leverage it
+instead of <code>app.kubernetes.io/name</code>.</p>
+<h3 id="pattern-c-cnpg-cluster-the-database-itself-garage-backup-target">Pattern C: CNPG cluster (the database itself) + Garage backup target<a class="headerlink" href="#pattern-c-cnpg-cluster-the-database-itself-garage-backup-target" title="Permanent link">&para;</a></h3>
+<p>Allow apiserver (baseline), allow ingress from any same-cluster
+consumer namespace, allow egress to Garage's LB IP via FQDN:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nn">---</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cilium.io/v2</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CiliumNetworkPolicy</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="nt">metadata</span><span class="p">:</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">allow-garage-s3</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="nt">spec</span><span class="p">:</span>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">  </span><span class="nt">endpointSelector</span><span class="p">:</span>
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">    </span><span class="nt">matchLabels</span><span class="p">:</span>
+</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">      </span><span class="nt">cnpg.io/cluster</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;name&gt;</span>
+</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="w">  </span><span class="nt">egress</span><span class="p">:</span>
+</span><span id="__span-7-11"><a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">toFQDNs</span><span class="p">:</span>
+</span><span id="__span-7-12"><a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">matchName</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;s3.thesteamedcrab.com&quot;</span>
+</span><span id="__span-7-13"><a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="w">      </span><span class="nt">toPorts</span><span class="p">:</span>
+</span><span id="__span-7-14"><a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">ports</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[{</span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;443&quot;</span><span class="p p-Indicator">,</span><span class="nt"> protocol</span><span class="p">:</span><span class="w"> </span><span class="nv">TCP</span><span class="p p-Indicator">}]</span>
+</span></code></pre></div>
+<p><code>toFQDNs</code> resolves via the L7 DNS rule in the baseline. Garage's
+LB IP (10.45.0.x range, advertised via BGP) is reachable; Cilium
+matches the resolved IP against the FQDN cache.</p>
+<h3 id="pattern-d-media-pull-stack-internal-deps">Pattern D: media-pull-stack internal deps<a class="headerlink" href="#pattern-d-media-pull-stack-internal-deps" title="Permanent link">&para;</a></h3>
+<p>Same as Pattern B but with <code>app.kubernetes.io/name</code> selectors for
+peer apps in the same <code>media</code> namespace — Pattern 3 (intra-ns
+allow) in the baseline already covers this. The extra rule needed
+is <strong>egress to indexers</strong> via toFQDNs (or, where indexers rotate
+IPs aggressively, a wider <code>toEntities: [world]</code> rule scoped to the
+single pod):</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="w">  </span><span class="nt">egress</span><span class="p">:</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">toFQDNs</span><span class="p">:</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">matchPattern</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;*.indexer.example.com&quot;</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">      </span><span class="nt">toPorts</span><span class="p">:</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">ports</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[{</span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;443&quot;</span><span class="p p-Indicator">,</span><span class="nt"> protocol</span><span class="p">:</span><span class="w"> </span><span class="nv">TCP</span><span class="p p-Indicator">}]</span>
+</span></code></pre></div>
+<h3 id="pattern-e-vpn-routed-app-pod-gateway-client">Pattern E: VPN-routed app (pod-gateway client)<a class="headerlink" href="#pattern-e-vpn-routed-app-pod-gateway-client" title="Permanent link">&para;</a></h3>
+<p>These already work via the existing <code>downloads-gateway-pod-gateway</code>
+CNP in the routed namespaces. <strong>Do not</strong> add a default-deny to
+those namespaces (<code>downloads</code>, parts of <code>default</code>) until the
+pod-gateway interaction is re-verified with Hubble — the VXLAN
+encapsulation makes flow inspection trickier. Plan: pod-gateway
+namespaces get default-deny in a dedicated Phase 5b sub-step.</p>
+<h3 id="pattern-f-camera-ingress-frigate-reolink-on-iot-vlan-19216845">Pattern F: Camera ingress (Frigate → Reolink on iot VLAN 192.168.4/5)<a class="headerlink" href="#pattern-f-camera-ingress-frigate-reolink-on-iot-vlan-19216845" title="Permanent link">&para;</a></h3>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nn">---</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cilium.io/v2</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CiliumNetworkPolicy</span>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="nt">metadata</span><span class="p">:</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">allow-cameras</span>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="nt">spec</span><span class="p">:</span>
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="w">  </span><span class="nt">endpointSelector</span><span class="p">:</span>
+</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="w">    </span><span class="nt">matchLabels</span><span class="p">:</span>
+</span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="w">      </span><span class="nt">app.kubernetes.io/name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">frigate</span>
+</span><span id="__span-9-10"><a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="w">  </span><span class="nt">egress</span><span class="p">:</span>
+</span><span id="__span-9-11"><a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">toCIDR</span><span class="p">:</span>
+</span><span id="__span-9-12"><a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">192.168.5.0/24</span><span class="w">    </span><span class="c1"># camera VLAN, adjust to actual prefix</span>
+</span><span id="__span-9-13"><a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a><span class="w">      </span><span class="nt">toPorts</span><span class="p">:</span>
+</span><span id="__span-9-14"><a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">ports</span><span class="p">:</span>
+</span><span id="__span-9-15"><a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;554&quot;</span><span class="p p-Indicator">,</span><span class="nt"> protocol</span><span class="p">:</span><span class="w"> </span><span class="nv">TCP</span><span class="p p-Indicator">}</span><span class="w">    </span><span class="c1"># RTSP</span>
+</span><span id="__span-9-16"><a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;80&quot;</span><span class="p p-Indicator">,</span><span class="nt">  protocol</span><span class="p">:</span><span class="w"> </span><span class="nv">TCP</span><span class="p p-Indicator">}</span><span class="w">    </span><span class="c1"># ONVIF</span>
+</span><span id="__span-9-17"><a id="__codelineno-9-17" name="__codelineno-9-17" href="#__codelineno-9-17"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;443&quot;</span><span class="p p-Indicator">,</span><span class="nt"> protocol</span><span class="p">:</span><span class="w"> </span><span class="nv">TCP</span><span class="p p-Indicator">}</span>
+</span></code></pre></div>
+<p>CIDR is fine here — cameras are not on host network, so
+<code>policy-cidr-match-mode</code> quirk doesn't apply.</p>
+<h3 id="pattern-g-egress-to-lb-ip-on-same-cluster-mealie-garage-etc">Pattern G: Egress to LB IP on same cluster (Mealie → Garage, etc.)<a class="headerlink" href="#pattern-g-egress-to-lb-ip-on-same-cluster-mealie-garage-etc" title="Permanent link">&para;</a></h3>
+<p>Prefer <code>toFQDNs</code> (Pattern C). If FQDN is unavailable, use
+<code>toEntities: [cluster]</code> scoped to the specific port — this matches
+any in-cluster identity including LB-targeted pods.</p>
+<h3 id="pattern-h-external-dns-external-secrets-cert-manager-egress">Pattern H: external-dns, external-secrets, cert-manager egress<a class="headerlink" href="#pattern-h-external-dns-external-secrets-cert-manager-egress" title="Permanent link">&para;</a></h3>
+<p>Single dedicated rule per controller, allow specific FQDNs:
+<code>api.cloudflare.com</code>, the 1Password Connect operator's in-cluster
+Service, <code>acme-v02.api.letsencrypt.org</code>. These ship as part of the
+system-namespace lockdown in Phase 6.</p>
+<hr />
+<h2 id="cilium-gotchas-read-before-writing-any-policy">Cilium gotchas (read before writing any policy)<a class="headerlink" href="#cilium-gotchas-read-before-writing-any-policy" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong><code>reserved:kube-apiserver</code></strong> — only safe form for apiserver
+   egress. See <code>project_cilium_ipblock_apiserver.md</code>. Re-check
+   before merging any CNP that touches port 6443.</li>
+<li><strong><code>reserved:host</code> vs <code>reserved:remote-node</code></strong> — <code>host</code> matches
+   only the local node's IP from the pod's perspective; use it for
+   things like node-local readiness probes. <code>remote-node</code> covers
+   <em>other</em> cluster nodes. Both differ from <code>kube-apiserver</code> (which
+   is identity-based on the apiserver pod, even when host-networked).</li>
+<li><strong><code>fromEntities: [cluster]</code> is broad.</strong> It matches any
+   in-cluster identity. Use only when you can't tighten further.</li>
+<li><strong>DNS L7 rule required for <code>toFQDNs</code>.</strong> No L7 DNS rule → FQDN
+   cache empty → FQDN egress silently drops. The baseline DNS
+   policy includes <code>rules.dns.matchPattern: "*"</code> precisely for
+   this.</li>
+<li><strong><code>enableDefaultDeny: false</code> escape valve.</strong> Setting this on a
+   CNP makes it additive-only (won't trigger default-deny behavior
+   even if it's the only policy on those endpoints). Use this for
+   the <em>baseline allow</em> policies so they don't accidentally
+   default-deny a namespace before the explicit default-deny
+   policy lands.</li>
+<li><strong>Hubble flow correlation.</strong> With
+   <code>hubble-network-policy-correlation-enabled=true</code> (already on),
+   Hubble flows include the matching policy name in
+   <code>policy_match_type</code> and <code>egress_allowed_by</code>. Use this:</li>
+</ol>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>hubble<span class="w"> </span>observe<span class="w"> </span>--namespace<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>--verdict<span class="w"> </span>DROPPED<span class="w"> </span>--last<span class="w"> </span><span class="m">100</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>hubble<span class="w"> </span>observe<span class="w"> </span>--namespace<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>--verdict<span class="w"> </span>DROPPED<span class="w"> </span>-f
+</span></code></pre></div>
+<ol>
+<li><strong><code>policy-enforcement: audit</code> mode.</strong> Cilium supports a
+   per-endpoint audit mode via the <code>policy.cilium.io/audit-mode</code>
+   annotation. We will <strong>use audit mode for one rollout cycle per
+   namespace</strong> (apply baseline + default-deny with audit annotation,
+   tail Hubble for <code>DROPPED-AUDITED</code> verdicts for 48h, then flip
+   the annotation off). Cluster-wide
+   <code>policy-enforcement-mode: audit</code> is <strong>not</strong> proposed — too
+   coarse, and we'd have no signal of what's actually enforced
+   anywhere.</li>
+</ol>
+<hr />
+<h2 id="cross-cluster-external-dependencies">Cross-cluster / external dependencies<a class="headerlink" href="#cross-cluster-external-dependencies" title="Permanent link">&para;</a></h2>
+<p>These flows must remain working throughout the rollout. Each row
+notes whether it falls inside NetworkPolicy scope.</p>
+<table>
+<thead>
+<tr>
+<th>Flow</th>
+<th>Source</th>
+<th>Destination</th>
+<th>In CNP scope?</th>
+<th>Handling</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>BGP node ↔ brain</td>
+<td>cilium-agent (host net)</td>
+<td>192.168.6.1:179</td>
+<td>No — host network</td>
+<td>n/a</td>
+</tr>
+<tr>
+<td>Pod DNS → CoreDNS</td>
+<td>pods</td>
+<td>kube-system kube-dns</td>
+<td>Yes</td>
+<td>baseline <code>allow-dns</code></td>
+</tr>
+<tr>
+<td>Pod DNS → brain BIND</td>
+<td>pods (rare, direct)</td>
+<td>192.168.6.66:53</td>
+<td>Yes (if any app does this)</td>
+<td>per-app <code>toCIDR: 192.168.6.66/32</code></td>
+</tr>
+<tr>
+<td>Apiserver</td>
+<td>pods using k8s clients</td>
+<td>reserved:kube-apiserver</td>
+<td>Yes</td>
+<td>baseline <code>allow-apiserver</code></td>
+</tr>
+<tr>
+<td>Garage S3</td>
+<td>CNPG, immich, paperless, rclone</td>
+<td>s3.${SECRET_DOMAIN} LB IP</td>
+<td>Yes</td>
+<td>Pattern C <code>toFQDNs</code></td>
+</tr>
+<tr>
+<td>external-dns → Cloudflare</td>
+<td>external-dns pod</td>
+<td>api.cloudflare.com:443</td>
+<td>Yes</td>
+<td>Phase 6 per-namespace allow</td>
+</tr>
+<tr>
+<td>external-secrets → 1P Connect</td>
+<td>external-secrets pod</td>
+<td>1p Connect Service (in cluster)</td>
+<td>Yes</td>
+<td>Phase 6 intra-cluster allow</td>
+</tr>
+<tr>
+<td>Flux → GitHub</td>
+<td>source-controller</td>
+<td>github.com:443 (via DNS)</td>
+<td>Yes</td>
+<td>Phase 6 <code>toFQDNs: github.com, codeload.github.com, *.githubusercontent.com</code></td>
+</tr>
+<tr>
+<td>cert-manager → Let's Encrypt</td>
+<td>cert-manager</td>
+<td>acme-v02.api.letsencrypt.org</td>
+<td>Yes</td>
+<td>Phase 6 <code>toFQDNs</code></td>
+</tr>
+<tr>
+<td>Envoy Gateway → backend pods</td>
+<td>network ns envoy pods</td>
+<td>app pods</td>
+<td>Yes</td>
+<td>every app namespace adds Pattern A</td>
+</tr>
+<tr>
+<td>Hubble metrics scrape</td>
+<td>observability prom</td>
+<td>port 9965 on every node</td>
+<td>Mixed</td>
+<td>baseline <code>allow-monitoring-scrape</code> covers pod-level; host-net scrape is out of scope</td>
+</tr>
+<tr>
+<td>pod-gateway WireGuard</td>
+<td>downloads-gateway pod</td>
+<td>0.0.0.0/0:51820 UDP</td>
+<td>Yes</td>
+<td>existing CNP preserved</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="phasing">Phasing<a class="headerlink" href="#phasing" title="Permanent link">&para;</a></h2>
+<h3 id="phase-0-audit-instrumentation-1-week">Phase 0 — Audit &amp; instrumentation (1 week)<a class="headerlink" href="#phase-0-audit-instrumentation-1-week" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Stand up a Grafana dashboard sourced from Hubble metrics
+  filtering on <code>verdict=DROPPED</code> and <code>verdict=DROPPED-AUDITED</code>,
+  bucketed by source/destination namespace. This is the rollout's
+  primary feedback loop.</li>
+<li>Write a Hubble query cheat-sheet into <code>docs/src/</code> for the
+  per-phase verification step.</li>
+<li>Add <code>kubernetes/components/network-policy/baseline/</code> with the
+  five baseline policies (allow-dns, allow-apiserver,
+  allow-intra-namespace, allow-monitoring-scrape, default-deny),
+  the first four with <code>enableDefaultDeny: false</code>, the fifth as a
+  separate file that the per-namespace Kustomization opts into
+  explicitly.</li>
+<li><strong>No policy applied to any namespace in this phase.</strong></li>
+</ul>
+<p>Exit criteria: Hubble drop dashboard live and trusted; baseline
+component built and <code>kustomize build</code> clean.</p>
+<h3 id="phase-1-canary-namespace-selfhosted-1-week">Phase 1 — Canary namespace: <code>selfhosted</code> (1 week)<a class="headerlink" href="#phase-1-canary-namespace-selfhosted-1-week" title="Permanent link">&para;</a></h3>
+<p>Why <code>selfhosted</code>: lowest-risk namespace in the repo — currently
+contains exactly one app (<code>webhook</code>, 2 replicas) with no live
+traffic per the Phase 0 Hubble survey. Not a system namespace.</p>
+<p><strong>Scope note (2026-05-17):</strong> This canary proves the <em>mechanic</em> —
+the baseline component applies cleanly, CNPs land in the right
+namespace, audit-mode soak surfaces no surprises. It does <strong>not</strong>
+exercise the Pattern A/B/C overlay surface meaningfully because
+<code>webhook</code> is idle. Real pattern coverage starts in Phase 2 across
+7 namespaces; don't gate the Phase 2 start on Phase 1 surfacing
+allow-pattern needs that won't appear here.</p>
+<p>Steps:</p>
+<ol>
+<li>PR 1: merge baseline allow-policies into <code>selfhosted</code> ns
+   (allow-dns, allow-apiserver, allow-intra-namespace,
+   allow-monitoring-scrape). Watch Hubble drops for 24h — there
+   should be <strong>none</strong> caused by these policies (they're additive
+   with <code>enableDefaultDeny: false</code>).</li>
+<li>PR 2: per-app overlays — Pattern A for each ingressed app,
+   Pattern B for any app with a CNPG dep, Pattern C/G for any app
+   touching Garage.</li>
+<li>PR 3: apply <code>default-deny</code> with
+   <code>policy.cilium.io/audit-mode: enabled</code> annotation on a single
+   pod first (the lowest-risk app, e.g. <code>glance</code>). Tail Hubble for
+   48h for <code>DROPPED-AUDITED</code> verdicts. Add allow rules for any
+   legitimate flow surfaced.</li>
+<li>PR 4: remove audit annotation, expand <code>default-deny</code> to the
+   whole namespace.</li>
+</ol>
+<p>Exit criteria: full namespace under default-deny, zero unexplained
+drops over 24h, all apps respond to smoke tests.</p>
+<h3 id="phase-2-stateless-app-namespaces-2-3-weeks">Phase 2 — Stateless app namespaces (2-3 weeks)<a class="headerlink" href="#phase-2-stateless-app-namespaces-2-3-weeks" title="Permanent link">&para;</a></h3>
+<p>Order by criticality, low-to-high: <code>ai</code>, <code>actions-runner-system</code>,
+<code>renovate</code>, <code>mcp-system</code>, <code>home</code>, <code>collab</code>, <code>media</code>.</p>
+<p>Same 4-PR pattern per namespace. Audit mode for each first app per
+namespace; once the pattern catalog stabilizes, audit mode becomes
+optional for low-risk additions.</p>
+<h3 id="phase-3-stateful-ingress-critical-namespaces-1-2-weeks">Phase 3 — Stateful &amp; ingress-critical namespaces (1-2 weeks)<a class="headerlink" href="#phase-3-stateful-ingress-critical-namespaces-1-2-weeks" title="Permanent link">&para;</a></h3>
+<p><code>auth</code> (Authelia — breaking this locks the user out of every
+OIDC app), <code>databases</code> (CNPG control plane), <code>vpn</code> (pod-gateway
+server), <code>downloads</code> (pod-gateway clients).</p>
+<p>For <code>auth</code>: explicit pre-flight check that LLDAP, Authelia, and
+every OIDC client's redirect URL still resolves and authenticates
+<em>before</em> default-deny lands.</p>
+<p>For <code>databases</code>: every CNPG cluster needs an explicit allow rule
+from its consumer namespace(s). Audit mode mandatory; tail for
+72h.</p>
+<p>For <code>vpn</code> + <code>downloads</code> (pod-gateway server + clients) — these
+two namespaces must be locked down together as one sub-step.
+<code>vpn</code> runs <code>downloads-gateway-pod-gateway-main-0</code> (the actual
+WireGuard egress pod, host-net + VXLAN-terminating); <code>downloads</code>
+runs the client pods that route through it. The existing
+<code>downloads-gateway-pod-gateway</code> CNP on the gateway side must be
+preserved; the client side gets a <em>new</em> baseline-with-pod-gateway-allow.
+VXLAN encapsulation makes Hubble flow inspection trickier — audit
+for 1 full week before flipping enforce. Added 2026-05-17 after
+the original plan missed <code>vpn</code> as a distinct namespace.</p>
+<h3 id="phase-4-storage-namespaces-1-week">Phase 4 — Storage namespaces (1 week)<a class="headerlink" href="#phase-4-storage-namespaces-1-week" title="Permanent link">&para;</a></h3>
+<p><code>storage</code> (Garage), <code>longhorn-system</code>, <code>rook-ceph</code>. These mostly
+need:</p>
+<ul>
+<li>Intra-namespace allow (baseline).</li>
+<li>Apiserver allow (baseline).</li>
+<li>Specific allow from any consumer namespace (CNPG → Garage S3,
+  apps → Longhorn CSI, etc.).</li>
+<li>Node-port reachability — verify Longhorn engine ↔ replica TCP
+  reachability via Hubble before default-deny lands.</li>
+</ul>
+<h3 id="phase-5-gateway-cert-secrets-namespaces-1-week">Phase 5 — Gateway / cert / secrets namespaces (1 week)<a class="headerlink" href="#phase-5-gateway-cert-secrets-namespaces-1-week" title="Permanent link">&para;</a></h3>
+<p><code>network</code> (Envoy Gateway), <code>cert-manager</code>, <code>external-secrets</code>.</p>
+<ul>
+<li><code>network</code> ingress is from <code>world</code> (LoadBalancer) — must allow
+  <code>fromEntities: [world]</code> on Envoy listeners explicitly.</li>
+<li><code>cert-manager</code> needs egress to <code>acme-v02.api.letsencrypt.org</code>
+  and to in-cluster Envoy for HTTP-01 challenges.</li>
+<li><code>external-secrets</code> needs egress to the 1P Connect Service.</li>
+</ul>
+<h3 id="phase-6-remaining-system-namespaces-last-with-extra-care">Phase 6 — Remaining system namespaces (last, with extra care)<a class="headerlink" href="#phase-6-remaining-system-namespaces-last-with-extra-care" title="Permanent link">&para;</a></h3>
+<p><code>observability</code>, <code>kuadrant</code>, <code>istio-system</code>, <code>cilium-secrets</code>.</p>
+<p><code>flux-system</code> and <code>kube-system</code> are explicitly out of scope (see
+"Decisions" and "Out of scope"). Skip them entirely.</p>
+<p>For <code>observability</code>: Prometheus needs egress to every namespace
+on metrics ports — this is the <em>opposite</em> direction from baseline
+<code>allow-monitoring-scrape</code>. Add an explicit
+<code>toEndpoints: matchLabels: {}</code> rule with the metrics ports
+enumerated.</p>
+<p>For <code>cilium-secrets</code>: minimal workload (mostly Secret consumers).
+Baseline + intra-namespace should suffice; audit 1 week. <strong>Mechanic
+note (2026-05-17):</strong> this namespace is auto-managed by the cilium
+chart — there is no <code>kubernetes/apps/cilium-secrets/</code> directory.
+Adding policies requires either (a) cilium chart values that drop
+CNPs into the namespace, or (b) a new dedicated Flux Kustomization
+under <code>kubernetes/apps/kube-system/cilium/</code> that targets
+<code>cilium-secrets</code>. Decide the mechanism when we get there;
+not the same per-namespace PR pattern as the rest.</p>
+<hr />
+<h2 id="rollout-mechanics">Rollout mechanics<a class="headerlink" href="#rollout-mechanics" title="Permanent link">&para;</a></h2>
+<ul class="task-list">
+<li><strong>Branch + PR per namespace.</strong> Branch name <code>netpol/&lt;ns&gt;</code>. Each
+  PR adds the baseline component to the namespace's
+  <code>kustomization.yaml</code>, plus per-app overlays.</li>
+<li><strong>Default-deny is its own PR</strong>, after the allow PR has soaked
+  ≥24h with zero unexplained Hubble drops.</li>
+<li><strong>Pre-merge checklist (in PR template):</strong></li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled/><span class="task-list-indicator"></span></label> Hubble flow-tail for the target namespace shows allowed
+        traffic matches an expected baseline or per-app rule.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled/><span class="task-list-indicator"></span></label> <code>kubectl get cnp -n &lt;ns&gt;</code> shows only expected policies.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled/><span class="task-list-indicator"></span></label> App smoke test (curl ingress URL, check ready endpoints).</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled/><span class="task-list-indicator"></span></label> <code>flux get all -n &lt;ns&gt;</code> clean.</li>
+<li><strong>Vanilla <code>NetworkPolicy</code> in target namespace:</strong> if a chart ships
+  a vanilla <code>kind: NetworkPolicy</code> (the 7 known cases: zulip-memcached,
+  zulip-rabbitmq, pgadmin-pgadmin4, grafana-image-renderer,
+  the two flux-system policies, vpn pod-gateway), convert it to
+  <code>CiliumNetworkPolicy</code> in the same per-namespace PR. Decision
+  locked 2026-05-17: convert per-namespace as we reach them rather
+  than batching upfront.</li>
+<li><strong>Rollback (fast):</strong></li>
+<li><code>flux suspend kustomization -n flux-system &lt;ns&gt;-app</code>.</li>
+<li><code>kubectl delete cnp -n &lt;ns&gt; default-deny</code>.</li>
+<li>Confirm traffic restored via Hubble.</li>
+<li>Revert the PR, <code>flux resume</code>.</li>
+<li><strong>Rollback (full namespace):</strong></li>
+<li><code>flux suspend kustomization -n flux-system &lt;ns&gt;-app</code>.</li>
+<li><code>kubectl delete cnp -n &lt;ns&gt; --all</code> (excluding pre-existing
+     allow-policies you want to keep — check before nuking).</li>
+<li>Revert the PR.</li>
+</ul>
+<hr />
+<h2 id="risk-register">Risk register<a class="headerlink" href="#risk-register" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Risk</th>
+<th>Likelihood</th>
+<th>Impact</th>
+<th>Mitigation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Apiserver isolation via wrong egress rule (ipBlock footgun)</td>
+<td>Medium</td>
+<td>Critical (controller manager, kubelet, every operator wedges)</td>
+<td>Use only <code>reserved:kube-apiserver</code> entity; baseline policy reviewed against <code>project_cilium_ipblock_apiserver.md</code>; audit mode for every first-pass policy</td>
+</tr>
+<tr>
+<td>2</td>
+<td>DNS isolation (CoreDNS unreachable from a pod)</td>
+<td>Medium</td>
+<td>Critical (every name resolution fails, cascading app failures)</td>
+<td>Baseline <code>allow-dns</code> ships with every namespace before default-deny; Hubble verify CoreDNS traffic flowing post-apply</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Ingress break for user-facing apps (Authelia, Immich, public-app stack)</td>
+<td>Medium</td>
+<td>High (user locked out of OIDC apps, external services down)</td>
+<td>Phase 3 dedicated step for <code>auth</code>, audit mode mandatory, pre-flight smoke test of Authelia + 2 dependent OIDC clients</td>
+</tr>
+<tr>
+<td>4</td>
+<td>CNPG → Garage backup target broken</td>
+<td>Medium</td>
+<td>High (no CNPG backups, but apps still serve)</td>
+<td>Pattern C uses <code>toFQDNs</code>; verify <code>barman-cloud</code> log post-apply shows successful upload; Phase 4 audit window 72h</td>
+</tr>
+<tr>
+<td>5</td>
+<td>VPN-gateway double-policy conflict</td>
+<td>Medium</td>
+<td>Medium (downloads stack offline, but easily reverted)</td>
+<td>Phase 3 sub-step, audit for 1 week; preserve existing <code>downloads-gateway-pod-gateway</code> CNP unchanged</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Flux controllers lose GitHub/apiserver egress</td>
+<td>Low (Phase 6)</td>
+<td>Critical (no GitOps reconciliation, including the very revert that fixes it)</td>
+<td>Phase 6 last; never enable Flux chart NPs; ship own CNP with <code>toFQDNs: github.com</code>; pre-validate with audit mode 2 weeks</td>
+</tr>
+<tr>
+<td>7</td>
+<td>External-secrets loses 1P Connect → secret rotation/refresh stalls</td>
+<td>Low</td>
+<td>Medium (existing secrets keep working; new/rotated ones fail to materialize)</td>
+<td>Phase 5; explicit allow to 1P Connect Service in same cluster</td>
+</tr>
+<tr>
+<td>8</td>
+<td>Hubble drop volume overwhelms metrics pipeline</td>
+<td>Low</td>
+<td>Low (dashboard signal degraded, not cluster impact)</td>
+<td>Tune <code>hubble-metrics</code> sampling if needed; the <code>enable-non-default-deny-policies=true</code> setting reduces double-counting</td>
+</tr>
+<tr>
+<td>9</td>
+<td><code>toFQDNs</code> cache miss on first request → intermittent failures</td>
+<td>Medium</td>
+<td>Low (one retry resolves)</td>
+<td>Baseline DNS L7 rule with <code>matchPattern: "*"</code>; long DNS TTL respected; document in runbook</td>
+</tr>
+<tr>
+<td>10</td>
+<td>Chart-shipped NetworkPolicy (vanilla K8s kind) conflicts with our CNP</td>
+<td>Low</td>
+<td>Medium (silently more-restrictive intersection)</td>
+<td>Audit chart-shipped NPs in scope namespaces during Phase 0; either disable via chart value or document the merge intent in the per-app overlay</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="estimated-timeline">Estimated timeline<a class="headerlink" href="#estimated-timeline" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Week</th>
+<th>Phase</th>
+<th>Deliverable</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Phase 0</td>
+<td>Hubble dashboard, baseline component, runbook</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Phase 1</td>
+<td><code>selfhosted</code> namespace fully default-deny</td>
+</tr>
+<tr>
+<td>3-5</td>
+<td>Phase 2</td>
+<td><code>ai</code>, <code>actions-runner-system</code>, <code>renovate</code>, <code>mcp-system</code>, <code>home</code>, <code>collab</code>, <code>media</code></td>
+</tr>
+<tr>
+<td>6-7</td>
+<td>Phase 3</td>
+<td><code>auth</code>, <code>databases</code>, <code>vpn</code>, <code>downloads</code></td>
+</tr>
+<tr>
+<td>8</td>
+<td>Phase 4</td>
+<td><code>storage</code>, <code>longhorn-system</code>, <code>rook-ceph</code></td>
+</tr>
+<tr>
+<td>9</td>
+<td>Phase 5</td>
+<td><code>network</code>, <code>cert-manager</code>, <code>external-secrets</code></td>
+</tr>
+<tr>
+<td>10-11</td>
+<td>Phase 6</td>
+<td><code>observability</code>, <code>kuadrant</code>, <code>istio-system</code>, <code>cilium-secrets</code></td>
+</tr>
+</tbody>
+</table>
+<p>User sets pace. Any phase can park indefinitely without affecting
+prior phases — namespaces locked down stay locked down.</p>
+<hr />
+<h2 id="out-of-scope">Out of scope<a class="headerlink" href="#out-of-scope" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong><code>flux-system</code> namespace.</strong> Decision locked 2026-05-17. Flux
+  egress to GitHub + apiserver is the rollback mechanism for this
+  whole rollout; the perimeter (1P/SSO/CF-tunnel) handles the
+  meaningful threat boundary. Revisit only if perimeter assumptions
+  change.</li>
+<li><strong><code>kube-system</code> namespace.</strong> Decision locked 2026-05-17. CoreDNS,
+  apiserver, etcd, kubelet — host-network or control-plane
+  components where CNP adds risk disproportionate to benefit.</li>
+<li>Host firewalld rules on nodes (brain, masters, workers).</li>
+<li>BGP filtering (Cilium peers freely with brain today).</li>
+<li>Mesh-layer policy (Istio AuthorizationPolicy) — not part of this
+  CNP rollout.</li>
+<li>Audit/SIEM integration for drop events — Hubble metrics +
+  Grafana is the cluster's tool for this rollout.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../apiserver_audit_logging/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Apiserver Audit Logging — Phase 5.P operator runbook">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Apiserver Audit Logging — Phase 5.P operator runbook
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../egress_restriction_design/" class="md-footer__link md-footer__link--next" aria-label="Next: Egress Restriction Design Proposal">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Egress Restriction Design Proposal
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "navigation.footer", "search.highlight", "search.share", "search.suggest", "content.code.copy", "content.code.annotate", "content.action.edit", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

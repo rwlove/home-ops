@@ -25,12 +25,12 @@ permissions:
 
 jobs:
   publish:
-    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}
     steps:
       - name: Generate Token
+        if: ${{ github.event_name != 'pull_request' }}
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         id: app-token
         with:
@@ -40,30 +40,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          token: "${{ steps.app-token.outputs.token }}"
-
-      - name: Build docs
-        uses: docker://ghcr.io/bjw-s-labs/mdbook:0.4.49@sha256:ee4b71f559c7286dfd110a962f0b7660e82bf3e5bbe659a8eef0ba975789f9c9
-        with:
-          args: bash -c "cd docs && mdbook build"
-
-      - name: Deploy
-        uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4.1.0
-        if: ${{ github.ref == 'refs/heads/main' }}
-        with:
-          github_token: "${{ steps.app-token.outputs.token }}"
-          publish_dir: ./docs/book/html
-          user_name: "rosey-the-renovator-bot[bot]"
-          user_email: "rosey-the-renovator-bot <98764075+rosey-the-renovator-bot[bot]@users.noreply.github.com>"
-
-  material-preview:
-    # Preview-only build for the Material for MkDocs migration. Uploads
-    # the rendered site as a CI artifact so Rob can inspect the new
-    # look-and-feel before PR #2 swaps the live deploy. No deploy here.
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+          token: "${{ steps.app-token.outputs.token || github.token }}"
 
       - name: Setup Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -78,12 +55,13 @@ jobs:
       - name: Build with mkdocs
         shell: bash
         working-directory: docs
-        run: mkdocs build
+        run: mkdocs build --strict
 
-      - name: Upload preview artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - name: Deploy
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4.1.0
         with:
-          name: material-preview
-          path: docs/site/
-          retention-days: 7
-          if-no-files-found: error
+          github_token: "${{ steps.app-token.outputs.token }}"
+          publish_dir: ./docs/site
+          user_name: "rosey-the-renovator-bot[bot]"
+          user_email: "rosey-the-renovator-bot <98764075+rosey-the-renovator-bot[bot]@users.noreply.github.com>"

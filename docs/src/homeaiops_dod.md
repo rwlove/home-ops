@@ -516,6 +516,124 @@ to paste the value."
 variable that maps from a 1P field, verify the field is non-
 empty before merging. A `wc -c` check is enough.
 
+### Stuck CSI RBD unmap (Ceph PG ghost-stuck)
+
+**Symptom.** Pod with a `ceph-block` PVC stuck `ContainerCreating`
+for minutes with events:
+
+```text
+FailedMount  MountVolume.MountDevice failed: rpc error: code = Aborted
+desc = an operation with the given Volume ID … already exists
+```
+
+Or, on the originating node, `rbd unmap /dev/rbdN` fails with
+exit status 16 (EBUSY) despite **no userland processes** holding
+the device (verified via `/proc/[0-9]*/maps`, `/proc/[0-9]*/fd`,
+and `/sys/block/rbdN/holders/` all empty).
+
+`ceph -s` may report a stale `SLOW_OPS` aggregate, but per-OSD
+`dump_blocked_ops` (both via admin socket and via mon-routed
+`ceph tell osd.X`) shows **zero blocked ops**. The aggregate is
+the mgr's cached-but-not-decremented count from a prior real
+event — misleading.
+
+**Underlying issue.** A specific PG owning the rbd_header object
+is "ghost-stuck": it can't be queried (`ceph pg N.M query` times
+out), it's not in `pg dump_stuck`, but raw `rados stat
+rbd_header.<id>` against it hangs. The OSD primary has cleared
+its blocked-ops queue but the PG's per-object lock or watcher
+state is wedged.
+
+**How to confirm.**
+
+```sh
+# 1. From a mon pod, with the embedded keyring:
+MON=$(kubectl get pod -n rook-ceph -l app=rook-ceph-mon -o name | head -1)
+ARGS='--conf /etc/ceph/ceph.conf
+      --keyring /etc/ceph/keyring-store/keyring
+      -m "[v2:10.43.154.244:3300,v1:10.43.154.244:6789]"'   # adjust mons
+
+# 2. Identify the image_id from the affected node's kernel state:
+kubectl debug node/<node> -it=false --image=busybox:1.36 -- \
+  cat /host/sys/bus/rbd/devices/<N>/image_id
+# → e.g. 0e6ed03d95369c
+
+# 3. Find the PG that owns the header:
+kubectl exec -n rook-ceph "$MON" -c mon -- bash -c "
+  ceph $ARGS osd map ceph-blockpool rbd_header.<image_id>
+"
+# → 'pg P.Q -> up [primary, ...] acting [primary, ...]'
+
+# 4. Confirm the PG itself is unresponsive:
+kubectl exec -n rook-ceph "$MON" -c mon -- bash -c "
+  timeout 15 ceph $ARGS pg P.Q query
+"
+# → exit 124 (timeout) is the signature
+
+# 5. Confirm OSDs say they're idle (rules out a real slow op):
+kubectl exec -n rook-ceph "$MON" -c mon -- bash -c "
+  ceph $ARGS tell osd.<primary> dump_blocked_ops
+"
+# → empty / {ops: []}
+
+# 6. Confirm raw RADOS read of the object also hangs:
+kubectl exec -n rook-ceph "$MON" -c mon -- bash -c "
+  timeout 15 rados $ARGS -p ceph-blockpool stat rbd_header.<image_id>
+"
+```
+
+**Recovery — propose-then-execute.** Three options, least-invasive first:
+
+1. *Targeted blocklist of the watcher client* — works if the
+   watcher is on a distinct krbd nonce. Pull `client_addr` from
+   `/sys/bus/rbd/devices/N/client_addr` on the originating node,
+   confirm it's not shared with healthy rbd mappings on the same
+   node, then:
+
+   ```sh
+   ceph $ARGS osd blocklist add <addr>/<nonce> 3600
+   ```
+
+   Retry `rbd unmap` from the node — should release within
+   seconds.
+
+2. *Force PG re-peering via `ceph osd down <primary>`* — when
+   blocklist doesn't help (PG state itself is stuck, not just a
+   client lease). Marking the primary down triggers re-peering
+   via the replica OSDs; the daemon self-restarts under Rook
+   within ~30s; PGs primaried elsewhere are unaffected. The
+   acting set must have at least min_size replicas remaining
+   alive for safety (verify with `ceph osd tree`).
+
+3. *Decouple via PVC delete-and-recreate (regenerable data
+   only)* — for caches like ZOT where the data is rebuildable
+   from upstream sources:
+
+   - `kubectl scale statefulset/<app> --replicas=0`
+   - `kubectl delete pvc <pvc-name>` (reclaim policy `Delete`
+     on the storage class will GC the underlying RBD image)
+   - `kubectl scale statefulset/<app> --replicas=1`
+
+   This recovers the workload independently of the Ceph fix.
+   The underlying PG-ghost-stuck issue remains and needs
+   option 1 or 2 separately.
+
+**Prevention.** The class of error appears tied to a prior
+cluster-network event (worker3 + worker7 network degradation
+on 2026-05-20 — see [[project_worker3_network_degraded_postgres_zulip]])
+that left rbd watchers in a broken state on the affected nodes.
+Stabilizing node-level network reliability is the long-term fix.
+Until then, document the rbd-device-to-image mapping so the
+identification step (3) is faster.
+
+**Operational follow-up.** This cluster has no `rook-ceph-tools`
+pod deployed (`operator/helmrelease.yaml` lacks
+`toolbox.enabled: true`). All ceph CLI work has to go through a
+mon pod with explicit `--conf` / `--keyring` / `-m` flags as in
+step 1. Adding the toolbox to the rook-ceph operator helmrelease
+is a Stage 2 quality-of-life follow-up; see incident on
+2026-05-21 for the time cost without it.
+
 ### Stalled HelmRelease with `MissingRollbackTarget`
 
 **Symptom.** A HelmRelease shows `Ready=False` with condition

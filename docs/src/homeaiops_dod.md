@@ -393,6 +393,37 @@ No AI-pipeline component has > 5 lifetime restarts; the previous
 worker (26 restarts, exit-137 OOM) was replaced cleanly under
 [#11922](https://github.com/rwlove/home-ops/pull/11922).
 
+### Batch 2 — 2026-05-21 Flux suspend/resume cycle
+
+Evidence for DoD #3: every AI-pipeline Kustomization survives a
+suspend/resume cycle without manual intervention. Procedure per
+Kustomization: `flux suspend ks <name>`, wait 30 s, `flux resume
+ks <name>`, watch for `Ready=True` again. Captured cycle time =
+`flux suspend` → `Ready=True` (includes the deliberate 30 s pause).
+
+Representative sample covering inference, agents, MCP fleet, and
+the cron-driven Claude lane:
+
+```text
+ai/langgraph-agents      Ready=True at t+37s
+ai/ollama-spark          Ready=True at t+38s
+ai/tei-spark             Ready=True at t+37s
+mcp-system/memory-mcp    Ready=True at t+37s
+mcp-system/mcp-gateway   Ready=True at t+64s
+observability/holmesgpt  Ready=True at t+37s
+automation/claude-runner Ready=True at t+38s
+```
+
+All 7 Kustomizations resumed cleanly. No manual touch needed;
+no dependent resources entered transient `NotReady`. The
+`mcp-gateway` outlier at 64 s is consistent with its three-HR
+inventory (gateway + istio + controller) which takes longer to
+reconcile than a single-HR Kustomization.
+
+Full-fleet sweep deferred to a follow-up after first running the
+E2E smoke test (DoD #2) — keeping the maintenance-window blast
+radius narrow while Claude API enablement is in flight.
+
 ## Runbooks
 
 Failure modes encountered during Stage 1, with confirmation and

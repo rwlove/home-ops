@@ -16,8 +16,8 @@ _Production-grade Kubernetes for a household._
 
 <br/>
 
-![apps](https://img.shields.io/badge/apps-176-blue?style=for-the-badge)
-![helmreleases](https://img.shields.io/badge/HelmReleases-186-326CE5?style=for-the-badge&logo=helm&logoColor=white)
+![apps](https://img.shields.io/badge/apps-177-blue?style=for-the-badge)
+![helmreleases](https://img.shields.io/badge/HelmReleases-187-326CE5?style=for-the-badge&logo=helm&logoColor=white)
 ![nodes](https://img.shields.io/badge/k8s_nodes-11-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white)
 ![cnpg](https://img.shields.io/badge/Postgres_clusters-25-336791?style=for-the-badge&logo=postgresql&logoColor=white)
 ![secrets](https://img.shields.io/badge/secrets-111-0572EC?style=for-the-badge&logo=1password&logoColor=white)
@@ -42,7 +42,7 @@ flowchart LR
     Dev[👤 Operator] -->|git push| Repo[(📦 GitHub<br/>home-ops)]
     Renovate[🤖 Renovate] -.->|automated PRs| Repo
     Repo -->|reconciles| Flux[⚙️ Flux]
-    Flux -->|deploys| Cluster[☸️ Kubernetes<br/>11 nodes · 175 apps]
+    Flux -->|deploys| Cluster[☸️ Kubernetes<br/>11 nodes · 177 apps]
 
     Cluster --> Ceph[(🪨 Ceph<br/>block · default durable)]
     Cluster --> LH[(🐂 Longhorn<br/>+ recurring backups)]

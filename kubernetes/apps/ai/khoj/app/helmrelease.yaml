@@ -47,10 +47,14 @@ spec:
               repository: ghcr.io/khoj-ai/khoj
               tag: 2.0.0-beta.28
             # First-run superuser bootstrap is automatic when KHOJ_ADMIN_EMAIL
-              # + KHOJ_ADMIN_PASSWORD are set; --non-interactive skips the
-              # TTY prompt that would otherwise CrashLoop the pod.
+            # + KHOJ_ADMIN_PASSWORD are set; --non-interactive skips the
+            # TTY prompt that would otherwise CrashLoop the pod.
+            # --host 0.0.0.0 overrides upstream default of 127.0.0.1
+            # (src/khoj/utils/cli.py) so the Service can reach uvicorn.
             args:
               - --non-interactive
+              - --host
+              - 0.0.0.0
             env:
               KHOJ_DOMAIN: khoj.${SECRET_DOMAIN}
               KHOJ_ALLOWED_DOMAIN: khoj.${SECRET_DOMAIN}
@@ -71,6 +75,40 @@ spec:
             envFrom:
               - secretRef:
                   name: khoj-secret
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: &httpPort 42110
+                  initialDelaySeconds: 30
+                  periodSeconds: 30
+                  timeoutSeconds: 3
+                  failureThreshold: 5
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: *httpPort
+                  initialDelaySeconds: 10
+                  periodSeconds: 10
+                  timeoutSeconds: 3
+                  failureThreshold: 3
+              # First start downloads ~500MB of embedding models into
+              # khoj-models PVC — wide failureThreshold accommodates the
+              # cold-cache case (matches disableWait rationale above).
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: *httpPort
+                  initialDelaySeconds: 15
+                  periodSeconds: 10
+                  timeoutSeconds: 3
+                  failureThreshold: 60
             resources:
               requests:
                 cpu: 100m

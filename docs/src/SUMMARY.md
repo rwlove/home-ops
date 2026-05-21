@@ -11,6 +11,7 @@
 - [Power Outage Recovery](power-outage.md)
 - [Coral](coral.md)
 - [nVidia Tesla P40](p40.md)
+- [TEI on Spark — reranker for RAG](tei_spark.md)
 - [Cluster Rebuild Actions](cluster_rebuild.md)
 - [Cluster Upgrade Runbook](cluster_upgrade.md)
 - [Promote Worker to Control Plane](promote_worker_to_control_plane.md)

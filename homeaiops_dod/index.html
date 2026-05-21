@@ -827,6 +827,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#zot-cold-start-recovery--the-secondary-failure-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ZOT cold-start recovery — the secondary failure mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#stalled-helmrelease-with-missingrollbacktarget" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2493,6 +2504,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#zot-cold-start-recovery--the-secondary-failure-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ZOT cold-start recovery — the secondary failure mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#stalled-helmrelease-with-missingrollbacktarget" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3510,6 +3532,110 @@ mon pod with explicit <code>--conf</code> / <code>--keyring</code> / <code>-m</c
 step 1. Adding the toolbox to the rook-ceph operator helmrelease
 is a Stage 2 quality-of-life follow-up; see incident on
 2026-05-21 for the time cost without it.</p>
+<h3 id="zot-cold-start-recovery--the-secondary-failure-mode">ZOT cold-start recovery — the secondary failure mode<a class="headerlink" href="#zot-cold-start-recovery--the-secondary-failure-mode" title="Permanent link">&para;</a></h3>
+<p>This runbook section pairs with the one above. When the
+underlying Ceph PG issue clears, ZOT itself doesn't immediately
+recover — it goes through a long cold-start sequence that can
+look like a fresh failure.</p>
+<p><strong>Symptom.</strong> After the Ceph PG re-peer succeeds (osd.2 came
+back up, <code>rbd info</code> works again from a mon pod), <code>zot-0</code> enters
+a <code>CrashLoopBackOff</code> pattern even though the underlying volume
+is healthy. Each restart shows <code>parsing next repo</code> log lines
+walking through hundreds of cached images, but the pod gets
+killed by its liveness probe before reaching the end.</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span>zot-0<span class="w"> </span>--tail<span class="o">=</span><span class="m">5</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>parsing
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="c1"># → &quot;parsing next repo &#39;quay.io/...&#39;: total=272, progress=233&quot;</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="c1"># Restart count climbs by 1 every ~30 s.</span>
+</span></code></pre></div>
+<p>After this clears (post-parse + scrub + GC + retention all run
+on first boot), the pod becomes <code>Ready</code> but <strong>serves chart
+manifests with 5-minute latency</strong> for the next 30–60 min while
+background ops still contend for I/O.</p>
+<p><strong>How to confirm — phase 1 (parse loop).</strong></p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>pod<span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span>zot-0
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="c1"># RESTARTS climbing by 1/30s — fingerprint</span>
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span>zot-0<span class="w"> </span>--previous<span class="w"> </span>--tail<span class="o">=</span><span class="m">10</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;parsing next repo&quot;</span>
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="c1"># → many; the parse never completes inside the liveness window</span>
+</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>kubectl<span class="w"> </span>get<span class="w"> </span>pod<span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span>zot-0<span class="w"> </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.spec.containers[0].livenessProbe}&#39;</span>
+</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="c1"># → check failureThreshold; default is 3 × 10s = 30 s — too short</span>
+</span></code></pre></div>
+<p><strong>How to confirm — phase 2 (post-parse latency).</strong></p>
+<p>ZOT pod is <code>Ready=True</code>, but <code>helm template</code> against ZOT-mirrored
+charts times out from CI:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span>zot-0<span class="w"> </span>--tail<span class="o">=</span><span class="m">20</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span><span class="s1">&#39;&quot;latency&quot;&#39;</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="c1"># Each manifest GET reports `&quot;latency&quot;:&quot;5m2s&quot;` (or similar) —</span>
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="c1"># fingerprint of disk contention from scrub + gc + retention</span>
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span>zot-0<span class="w"> </span>--tail<span class="o">=</span><span class="m">20</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-E<span class="w"> </span><span class="s2">&quot;scrub|garbage collected|retention&quot;</span>
+</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="c1"># All three running concurrently on cold-start</span>
+</span></code></pre></div>
+<p><strong>Root cause.</strong> ZOT v2 runs three periodic maintenance ops:</p>
+<ul>
+<li><em>Scrub</em> — manifest/blob integrity check</li>
+<li><em>GC</em> — remove unreferenced blobs</li>
+<li><em>Retention</em> — delete tags per retention policy</li>
+</ul>
+<p>On a cold restart these all fire at once. With a 500 GiB
+ceph-block PVC and 272 cached repos, the first pass dominates
+disk I/O and serving threads starve. Steady-state runs touch
+only the small delta since the last run and are fast.</p>
+<p><strong>Recovery — phase 1 (parse loop).</strong></p>
+<p>Patch the liveness probe in-cluster to survive cold start:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>kubectl<span class="w"> </span>patch<span class="w"> </span>statefulset<span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span>zot<span class="w"> </span>--type<span class="o">=</span>json<span class="w"> </span>-p<span class="o">=</span><span class="s1">&#39;[</span>
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="s1">  {&quot;op&quot;:&quot;replace&quot;,</span>
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="s1">   &quot;path&quot;:&quot;/spec/template/spec/containers/0/livenessProbe/failureThreshold&quot;,</span>
+</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="s1">   &quot;value&quot;:60}</span>
+</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="s1">]&#39;</span>
+</span></code></pre></div>
+<p>This bumps <code>failureThreshold</code> from 3 to 60 (10 min). The
+StatefulSet rolls a new pod; if Flux subsequently reconciles
+the HelmRelease, <strong>the patch is overwritten</strong> — see prevention
+below.</p>
+<p><strong>Recovery — phase 2 (post-parse latency).</strong></p>
+<p>Wait it out. Background ops settle in 30–60 min. CI can be
+unblocked by <strong>admin-bypass merging</strong> PRs whose CI failures are
+specifically <code>Extract images</code> / <code>Flux Local Test</code> chart-fetch
+timeouts against ZOT — the failures are pure infrastructure
+flake, not PR content.</p>
+<p><strong>Prevention — Stage 2 follow-ups.</strong> The in-cluster patch in
+"Recovery phase 1" is a hotfix. The durable fix is in Git:</p>
+<ol>
+<li>Add a <code>startupProbe</code> to the ZOT HelmRelease in
+   <code>kubernetes/apps/kube-system/zot/app/helmrelease.yaml</code> so
+   liveness/readiness don't apply until startup completes:</li>
+</ol>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="nt">probes</span><span class="p">:</span>
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="w">  </span><span class="nt">startup</span><span class="p">:</span>
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="w">    </span><span class="nt">custom</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a><span class="w">    </span><span class="nt">spec</span><span class="p">:</span>
+</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="w">      </span><span class="nt">httpGet</span><span class="p">:</span>
+</span><span id="__span-15-7"><a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a><span class="w">        </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/v2/</span>
+</span><span id="__span-15-8"><a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a><span class="w">        </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5000</span>
+</span><span id="__span-15-9"><a id="__codelineno-15-9" name="__codelineno-15-9" href="#__codelineno-15-9"></a><span class="w">      </span><span class="nt">initialDelaySeconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
+</span><span id="__span-15-10"><a id="__codelineno-15-10" name="__codelineno-15-10" href="#__codelineno-15-10"></a><span class="w">      </span><span class="nt">periodSeconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
+</span><span id="__span-15-11"><a id="__codelineno-15-11" name="__codelineno-15-11" href="#__codelineno-15-11"></a><span class="w">      </span><span class="nt">failureThreshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w">   </span><span class="c1"># 30 min cold-start budget</span>
+</span></code></pre></div>
+<ol>
+<li>
+<p>(Optional) Configure ZOT's <code>extensions.scrub.delay</code>,
+   <code>extensions.gc.delay</code>, and <code>retention.schedule</code> so the
+   first post-restart pass doesn't fire immediately. See
+   ZOT v2 config docs.</p>
+</li>
+<li>
+<p>Open a <code>workaround:</code> issue per
+   <code>.agents/instructions/workarounds.md</code> linking back to this
+   runbook section so the in-cluster patch isn't quietly lost
+   on the next HelmRelease reconcile.</p>
+</li>
+</ol>
+<p><strong>Cross-reference.</strong> The user-visible symptom that <em>first</em>
+exposes this on a busy cluster is "Django ADMINS email about
+postgres connection errors" — the postgres-zulip primary
+takes a brief connection flap during PG re-peering, Django's
+ADMINS hook fires. The Postgres process itself doesn't
+restart; reconnect is automatic; data is intact. See the
+2026-05-21 incident notes for the exact timing.</p>
 <h3 id="stalled-helmrelease-with-missingrollbacktarget">Stalled HelmRelease with <code>MissingRollbackTarget</code><a class="headerlink" href="#stalled-helmrelease-with-missingrollbacktarget" title="Permanent link">&para;</a></h3>
 <p><strong>Symptom.</strong> A HelmRelease shows <code>Ready=False</code> with condition
 <code>Stalled / MissingRollbackTarget</code>: "Failed to perform remediation:
@@ -3519,9 +3645,9 @@ in <code>failed</code> state — there is no successful version to roll back
 to. Underlying resources (Deployment, Service, etc.) may
 nevertheless be live and serving traffic.</p>
 <p><strong>How to confirm.</strong></p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>helmrelease<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-o<span class="w"> </span>json<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">&#39;.status.conditions[] | select(.type==&quot;Stalled&quot;)&#39;</span>
-</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>helm<span class="w"> </span><span class="nb">history</span><span class="w"> </span>&lt;release&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>helmrelease<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-o<span class="w"> </span>json<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">&#39;.status.conditions[] | select(.type==&quot;Stalled&quot;)&#39;</span>
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>helm<span class="w"> </span><span class="nb">history</span><span class="w"> </span>&lt;release&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;
 </span></code></pre></div>
 <p>If all release versions are <code>failed</code> and the underlying
 Deployment is <code>Available</code>, the chart's resources have converged
@@ -3546,35 +3672,35 @@ storage agree.</p>
 <ol>
 <li>Suspend Flux reconciliation so it doesn't fight the cleanup:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>flux<span class="w"> </span><span class="nb">suspend</span><span class="w"> </span>hr<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>flux<span class="w"> </span><span class="nb">suspend</span><span class="w"> </span>hr<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;
 </span></code></pre></div>
 <ol>
 <li>Verify the underlying Deployment is healthy:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>deploy,svc,sa,httproute<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span>-l<span class="w"> </span>app.kubernetes.io/instance<span class="o">=</span>&lt;name&gt;
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>deploy,svc,sa,httproute<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="w">  </span>-l<span class="w"> </span>app.kubernetes.io/instance<span class="o">=</span>&lt;name&gt;
 </span></code></pre></div>
 <ol>
 <li>Delete the chart resources and the failed Helm history
    secrets together — Helm won't adopt resources it doesn't own,
    so a brief downtime is unavoidable:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>deployment,svc,sa,httproute<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">  </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>-l<span class="w"> </span>app.kubernetes.io/instance<span class="o">=</span>&lt;name&gt;
-</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>secret<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>-l<span class="w"> </span><span class="nv">owner</span><span class="o">=</span>helm,name<span class="o">=</span>&lt;name&gt;
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>deployment,svc,sa,httproute<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="w">  </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>-l<span class="w"> </span>app.kubernetes.io/instance<span class="o">=</span>&lt;name&gt;
+</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>secret<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>-l<span class="w"> </span><span class="nv">owner</span><span class="o">=</span>helm,name<span class="o">=</span>&lt;name&gt;
 </span></code></pre></div>
 <ol>
 <li>Resume Flux and force reconcile; the HR will do a clean
    <code>helm install</code>:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>flux<span class="w"> </span>resume<span class="w"> </span>hr<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;
-</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>flux<span class="w"> </span>reconcile<span class="w"> </span>hr<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>--force
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>flux<span class="w"> </span>resume<span class="w"> </span>hr<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;
+</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a>flux<span class="w"> </span>reconcile<span class="w"> </span>hr<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>--force
 </span></code></pre></div>
 <ol>
 <li>Verify the HR becomes <code>Ready=True</code> within the new
    <code>spec.timeout</code> window:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>hr<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-w
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>hr<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-w
 </span></code></pre></div>
 <p>Time budget: 2–3 m of downtime per HR. Pick a maintenance
 window per <code>CLAUDE.md</code> if the component is operator- or

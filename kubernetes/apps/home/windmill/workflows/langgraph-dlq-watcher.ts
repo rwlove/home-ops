@@ -8,7 +8,10 @@
 // Companion to lga 4.M3 (`/admin/dlq` endpoints + Phase 4.M2 worker
 // that writes to task_dlq on terminal failure).
 
-import * as wmill from "https://deno.land/x/wmill@v1.470.0/mod.ts";
+// `deno.land/x/wmill` was retired in favor of the npm package; the
+// deno.land/x path now returns 404, so any script using it fails at
+// module-resolution time. Pin the same version via `npm:` instead.
+import * as wmill from "npm:windmill-client@1.470.0";
 
 type DlqEntry = {
     id: string;

@@ -776,6 +776,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#batch-3--2026-05-21-pod-level-restart-cycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Batch 3 — 2026-05-21 Pod-level restart cycle
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -792,6 +803,17 @@
   
     <nav class="md-nav" aria-label="Runbooks">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#externalsecret-extract-field-present-but-empty" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ExternalSecret-extract field present but empty
+      
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#stalled-helmrelease-with-missingrollbacktarget" class="md-nav__link">
@@ -2409,6 +2431,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#batch-3--2026-05-21-pod-level-restart-cycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Batch 3 — 2026-05-21 Pod-level restart cycle
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2425,6 +2458,17 @@
   
     <nav class="md-nav" aria-label="Runbooks">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#externalsecret-extract-field-present-but-empty" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ExternalSecret-extract field present but empty
+      
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#stalled-helmrelease-with-missingrollbacktarget" class="md-nav__link">
@@ -3264,9 +3308,79 @@ reconcile than a single-HR Kustomization.</p>
 <p>Full-fleet sweep deferred to a follow-up after first running the
 E2E smoke test (DoD #2) — keeping the maintenance-window blast
 radius narrow while Claude API enablement is in flight.</p>
+<h3 id="batch-3--2026-05-21-pod-level-restart-cycle">Batch 3 — 2026-05-21 Pod-level restart cycle<a class="headerlink" href="#batch-3--2026-05-21-pod-level-restart-cycle" title="Permanent link">&para;</a></h3>
+<p>Evidence for DoD #4 ("Survives a pod-level restart of each
+component"). Procedure: <code>kubectl delete pod &lt;X&gt;</code> → watch for a
+new pod in <code>Running</code> + <code>Ready=True</code>. Captured cycle time = delete
+→ <code>Ready=True</code>.</p>
+<p>Representative sample, covering Deployment + StatefulSet
+workloads on the inference, agent, MCP, and observability layers:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>ai/langgraph-agents      (Deployment)   Ready=True at t+31s
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>ai/tei-spark             (Deployment)   Ready=True at t+21s
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>ai/ollama-spark          (StatefulSet)  Ready=True at t~80s  (manual verify *)
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>mcp-system/mcp-gateway   (Deployment)   Ready=True at t+10s
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>mcp-system/memory-mcp    (Deployment)   Ready=True at t+21s
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>observability/holmesgpt  (Deployment)   Ready=True at t+20s
+</span></code></pre></div>
+<p><em>ollama-spark verification note</em>: StatefulSet pods keep the same
+name (<code>ollama-spark-0</code>) on restart, so the original test script's
+"find a pod with a different name" logic didn't fire its success
+branch. Verified manually via <code>kubectl get events</code>: pod was
+Killing at t=0, new container Started at t+10s, <code>Ready=True</code>
+within ~80s of delete (model state had to reload into VRAM —
+this is expected behaviour for an ollama statefulset and within
+the SLA we'd document if asked).</p>
+<p>All 6 components recovered without manual intervention. During
+the mcp-gateway restart, the Claude Code MCP tool surface went
+read-only for ~10 s while the istio sidecar drained and the new
+pod came up — visible to clients as transient connect-refused.
+No persistent failures.</p>
+<p>Full-fleet sweep deferred. The smoke test is the bigger gate.</p>
 <h2 id="runbooks">Runbooks<a class="headerlink" href="#runbooks" title="Permanent link">&para;</a></h2>
 <p>Failure modes encountered during Stage 1, with confirmation and
 recovery steps.</p>
+<h3 id="externalsecret-extract-field-present-but-empty">ExternalSecret-extract field present but empty<a class="headerlink" href="#externalsecret-extract-field-present-but-empty" title="Permanent link">&para;</a></h3>
+<p><strong>Symptom.</strong> A Secret populated by an ExternalSecret is missing
+the value an app needs. <code>kubectl get secret … -o yaml</code> shows the
+key exists; <code>... | base64 -d | wc -c</code> returns 0 or 1 bytes. The
+ExternalSecret itself reports <code>SecretSynced</code> cleanly — there is
+no operator-level error.</p>
+<p><strong>How to confirm.</strong></p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nv">LEN</span><span class="o">=</span><span class="k">$(</span>kubectl<span class="w"> </span>get<span class="w"> </span>secret<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>&lt;secret&gt;<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.data.&lt;KEY&gt;}&#39;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>base64<span class="w"> </span>-d<span class="w"> </span><span class="p">|</span><span class="w"> </span>wc<span class="w"> </span>-c<span class="k">)</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;decoded length: </span><span class="nv">$LEN</span><span class="s2"> bytes&quot;</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>kubectl<span class="w"> </span>get<span class="w"> </span>externalsecret<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>&lt;name&gt;<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">  </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.status.conditions[?(@.type==&quot;Ready&quot;)]}&#39;</span>
+</span></code></pre></div>
+<p>If the decoded length is 0–1 bytes and the ExternalSecret is
+<code>Ready=True</code>, the 1P field exists but is blank.</p>
+<p><strong>Root cause.</strong> The 1P item has a placeholder field with the
+right name but no value behind it. <code>external-secrets-operator</code>
+copies the empty string into the target Secret — it can't tell
+the difference between "deliberately empty" and "operator forgot
+to paste the value."</p>
+<p><strong>Recovery.</strong> Two paths:</p>
+<ol>
+<li><em>Fill the empty 1P field.</em> Open the 1P item, paste the value,
+   force-sync:</li>
+</ol>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>kubectl<span class="w"> </span>annotate<span class="w"> </span>externalsecret<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>&lt;name&gt;<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span>force-sync<span class="o">=</span><span class="k">$(</span>date<span class="w"> </span>+%s<span class="k">)</span><span class="w"> </span>--overwrite
+</span></code></pre></div>
+<ol>
+<li><em>Point at the field the secret already lives under.</em> If the
+   value is already in a different 1P item under a different
+   field name (e.g. an empty <code>ANTHROPIC_API_KEY</code> here while the
+   live value is in another item's <code>anthropic_api_key</code>),
+   re-wire the ExternalSecret's <code>dataFrom</code> + template to pull
+   the live field. Single rotation surface beats duplicate
+   copies. The canonical example for this repo is the langgraph
+   Anthropic key fix in
+   <a href="https://github.com/rwlove/home-ops/pull/11923">#11923</a>.</li>
+</ol>
+<p><strong>Prevention.</strong> When adding a new ExternalSecret template
+variable that maps from a 1P field, verify the field is non-
+empty before merging. A <code>wc -c</code> check is enough.</p>
 <h3 id="stalled-helmrelease-with-missingrollbacktarget">Stalled HelmRelease with <code>MissingRollbackTarget</code><a class="headerlink" href="#stalled-helmrelease-with-missingrollbacktarget" title="Permanent link">&para;</a></h3>
 <p><strong>Symptom.</strong> A HelmRelease shows <code>Ready=False</code> with condition
 <code>Stalled / MissingRollbackTarget</code>: "Failed to perform remediation:
@@ -3276,9 +3390,9 @@ in <code>failed</code> state — there is no successful version to roll back
 to. Underlying resources (Deployment, Service, etc.) may
 nevertheless be live and serving traffic.</p>
 <p><strong>How to confirm.</strong></p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>helmrelease<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-o<span class="w"> </span>json<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">&#39;.status.conditions[] | select(.type==&quot;Stalled&quot;)&#39;</span>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>helm<span class="w"> </span><span class="nb">history</span><span class="w"> </span>&lt;release&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>helmrelease<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-o<span class="w"> </span>json<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">&#39;.status.conditions[] | select(.type==&quot;Stalled&quot;)&#39;</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>helm<span class="w"> </span><span class="nb">history</span><span class="w"> </span>&lt;release&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;
 </span></code></pre></div>
 <p>If all release versions are <code>failed</code> and the underlying
 Deployment is <code>Available</code>, the chart's resources have converged
@@ -3303,35 +3417,35 @@ storage agree.</p>
 <ol>
 <li>Suspend Flux reconciliation so it doesn't fight the cleanup:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>flux<span class="w"> </span><span class="nb">suspend</span><span class="w"> </span>hr<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>flux<span class="w"> </span><span class="nb">suspend</span><span class="w"> </span>hr<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;
 </span></code></pre></div>
 <ol>
 <li>Verify the underlying Deployment is healthy:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>deploy,svc,sa,httproute<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span>-l<span class="w"> </span>app.kubernetes.io/instance<span class="o">=</span>&lt;name&gt;
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>deploy,svc,sa,httproute<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span>-l<span class="w"> </span>app.kubernetes.io/instance<span class="o">=</span>&lt;name&gt;
 </span></code></pre></div>
 <ol>
 <li>Delete the chart resources and the failed Helm history
    secrets together — Helm won't adopt resources it doesn't own,
    so a brief downtime is unavoidable:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>deployment,svc,sa,httproute<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>-l<span class="w"> </span>app.kubernetes.io/instance<span class="o">=</span>&lt;name&gt;
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>secret<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>-l<span class="w"> </span><span class="nv">owner</span><span class="o">=</span>helm,name<span class="o">=</span>&lt;name&gt;
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>deployment,svc,sa,httproute<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>-l<span class="w"> </span>app.kubernetes.io/instance<span class="o">=</span>&lt;name&gt;
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>secret<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>-l<span class="w"> </span><span class="nv">owner</span><span class="o">=</span>helm,name<span class="o">=</span>&lt;name&gt;
 </span></code></pre></div>
 <ol>
 <li>Resume Flux and force reconcile; the HR will do a clean
    <code>helm install</code>:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>flux<span class="w"> </span>resume<span class="w"> </span>hr<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>flux<span class="w"> </span>reconcile<span class="w"> </span>hr<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>--force
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>flux<span class="w"> </span>resume<span class="w"> </span>hr<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>flux<span class="w"> </span>reconcile<span class="w"> </span>hr<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>--force
 </span></code></pre></div>
 <ol>
 <li>Verify the HR becomes <code>Ready=True</code> within the new
    <code>spec.timeout</code> window:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>hr<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-w
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>hr<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-w
 </span></code></pre></div>
 <p>Time budget: 2–3 m of downtime per HR. Pick a maintenance
 window per <code>CLAUDE.md</code> if the component is operator- or

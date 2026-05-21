@@ -1,0 +1,40 @@
+# nginx reverse-proxy for windmill-mcp.
+#
+# The mcp-gateway broker delivers MCP traffic to this proxy at /mcp.
+# We rewrite to Windmill's workspace-scoped MCP endpoint and inject
+# the Authorization: Bearer header from $WINDMILL_TOKEN (set via env
+# from the windmill-mcp-secret ExternalSecret).
+#
+# Windmill's MCP route is HTTP streamable + SSE. Disable proxy
+# buffering and set generous timeouts so long-running tool calls
+# survive.
+
+server {
+    listen 8080;
+    server_name _;
+
+    # /healthz — simple liveness/readiness target. No auth, no proxy.
+    location = /healthz {
+        access_log off;
+        return 200 "ok\n";
+        default_type text/plain;
+    }
+
+    # /mcp — broker entrypoint. Rewrite to Windmill's workspace MCP
+    # route and inject the Bearer token.
+    location = /mcp {
+        proxy_pass http://windmill-app.home.svc.cluster.local:8000/api/mcp/w/lovenet/mcp;
+
+        proxy_http_version 1.1;
+        proxy_set_header Host windmill-app.home.svc.cluster.local;
+        proxy_set_header Connection "";
+        proxy_set_header Authorization "Bearer ${WINDMILL_TOKEN}";
+
+        # SSE / streamable-HTTP friendliness — Windmill MCP streams.
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_read_timeout 1h;
+        proxy_send_timeout 1h;
+        chunked_transfer_encoding on;
+    }
+}

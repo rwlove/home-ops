@@ -1,0 +1,118 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: windmill-mcp
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  values:
+    defaultPodOptions:
+      securityContext:
+        fsGroup: 101
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 101
+        runAsNonRoot: true
+        runAsUser: 101
+    controllers:
+      windmill-mcp:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        pod:
+          annotations:
+            sidecar.istio.io/inject: "true"
+        containers:
+          app:
+            # nginx-unprivileged: stock nginx + runs as UID 101 on port
+            # 8080 (no root, no NET_BIND_SERVICE needed). The image's
+            # entrypoint runs `envsubst` on /etc/nginx/templates/*.template
+            # and writes the rendered config to /etc/nginx/conf.d/.
+            # We supply `default.conf.template` via the templates configMap,
+            # and the rendered output lands in the writable conf-d emptyDir.
+            image:
+              repository: docker.io/nginxinc/nginx-unprivileged
+              tag: 1.27.5-alpine
+            env:
+              # envsubst replaces ${WINDMILL_TOKEN} in the template; the
+              # secret is materialized by the windmill-mcp ExternalSecret.
+              WINDMILL_TOKEN:
+                valueFrom:
+                  secretKeyRef:
+                    name: windmill-mcp-secret
+                    key: WINDMILL_TOKEN
+            resources:
+              requests:
+                cpu: 10m
+                memory: 32Mi
+              limits:
+                memory: 128Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+              seccompProfile:
+                type: RuntimeDefault
+    service:
+      app:
+        controller: windmill-mcp
+        ports:
+          http:
+            port: 8080
+    route:
+      app:
+        hostnames:
+          - "windmill-mcp.mcp.local"
+        parentRefs:
+          - name: mcp-gateway
+            namespace: mcp-system
+            sectionName: mcps
+        rules:
+          - matches:
+              - path:
+                  type: PathPrefix
+                  value: /mcp
+            backendRefs:
+              - identifier: app
+                port: 8080
+    persistence:
+      # Source nginx template — envsubst rewrites this into conf.d
+      # at container start. Mounted read-only.
+      nginx-templates:
+        type: configMap
+        name: windmill-mcp-nginx-config
+        advancedMounts:
+          windmill-mcp:
+            app:
+              - path: /etc/nginx/templates/default.conf.template
+                subPath: default.conf.template
+                readOnly: true
+      # nginx writes the rendered config + pid + cache here. With
+      # readOnlyRootFilesystem: true these must be emptyDirs.
+      nginx-conf-d:
+        type: emptyDir
+        advancedMounts:
+          windmill-mcp:
+            app:
+              - path: /etc/nginx/conf.d
+      nginx-cache:
+        type: emptyDir
+        advancedMounts:
+          windmill-mcp:
+            app:
+              - path: /var/cache/nginx
+      nginx-tmp:
+        type: emptyDir
+        advancedMounts:
+          windmill-mcp:
+            app:
+              - path: /tmp
+      nginx-run:
+        type: emptyDir
+        advancedMounts:
+          windmill-mcp:
+            app:
+              - path: /var/run

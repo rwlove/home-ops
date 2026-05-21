@@ -2945,8 +2945,8 @@ audit).</p>
 <tr>
 <td><code>windmill-mcp</code></td>
 <td>A</td>
-<td>❌ HR stalled</td>
-<td>—</td>
+<td>✅ verified (HR recovered via preventive timeout bump alone — destructive procedure not needed)</td>
+<td><a href="https://github.com/rwlove/home-ops/pull/11919">#11919</a></td>
 </tr>
 <tr>
 <td>Qdrant</td>
@@ -3075,13 +3075,15 @@ audit).</p>
 <p><strong>Open issues identified by survey, blocking Stage 1 DoD:</strong></p>
 <ol>
 <li>
-<p><strong><code>mcp-system/windmill-mcp</code> HelmRelease stalled.</strong> Condition
-   <code>Stalled / MissingRollbackTarget</code>: "missing target release for
-   rollback: cannot remediate failed release." Three upgrade
-   failures (timeout waiting for <code>Deployment …InProgress</code>). The
-   underlying Deployment is healthy (1/1 ready, 0 restarts, 157 m
-   uptime) — the failure is in Helm metadata only. Fix: clear the
-   failed history so Flux can re-converge.</p>
+<p>~~<strong><code>mcp-system/windmill-mcp</code> HelmRelease stalled.</strong>~~ ✅
+   <strong>Resolved by <a href="https://github.com/rwlove/home-ops/pull/11919">#11919</a>
+   on 2026-05-21.</strong> The preventive <code>spec.timeout: 15m</code> bump alone
+   was enough — on the next Flux reconcile after merge, the
+   pending upgrade succeeded, v4 was marked <code>deployed</code>, v3 became
+   <code>superseded</code>, and <code>upgradeFailures</code> cleared. The destructive
+   recovery procedure in the runbook below was not needed. (Runbook
+   stays in place for harder-stuck cases where the chart resources
+   themselves are dead.)</p>
 </li>
 <li>
 <p><strong><code>observability/grafana</code> HelmRelease stalled.</strong> 3 upgrade
@@ -3091,11 +3093,18 @@ audit).</p>
 <li>
 <p><strong><code>ai/langfuse-zookeeper-2</code> OOMKilled (2026-05-21 01:48 UTC).</strong>
    <code>exitCode=137</code>, one restart in 22 h. Critical alert still
-   firing.</p>
+   firing. <strong>Update post-survey</strong>: all three zookeeper pods sitting
+   at 90–99 % of their 384 Mi limit (<code>kubectl top</code> after the
+   survey). zookeeper-1 at 381 / 384 Mi is OOM-imminent. Memory
+   bump required.</p>
 </li>
 <li>
 <p><strong><code>ai/langfuse-worker</code> OOM pattern.</strong> 26 lifetime restarts,
-   exit-137 history; last restart 16 h ago. Currently stable.</p>
+   exit-137 history; last restart 16 h ago. Currently stable.
+   <strong>Update post-survey</strong>: no <code>resources.limits.memory</code> set on the
+   worker container — exit 137s come from the node-level OOM
+   killer when pressure builds. Setting an explicit request +
+   limit will at least bound the failure mode.</p>
 </li>
 </ol>
 <p><strong>Queue substrate baseline:</strong></p>

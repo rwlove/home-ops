@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Github Webhook - Home Operations</title>
+        <title>Orchestration Substrate - Home Operations</title>
 
 
         <!-- Custom HTML head -->
@@ -147,19 +147,144 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="github-webhook--flux"><a class="header" href="#github-webhook--flux">GitHub Webhook → Flux</a></h1>
-<p>Moved to the vault: <code>~/vaults/claude/runbooks/home-ops/github_webhook.md</code></p>
-<p>See HOMELAB-SPEC Layer 2 #5: the vault is canonical for runbooks.</p>
+                        <h1 id="orchestration-substrate"><a class="header" href="#orchestration-substrate">Orchestration substrate</a></h1>
+<h2 id="status"><a class="header" href="#status">Status</a></h2>
+<p><strong>Not built as of 2026-05-20</strong> — but substrate is decided. HOMELAB-SPEC
+Layer 5 references a task contract, queue substrate, DLQ, and per-mode
+workers that this cluster does not yet implement. This document names
+the gap, describes what exists today, and sketches the forward-looking
+shape so we don't lose the specs while we wait.</p>
+<p><strong>Substrate decision (2026-05-20):</strong> CNPG LISTEN/NOTIFY — see
+<a href="task_queue_substrate_design.html"><code>task_queue_substrate_design.md</code></a> for
+the full evaluation. Phase 4 of the rollout plan builds it out.</p>
+<h2 id="what-exists-today"><a class="header" href="#what-exists-today">What exists today</a></h2>
+<p>The closest things to a task pipeline in this cluster:</p>
+<ul>
+<li><strong>AlertManager → HolmesGPT</strong> for alert triage. AlertManager fires →
+HolmesGPT investigates → result posts to Zulip / Pushover.</li>
+<li><strong>Zulip Triager bot → Windmill → langgraph-agents <code>/inbox</code></strong> for
+DM-shaped intents. The Triager outgoing-webhook converts DMs to
+HTTP and Windmill brokers to langgraph. See memory entry
+<code>project_zulip_triager_webhook_done</code>.</li>
+<li><strong>ntfy → langgraph approval endpoint</strong> for tap-to-approve actions
+on Android. HMAC-signed, single-use. See memory entry
+<code>project_ntfy_pushover_migration_done</code>.</li>
+<li><strong>HA voice + ntfy notifications</strong> for Renee-facing surfaces.
+Currently end-user-driven, not agent-mediated.</li>
+</ul>
+<p>None of these speak a common task contract. None have a DLQ. None
+queue durably across a worker crash. None carry an OpenTelemetry
+trace_id end-to-end.</p>
+<h2 id="what-would-exist-when-built"><a class="header" href="#what-would-exist-when-built">What would exist when built</a></h2>
+<p>Per HOMELAB-SPEC Layer 5:</p>
+<ul>
+<li><strong>Durable queue</strong> with at-least-once delivery, DLQ, visibility
+timeouts that return crashed-worker tasks within minutes.</li>
+<li><strong>Ingress wrappers</strong> that wrap raw user input (Open WebUI, HA voice,
+Android, AlertManager) in a task envelope before enqueueing. Raw
+surface input never reaches an agent.</li>
+<li><strong>Per-mode workers</strong> for the modes defined in HOMELAB-SPEC Layer 4:
+planner, executor, reviewer, guardian, observer, historian,
+upstream-watcher, router. Modes compose with personas
+(<code>~/.claude-personal/agents/*.md</code>).</li>
+<li><strong>Observability</strong>: OpenTelemetry traces follow <code>trace_id</code> from
+ingress through every mode hop to PR / CI / Flux reconcile /
+historian summary. Structured logs carry <code>trace_id</code>, <code>task_id</code>,
+<code>mode</code>, <code>persona</code>. Grafana dashboard with one panel per task.</li>
+<li><strong>Human-in-the-loop queue</strong> with <code>ttl</code> on destructive tasks. On
+expiry the task does <em>not</em> auto-execute — it expires and notifies
+Rob with a summary. Urgent tasks page; normal tasks wait.</li>
+<li><strong>DLQ → review queue</strong>: DLQ entries become tasks for Rob's review,
+not silent failures.</li>
+</ul>
+<h2 id="task-envelope-forward-looking"><a class="header" href="#task-envelope-forward-looking">Task envelope (forward-looking)</a></h2>
+<p>When the substrate exists, every task carries:</p>
+<ul>
+<li><code>id</code> — ULID</li>
+<li><code>trace_id</code> — OpenTelemetry-compatible</li>
+<li><code>origin</code> — <code>open-webui</code> | <code>ha-voice</code> | <code>android</code> | <code>observer</code> |
+<code>scheduled</code> | <code>manual</code></li>
+<li><code>requester</code> — <code>rob</code> | <code>renee</code> | <code>system</code></li>
+<li><code>intent</code> — natural-language string</li>
+<li><code>priority</code> — <code>low</code> | <code>normal</code> | <code>high</code> | <code>urgent</code></li>
+<li><code>destructive</code> — bool, planner sets/confirms</li>
+<li><code>idempotency_key</code> — task handlers must be safe under at-least-once
+delivery; this is how</li>
+<li><code>ttl</code> — after which guardian-queued tasks expire and notify Rob</li>
+<li><code>retry_policy</code></li>
+<li><code>data_tier</code> — <code>public</code> | <code>internal</code> | <code>restricted</code>
+(see <code>.agents/instructions/data-classification.md</code>)</li>
+</ul>
+<p>Tasks without this envelope are rejected at ingress.</p>
+<h2 id="renee-allowlist-forward-looking"><a class="header" href="#renee-allowlist-forward-looking">Renee allowlist (forward-looking)</a></h2>
+<p>When the substrate exists, Renee's intents are auto-approved when
+they fall into these categories:</p>
+<ul>
+<li>Media playback (Jellyfin, Music Assistant, Kodi)</li>
+<li>Lighting</li>
+<li>Climate</li>
+<li>Scenes</li>
+<li>Locks-unlock-when-already-home (NOT from-away)</li>
+</ul>
+<p>Anything else from Renee routes to Rob's queue with a Renee-originated
+tag. Renee never sees admin output, stack traces, or restricted-tier
+data.</p>
+<p>Start narrow — easier to widen than retract.</p>
+<h2 id="observer-and-guardian-modes-deferred"><a class="header" href="#observer-and-guardian-modes-deferred">Observer and Guardian modes (deferred)</a></h2>
+<p>HOMELAB-SPEC Layer 4 defines Observer (watches cluster health, files
+tasks) and Guardian (owns human-approval gate with TTL). Both depend
+on the queue substrate. Until the substrate lands, observer
+responsibilities live in AlertManager + HolmesGPT, and guardian
+responsibilities live in Rob (the human) responding to ntfy /
+Pushover approval requests.</p>
+<h2 id="token--cost-budget-deferred"><a class="header" href="#token--cost-budget-deferred">Token / cost budget (deferred)</a></h2>
+<p>HOMELAB-SPEC Layer 6 asks for a daily + weekly MAX-phase budget. Not
+set today. Plan: ship the Grafana dashboard panel from Layer 6 first,
+collect a week of real spend, then pick numbers based on the data.
+Picking numbers cold would be guessing.</p>
+<h2 id="substitutes--partial-implementations"><a class="header" href="#substitutes--partial-implementations">Substitutes / partial implementations</a></h2>
+<p>These do <em>substrate-ish</em> work today but are not substitutes for the
+real thing:</p>
+<ul>
+<li><strong>HolmesGPT</strong> — single-task investigation per alert. No queue, no
+envelope, no idempotency, no trace correlation.</li>
+<li><strong>Zulip Triager → Windmill → langgraph</strong> — DM ingress only. No DLQ,
+no retry policy, no priority routing.</li>
+<li><strong>ntfy approval flow</strong> — one-off HMAC-signed approvals. Not a
+generic guardian.</li>
+<li><strong>AlertManager</strong> — fires, doesn't reason. The piece closest to
+observer-by-rule.</li>
+</ul>
+<p>When the substrate is built, each of these collapses into the
+appropriate mode worker.</p>
+<h2 id="what-this-is-not"><a class="header" href="#what-this-is-not">What this is NOT</a></h2>
+<ul>
+<li>Not a design doc. The shape above is HOMELAB-SPEC's, not a
+worked-through design for this cluster's specifics.</li>
+<li>Not a roadmap. There's no commit date.</li>
+<li>Not a list of substitutes that are good-enough. They aren't.</li>
+</ul>
+<h2 id="see-also"><a class="header" href="#see-also">See also</a></h2>
+<ul>
+<li>HOMELAB-SPEC Layer 4 (Modes), Layer 5 (Task contract, Queueing,
+Blast radius, HITL SLA, Self-healing loop), Layer 6 (Routing and
+budget), Layer 7 (User surfaces).</li>
+<li><code>.agents/instructions/data-classification.md</code></li>
+<li><code>.agents/skills/historian.md</code></li>
+<li><code>.agents/skills/upstream-watcher.md</code></li>
+<li>memory <code>project_zulip_triager_webhook_done</code></li>
+<li>memory <code>project_ntfy_pushover_migration_done</code></li>
+</ul>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="pod_security_audit.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="mtls_rollout_design.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <i class="fa fa-angle-left"></i>
                             </a>
 
-                            <a rel="next" href="limits.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next" href="task_queue_substrate_design.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <i class="fa fa-angle-right"></i>
                             </a>
 
@@ -169,11 +294,11 @@
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="pod_security_audit.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="mtls_rollout_design.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <i class="fa fa-angle-left"></i>
                     </a>
 
-                    <a rel="next" href="limits.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next" href="task_queue_substrate_design.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <i class="fa fa-angle-right"></i>
                     </a>
             </nav>

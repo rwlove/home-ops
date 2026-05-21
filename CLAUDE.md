@@ -23,7 +23,7 @@ home-ops/
 │   ├── components/      # Reusable k8s components
 │   └── flux/            # Flux cluster definitions
 ├── bootstrap/           # Bootstrap templates (helmfile.d, templates)
-├── docs/                # mdBook documentation
+├── docs/                # Material for MkDocs documentation
 ├── init/                # Cluster initialization scripts
 └── tools/                # Helper scripts
 ```
@@ -120,7 +120,7 @@ with Rob as the human-in-the-loop gate.
 
 ## Documentation
 
-- Main docs: `/docs/src/` (mdBook, rendered at <https://rwlove.github.io/home-ops/>)
+- Main docs: `/docs/src/` (Material for MkDocs, rendered at <https://rwlove.github.io/home-ops/>)
 - Repo-wide README: `/README.md` (the home-ops landing page)
 - Component docs: README files co-located with components
 - Agent-loaded conventions: `/.agents/instructions/` (auto-imported via this CLAUDE.md)
@@ -132,7 +132,7 @@ with Rob as the human-in-the-loop gate.
 
 When adding architecture or operational docs, consider:
 
-1. **Operator runbooks** → `/docs/src/` (mdBook chapters listed in `SUMMARY.md`)
+1. **Operator runbooks** → `/docs/src/` (pages listed in the `nav:` block of `docs/mkdocs.yml`)
 2. **Component-specific** → README next to the component (e.g. `kubernetes/components/network-policy/baseline/README.md`)
 3. **Conventions every AI session should auto-load** → `/.agents/instructions/` plus an `@`-import line in this file
 4. **One-shot agent workflows** → `/.agents/skills/` (not auto-loaded; invoked explicitly)

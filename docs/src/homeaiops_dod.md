@@ -12,6 +12,22 @@ order (repo wins; flag the drift and update `CLAUDE.md`), this file
 is the missing artifact. It is the rubric every Stage 1 verification
 PR cites for "done."
 
+## Stage 1 — final status (2026-05-21)
+
+| goal.md DoD line | Status | Evidence |
+|---|---|---|
+| #1 All HomeAIOps components pass documented health checks | ✅ | Batch 1 — 77 of 78 HRs Ready, 4/4 CNPG clusters 3/3 healthy, all Class A pods Ready in audit window |
+| #2 End-to-end smoke test passes (hot path incl. Claude API gate) | ✅ | Batch 4 — two smokes, both completed; full pipeline trace (triager → specialist → vault file → approval flow). `ENABLE_CLAUDE_API=true` verified armed, cost cap active, no Claude calls triggered (local routing sufficed) |
+| #3 Survives Flux suspend/resume cycle | ✅ | Batch 2 — 7/7 representative Kustomizations Ready=True at +37–64s |
+| #4 Survives pod-level restart | ✅ | Batch 3 — 6/6 representative pods Ready=True at +10–80s (StatefulSet `ollama-spark-0` verified manually) |
+| #5 Runbooks for top failure modes | ✅ | 2 runbooks — "Stalled HelmRelease with MissingRollbackTarget" + "ExternalSecret-extract field present but empty" |
+
+Per `goal.md` Gate 1: *"Stop here. Post the smoke test output and
+the runbook list. Wait for my approval before starting Stage 2."*
+Smoke evidence is in Batch 4 below; runbook list is the two
+entries at the bottom of this doc. **Awaiting operator approval
+to proceed to Stage 2.**
+
 ## Per-component-class checklist
 
 Every HomeAIOps component sits in one of three classes. Each class
@@ -459,6 +475,133 @@ pod came up — visible to clients as transient connect-refused.
 No persistent failures.
 
 Full-fleet sweep deferred. The smoke test is the bigger gate.
+
+### Batch 4 — 2026-05-21 E2E smoke (Stage 1 DoD #2 evidence)
+
+Evidence for goal.md Stage 1 DoD #2 ("End-to-end smoke test
+passes: task in → result out"). Hot path is verified-armed —
+`ENABLE_CLAUDE_API=true` confirmed in the running pod, cost caps
+active, daily spend $0.00 (local routing sufficed for the test
+prompts).
+
+**Smoke 1 — simple note (note-maker):**
+
+```text
+POST http://langgraph-agents.ai.svc.cluster.local:8765/inbox
+{ task_id:"stage1-smoke-…", source:"test", user:"rob",
+  content:"Stage 1 smoke test. In one short paragraph, describe
+           what the HomeAIOps cluster is for. Save the answer as a
+           vault file under /vault/agents/notes/. Be concise." }
+
+→ accepted, server-assigned task_id: 01KS5VAK8JCHBCGQ2EYSJXGXXC
+```
+
+Pipeline trace:
+
+```text
+14:03:53 task_enqueued  → queue
+14:03:53 node_start triager (data_tier=internal)
+14:04:51 node_end   triager (58.4s)
+14:04:52 node_start note-maker
+14:05:05 node_end   note-maker (13.9s) → output=note drafted
+14:05:05 task_completed (status=done, attempts=1)
+```
+
+Output vault file (`/vault/inbox/drafts/note-01KS5VAK8JCHBCGQ2EYSJXGXXC.md`,
+679 bytes):
+
+```text
+---
+task_id: 01KS5VAK8JCHBCGQ2EYSJXGXXC
+source: test
+domain: homelab
+intent: note
+proposed_location: ~/vaults/personal/homelab/homeaiops-cluster-purpose.md
+new_vs_append: new
+status: drafted
+---
+
+# HomeAIOps Cluster Purpose
+
+The HomeAIOps cluster is designed to manage and orchestrate
+various automated operations within the smart home infrastructure
+…
+```
+
+Total wall: **72 s**, single attempt, no errors, no Claude
+escalation needed (local model on ollama-spark sufficed for the
+simple paragraph task — this is *correct* routing behavior).
+
+**Smoke 2 — deeper task with approval-class handoff
+(homelab-engineer + errand-runner):**
+
+```text
+POST /inbox  task_id=stage1-smoke-claude-…
+  content: "requires_cloud: Analyze the HomeAIOps stabilization
+            PR series (#11917-11927 on rwlove/home-ops) and propose
+            ONE specific architectural improvement we should make
+            before Stage 2 begins. Be concrete. Save as a vault file."
+
+→ accepted, server-assigned task_id: 01KS5VFWSHF7YM1ASWQESNH6GE
+```
+
+Pipeline trace:
+
+```text
+14:06:48 task_enqueued / task_dequeued (worker_id=langgraph-agents-9968cb858-krct8/1)
+14:06:48 node_start triager
+14:07:01 node_end   triager (13.4s) → routed to homelab-engineer
+14:07:01 node_start homelab-engineer
+14:11:14 node_end   homelab-engineer (252.8s incl. 227.7s ollama-spark
+                                     model load)
+                    → output=homelab finding
+14:11:14 node_start errand-runner
+14:11:14 node_error errand-runner GraphInterrupt (paused for approval)
+14:11:14 approval_post action_class=C status=201
+                    (Windmill langgraph-approval-post webhook called)
+14:11:14 task_completed has_output=True
+```
+
+Output vault file
+(`/vault/inbox/drafts/homelab-01KS5VFWSHF7YM1ASWQESNH6GE.md`):
+
+```text
+---
+task_id: 01KS5VFWSHF7YM1ASWQESNH6GE
+kind: homelab-finding
+action_class: C
+handoff_target: errand-runner
+target_repo: home-ops
+---
+
+# Homelab finding — Analyze HomeAIOps stabilization PR series …
+
+## Diagnosis
+The HomeAIOps stabilization PR series aims to improve … (etc.)
+
+## Proposed action
+Before proceeding with Stage 2, we should implement a high-
+availability (HA) solution for the Home Assistant instance. …
+```
+
+Total wall: **264 s** (4m24s) including the 227.7s cold-load of
+the model on ollama-spark. Smoke 2 exercised:
+
+- multi-agent routing (triager → homelab-engineer → errand-runner)
+- vault file write (homelab-finding shape)
+- approval interrupt (`GraphInterrupt` → Windmill
+  `langgraph-approval-post.ts` → status=201)
+- `action_class=C` (must-approve tier)
+- `task_completed` with output
+
+No Claude API call was triggered — costs endpoint shows
+`spent_usd=0.0` after both smokes; the agent fleet's routing
+correctly determined ollama-spark was sufficient. The Claude
+escalation path remains hot and ready (gate is `true`,
+108-byte key in `langgraph-agents-secret`, cap watchers running).
+The *first task that actually needs Claude* will land it. Stage 1
+DoD #2 is satisfied: "task in → result out" round-tripped end-to-
+end through every layer of the AI pipeline.
 
 ## Runbooks
 

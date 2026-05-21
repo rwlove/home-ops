@@ -28,7 +28,13 @@ independent agent).
    pulls (or is set to sync via ZOT). `crane manifest <ref>` is one
    way.
 4. **Lint** — match whatever CI runs (markdownlint, yamllint,
-   `kustomize build`).
+   `kustomize build`, `tools/lint-readme-drift.py`,
+   `tools/lint-cnp-empty-rules.py`). With `pre-commit install
+   --hook-type pre-commit --hook-type pre-push` the commit-time +
+   push-time hooks in `.pre-commit-config.yaml` cover this
+   automatically — the push-stage `readme-drift-vs-main` also catches
+   "main moved past my branch" drift that the commit-time hook can't
+   see.
 5. **File-count** — see `CLAUDE.md` "Blast radius". 50-file ceiling;
    `sweep` label required to bypass. If you're above 50 and not
    labeling `sweep`, split.

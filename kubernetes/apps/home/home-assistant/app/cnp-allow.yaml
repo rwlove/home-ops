@@ -195,8 +195,16 @@ spec:
         - ports:
             - port: "11434"
               protocol: TCP
-    # NOTE: Home Assistant has multus-attached secondary NICs on the
-    # IoT and SECURITY VLANs (hass-iot-static, hass-security-static).
-    # Discovery (mDNS, broadcasts, device polling) over those NICs
-    # bypasses Cilium entirely; only eth0 (apiserver, DNS, cross-ns,
-    # external) is governed here.
+    # mDNS multicast discovery over eth0. HA's zeroconf integration
+    # sends queries to 224.0.0.251:5353; Cilium classifies the multicast
+    # destination as `world`. The multus IoT/SECURITY VLAN secondary
+    # NICs (hass-iot-static, hass-security-static) handle the bulk of
+    # LAN discovery and bypass Cilium entirely — only eth0 (apiserver,
+    # DNS, cross-ns, external) is governed here, including this mDNS
+    # path through default-deny.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "5353"
+              protocol: UDP

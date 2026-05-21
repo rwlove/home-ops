@@ -341,3 +341,5 @@ secret is mirrored into the `ai` namespace by emberstack reflector
   task queue is still the missing piece
 - [Task Queue Substrate — design proposal](task_queue_substrate_design.md)
   — the candidates being weighed
+- [TEI on Spark — reranker for RAG](tei_spark.md) — text-embedding-
+  inference deployment (vault-canonical runbook)

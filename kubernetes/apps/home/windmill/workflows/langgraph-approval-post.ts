@@ -23,9 +23,11 @@ type ApprovalRequest = {
     cost_estimate_usd?: number;
 };
 
-// Body keys from langgraph-agents: task_id + paused_for.
-export async function main(task_id: string, paused_for: { approval_request: ApprovalRequest }) {
-    const r = paused_for.approval_request;
+// Body keys from langgraph-agents' queue worker on interrupt:
+// `{task_id, approval_request}` (see v0.2.27 worker.py
+// `_post_approval_for_interrupts`).
+export async function main(task_id: string, approval_request: ApprovalRequest) {
+    const r = approval_request;
     const topic = `${task_id} — Class ${r.action_class}: ${r.target}`;
 
     // Pre-sign three tokens (one per verdict). The /approval endpoint

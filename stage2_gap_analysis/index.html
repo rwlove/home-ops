@@ -762,6 +762,45 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#9-operator-decisions-2026-05-21" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Operator decisions (2026-05-21)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="9. Operator decisions (2026-05-21)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#build-sequence-final-post-decisions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build sequence (final, post-decisions)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#open-question-for-during-build" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Open question for during build
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#end" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2328,6 +2367,45 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#9-operator-decisions-2026-05-21" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Operator decisions (2026-05-21)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="9. Operator decisions (2026-05-21)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#build-sequence-final-post-decisions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build sequence (final, post-decisions)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#open-question-for-during-build" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Open question for during build
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#end" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2844,9 +2922,35 @@ added between #5 and #6 if dogfooding surfaces a need.</p>
 <li><strong>Per-step event streaming</strong> (Q1 option (b)) — defer until v1 sync polling proves the design.</li>
 <li><strong>MCP server for memory parity</strong> — Tier 1 item #6 is real but I'd rather get the CLI shipped first and figure out memory in a v2 cycle. Flag for next gate.</li>
 </ul>
+<h2 id="9-operator-decisions-2026-05-21">9. Operator decisions (2026-05-21)<a class="headerlink" href="#9-operator-decisions-2026-05-21" title="Permanent link">&para;</a></h2>
+<p>Rob answered Q1-Q5:</p>
+<ol>
+<li><strong>Q1 = (a) sync poll.</strong> CLI polls <code>GET /admin/tasks/&lt;id&gt;/result</code> until terminal status. Defer SSE to v2.</li>
+<li><strong>Q2 = (a) separate <code>todo</code> table.</strong> Distinct lifecycle from <code>task_queue</code>.</li>
+<li><strong>Q3 = (a) cloudflared / Authelia.</strong> Public surface from day one — <code>hai.${SECRET_DOMAIN}</code> behind Authelia + oauth2-proxy, same pattern as Open WebUI / Khoj / etc. This changes the build plan: a new HTTPRoute for <code>/admin/*</code>, new oauth2-proxy instance (or reuse Open WebUI's), DNS via external-dns. The CLI uses a long-lived API token stored at <code>~/.config/hai/token</code>; minting flow TBD (likely a one-time <code>hai auth login</code> device flow, or operator-issued static token to start).</li>
+<li><strong>Q4 = (a) live in <code>langgraph-agents</code> repo.</strong> CLI ships as a console_script in <code>pyproject.toml</code>.</li>
+<li><strong>Q5 = (b) pragmatic dogfood.</strong> Acceptance is Rob's credible end-of-day "I used <code>hai</code> for everything I'd have asked Claude Code." No instrumented metric.</li>
+</ol>
+<h3 id="build-sequence-final-post-decisions">Build sequence (final, post-decisions)<a class="headerlink" href="#build-sequence-final-post-decisions" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>langgraph-agents PR-A</strong> — <code>"cli"</code> source enum + <code>GET /admin/tasks/&lt;id&gt;/result</code> + <code>todo</code> table migration + CRUD endpoints + Pydantic models. One PR, one migration.</li>
+<li><strong>home-ops PR-B</strong> — new HTTPRoute <code>hai.${SECRET_DOMAIN}</code> → <code>langgraph-agents:8765</code>, oauth2-proxy in front (reuse <code>langgraph-agents-oauth2-proxy</code> pattern from existing apps), Authelia client config, external-dns A record, CNP egress. Self-contained infrastructure.</li>
+<li><strong>langgraph-agents PR-C</strong> — the <code>hai</code> CLI: <code>cli/</code> subdir, console_script entry point in pyproject.toml, <code>hai task add/tail/ls/show</code>, <code>hai todo add/ls/done</code>, <code>hai cost</code>, <code>hai chat</code>, basic auth via token-file. Sync poll loop for results.</li>
+<li><strong>Image release</strong> — tag <code>v0.2.35</code> after PR-A merges; later <code>v0.2.36</code> after PR-C merges. (Or batch into one release.)</li>
+<li><strong>home-ops PR-D</strong> — image bump for the release(s) via renovate auto.</li>
+<li><strong>Dogfood day</strong> — Rob installs <code>pip install langgraph-agents</code> (or uses <code>pipx</code>) on his laptop, runs <code>hai auth login</code>, replaces normal Claude Code usage with <code>hai</code>.</li>
+<li><strong>home-ops PR-E (Gate 2)</strong> — evidence: dogfood log, transcript / sample tasks, confirmation that other non-CLI inputs still work (Zulip DM, voice, etc.), then your Gate 2 approval.</li>
+</ol>
+<h3 id="open-question-for-during-build">Open question for during build<a class="headerlink" href="#open-question-for-during-build" title="Permanent link">&para;</a></h3>
+<p><strong>Auth token issuance.</strong> Three flavors:</p>
+<ol>
+<li><em>Static operator-issued token</em> — simplest. Generate once, put in 1Password under a new <code>hai-cli</code> item, ExternalSecret materializes it in the cluster, CLI reads <code>~/.config/hai/token</code> populated by <code>hai auth set-token &lt;value&gt;</code>. v1 ships with this.</li>
+<li><em>Device flow</em> — <code>hai auth login</code> opens a URL, Rob authorizes in browser, CLI receives refresh token. More user-friendly but more code; defer to v2.</li>
+<li><em>Long-lived OAuth client credentials</em> — overkill for a single-user CLI.</li>
+</ol>
+<p>I'll go with <strong>(1)</strong> for v1 unless you say otherwise. The token can be replaced with device flow in a later iteration.</p>
 <h2 id="end">End<a class="headerlink" href="#end" title="Permanent link">&para;</a></h2>
-<p>Per goal: showing you this before building. Answer Q1-Q5 (or
-just nod overall) and I'll start the build.</p>
+<p>Build starts after this PR merges.</p>
 
 
 

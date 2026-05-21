@@ -765,6 +765,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#batch-2--2026-05-21-flux-suspendresume-cycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Batch 2 — 2026-05-21 Flux suspend/resume cycle
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2387,6 +2398,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#batch-2--2026-05-21-flux-suspendresume-cycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Batch 2 — 2026-05-21 Flux suspend/resume cycle
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -3218,6 +3240,30 @@ on Running pods):</strong></p>
 <p>No AI-pipeline component has &gt; 5 lifetime restarts; the previous
 worker (26 restarts, exit-137 OOM) was replaced cleanly under
 <a href="https://github.com/rwlove/home-ops/pull/11922">#11922</a>.</p>
+<h3 id="batch-2--2026-05-21-flux-suspendresume-cycle">Batch 2 — 2026-05-21 Flux suspend/resume cycle<a class="headerlink" href="#batch-2--2026-05-21-flux-suspendresume-cycle" title="Permanent link">&para;</a></h3>
+<p>Evidence for DoD #3: every AI-pipeline Kustomization survives a
+suspend/resume cycle without manual intervention. Procedure per
+Kustomization: <code>flux suspend ks &lt;name&gt;</code>, wait 30 s, <code>flux resume
+ks &lt;name&gt;</code>, watch for <code>Ready=True</code> again. Captured cycle time =
+<code>flux suspend</code> → <code>Ready=True</code> (includes the deliberate 30 s pause).</p>
+<p>Representative sample covering inference, agents, MCP fleet, and
+the cron-driven Claude lane:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>ai/langgraph-agents      Ready=True at t+37s
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>ai/ollama-spark          Ready=True at t+38s
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>ai/tei-spark             Ready=True at t+37s
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>mcp-system/memory-mcp    Ready=True at t+37s
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>mcp-system/mcp-gateway   Ready=True at t+64s
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>observability/holmesgpt  Ready=True at t+37s
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>automation/claude-runner Ready=True at t+38s
+</span></code></pre></div>
+<p>All 7 Kustomizations resumed cleanly. No manual touch needed;
+no dependent resources entered transient <code>NotReady</code>. The
+<code>mcp-gateway</code> outlier at 64 s is consistent with its three-HR
+inventory (gateway + istio + controller) which takes longer to
+reconcile than a single-HR Kustomization.</p>
+<p>Full-fleet sweep deferred to a follow-up after first running the
+E2E smoke test (DoD #2) — keeping the maintenance-window blast
+radius narrow while Claude API enablement is in flight.</p>
 <h2 id="runbooks">Runbooks<a class="headerlink" href="#runbooks" title="Permanent link">&para;</a></h2>
 <p>Failure modes encountered during Stage 1, with confirmation and
 recovery steps.</p>
@@ -3230,9 +3276,9 @@ in <code>failed</code> state — there is no successful version to roll back
 to. Underlying resources (Deployment, Service, etc.) may
 nevertheless be live and serving traffic.</p>
 <p><strong>How to confirm.</strong></p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>helmrelease<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-o<span class="w"> </span>json<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">&#39;.status.conditions[] | select(.type==&quot;Stalled&quot;)&#39;</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>helm<span class="w"> </span><span class="nb">history</span><span class="w"> </span>&lt;release&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>helmrelease<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-o<span class="w"> </span>json<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">&#39;.status.conditions[] | select(.type==&quot;Stalled&quot;)&#39;</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>helm<span class="w"> </span><span class="nb">history</span><span class="w"> </span>&lt;release&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;
 </span></code></pre></div>
 <p>If all release versions are <code>failed</code> and the underlying
 Deployment is <code>Available</code>, the chart's resources have converged
@@ -3257,35 +3303,35 @@ storage agree.</p>
 <ol>
 <li>Suspend Flux reconciliation so it doesn't fight the cleanup:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>flux<span class="w"> </span><span class="nb">suspend</span><span class="w"> </span>hr<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>flux<span class="w"> </span><span class="nb">suspend</span><span class="w"> </span>hr<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;
 </span></code></pre></div>
 <ol>
 <li>Verify the underlying Deployment is healthy:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>deploy,svc,sa,httproute<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>-l<span class="w"> </span>app.kubernetes.io/instance<span class="o">=</span>&lt;name&gt;
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>deploy,svc,sa,httproute<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span>-l<span class="w"> </span>app.kubernetes.io/instance<span class="o">=</span>&lt;name&gt;
 </span></code></pre></div>
 <ol>
 <li>Delete the chart resources and the failed Helm history
    secrets together — Helm won't adopt resources it doesn't own,
    so a brief downtime is unavoidable:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>deployment,svc,sa,httproute<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>-l<span class="w"> </span>app.kubernetes.io/instance<span class="o">=</span>&lt;name&gt;
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>secret<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>-l<span class="w"> </span><span class="nv">owner</span><span class="o">=</span>helm,name<span class="o">=</span>&lt;name&gt;
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>deployment,svc,sa,httproute<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>-l<span class="w"> </span>app.kubernetes.io/instance<span class="o">=</span>&lt;name&gt;
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>secret<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>-l<span class="w"> </span><span class="nv">owner</span><span class="o">=</span>helm,name<span class="o">=</span>&lt;name&gt;
 </span></code></pre></div>
 <ol>
 <li>Resume Flux and force reconcile; the HR will do a clean
    <code>helm install</code>:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>flux<span class="w"> </span>resume<span class="w"> </span>hr<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>flux<span class="w"> </span>reconcile<span class="w"> </span>hr<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>--force
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>flux<span class="w"> </span>resume<span class="w"> </span>hr<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>flux<span class="w"> </span>reconcile<span class="w"> </span>hr<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>--force
 </span></code></pre></div>
 <ol>
 <li>Verify the HR becomes <code>Ready=True</code> within the new
    <code>spec.timeout</code> window:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>hr<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-w
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>hr<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-w
 </span></code></pre></div>
 <p>Time budget: 2–3 m of downtime per HR. Pick a maintenance
 window per <code>CLAUDE.md</code> if the component is operator- or

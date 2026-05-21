@@ -125,6 +125,8 @@ with Rob as the human-in-the-loop gate.
 - Component docs: README files co-located with components
 - Agent-loaded conventions: `/.agents/instructions/` (auto-imported via this CLAUDE.md)
 - Agent skills: `/.agents/skills/` (invoked on demand)
+- AI pipeline architecture: `docs/src/ai_architecture.md` (component map)
+- AI pipeline DoD: `docs/src/homeaiops_dod.md` (verification rubric — Stage 1 stabilization)
 
 ## Adding Documentation
 

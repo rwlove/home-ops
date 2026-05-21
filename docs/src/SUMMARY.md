@@ -5,6 +5,7 @@
 - [👋 Introduction](introduction.md)
 
 - [AI Architecture](ai_architecture.md)
+- [HomeAIOps Definition of Done](homeaiops_dod.md)
 - [Workflow Automation: Agents, Approvals, and Push](workflow_automation.md)
 - [Memory MCP — Cross-Agent Knowledge Graph](memory_mcp.md)
 - [MCP Fleet Observability](mcp_observability.md)

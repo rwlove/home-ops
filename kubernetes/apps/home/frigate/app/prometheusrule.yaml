@@ -72,3 +72,45 @@ spec:
           for: 15m
           labels:
             severity: warning
+    - name: frigate.network
+      rules:
+        # Forensic catcher for the unidentified 2026-05-21 burst where
+        # frigate-0 attempted TCP SYNs to wled-bush (10.10.20.41) on :80
+        # and :21324. Static config, db, env, logs all checked clean; the
+        # trigger went to an API endpoint that doesn't show in the nginx
+        # access log. Burst was one-shot but we haven't pinned the cause.
+        #
+        # This alert fires on any policy-denied egress from a home-ns pod
+        # on worker4 to a `world` destination over TCP. worker4 is where
+        # frigate-0 lives; the only other home-ns pods there
+        # (emqx-1 / smtp-relay-0 / ntfy / windmill-oauth2-proxy) don't
+        # have policy-denied egress paths in steady state. When this
+        # fires, grab Hubble flows on cilium-8nxm5 within the next ~30s
+        # before the ring buffer ages out:
+        #   kubectl -n kube-system exec ds/cilium -c cilium-agent -- \
+        #     hubble observe --since 5m --from-pod home/frigate-0 --verdict DROPPED
+        - alert: FrigateUnauthorizedEgressAttempt
+          annotations:
+            summary: home-ns pod on worker4 attempted policy-denied TCP egress to world
+            description: |
+              Frigate (or another home-ns pod on worker4) tried a TCP connection
+              that Cilium denied at the egress policy. Most likely candidate is
+              frigate-0 probing an unauthorized destination — this is the same
+              shape as the 2026-05-21 22:10 UTC burst to wled-bush. Pull Hubble
+              flows on cilium-8nxm5 within ~30s to capture the destination
+              before the ring buffer rotates: `kubectl -n kube-system exec ds/cilium
+              -c cilium-agent -- hubble observe --since 5m --from-pod home/frigate-0
+              --verdict DROPPED`. Save the output before responding.
+          expr: |
+            sum by (node) (
+              rate(hubble_drop_total{
+                source_namespace="home",
+                destination_namespace="",
+                node="worker4.thesteamedcrab.com",
+                protocol="TCP",
+                reason="POLICY_DENIED"
+              }[5m])
+            ) > 0
+          for: 1m
+          labels:
+            severity: warning

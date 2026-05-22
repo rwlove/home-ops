@@ -61,26 +61,27 @@ export async function main(alerts?: AlertmanagerAlert[]) {
     ].join("\n");
 
     // HolmesGPT REST: POST /api/chat
-    const hg = await fetch(
-        "http://holmesgpt.observability.svc.cluster.local:8080/api/chat",
-        {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ask }),
-            signal: AbortSignal.timeout(600_000),
-        },
-    );
-    const data = await hg.json().catch(() => ({}));
-    const raw = String(data.analysis ?? data.response ?? "").trim();
+    const raw = await askHolmes(ask);
 
     let message: string;
     if (!raw) {
         message = "⚠️ HolmesGPT returned no analysis. Check the Windmill execution.";
-    } else if (
-        /^[:\s]*\{/.test(raw) &&
-        /"(suggested_prefixes|tool_call_id|function)"\s*:/.test(raw.slice(0, 200))
-    ) {
-        message = `⚠️ HolmesGPT model returned a tool-call instead of a summary.`;
+    } else if (isToolCallShape(raw)) {
+        // qwen2.5:32b at the tool-loop's max_steps sometimes returns a
+        // raw tool_call JSON instead of synthesizing prose. PR #11973
+        // tried to fix this from the prompt side; didn't take. Now:
+        // (1) surface WHAT Holmes wanted to call so the operator gets
+        //     an actionable hint instead of a useless warning, and
+        // (2) re-call Holmes with a no-tools follow-up asking only
+        //     for a prose best-guess from the alert metadata.
+        const hint = describeToolCall(raw);
+        const fallback = await askHolmes(noToolsPrompt(a));
+        if (fallback && !isToolCallShape(fallback)) {
+            message = `${fallback}\n\n_(Holmes' tool-loop wanted to: ${hint})_`;
+        } else {
+            message = `⚠️ Holmes investigation incomplete — wanted to call ${hint}. ` +
+                `Re-prompt for prose also failed. Investigate manually.`;
+        }
     } else if (raw.length <= 1000) {
         message = raw;
     } else {
@@ -101,6 +102,68 @@ export async function main(alerts?: AlertmanagerAlert[]) {
     });
 
     return { alertname: a.labels.alertname, holmes_chars: raw.length, ntfy: notifyResp };
+}
+
+// ---------- Holmes helpers ----------
+
+async function askHolmes(ask: string): Promise<string> {
+    const hg = await fetch(
+        "http://holmesgpt.observability.svc.cluster.local:8080/api/chat",
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ask }),
+            signal: AbortSignal.timeout(600_000),
+        },
+    );
+    const data = await hg.json().catch(() => ({}));
+    return String(data.analysis ?? data.response ?? "").trim();
+}
+
+function isToolCallShape(raw: string): boolean {
+    return /^[:\s]*\{/.test(raw) &&
+        /"(suggested_prefixes|tool_call_id|function)"\s*:/.test(raw.slice(0, 200));
+}
+
+// Parse the tool_call JSON Holmes returned and produce a human-readable
+// one-liner describing what tool it wanted to invoke. The shape varies
+// by model — qwen2.5 OpenAI-compat returns
+//   `{"function": {"name": "foo", "arguments": "{...}"}}`
+// or the wrapped streaming form
+//   `{"tool_calls":[{"function":{"name":"foo","arguments":"{...}"}}]}`
+// — fall back to the bare alertname when nothing parses.
+function describeToolCall(raw: string): string {
+    try {
+        const j = JSON.parse(raw);
+        const fn = j?.function ?? j?.tool_calls?.[0]?.function ?? j?.suggested_prefixes;
+        if (typeof fn === "string") return fn; // suggested_prefixes shape
+        if (fn?.name) {
+            const args = typeof fn.arguments === "string" ? fn.arguments : JSON.stringify(fn.arguments ?? {});
+            return `\`${fn.name}(${args.slice(0, 120)})\``;
+        }
+    } catch (_) { /* ignore JSON errors — fall through */ }
+    return "another tool (couldn't parse)";
+}
+
+// No-tools follow-up prompt — used when the first call returns a
+// tool_call shape. We can't continue the prior investigation (Holmes
+// /api/chat is stateless across calls), so this asks for a prose
+// best-guess from the alert metadata only.
+function noToolsPrompt(a: AlertmanagerAlert): string {
+    return [
+        "Earlier my investigation didn't synthesize a prose summary.",
+        "DO NOT call any tools. Respond ONLY in plain English prose.",
+        "Based ONLY on the alert metadata below, give 1 sentence on the",
+        "most likely root cause and 1 sentence on the remediation.",
+        "<300 characters total. No JSON. No tool calls.",
+        "",
+        `Alert: ${a.labels.alertname}`,
+        `Severity: ${a.labels.severity ?? "unknown"}`,
+        `Namespace: ${a.labels.namespace ?? "unknown"}`,
+        `Pod: ${a.labels.pod ?? "n/a"}`,
+        `Summary: ${a.annotations.summary ?? "(none)"}`,
+        `Description: ${a.annotations.description ?? "(none)"}`,
+    ].join("\n");
 }
 
 async function publishNtfy(args: {

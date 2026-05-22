@@ -101,7 +101,127 @@ export async function main(alerts?: AlertmanagerAlert[]) {
         tags: ["mag"],
     });
 
-    return { alertname: a.labels.alertname, holmes_chars: raw.length, ntfy: notifyResp };
+    // Loop closure (HOMELAB-SPEC Layer 0 Mission: "Build a self-
+    // healing home-ops cluster driven by agents that work when Rob
+    // is not at a keyboard"). After Holmes triages, hand the alert
+    // + triage to the langgraph fleet so a specialist agent can
+    // propose remediation. Fire-and-forget — we don't block this
+    // workflow on the specialist; Class A/B actions auto-execute,
+    // Class C/D actions go through the existing approval flow which
+    // DMs Rob via langgraph-approval-post. Specialist completion
+    // produces a separate Zulip card via langgraph-completion-post.
+    //
+    // Routed by alert namespace label so the triager picks the
+    // right specialist. Best-effort — exceptions don't reach Rob
+    // (he already got the Holmes ntfy + Zulip).
+    const specialistResp = await routeToSpecialist(a, message);
+
+    return {
+        alertname: a.labels.alertname,
+        holmes_chars: raw.length,
+        ntfy: notifyResp,
+        specialist: specialistResp,
+    };
+}
+
+// ---------- Specialist routing ----------
+
+// Map alert namespace → suggested specialist agent. The triager
+// inside langgraph makes the final routing call; this hint just
+// short-circuits guessing.
+const NAMESPACE_SPECIALIST: Record<string, string> = {
+    "observability": "observability-operator",
+    "rook-ceph": "storage-operator",
+    "databases": "storage-operator",
+    "home": "smart-home-operator",
+    "collab": "smart-home-operator",
+    "ai": "ml-operator",
+    "mcp-system": "ml-operator",
+    "network": "network-operator",
+    "kube-system": "homelab-engineer",
+    "automation": "homelab-engineer",
+};
+
+type SpecialistDispatch = {
+    dispatched: boolean;
+    task_id?: string;
+    suggested_agent?: string;
+    reason?: string;
+};
+
+async function routeToSpecialist(
+    a: AlertmanagerAlert,
+    holmesAnalysis: string,
+): Promise<SpecialistDispatch> {
+    const lgBase = "http://langgraph-agents.ai.svc.cluster.local:8765";
+    const haiToken = Deno.env.get("HAI_CLI_TOKEN");
+    if (!haiToken) {
+        return { dispatched: false, reason: "HAI_CLI_TOKEN not set" };
+    }
+
+    const ns = a.labels.namespace ?? "";
+    const suggested = NAMESPACE_SPECIALIST[ns] ?? "homelab-engineer";
+
+    // task_id includes the alert fingerprint + Holmes-analysis hash so
+    // re-firing the same alert doesn't spam the specialist. langgraph's
+    // idempotency dedup is 1h TTL.
+    const fingerprint = `${a.labels.alertname}-${ns}-${a.labels.pod ?? a.labels.instance ?? "global"}`;
+    const taskId = `alert-${fingerprint}-${new Date().toISOString().slice(0, 13)}`;
+
+    const content = [
+        `An alert just fired. Holmes already triaged. Read the triage,`,
+        `verify it against current cluster state, and propose a SINGLE`,
+        `concrete remediation action.`,
+        ``,
+        `Use the approval interrupt for any destructive change (Class C/D).`,
+        `Class A/B may execute directly. If no action is needed, say so`,
+        `in one sentence.`,
+        ``,
+        `=== Alert ===`,
+        `Name: ${a.labels.alertname}`,
+        `Severity: ${a.labels.severity ?? "unknown"}`,
+        `Namespace: ${ns || "(global)"}`,
+        `Pod: ${a.labels.pod ?? "n/a"}`,
+        `Instance: ${a.labels.instance ?? "n/a"}`,
+        `Summary: ${a.annotations.summary ?? "(none)"}`,
+        `Description: ${a.annotations.description ?? "(none)"}`,
+        ``,
+        `=== Holmes triage ===`,
+        holmesAnalysis,
+    ].join("\n");
+
+    try {
+        const r = await fetch(`${lgBase}/inbox`, {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${haiToken}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                task_id: taskId,
+                source: "holmesgpt",
+                user: "rob",
+                content,
+                idempotency_key: taskId,
+                priority: a.labels.severity === "critical" ? "high" : "normal",
+            }),
+            signal: AbortSignal.timeout(15_000),
+        });
+        if (!r.ok) {
+            return {
+                dispatched: false,
+                suggested_agent: suggested,
+                reason: `/inbox returned ${r.status}`,
+            };
+        }
+        return { dispatched: true, task_id: taskId, suggested_agent: suggested };
+    } catch (e) {
+        return {
+            dispatched: false,
+            suggested_agent: suggested,
+            reason: (e as Error).message,
+        };
+    }
 }
 
 // ---------- Holmes helpers ----------

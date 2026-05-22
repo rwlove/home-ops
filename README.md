@@ -262,7 +262,7 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 | **Paperless-ngx** | Document scanning, OCR, tagging (CNPG-backed, offsite-backed) |
 | **Obsidian** + **obsidian-couchdb** | Notes sync (CouchDB w/ Cloudflare rate-limiting) |
 | **Zulip** | Self-hosted team chat (also wired into agent pipeline approvals) |
-| **Windmill** | Workflow automation; 12 checked-in TypeScript flows under `kubernetes/apps/home/windmill/workflows/` cover AlertManager → HolmesGPT, langgraph inbox/approval/digest/DLQ/cost-cap/awaiting-user, paperless RAG ingest+tombstone, Zulip triager webhook, and the workaround upstream-watcher |
+| **Windmill** | Workflow automation; 13 checked-in TypeScript flows under `kubernetes/apps/home/windmill/workflows/` cover AlertManager → HolmesGPT, langgraph inbox/approval/digest/DLQ/cost-cap/awaiting-user, paperless RAG ingest+tombstone, Zulip triager webhook, and the workaround upstream-watcher |
 | **ntfy** | Self-hosted push notifications (operator approvals via Android tap actions) |
 | **BentoPDF** | Self-hosted PDF toolkit |
 | **Kitchenowl** | Shopping lists + recipe / meal management |
@@ -324,7 +324,7 @@ flowchart TB
         AM[AlertManager]
     end
 
-    subgraph Bridges[Windmill bridges<br/>12 TS workflows]
+    subgraph Bridges[Windmill bridges<br/>13 TS workflows]
         WInbox[langgraph-inbox.ts]
         WAlert[alertmanager-holmesgpt-notify.ts]
         WApprove[langgraph-approval-post/receive.ts]
@@ -393,7 +393,7 @@ in 1Password.
 - **HolmesGPT** (`observability/`) — the only agent live in production. AlertManager firings reach it via Windmill's `alertmanager-holmesgpt-notify.ts`; it reasons over Prometheus + Loki + cluster state and posts a root-cause hypothesis to Zulip / ntfy. Open WebUI also surfaces it as a tool server.
 - **langgraph-agents** (`ai/`) — the FastAPI multi-agent runtime (`rwlove/langgraph-agents`, image `0.2.30`). Plumbed end-to-end (Postgres checkpoints + memory, live task-queue substrate in `postgres-langgraph-checkpoints`, vault PVCs, Windmill approval loop, cost caps in env) but cold: `ENABLE_CLAUDE_API: false` and no public route except `/approval`. Goes hot when the Claude key lands in 1Password.
 - **claude-runner** (`automation/`) — separate escalation lane. Two daily CronJobs (`pr-triage` 13:00 UTC, `cost-cap-commentary` 22:00 UTC) launch the Claude Code CLI with a `gh` MCP allowlist, post Zulip cards, then exit. Stateless; never consumes langgraph-agents.
-- **Windmill** (`home/`) — 12 checked-in TypeScript flows under `kubernetes/apps/home/windmill/workflows/` are the bridges that knit the surfaces above together. Every alert webhook, Zulip-triggered DM, approval round-trip, daily digest, DLQ retry, cost-cap pause, and Paperless RAG ingest is a `.ts` file there. n8n was retired during the ntfy migration.
+- **Windmill** (`home/`) — 13 checked-in TypeScript flows under `kubernetes/apps/home/windmill/workflows/` are the bridges that knit the surfaces above together. Every alert webhook, Zulip-triggered DM, approval round-trip, daily digest, DLQ retry, cost-cap pause, and Paperless RAG ingest is a `.ts` file there. n8n was retired during the ntfy migration.
 - **Langfuse** (`ai/`) — OTLP trace sink for langgraph-agents. Chart deploys ClickHouse + Valkey + MinIO bundled; Postgres comes from CNPG `postgres-langfuse`.
 - **memory-mcp** (`mcp-system/`) — cross-agent knowledge graph on `postgres-langgraph-memory` with pgvector(1024). bge-m3 embeds via Ollama-Spark. Same surface for langgraph agents and claude-runner.
 

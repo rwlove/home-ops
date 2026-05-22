@@ -18,10 +18,20 @@ const MIN_30 = 30 * 60 * 1000;
 const HR_4 = 4 * 60 * 60 * 1000;
 const DAY_7 = 7 * 24 * 60 * 60 * 1000;
 
+// HAI_CLI_TOKEN gates /admin/* + /inbox on langgraph-agents since 0.2.38
+// (PR-C bearer-auth middleware). Inject the token into every call to the
+// in-cluster langgraph-agents Service URL. Returns an empty header dict
+// when the env is unset (dev / pre-deployment) — server-side falls back
+// to allow-all in that mode, so the workflow stays functional.
+function lgaHeaders(): Record<string, string> {
+    const tok = Deno.env.get("HAI_CLI_TOKEN");
+    return tok ? { Authorization: `Bearer ${tok}` } : {};
+}
+
 export async function main() {
     const r = await fetch(
         "http://langgraph-agents.ai.svc.cluster.local:8765/admin/tasks",
-        { signal: AbortSignal.timeout(30_000) },
+        { signal: AbortSignal.timeout(30_000), headers: lgaHeaders() },
     );
     if (!r.ok) {
         return { skip: true, reason: `GET /admin/tasks → ${r.status}` };
@@ -68,7 +78,7 @@ async function handle(t: Task, tier: "30min" | "4h" | "7d", age: number) {
             }/timeout-tier`,
             {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { ...lgaHeaders(), "Content-Type": "application/json" },
                 body: JSON.stringify({ tier: "4h" }),
                 signal: AbortSignal.timeout(30_000),
             },
@@ -82,7 +92,7 @@ async function handle(t: Task, tier: "30min" | "4h" | "7d", age: number) {
         }/cancel`,
         {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { ...lgaHeaders(), "Content-Type": "application/json" },
             body: JSON.stringify({ reason: "7-day timeout; auto-cancelled by awaiting-user sweep" }),
             signal: AbortSignal.timeout(30_000),
         },

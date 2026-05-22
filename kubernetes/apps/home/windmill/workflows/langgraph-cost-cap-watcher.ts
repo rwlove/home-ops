@@ -13,10 +13,20 @@ type CostsResponse = {
     per_agent?: Record<string, number>;
 };
 
+// HAI_CLI_TOKEN gates /admin/* + /inbox on langgraph-agents since 0.2.38
+// (PR-C bearer-auth middleware). Inject the token into every call to the
+// in-cluster langgraph-agents Service URL. Returns an empty header dict
+// when the env is unset (dev / pre-deployment) — server-side falls back
+// to allow-all in that mode, so the workflow stays functional.
+function lgaHeaders(): Record<string, string> {
+    const tok = Deno.env.get("HAI_CLI_TOKEN");
+    return tok ? { Authorization: `Bearer ${tok}` } : {};
+}
+
 export async function main() {
     const r = await fetch(
         "http://langgraph-agents.ai.svc.cluster.local:8765/admin/costs/today",
-        { signal: AbortSignal.timeout(30_000) },
+        { signal: AbortSignal.timeout(30_000), headers: lgaHeaders() },
     );
     if (!r.ok) {
         return { skip: true, reason: `endpoint returned ${r.status}` };

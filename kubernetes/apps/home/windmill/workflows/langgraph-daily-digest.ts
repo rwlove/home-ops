@@ -25,6 +25,16 @@ const LG_BASE = "http://langgraph-agents.ai.svc.cluster.local:8765";
 const POLL_INTERVAL_MS = 5_000;
 const POLL_TIMEOUT_MS = 600_000; // 10 min; the digest is the longest /inbox we run
 
+// HAI_CLI_TOKEN gates /admin/* + /inbox on langgraph-agents since 0.2.38
+// (PR-C bearer-auth middleware). Inject the token into every call to the
+// in-cluster langgraph-agents Service URL. Returns an empty header dict
+// when the env is unset (dev / pre-deployment) — server-side falls back
+// to allow-all in that mode, so the workflow stays functional.
+function lgaHeaders(): Record<string, string> {
+    const tok = Deno.env.get("HAI_CLI_TOKEN");
+    return tok ? { Authorization: `Bearer ${tok}` } : {};
+}
+
 export async function main() {
     const date = new Date().toISOString().slice(0, 10);
     const client_task_id = `digest-${date}`;
@@ -32,7 +42,7 @@ export async function main() {
     // Step 1: enqueue the digest task. Returns 202 + queue_task_id.
     const lgResp = await fetch(`${LG_BASE}/inbox`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { ...lgaHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({
             task_id: client_task_id,
             source: "test",
@@ -92,7 +102,7 @@ async function pollForOutput(taskId: string): Promise<string | null> {
     while (Date.now() < deadline) {
         const r = await fetch(
             `${LG_BASE}/admin/tasks/${encodeURIComponent(taskId)}`,
-            { signal: AbortSignal.timeout(15_000) },
+            { signal: AbortSignal.timeout(15_000), headers: lgaHeaders() },
         );
         if (!r.ok) {
             if (r.status === 404) {

@@ -87,17 +87,17 @@ spec:
       name: zulip-secret
       valuesKey: ZULIP_ORG_KEY
       targetPath: zulip.environment.SECRETS_zulip_org_key
-    # RabbitMQ password + erlang cookie come from `zulip-secret` via the
-    # Bitnami `existingPasswordSecret` / `existingErlangSecret` features
-    # (configured in spec.values.rabbitmq.auth below). The chart's
-    # _helpers.tpl renders SECRETS_rabbitmq_password as a valueFrom
-    # secretKeyRef when those values are set — so the env wiring is
-    # native, no manual STS patches needed.
-    #
-    # We can't use Flux valuesFrom with `targetPath: rabbitmq.auth.password`
-    # because the substitution silently drops to "" on Bitnami subchart
-    # paths at install AND on subsequent upgrades (configDigest sticks
-    # in-sync). See project_flux_valuesfrom_subchart_drop in memory.
+      # RabbitMQ password + erlang cookie come from `zulip-secret` via the
+      # Bitnami `existingPasswordSecret` / `existingErlangSecret` features
+      # (configured in spec.values.rabbitmq.auth below). The chart's
+      # _helpers.tpl renders SECRETS_rabbitmq_password as a valueFrom
+      # secretKeyRef when those values are set — so the env wiring is
+      # native, no manual STS patches needed.
+      #
+      # We can't use Flux valuesFrom with `targetPath: rabbitmq.auth.password`
+      # because the substitution silently drops to "" on Bitnami subchart
+      # paths at install AND on subsequent upgrades (configDigest sticks
+      # in-sync). See project_flux_valuesfrom_subchart_drop in memory.
 
   values:
     image:
@@ -132,6 +132,19 @@ spec:
     zulip:
       environment:
         SETTING_EXTERNAL_HOST: chat.${SECRET_DOMAIN}
+        # Route in-cluster traffic (Windmill workflows, langgraph-
+        # agents pods) hitting http://zulip.collab.svc.cluster.local
+        # to the Lovenet realm. Without this, Django's ALLOWED_HOSTS
+        # rejects those requests with a generic 400 — confirmed by
+        # the post-deploy synthetic on 2026-05-22 where every
+        # Windmill→Zulip POST returned `{"zulip": {ok: false,
+        # status: 400}}`. Deno's `fetch` can't override the `Host`
+        # header (forbidden header name per WHATWG Fetch spec), so
+        # the fix has to come from Zulip's side. Empty subdomain `""`
+        # maps the Service hostname to the same Lovenet realm
+        # (zerver_realm.id=2, string_id='') the public hostname
+        # already routes to — no second realm is created.
+        SETTING_REALM_HOSTS: "{\"zulip.collab.svc.cluster.local\": \"\"}"
         # SETTING_ZULIP_ADMINISTRATOR + SECRETS_secret_key are populated by
         # spec.valuesFrom from the zulip-secret. Do NOT add inline placeholders
         # here — empirically they pinned SETTING_ZULIP_ADMINISTRATOR to the

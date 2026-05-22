@@ -24,13 +24,23 @@ type DlqEntry = {
 const LG_BASE = "http://langgraph-agents.ai.svc.cluster.local:8765";
 const STATE_KEY = "f/lovenet/langgraph_dlq_last_seen_id";
 
+// HAI_CLI_TOKEN gates /admin/* + /inbox on langgraph-agents since 0.2.38
+// (PR-C bearer-auth middleware). Inject the token into every call to the
+// in-cluster langgraph-agents Service URL. Returns an empty header dict
+// when the env is unset (dev / pre-deployment) — server-side falls back
+// to allow-all in that mode, so the workflow stays functional.
+function lgaHeaders(): Record<string, string> {
+    const tok = Deno.env.get("HAI_CLI_TOKEN");
+    return tok ? { Authorization: `Bearer ${tok}` } : {};
+}
+
 export async function main() {
     const lastSeen = await getLastSeen();
 
     const url = lastSeen
         ? `${LG_BASE}/admin/dlq?since_id=${encodeURIComponent(lastSeen)}&limit=20`
         : `${LG_BASE}/admin/dlq?limit=20`;
-    const resp = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+    const resp = await fetch(url, { signal: AbortSignal.timeout(15_000), headers: lgaHeaders() });
     if (!resp.ok) {
         return { skip: true, reason: `GET /admin/dlq returned HTTP ${resp.status}` };
     }

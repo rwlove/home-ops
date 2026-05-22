@@ -135,16 +135,20 @@ spec:
         # Route in-cluster traffic (Windmill workflows, langgraph-
         # agents pods) hitting http://zulip.collab.svc.cluster.local
         # to the Lovenet realm. Without this, Django's ALLOWED_HOSTS
-        # rejects those requests with a generic 400 — confirmed by
-        # the post-deploy synthetic on 2026-05-22 where every
-        # Windmill→Zulip POST returned `{"zulip": {ok: false,
-        # status: 400}}`. Deno's `fetch` can't override the `Host`
-        # header (forbidden header name per WHATWG Fetch spec), so
-        # the fix has to come from Zulip's side. Empty subdomain `""`
-        # maps the Service hostname to the same Lovenet realm
-        # (zerver_realm.id=2, string_id='') the public hostname
-        # already routes to — no second realm is created.
-        SETTING_REALM_HOSTS: "{\"zulip.collab.svc.cluster.local\": \"\"}"
+        # rejects those requests with a generic 400.
+        #
+        # The dict format is REALM_HOSTS={subdomain: hostname}, NOT
+        # the other way around — confirmed against the Zulip 11.x
+        # `zproject/computed_settings.py` line:
+        #     ALLOWED_HOSTS += REALM_HOSTS.values()
+        # so the VALUES go into ALLOWED_HOSTS, not the keys. PR #11963
+        # had this inverted and the 400s continued.
+        #
+        # Empty subdomain "" is the Lovenet realm (zerver_realm.id=2,
+        # string_id=''); mapping it to the in-cluster Service hostname
+        # adds that hostname to ALLOWED_HOSTS without creating a new
+        # realm.
+        SETTING_REALM_HOSTS: "{\"\": \"zulip.collab.svc.cluster.local\"}"
         # SETTING_ZULIP_ADMINISTRATOR + SECRETS_secret_key are populated by
         # spec.valuesFrom from the zulip-secret. Do NOT add inline placeholders
         # here — empirically they pinned SETTING_ZULIP_ADMINISTRATOR to the

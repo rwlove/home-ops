@@ -46,6 +46,20 @@ spec:
               OPENAI_API_KEYS: sk-langgraph-agents-cluster-internal
               ENABLE_RAG_WEB_SEARCH: true
               RAG_EMBEDDING_ENGINE: ollama
+              # Pin RAG embedding traffic to Spark. Without this,
+              # open-webui v0.9.5 falls back to OLLAMA_BASE_URL
+              # (default '/ollama' → first persisted endpoint in
+              # webui.db), which currently resolves to the P40. That
+              # puts bge-m3 on the P40 chat hot path, where Immich
+              # CLIP and whisper bursts evict it and trigger cold-load
+              # latency on every RAG call. Spark already serves
+              # embedders for memory-mcp, paperless RAG (Windmill),
+              # and langgraph-agents — this aligns Open WebUI with
+              # that fleet. bge-m3 is kept steady-resident on Spark
+              # by the blackbox synthetic embed probe (5-min cadence,
+              # doubles as wedge detector — see ollama-spark
+              # prometheusrule.yaml).
+              RAG_OLLAMA_BASE_URL: http://ollama-spark.ai.svc.cluster.local:11434
               # Phase A benchmark (2026-05-20, 50-doc Paperless eval)
               # showed bge-m3 (1024-dim) beats nomic-embed-text (768) by
               # +23 MRR@10 pts. The cluster moves to bge-m3 for new

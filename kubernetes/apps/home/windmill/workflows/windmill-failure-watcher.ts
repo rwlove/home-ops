@@ -104,7 +104,11 @@ export async function main() {
 // ---------- Job fetch ----------
 
 async function fetchJobs(token: string, startedAfter: string): Promise<CompletedJob[]> {
-    const url = `${WMILL_BASE}/api/w/${WORKSPACE}/jobs/list_completed`
+    // Windmill's API path is `/jobs/completed/list`, NOT `/jobs/list_completed`
+    // (the latter 404s). The `/jobs/list` endpoint exists but mixes running
+    // + completed; completed/list filters to terminal jobs and accepts the
+    // `started_after` filter we need.
+    const url = `${WMILL_BASE}/api/w/${WORKSPACE}/jobs/completed/list`
         + `?per_page=500&started_after=${encodeURIComponent(startedAfter)}`
         + `&job_kinds=script`;
     const r = await fetch(url, {
@@ -112,7 +116,7 @@ async function fetchJobs(token: string, startedAfter: string): Promise<Completed
         signal: AbortSignal.timeout(15_000),
     });
     if (!r.ok) {
-        throw new Error(`jobs/list_completed returned ${r.status}`);
+        throw new Error(`jobs/completed/list returned ${r.status}`);
     }
     const data = await r.json();
     return Array.isArray(data) ? data : [];

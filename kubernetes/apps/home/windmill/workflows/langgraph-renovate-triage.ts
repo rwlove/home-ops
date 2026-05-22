@@ -1,27 +1,31 @@
-// Agent-driven Renovate PR triage. Daily at 08:00 ET (before
-// claude-runner-pr-triage's 09:00 EDT / 08:00 EST so we can compare
-// outputs side-by-side during the migration window).
+// Agent-driven Renovate PR triage. Hourly (on the hour).
+//
+// Hourly is aggressive — 24 LLM calls/day on Spark qwen2.5:32b plus
+// 24 GitHub API calls (well under anonymous 60/h limit). To avoid
+// 24 redundant Zulip DMs per day, we track the prior run's verdict
+// hash in Windmill `setState/getState` and only DM Rob when the
+// verdict text changes. Most hours produce no DM.
 //
 // Flow:
-//   1. Fetch open PRs from rwlove/home-ops (anonymous GitHub API —
-//      the repo is public; ~5 req/day for ~5 PRs, well under the
-//      60 req/h anonymous limit).
-//   2. Build a single prompt summarizing all PRs (so we get ONE
-//      LLM call instead of N; reduces latency and avoids
-//      multi-task fan-out complexity).
-//   3. POST to langgraph /inbox as the `triager` source=cli — the
-//      triager routes to `homelab-engineer` (cluster context) for
-//      verdicts. `homelab-engineer` runs on Spark qwen2.5:32b.
-//   4. Poll /admin/tasks/<id> until done (≤ 20 min — agent
-//      reasoning over 5 PRs at 32b is ~3-5 min typical).
-//   5. DM Rob the verdicts via Zulip.
+//   1. Fetch open PRs from rwlove/home-ops (anonymous GitHub API)
+//   2. Build a single prompt summarizing all PRs (one LLM call,
+//      avoids multi-task fan-out)
+//   3. POST to langgraph /inbox; triager routes to homelab-engineer
+//      (cluster context). homelab-engineer runs on Spark
+//      qwen2.5:32b — typical wall time 3-5 min for ~5 PRs.
+//   4. Poll /admin/tasks/<id> until done (≤ 20 min budget)
+//   5. Compare verdict hash to prior run. If changed, DM Rob via
+//      Zulip; otherwise return `{ skip: true, reason: "no change" }`
+//      so the Windmill failure-watcher and Jobs UI both see a
+//      successful no-op.
 //
-// Per HOMELAB-SPEC Layer 3 sourcing principles, this is the
-// "project features over bespoke glue" replacement for the
-// Claude-API-driven `claude-runner-pr-triage` CronJob: local
-// inference, no per-call cost, uses the existing fleet. Run in
-// parallel with claude-runner-pr-triage until quality is verified;
-// retire the Claude path after.
+// Per HOMELAB-SPEC Layer 3 sourcing principles — network-local
+// execution (Spark local model, no Claude API spend), project
+// features over bespoke glue (uses the existing /inbox path that
+// triager already routes from), fewer moving parts (one workflow,
+// no new image/cron/RBAC). Replacement for the daily Claude-API-
+// driven `claude-runner-pr-triage` CronJob; run in parallel until
+// quality is verified, then retire the Claude path.
 
 type GitHubPR = {
     number: number;
@@ -36,12 +40,25 @@ type GitHubPR = {
     html_url: string;
 };
 
+import * as wmill from "npm:windmill-client@1.527.0";
+
 const LG_BASE = "http://langgraph-agents.ai.svc.cluster.local:8765";
 const REPO = "rwlove/home-ops";
 
 function lgaHeaders(): Record<string, string> {
     const tok = Deno.env.get("HAI_CLI_TOKEN");
     return tok ? { Authorization: `Bearer ${tok}` } : {};
+}
+
+// SHA-256 of the verdict text — used as a cheap "did anything change"
+// signal between hourly runs. We don't need a cryptographic property;
+// we just need a stable digest that changes when any character of the
+// verdict list changes.
+async function hashString(s: string): Promise<string> {
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+    return Array.from(new Uint8Array(buf))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
 }
 
 export async function main() {
@@ -54,8 +71,11 @@ export async function main() {
     // 2. Build prompt
     const ask = buildPrompt(prs);
 
-    // 3. POST to /inbox
-    const taskId = `renovate-triage-${new Date().toISOString().slice(0, 10)}`;
+    // 3. POST to /inbox — hour-granular task id so each hour is a
+    //    fresh task (the langgraph dedup window enforces a 1h TTL on
+    //    idempotency_key anyway, so daily-granular keys would
+    //    silently drop the 2nd+ runs per day).
+    const taskId = `renovate-triage-${new Date().toISOString().slice(0, 13)}`;
     const inboxResp = await fetch(`${LG_BASE}/inbox`, {
         method: "POST",
         headers: { ...lgaHeaders(), "Content-Type": "application/json" },
@@ -80,16 +100,33 @@ export async function main() {
         return { error: "agent task didn't complete within budget", task_id: taskId };
     }
 
-    // 5. DM
+    // 5. Compare to previous hour. Only DM on change.
+    const verdictHash = await hashString(output);
+    const prevHash = (await wmill.getState()) as string | null;
+    if (prevHash === verdictHash) {
+        return {
+            task_id: taskId,
+            pr_count: prs.length,
+            skip: true,
+            reason: "verdict unchanged from prior hour",
+        };
+    }
+    await wmill.setState(verdictHash);
+
     await postZulip([
-        `**Daily Renovate triage — ${prs.length} open PR(s) at ${REPO}**`,
+        `**Renovate triage — ${prs.length} open PR(s) at ${REPO}**`,
         "",
         output,
         "",
         `_Triaged by langgraph homelab-engineer. Task: \`${taskId}\`._`,
     ].join("\n"));
 
-    return { task_id: taskId, pr_count: prs.length, output_chars: output.length };
+    return {
+        task_id: taskId,
+        pr_count: prs.length,
+        output_chars: output.length,
+        verdict_changed: true,
+    };
 }
 
 // ---------- GitHub ----------

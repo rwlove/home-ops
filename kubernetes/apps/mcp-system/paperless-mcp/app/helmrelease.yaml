@@ -66,17 +66,16 @@ spec:
                   type: PathPrefix
                   value: /mcp
             filters:
-              # Strip the broker-side Authorization header before
-              # forwarding to paperless-mcp. The Kuadrant mcp-gateway
-              # passes inbound headers through; paperless-mcp's HTTP
-              # client honors the inbound `Authorization: Bearer …`
-              # (the token used by clients to authenticate to
-              # mcp.thesteamedcrab.com) instead of its own
-              # PAPERLESS_API_KEY env, and Paperless-ngx rejects the
-              # broker Bearer as "Invalid token" (401).
-              # Removing Authorization lets paperless-mcp fall back to
-              # its env-loaded API key, which is the correct credential
-              # for Paperless-ngx.
+              # Strip inbound Authorization before forwarding to the
+              # backend MCP server. The Kuadrant mcp-gateway forwards
+              # all client headers; the broker-side Bearer (used to
+              # authenticate to mcp.thesteamedcrab.com) can take
+              # precedence over the backend's own credential env in
+              # any upstream MCP client that honors `Authorization`,
+              # causing 401s against the real target service. Backend
+              # MCP servers each carry their own env-loaded creds —
+              # stripping the broker Bearer at this hop lets those
+              # take effect uniformly across the fleet.
               - type: RequestHeaderModifier
                 requestHeaderModifier:
                   remove:

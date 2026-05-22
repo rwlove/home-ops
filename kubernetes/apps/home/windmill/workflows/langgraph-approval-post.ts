@@ -5,12 +5,16 @@
 //      action buttons. Each button POSTs a *pre-signed* HMAC token
 //      directly to https://langgraph.${SECRET_DOMAIN}/approval, which
 //      is path-restricted to the /approval endpoint only.
-//   2. Zulip → #approvals — desktop fallback via emoji reaction
-//      (handled by langgraph-approval-receive). Also serves as the
-//      audit trail for the action class + payload summary.
+//   2. Zulip — DM to Robert (user 8) carrying the human-readable
+//      approval card with magic-link buttons. Replaces the previous
+//      stream-post-to-#approvals: stream posts required a subscription
+//      Rob didn't have, and the in-cluster service URL was rejected
+//      by Zulip's ALLOWED_HOSTS without an explicit Host header.
 //
-// Replaces the n8n flow "LangGraph → Approval post to Zulip" and the
-// prior Pushover-shape (PR #11672) that only carried a no-action push.
+// `content` (the original user prompt) is carried in the inbound
+// payload so the card can show "You asked: ..." — closes the gap
+// where a bare ULID had no human-mappable context. langgraph-agents
+// 0.2.39+ populates the field; older versions degrade gracefully.
 
 import { crypto } from "https://deno.land/std@0.224.0/crypto/mod.ts";
 
@@ -23,10 +27,13 @@ type ApprovalRequest = {
     cost_estimate_usd?: number;
 };
 
-// Body keys from langgraph-agents: task_id + paused_for.
-export async function main(task_id: string, paused_for: { approval_request: ApprovalRequest }) {
+// Body keys from langgraph-agents: task_id + paused_for + content (0.2.39+).
+export async function main(
+    task_id: string,
+    paused_for: { approval_request: ApprovalRequest },
+    content?: string,
+) {
     const r = paused_for.approval_request;
-    const topic = `${task_id} — Class ${r.action_class}: ${r.target}`;
 
     // Pre-sign three tokens (one per verdict). The /approval endpoint
     // verifies via HMAC-SHA256 + checks the task is paused — only one
@@ -37,37 +44,108 @@ export async function main(task_id: string, paused_for: { approval_request: Appr
     const rejectTok = await signApprovalToken(task_id, r.action_class, serverName, method);
     const deferTok = await signApprovalToken(task_id, r.action_class, serverName, method);
 
-    // ntfy `click` URL is intentionally omitted. The previous value
-    // (`https://chat.thesteamedcrab.com/#narrow/stream/approvals/topic/…`)
-    // used the deprecated pre-2024 Zulip URL scheme; the current scheme
-    // is `#narrow/channel/<channel-id>-<name>/topic/<name>` and Zulip
-    // mobile / web reject the old `stream` form with "invalid URL".
-    // The Approve / Reject / Defer ntfy action buttons still work
-    // independently of the click target — they POST pre-signed HMAC
-    // tokens to the langgraph /approval endpoint directly.
-    //
-    // Adding a working click URL is a follow-up: needs the integer
-    // channel ID for the `approvals` stream and a robust topic
-    // encoding helper (Zulip uses a custom dotted-encoding scheme
-    // for topics that differs from encodeURIComponent).
+    // Phone push — ntfy keeps its mobile-button UX. Title now uses
+    // the human-readable class label instead of bare "Class C".
+    const classLabel = ACTION_CLASS_LABEL[r.action_class] ?? `Class ${r.action_class}`;
+    const agentLabel = AGENT_LABEL[r.proposed_by] ?? r.proposed_by;
     const ntfyResp = await publishNtfy({
         topic: "approvals",
-        title: `🔔 Approval needed: Class ${r.action_class}`,
+        title: `${ACTION_CLASS_EMOJI[r.action_class] ?? "🔔"} ${agentLabel} needs approval`,
         message: [
-            `Task: ${task_id}`,
-            `Target: ${r.target}`,
-            `Summary: ${r.payload_summary}`,
+            content ? `You asked: ${truncate(content, 200)}` : `Task: ${task_id}`,
+            `Proposed: ${humanizeTarget(r.target)}`,
+            `Class: ${classLabel}`,
             `Undo: ${r.undo_path ?? "(none)"}`,
             `Cost: $${r.cost_estimate_usd ?? 0}`,
         ].join("\n"),
-        priority: 5,
-        tags: ["warning"],
+        priority: r.action_class === "D" ? 5 : 4,
+        tags: r.action_class === "D" ? ["warning", "rotating_light"] : ["warning"],
         actions: buildApprovalActions(task_id, approveTok, rejectTok, deferTok),
     });
 
-    const zulipResp = await postZulipApprovalCard(task_id, r);
+    // Desktop — DM to Rob with the rich card.
+    const zulipResp = await postZulipApprovalDM(
+        task_id,
+        r,
+        content,
+        approveTok,
+        rejectTok,
+        deferTok,
+    );
 
-    return { task_id, topic, ntfy: ntfyResp, zulip: zulipResp };
+    return { task_id, ntfy: ntfyResp, zulip: zulipResp };
+}
+
+// ---------- Humanizers ----------
+
+// Action class semantics in this fleet (see homelab_dod / state.py):
+//   A — observation / read-only (auto-approved)
+//   B — single-side write, fully reversible
+//   C — multi-side or reviewable change
+//   D — destructive / irreversible (always approval-gated)
+const ACTION_CLASS_EMOJI: Record<string, string> = {
+    A: "🟢",
+    B: "🟢",
+    C: "🟡",
+    D: "🔴",
+};
+
+const ACTION_CLASS_LABEL: Record<string, string> = {
+    A: "🟢 A — routine",
+    B: "🟢 B — reversible write",
+    C: "🟡 C — reviewable change",
+    D: "🔴 D — destructive / irreversible",
+};
+
+// Translate agent IDs into operator-facing role names. Keep keys aligned
+// with src/agents/state.py ALL_AGENT_IDS in langgraph-agents.
+const AGENT_LABEL: Record<string, string> = {
+    "triager": "Triager",
+    "supervisor": "Supervisor",
+    "reviewer": "Reviewer",
+    "reporter": "Reporter",
+    "researcher": "Researcher",
+    "note-maker": "Note maker",
+    "coder": "Coder",
+    "errand-runner": "Errand runner",
+    "homelab-engineer": "Homelab agent",
+    "network-operator": "Network agent",
+    "storage-operator": "Storage agent",
+    "smart-home-operator": "Smart-home agent",
+    "ml-operator": "ML agent",
+    "observability-operator": "Observability agent",
+};
+
+// Translate MCP tool targets like "kubectl-mcp.kubectl_apply" into a
+// short verb phrase. Falls back to the bare target when unknown.
+function humanizeTarget(target: string): string {
+    const map: Record<string, string> = {
+        "kubectl-mcp.kubectl_apply": "apply a kubectl manifest",
+        "kubectl-mcp.kubectl_delete": "delete a Kubernetes resource",
+        "kubectl-mcp.kubectl_scale": "scale a workload",
+        "kubectl-mcp.kubectl_restart_deployment": "restart a deployment",
+        "ha-mcp.call_service": "call a Home Assistant service",
+        "ha-mcp.ha_call_service": "call a Home Assistant service",
+        "ha-mcp.ha_set_entity": "change a Home Assistant entity",
+        "ha-mcp.ha_set_helper": "change a Home Assistant helper",
+        "omada-mcp.applyConfig": "apply an Omada network change",
+    };
+    if (map[target]) return map[target];
+    // Generic fallback — split server/method, e.g. "foo-mcp.bar_baz"
+    // → "use foo-mcp to bar baz".
+    const dot = target.indexOf(".");
+    if (dot > 0) {
+        const server = target.slice(0, dot);
+        const method = target.slice(dot + 1).replace(/_/g, " ");
+        return `use ${server} to ${method}`;
+    }
+    return target;
+}
+
+function truncate(s: string, n: number): string {
+    if (!s) return "";
+    const oneLine = s.replace(/\r?\n+/g, " ").trim();
+    return oneLine.length > n ? oneLine.slice(0, n - 1) + "…" : oneLine;
 }
 
 // ---------- ntfy ----------
@@ -170,37 +248,88 @@ async function hmacSha256Hex(secret: string, msg: string): Promise<string> {
     return Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-// ---------- Zulip (audit + emoji fallback) ----------
+// ---------- Zulip DM to Rob ----------
 
-async function postZulipApprovalCard(task_id: string, r: ApprovalRequest) {
-    const topic = `${task_id} — Class ${r.action_class}: ${r.target}`;
-    const content = [
-        `**Task:** \`${task_id}\``,
-        `**Proposed by:** ${r.proposed_by}`,
-        `**Action class:** ${r.action_class}`,
-        `**Target:** \`${r.target}\``,
-        `**Summary:** ${r.payload_summary}`,
-        `**Undo path:** ${r.undo_path ?? "_(none — will escalate to Class D)_"}`,
-        `**Cost estimate:** $${r.cost_estimate_usd ?? 0}`,
-        "",
-        "Tap an action on the ntfy push, **or** @-mention from a desktop:",
-        "  @**Approval Receiver** approve",
-        "  @**Approval Receiver** reject",
-        "  @**Approval Receiver** defer",
-    ].join("\n");
+async function postZulipApprovalDM(
+    task_id: string,
+    r: ApprovalRequest,
+    content: string | undefined,
+    approveTok: string,
+    rejectTok: string,
+    deferTok: string,
+) {
+    const agentLabel = AGENT_LABEL[r.proposed_by] ?? r.proposed_by;
+    const classLabel = ACTION_CLASS_LABEL[r.action_class] ?? `Class ${r.action_class}`;
+    const approvalUrl = `https://langgraph.${Deno.env.get("SECRET_DOMAIN") ?? "thesteamedcrab.com"}/approval`;
+    // Magic-link bodies — pre-signed HMAC tokens. /approval endpoint
+    // accepts both POST-from-ntfy and GET-by-link (the langgraph-agents
+    // side handles the GET variant; HMAC binding makes link leaks
+    // single-use). See errand_runner._verify_approval_token.
+    const approveLink = `${approvalUrl}?task_id=${encodeURIComponent(task_id)}&reaction=approve&approval_token=${encodeURIComponent(approveTok)}&actor=rob`;
+    const rejectLink = `${approvalUrl}?task_id=${encodeURIComponent(task_id)}&reaction=reject&approval_token=${encodeURIComponent(rejectTok)}&actor=rob`;
+    const deferLink = `${approvalUrl}?task_id=${encodeURIComponent(task_id)}&reaction=defer&approval_token=${encodeURIComponent(deferTok)}&actor=rob`;
+
+    const lines: string[] = [];
+    if (content) {
+        lines.push(`**You asked:** ${truncate(content, 200)}`);
+        lines.push("");
+    }
+    lines.push(`${classLabel}`);
+    lines.push("");
+    lines.push(`**${agentLabel}** wants to **${humanizeTarget(r.target)}**:`);
+    lines.push("");
+    lines.push("```quote");
+    lines.push(truncate(r.payload_summary, 600));
+    lines.push("```");
+    lines.push("");
+    lines.push(
+        `**Cost:** $${r.cost_estimate_usd ?? 0}  •  **Undo:** ${r.undo_path ?? "_not available_"}`,
+    );
+    lines.push("");
+    lines.push(
+        `→ [Approve](${approveLink})  •  [Reject](${rejectLink})  •  [Defer 4h](${deferLink})`,
+    );
+    lines.push("");
+    lines.push(`_Or reply to this DM:_ \`approve ${task_id}\` / \`reject ${task_id}\` / \`defer ${task_id}\``);
+
+    const content_md = lines.join("\n");
 
     const email = Deno.env.get("ZULIP_BOT_EMAIL");
     const apiKey = Deno.env.get("ZULIP_BOT_API_KEY");
     if (!email || !apiKey) throw new Error("ZULIP_BOT_EMAIL / ZULIP_BOT_API_KEY env not set");
-    const auth = "Basic " + btoa(`${email}:${apiKey}`);
+    const robId = parseInt(Deno.env.get("ROB_ZULIP_USER_ID") ?? "8", 10);
+    return await postZulip({ to: `[${robId}]`, type: "private", content: content_md, email, apiKey });
+}
+
+// Shared Zulip POST. Sets `Host: chat.<domain>` explicitly because the
+// in-cluster service URL isn't in Zulip's ALLOWED_HOSTS — without this
+// every request gets a 400 before the API handler sees it (same bug
+// class as langgraph-agents PR #64). This bit the previous version
+// silently: postZulipApprovalCard logged `"zulip": {}` for two months.
+export async function postZulip(args: {
+    to: string;
+    type: "private" | "stream";
+    topic?: string;
+    content: string;
+    email: string;
+    apiKey: string;
+}) {
+    const auth = "Basic " + btoa(`${args.email}:${args.apiKey}`);
     const zulipApiUrl = Deno.env.get("ZULIP_API_URL") ?? "http://zulip.collab.svc.cluster.local";
-    const form = new URLSearchParams({ type: "stream", to: "approvals", topic, content });
+    const zulipHostHeader = Deno.env.get("ZULIP_HOST_HEADER") ?? `chat.${Deno.env.get("SECRET_DOMAIN") ?? "thesteamedcrab.com"}`;
+    const params: Record<string, string> = { type: args.type, to: args.to, content: args.content };
+    if (args.topic) params.topic = args.topic;
+    const form = new URLSearchParams(params);
     const zr = await fetch(`${zulipApiUrl}/api/v1/messages`, {
         method: "POST",
-        headers: { Authorization: auth, "Content-Type": "application/x-www-form-urlencoded" },
+        headers: {
+            Authorization: auth,
+            "Content-Type": "application/x-www-form-urlencoded",
+            Host: zulipHostHeader,
+        },
         body: form,
         signal: AbortSignal.timeout(30_000),
     });
     const zResult = await zr.json().catch(() => ({}));
-    return zResult.result ?? zResult;
+    return { status: zr.status, ok: zr.ok, ...zResult };
 }

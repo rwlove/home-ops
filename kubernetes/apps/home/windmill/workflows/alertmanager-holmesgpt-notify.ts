@@ -22,11 +22,35 @@ export async function main(alerts?: AlertmanagerAlert[]) {
         return { skip: true, reason: "no alerts in payload" };
     }
 
+    // Constrained prompt — the earlier shape ("answer in <500 chars
+    // total") wasn't enough to keep qwen2.5:32b from emitting a
+    // raw tool-call JSON as its "answer," which the workflow detects
+    // as `MCP error -32602`-style output and surfaces as "model
+    // returned a tool-call instead of a summary." Tightening:
+    //
+    //  - Explicit budget on tool calls (at most 2).
+    //  - Explicit ban on additional tool calls after the budget.
+    //  - Format pinned to a 2-line prose answer (root cause +
+    //    remediation), forbidding JSON / structured output / further
+    //    tool invocations in the final response.
+    //
+    // Keep it short; long prompts are themselves a budget problem
+    // (Holmes' system prompt + tool descriptions are already ~16K
+    // input tokens before this `ask`).
     const ask = [
-        "IMPORTANT: Be concise. Investigate this alert in <=2 tool calls",
-        "(kubectl_get_events on the namespace plus one other). Then answer",
-        "in <500 chars total: 1 sentence root cause + 1 sentence remediation.",
-        "Do not iterate further.",
+        "Investigate this alert. Use AT MOST 2 tool calls",
+        "(typically kubectl_get_events on the namespace plus one other).",
+        "",
+        "After the 2nd tool returns, you MUST produce your final answer",
+        "as plain text — NOT another tool call, NOT JSON, NOT structured",
+        "output. Stop calling tools and write prose.",
+        "",
+        "Final answer format (<500 characters total, two sentences max):",
+        "  1) one sentence on the most likely root cause",
+        "  2) one sentence on the remediation",
+        "",
+        "Do not output any JSON. Do not output any tool_call objects.",
+        "Do not iterate further. Respond in prose only.",
         "",
         `Alert: ${a.labels.alertname}`,
         `Severity: ${a.labels.severity ?? "unknown"}`,

@@ -59,10 +59,23 @@ spec:
               OLLAMA_CONTEXT_LENGTH: 16384
               OLLAMA_NUM_PARALLEL: 4
               # Spark's 128 GB unified memory comfortably runs 30b-class
-              # models concurrently. P40-era cap of 1 lifted. Bumped
-              # 2 → 3 to leave headroom during the Spark-unblocks-RAG
-              # embedder benchmark (chat + two candidate embedders
-              # loaded concurrently).
+              # models concurrently. P40-era cap of 1 lifted.
+              # 2026-05-22: held at 3 through HolmesGPT 32b→72b upgrade.
+              # Working set is bge-m3 (always-warm, RAG + wedge probe)
+              # + qwen2.5:72b (HolmesGPT) + qwen2.5:32b (Open WebUI
+              # default chat). max=3 forces ollama to evict the
+              # rarely-used coder:32b under pressure rather than evict
+              # bge-m3 — which would wedge RAG and the wedge probe.
+              # Worst-case unified-memory residence reported by
+              # /api/ps: ~66 GB (72b) + ~22 GB (32b) + 1.3 GB (bge-m3)
+              # ≈ 89 GB of the 128 GB node. The pod cgroup RSS stays
+              # much lower (~14 GB observed with 72b loaded) because
+              # CUDA-mapped model weights on Grace-Blackwell unified
+              # memory don't bill against the kubelet's pod accounting.
+              # Pod limit bumped 64Gi → 80Gi as defensive headroom for
+              # ollama runtime + 16K context KV cache (q8) across
+              # NUM_PARALLEL=4 slots — not strictly required by the
+              # measured RSS but cheap on a 128 GB node.
               OLLAMA_MAX_LOADED_MODELS: 3
 
             resources:
@@ -71,7 +84,7 @@ spec:
                 cpu: 2000m
                 nvidia.com/gpu: 1
               limits:
-                memory: 64Gi
+                memory: 80Gi
                 nvidia.com/gpu: 1
 
             securityContext:

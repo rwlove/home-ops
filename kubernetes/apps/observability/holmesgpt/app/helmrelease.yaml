@@ -42,7 +42,17 @@ spec:
               - python
               - /app/server.py
             env:
-              MODEL: ollama/qwen2.5:32b
+              # Upgraded 2026-05-22 from qwen2.5:32b → qwen2.5:72b for
+              # alert-triage reasoning quality. HolmesGPT is the only
+              # hot 32b consumer on Spark today (Open WebUI chat default
+              # is also 32b, but interactive — different latency budget),
+              # so this is the biggest available reasoning-quality
+              # lever pre-Spark-cluster-expansion. Tradeoff: 72b weights
+              # are ~47 GB (vs ~20 GB for 32b), per-call latency rises
+              # ~1.5–2× under same prompt shape. The 600s LITELLM_TIMEOUT
+              # remains comfortable (32b max-call was 92s; 72b at same
+              # prompt shape extrapolates to <200s).
+              MODEL: ollama/qwen2.5:72b
               OLLAMA_API_BASE: http://ollama-spark.ai.svc.cluster.local:11434
               OVERRIDE_MAX_CONTENT_SIZE: "16384"
               OVERRIDE_MAX_OUTPUT_TOKEN: "4096"
@@ -52,6 +62,7 @@ spec:
               # 4K-output round-trip). 600s gives ~6.5× headroom; the
               # 1500s band-aid (PR #11651, sized for P40 qwen2.5:7b)
               # and the 900s soak step (PR #11803) are both retired.
+              # Holding 600s through the 32b→72b bump.
               LITELLM_REQUEST_TIMEOUT: "600"
               LITELLM_TIMEOUT: "600"
               HOLMES_HOST: 0.0.0.0

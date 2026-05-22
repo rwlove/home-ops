@@ -38,7 +38,42 @@ type GitHubPR = {
     draft?: boolean;
     mergeable_state?: string;
     html_url: string;
+    created_at: string;
+    updated_at: string;
 };
+
+// "Needs human eyes" filter — only surface PRs that aren't already
+// being auto-handled by `lovenet-renovate-operator`. Routine Renovate
+// patch bumps land within minutes via the auto-merge allowlist; the
+// triage adds zero value for those.
+//
+// A PR needs eyes when ANY of:
+//   1. Not a Renovate PR (hand-authored, Claude Code, anything else)
+//   2. Renovate PR labeled `major` (or sibling breaking-change labels)
+//   3. Renovate PR open > 24h (auto-merge would have landed it by now;
+//      either CI is blocking or it falls outside the allowlist)
+//
+// Cheap path: only uses the data from the `/pulls` list endpoint,
+// no per-PR detail fetches. We don't see `mergeable_state` here
+// (that's only on the per-PR endpoint), but the 24h age heuristic
+// catches the same "stuck on CI" case.
+function needsHumanEyes(pr: GitHubPR): boolean {
+    const isRenovateBot = pr.user?.login === "renovate[bot]";
+    if (!isRenovateBot) return true; // hand-authored / Claude Code / etc.
+
+    const hasMajorLabel = (pr.labels ?? []).some((l) =>
+        l.name === "major" ||
+        l.name === "type/major" ||
+        l.name === "breaking-change" ||
+        l.name.startsWith("major/")
+    );
+    if (hasMajorLabel) return true;
+
+    const ageHours = (Date.now() - new Date(pr.created_at).getTime()) / 3_600_000;
+    if (ageHours > 24) return true; // auto-merge would have run; something's blocking
+
+    return false; // routine Renovate bump within the auto-merge window — ignore
+}
 
 import * as wmill from "npm:windmill-client@1.527.0";
 
@@ -62,10 +97,16 @@ async function hashString(s: string): Promise<string> {
 }
 
 export async function main() {
-    // 1. Fetch open PRs
-    const prs = await fetchOpenPRs();
+    // 1. Fetch open PRs + filter to ones that need human eyes
+    const allOpen = await fetchOpenPRs();
+    const prs = allOpen.filter(needsHumanEyes);
     if (prs.length === 0) {
-        return { skip: true, reason: "no open PRs" };
+        return {
+            skip: true,
+            reason: "no PRs need attention",
+            total_open: allOpen.length,
+            auto_handled: allOpen.length,
+        };
     }
 
     // 2. Build prompt
@@ -113,8 +154,9 @@ export async function main() {
     }
     await wmill.setState(verdictHash);
 
+    const autoHandled = allOpen.length - prs.length;
     await postZulip([
-        `**Renovate triage — ${prs.length} open PR(s) at ${REPO}**`,
+        `**PR triage — ${prs.length} need attention** (${autoHandled} auto-handled by Renovate)`,
         "",
         output,
         "",
@@ -124,6 +166,7 @@ export async function main() {
     return {
         task_id: taskId,
         pr_count: prs.length,
+        total_open: allOpen.length,
         output_chars: output.length,
         verdict_changed: true,
     };

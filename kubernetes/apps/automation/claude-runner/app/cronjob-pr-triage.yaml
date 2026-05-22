@@ -29,6 +29,17 @@ spec:
         metadata:
           labels:
             app.kubernetes.io/name: claude-runner-pr-triage
+          annotations:
+            # Skip k8tz timezone-sidecar injection. The injected k8tz
+            # initContainer doesn't set securityContext.runAsNonRoot=true,
+            # which `automation`'s pod-security enforce=restricted policy
+            # rejects — every CronJob fire produced a series of
+            # `pods is forbidden: violates PodSecurity` events and the
+            # Job ended Failed with no pod ever scheduled (PodSecurity
+            # admission rejected before scheduling). Symptom was a
+            # Pushover storm of KubeJobFailed on 2026-05-22.
+            # k8tz isn't needed here — the runner sets TZ via env.
+            k8tz.io/inject: "false"
         spec:
           serviceAccountName: claude-runner-pr-triage
           automountServiceAccountToken: false

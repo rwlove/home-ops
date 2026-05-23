@@ -30,7 +30,7 @@ export async function main(
     duration_s?: number,
 ) {
     const agentLabel = AGENT_LABEL[target_agent ?? ""] ?? target_agent ?? "Agent";
-    const haiUrl = `https://hai.${Deno.env.get("SECRET_DOMAIN") ?? "thesteamedcrab.com"}/admin/tasks/${encodeURIComponent(task_id)}`;
+    const haiUrl = `https://hai-web.${Deno.env.get("SECRET_DOMAIN") ?? "thesteamedcrab.com"}/admin/tasks/${encodeURIComponent(task_id)}`;
     const adminName = Deno.env.get("ADMIN_NAME") ?? "the admin";
 
     // Lead with the agent's CONCLUSION, not the verbose prompt.

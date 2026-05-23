@@ -32,7 +32,7 @@ spec:
           pump:
             image:
               repository: ghcr.io/rwlove/pump
-              tag: v0.0.90@sha256:7abcaa3a85ae524ee19680f631d8c4234d7ef01adeb8dedc78b4c5f7a7a7562e
+              tag: v0.0.91@sha256:b48005b9825286e3d2dec80e9c27ecfdcaf0605dac7057e0ca328ac42f9de9cf
 
             env:
               # Activates the /api/cv/* proxy in pump (see internal/web/exercise.go).
@@ -86,6 +86,29 @@ spec:
               - kind: Service
                 name: pump-oauth2-proxy
                 port: 4180
+
+      # Off-cluster ingest path. Bypasses oauth2-proxy and goes straight
+      # to pump-api:8851. Scoped to /api/weight only via the path match —
+      # all other /api/* endpoints on this hostname 404. App-side auth is
+      # WEIGHT_INGEST_KEY (env from pump-secret), enforced by the
+      # weightIngestAuth middleware on POST /api/weight in pump v0.0.91+.
+      # Only intended caller today is the bt-scale ESPHome device.
+      ingest:
+        hostnames:
+          - "pump-ingest.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - matches:
+              - path:
+                  type: PathPrefix
+                  value: /api/weight
+            backendRefs:
+              - kind: Service
+                name: pump-api
+                port: 8851
 
     persistence:
       # Per-set clip mp4s written by pump-cv. Same RWX volume on both

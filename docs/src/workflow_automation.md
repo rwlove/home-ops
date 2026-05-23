@@ -82,7 +82,7 @@ What happens:
 - Triager listens on a webhook → forwards your message to `/inbox`.
 - The triager LLM classifies your task and routes to one of the
   specialist agents (coder, errand-runner, homelab-engineer,
-  smart-home-engineer, etc.).
+  smart-home-operator, etc.).
 - If the agent can complete autonomously, it does so and posts the
   result to a topic in `#tasks` (Zulip stream).
 - If the agent needs your approval, it pauses and you get a push

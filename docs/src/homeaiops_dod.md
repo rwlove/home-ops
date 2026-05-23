@@ -227,8 +227,8 @@ blocking issue · ⏳ not yet audited · 🟥 aspirational (no audit).
 | reporter | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
 | note-maker | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
 | homelab-engineer | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
-| smart-home-engineer | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
-| ml-tuner | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
+| smart-home-operator | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
+| ml-operator | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
 | errand-runner (local-only pin) | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
 | property-coordinator | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
 | health-tracker (local-only pin) | B | 🟡 cold via substrate — exercise pending E2E smoke | — |

@@ -370,6 +370,67 @@ Rob answered Q1-Q5:
 
 I'll go with **(1)** for v1 unless you say otherwise. The token can be replaced with device flow in a later iteration.
 
+## 10. Status as of 2026-05-23 (post Stage-1 Gate signoff)
+
+Build sequence steps 1-5 from §9 are complete. Verification:
+
+| Step | Status | Evidence |
+|---|---|---|
+| #1 lga PR-A — `"cli"` source enum + `/admin/tasks/<id>` + todo table | ✅ | `src/agents/state.py::Source` includes `"cli"`; `src/agents/api/todos.py` present; lga PRs #66-#68 merged |
+| #2 home-ops PR-B — `hai.${SECRET_DOMAIN}` route + auth + DNS | ✅ | `hai.thesteamedcrab.com` resolves to the cluster gateway; CLI auth works against it |
+| #3 lga PR-C — `hai` CLI in `cli/` subdir with subcommands | ✅ | `which hai` → `/home/rwlove/.local/bin/hai`; `task add/tail/ls/show`, `todo add/ls/done`, `cost`, `auth` all present |
+| #4 Image release | ✅ | tags v0.2.34 through v0.2.42 published |
+| #5 home-ops image bump (Renovate auto) | ✅ | cluster pod on v0.2.42 as of 2026-05-23 17:08Z |
+
+Plus Stage-1.5 UX work landed 2026-05-23 (additive to the original
+plan — closing gaps that emerged from real Stage-1 dogfooding):
+
+- Reporter agent → universal final hop renders raw specialist output
+  as rich-text Zulip DMs with clickable `obsidian://` vault links +
+  labeled URLs (lga#73/#75/#76/#77 + home-ops#11997).
+- Agent definitions migrated from vault into the lga repo — persona
+  changes ship as PRs with image-tag traceability (lga#71/#73/#75).
+- `ADMIN_NAME` interpolated at the DM render boundary only —
+  repo files stay generic per [[user_class_architecture]]
+  (home-ops#11990).
+- `aihomeops-state` Grafana dashboard — single-pane view of queue
+  depth, task state, escalation gates, cost (home-ops#11989).
+- Smart-home `device-intent-map.yaml` + drift-detect Windmill
+  workflow (lga#78 + home-ops#11998).
+
+### What remains for Stage 2 DoD
+
+**Step 6: Dogfood day.** Wall-clock day where ADMIN uses `hai` for
+the work that previously would have been Claude Code sessions.
+Per §9 Q5 decision: acceptance is ADMIN's credible end-of-day
+"I used `hai` for everything I'd have asked Claude Code."
+
+**Step 7: Gate 2 evidence PR.** Post-dogfood:
+
+- Log of the day's `hai` usage
+- Any fall-back-to-Claude-Code events (each is a P0/P1 gap the
+  analysis missed)
+- Confirmation that other non-CLI inputs still work (Zulip DM,
+  Renovate-triage, AlertManager→HolmesGPT, daily-digest)
+
+### Gaps still recommended to close before the dogfood day
+
+Re-reading §4 against current state, two items from earlier tiers
+remain actionable:
+
+- **Tier 1 #2 (conversation continuity / `conversation_id`):** still
+  not built. For multi-turn workflows where ADMIN wants
+  follow-ups on the same context, today each `hai task add` is
+  independent. Decide whether this is a v1 gap or punt to v2 based
+  on what the dogfood day surfaces.
+- **Tier 2 #6 (cost local-vs-escalated breakdown):** `hai cost`
+  exists; verify it shows local-vs-escalated split (data is in
+  Langfuse + `accumulated_cost_usd`).
+
+No new gaps surfaced from the Stage-1.5 work that aren't already in
+§4. The reporter agent / DM rendering / dashboard / intent map are
+all complementary to (not duplicative of) the CLI work.
+
 ## End
 
 Build starts after this PR merges.

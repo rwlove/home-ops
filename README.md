@@ -412,8 +412,8 @@ in 1Password.
 | `reporter`             | Daily digests, summaries, status rollups                   | 🟡 cold |
 | `note-maker`           | Captures decisions + facts back into the vault             | 🟡 cold |
 | `homelab-engineer`     | Cluster ops, HelmRelease drafting, PR-shaped output        | 🟡 cold |
-| `smart-home-engineer`  | Home Assistant entities, automations, ESPHome configs      | 🟡 cold |
-| `ml-tuner`             | Frigate, Immich CLIP, model tuning                         | 🟡 cold |
+| `smart-home-operator`  | Home Assistant entities, automations, ESPHome configs      | 🟡 cold |
+| `ml-operator`          | Frigate, Immich CLIP, model tuning                         | 🟡 cold |
 | `errand-runner`        | One-shot real-world tasks                                  | 🟡 cold · local-only |
 | `property-coordinator` | 3532 Foxhall workstreams (contractors, deck, pool)         | 🟡 cold |
 | `health-tracker`       | Personal health tracking                                   | 🟡 cold · local-only |

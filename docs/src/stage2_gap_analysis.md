@@ -61,7 +61,7 @@ surface → bridge → langgraph-agents queue → triager → specialist → out
 | Durable task queue | `task_queue` + `task_dlq` tables in `postgres-langgraph-checkpoints` | Backed by Postgres LISTEN/NOTIFY; 3-replica CNPG |
 | Task dispatch | `langgraph-agents` queue worker | Claims tasks, calls graph, writes results back |
 | Specialist routing | Triager agent (LLM-driven) | Decides which specialist gets the task based on content |
-| Specialist execution | 13 named agents (supervisor, researcher, coder, reviewer, triager, reporter, note-maker, homelab-engineer, smart-home-engineer, ml-tuner, errand-runner, property-coordinator, health-tracker) | All run inside langgraph-agents pod; share the same graph |
+| Specialist execution | 13 named agents (supervisor, researcher, coder, reviewer, triager, reporter, note-maker, homelab-engineer, smart-home-operator, ml-operator, errand-runner, property-coordinator, health-tracker) | All run inside langgraph-agents pod; share the same graph |
 | Approval gate | `interrupt()` + Windmill `langgraph-approval-post.ts` + ntfy/Zulip | Class A/B/C/D taxonomy; ntfy tap → /approval endpoint |
 | Model selection | Per-agent default (qwen2.5:32b on Spark) + `requires_cloud` tag → Claude API escalation | Cost caps enforced in-cluster: `$5/task`, `$10/agent/day`, `$30/global/day` |
 | Inference backends | ollama-spark (GB10), ollama (P40), tei-spark (reranker), Claude API | Routing in `langgraph-agents/.agents/instructions/hardware-routing.md` |

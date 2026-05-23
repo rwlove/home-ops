@@ -195,20 +195,28 @@ spec:
         - ports:
             - port: "11434"
               protocol: TCP
-    # mDNS multicast discovery over eth0. HA's zeroconf integration
-    # sends queries to 224.0.0.251:5353; Cilium classifies the multicast
-    # destination as `world`. The multus IoT/SECURITY VLAN secondary
-    # NICs (hass-iot-static, hass-security-static) handle the bulk of
-    # LAN discovery and bypass Cilium entirely — only eth0 (apiserver,
-    # DNS, cross-ns, external) is governed here, including this mDNS
-    # path through default-deny.
+    # LAN discovery multicast/broadcast from HA's eth0 interface. HA's
+    # `zeroconf` and `ssdp` integrations bind to all interfaces by
+    # default and emit periodic discovery on the cilium-governed pod
+    # network alongside the multus IoT/SECURITY VLAN NICs. Cilium
+    # classifies multicast/broadcast destinations as `world`.
     #
-    # SSDP/UPnP discovery on UDP 1900. HA's `ssdp` integration sends
-    # M-SEARCH to 239.255.255.250 (multicast) and 255.255.255.255
-    # (broadcast) for Sonos, Roku, smart-TV, DLNA renderer discovery.
-    # Without this, boot-time integration scans generate 1000+
-    # POLICY_DENIED drops in 2m and trip CiliumPolicyDropBurst →
-    # Pushover (incident 2026-05-22).
+    #   * UDP 5353 — mDNS, dest 224.0.0.251 (zeroconf integration)
+    #   * UDP 1900 — SSDP/UPnP, dest 239.255.255.250 (multicast)
+    #                + 255.255.255.255 (broadcast) — used by the ssdp
+    #                integration to discover Sonos, Roku, smart-TVs,
+    #                DLNA renderers, etc.
+    #
+    # The multus macvlan NICs (hass-iot-static on VLAN 20,
+    # hass-security-static on VLAN 40) handle the bulk of real LAN
+    # discovery and bypass Cilium entirely. eth0 discovery is allowed
+    # here so HA's defaults work without policy noise — without these
+    # rules, boot-time scans generate >1000 POLICY_DENIED drops in 2m
+    # and trip CiliumPolicyDropBurst.
+    #
+    # (Background: IGMP membership reports HA sends on eth0 still drop
+    # at CT_UNKNOWN_L4_PROTOCOL — cilium conntrack doesn't track IGMP.
+    # Below alert thresholds; not fixable via CNP.)
     - toEntities:
         - world
       toPorts:

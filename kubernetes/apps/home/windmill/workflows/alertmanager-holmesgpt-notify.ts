@@ -202,6 +202,11 @@ async function routeToSpecialist(
                 source: "holmesgpt",
                 user: "rob",
                 content,
+                // Pin routing by namespace — see NAMESPACE_SPECIALIST
+                // map above. Requires lga 0.2.40+. Bypasses the
+                // qwen2.5:7b triager's known mis-routing of
+                // alert-investigation prompts.
+                target_agent: suggested,
                 idempotency_key: taskId,
                 priority: a.labels.severity === "critical" ? "high" : "normal",
             }),

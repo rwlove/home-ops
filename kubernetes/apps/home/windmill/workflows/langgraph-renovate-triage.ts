@@ -125,7 +125,11 @@ export async function main() {
             source: "cli",
             user: "rob",
             content: ask,
-            idempotency_key: taskId, // one triage per day
+            // Pin routing — qwen2.5:7b triager mis-routed this to
+            // errand-runner (which is approval-gated). Requires
+            // lga 0.2.40+ for the target_agent envelope field.
+            target_agent: "homelab-engineer",
+            idempotency_key: taskId,
         }),
         signal: AbortSignal.timeout(15_000),
     });

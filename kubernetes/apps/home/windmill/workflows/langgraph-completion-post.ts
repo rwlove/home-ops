@@ -1,12 +1,11 @@
 // Webhook entry from langgraph-agents when a task completes
 // (status → done in the queue, no pending interrupt).
 //
-// Emits a Zulip DM to Rob with a human-readable completion card:
-//   - which agent ran it (target_agent)
-//   - the original prompt (content)
-//   - the output, truncated
-//   - duration
-//   - link to `hai task show <id>` for the full output
+// Emits a Zulip DM to ADMIN with a completion card whose body is the
+// `reporter` agent's rich-text rendering (lga v0.2.42+). Reporter is
+// the universal final hop, so `output` is already conclusion-first
+// markdown with clickable obsidian:// vault links + labeled URLs —
+// this template appends only a compact meta footer.
 //
 // Companion to langgraph-approval-post: that handler covers paused
 // tasks; this one covers terminal-success. Failure/dlq is handled
@@ -39,31 +38,21 @@ export async function main(
     // wall of prompt text that the operator already wrote (or that the
     // workflow generated). Result: every DM looked the same.
     //
-    // New shape:
-    //   [conclusion line — first line of agent output, bolded]
-    //   <rest of output as blockquote, truncated>
+    // As of lga v0.2.42, the `reporter` agent is the universal final hop —
+    // every chain's terminal `output` is reporter's own rich-text rendering
+    // (bold-first-line conclusion + clickable obsidian:// + labeled URLs per
+    // reporter's SOUL). So this template no longer applies the conclusion-
+    // first heuristic; it emits reporter's output verbatim and just appends
+    // the meta footer.
+    //
+    // Shape:
+    //   <reporter's rich-text body, as-is>
     //   ---
     //   _meta: agent, duration, [optional one-line task hint], hai link_
     const lines: string[] = [];
     const out = (output ?? "").trim();
     if (out) {
-        // Pull the first meaningful line as the conclusion. Skip leading
-        // blanks and YAML frontmatter delimiters; take the first non-
-        // header content line.
-        const firstLine = out
-            .split(/\r?\n/)
-            .map((l) => l.trim())
-            .find((l) => l.length > 0 && !l.startsWith("---") && !l.startsWith("#")) ??
-            out.slice(0, 120);
-        lines.push(`**${truncate(firstLine, 220)}**`);
-
-        const rest = out.split(/\r?\n/).slice(out.split(/\r?\n/).indexOf(firstLine) + 1).join("\n").trim();
-        if (rest) {
-            lines.push("");
-            lines.push("```quote");
-            lines.push(truncate(rest, 700));
-            lines.push("```");
-        }
+        lines.push(out);
     } else {
         lines.push(`✅ **${agentLabel}** finished — no output.`);
     }
@@ -103,6 +92,7 @@ const AGENT_LABEL: Record<string, string> = {
     "supervisor": "Supervisor",
     "reviewer": "Reviewer",
     "historian": "Historian",
+    "reporter": "Reporter",
     "researcher": "Researcher",
     "note-maker": "Note maker",
     "coder": "Coder",

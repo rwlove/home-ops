@@ -102,7 +102,7 @@ const AGENT_LABEL: Record<string, string> = {
     "triager": "Triager",
     "supervisor": "Supervisor",
     "reviewer": "Reviewer",
-    "reporter": "Reporter",
+    "historian": "Historian",
     "researcher": "Researcher",
     "note-maker": "Note maker",
     "coder": "Coder",

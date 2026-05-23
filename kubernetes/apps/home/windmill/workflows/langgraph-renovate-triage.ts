@@ -10,8 +10,12 @@
 //   1. Fetch open PRs from rwlove/home-ops (anonymous GitHub API)
 //   2. Build a single prompt summarizing all PRs (one LLM call,
 //      avoids multi-task fan-out)
-//   3. POST to langgraph /inbox; triager routes to homelab-engineer
-//      (cluster context). homelab-engineer runs on Spark
+//   3. POST to langgraph /inbox; routing pinned to researcher
+//      (information-broker shape — verdict + sources). Was
+//      homelab-engineer pre-2026-05-23; that agent's safety-gated
+//      propose-then-execute shape doesn't fit triage-shaped asks
+//      (it drafts to vault + returns metadata, leaving the user
+//      without an inline verdict). Researcher runs on Spark
 //      qwen2.5:32b — typical wall time 3-5 min for ~5 PRs.
 //   4. Poll /admin/tasks/<id> until done (≤ 20 min budget)
 //   5. Compare verdict hash to prior run. If changed, DM Rob via
@@ -128,7 +132,14 @@ export async function main() {
             // Pin routing — qwen2.5:7b triager mis-routed this to
             // errand-runner (which is approval-gated). Requires
             // lga 0.2.40+ for the target_agent envelope field.
-            target_agent: "homelab-engineer",
+            //
+            // 2026-05-23: re-pinned homelab-engineer → researcher.
+            // Triage-shaped asks (give a verdict, cite the evidence)
+            // are researcher's lane. Homelab-engineer is configured
+            // for safety-gated propose-then-execute work; it drafts
+            // findings to vault and returns metadata, which leaves
+            // the DM without an inline verdict.
+            target_agent: "researcher",
             idempotency_key: taskId,
         }),
         signal: AbortSignal.timeout(15_000),
@@ -164,7 +175,7 @@ export async function main() {
         "",
         output,
         "",
-        `_Triaged by langgraph homelab-engineer. Task: \`${taskId}\`._`,
+        `_Triaged by langgraph researcher. Task: \`${taskId}\`._`,
     ].join("\n"));
 
     return {

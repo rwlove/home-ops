@@ -1,0 +1,534 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "description": "Single-pane view of HomeAIOps system state. Covers awaiting-user threads, recent completions, cost-cap consumption, per-agent activity, DM/notification fan-out, and the AlertManager -> HolmesGPT loop. Companion to the `langgraph-agents` (LLM call mechanics) and `task-queue` (lifecycle events) dashboards.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {
+      "title": "LangGraph Agents (LLM mechanics)",
+      "type": "dashboards",
+      "tags": ["langgraph-agents"],
+      "asDropdown": false,
+      "includeVars": false,
+      "keepTime": true,
+      "targetBlank": false
+    },
+    {
+      "title": "Task Queue (lifecycle)",
+      "type": "dashboards",
+      "tags": ["queue"],
+      "asDropdown": false,
+      "includeVars": false,
+      "keepTime": true,
+      "targetBlank": false
+    },
+    {
+      "title": "Admin: /admin/tasks (full JSON detail)",
+      "type": "link",
+      "url": "https://langgraph-agents.${SECRET_DOMAIN}/admin/tasks",
+      "targetBlank": true
+    }
+  ],
+  "panels": [
+    {
+      "datasource": "Prometheus",
+      "description": "Threads paused at interrupt() but NOT yet past the stale threshold (5m default). These are normal in-flight approvals waiting on Rob to react. Source: `langgraph_paused_threads{is_stale=\"false\"}` gauge, written by `agents.paused_threads.sweep_paused_threads`. For per-task detail (action_class, target, payload_summary, age) GET /admin/tasks — Grafana has no datasource for the LangGraph checkpointer state JSONB today.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 }
+            ]
+          },
+          "unit": "none"
+        }
+      },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(langgraph_paused_threads{is_stale=\"false\"})",
+          "legendFormat": "fresh",
+          "refId": "A"
+        }
+      ],
+      "title": "Awaiting input (fresh)",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "description": "Threads paused at interrupt() past the stale threshold (default 5m). A non-zero value means an approval has sat unanswered long enough that Rob probably forgot. Source: `langgraph_paused_threads{is_stale=\"true\"}`. Detail: GET /admin/tasks.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          },
+          "unit": "none"
+        }
+      },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "id": 2,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(langgraph_paused_threads{is_stale=\"true\"})",
+          "legendFormat": "stale",
+          "refId": "A"
+        }
+      ],
+      "title": "Awaiting input (stale)",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "description": "Today's Claude API spend. Sums `langgraph_cost_usd_total{group=\"claude\"}` over 24h — only paid path; group=local has cost=0.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 21 },
+              { "color": "red", "value": 27 }
+            ]
+          },
+          "unit": "currencyUSD",
+          "decimals": 2
+        }
+      },
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 0 },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(increase(langgraph_cost_usd_total{group=\"claude\"}[24h]))",
+          "legendFormat": "spend (24h)",
+          "refId": "A"
+        }
+      ],
+      "title": "Claude spend today ($)",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "description": "Percent of the global daily cost cap consumed. Cap is `cost_cap_global_daily_usd` (default 30). Yellow at 70%, red at 90%. Cap value is hard-coded into the dashboard query — bump here if the setting changes.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.7 },
+              { "color": "red", "value": 0.9 }
+            ]
+          },
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "decimals": 2
+        }
+      },
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 0 },
+      "id": 4,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(increase(langgraph_cost_usd_total{group=\"claude\"}[24h])) / 30",
+          "legendFormat": "% of cap",
+          "refId": "A"
+        }
+      ],
+      "title": "Cost cap consumed",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "description": "LLM calls by agent over the last 24h. Surfaces which agents are actually running.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisLabel": "calls (24h)",
+            "axisPlacement": "auto",
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "lineWidth": 1,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never"
+          },
+          "mappings": [],
+          "unit": "none"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "id": 5,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": ["lastNotNull"]
+        },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sort_desc(sum by (agent) (increase(langgraph_calls_total[24h])))",
+          "legendFormat": "{{agent}}",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Per-agent activity (24h)",
+      "type": "barchart"
+    },
+    {
+      "datasource": "Prometheus",
+      "description": "Per-agent Claude spend over 24h. `agent_daily_spend_usd` is in-process state (not Prometheus-exposed) — this derives the same view from the `langgraph_cost_usd_total{group=\"claude\"}` Counter grouped by agent.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisLabel": "USD",
+            "axisPlacement": "auto",
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 1,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never"
+          },
+          "mappings": [],
+          "unit": "currencyUSD",
+          "decimals": 2
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "id": 6,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": ["lastNotNull"]
+        },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sort_desc(sum by (agent) (increase(langgraph_cost_usd_total{group=\"claude\"}[24h])))",
+          "legendFormat": "{{agent}}",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Per-agent Claude spend (24h)",
+      "type": "barchart"
+    },
+    {
+      "datasource": "langgraph_checkpoints",
+      "description": "Last 10 completed tasks. Source: `task_queue` table in `postgres-langgraph-checkpoints` where status='done'. Columns: task_id, source (envelope-level proxy for agent — true target_agent lives in LangGraph checkpointer state JSONB and is not directly queryable from Grafana today), content excerpt, output excerpt, duration. Sort: updated_at DESC. Limit 10.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" }
+          },
+          "mappings": []
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "duration" },
+            "properties": [
+              { "id": "unit", "value": "s" },
+              { "id": "decimals", "value": 1 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "task_id" },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "source" },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "completed_at" },
+            "properties": [
+              { "id": "unit", "value": "dateTimeAsIso" },
+              { "id": "custom.width", "value": 170 }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 14 },
+      "id": 7,
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false,
+          "reducer": ["sum"],
+          "countRows": false,
+          "fields": ""
+        }
+      },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "datasource": "langgraph_checkpoints",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  right(id, 8) AS task_id,\n  envelope ->> 'source' AS source,\n  left(envelope ->> 'content', 80) AS content,\n  left(result ->> 'output', 100) AS output,\n  extract(epoch FROM (updated_at - created_at)) AS duration,\n  updated_at AS completed_at\nFROM task_queue\nWHERE status = 'done'\nORDER BY updated_at DESC\nLIMIT 10;",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "title": "Recent completions (last 10)",
+      "type": "table"
+    },
+    {
+      "datasource": "Loki",
+      "description": "Count of AlertManager -> HolmesGPT workflow fires in the last 24h. Source: Loki, filtering windmill app logs for the `alertmanager-holmesgpt-notify` workflow path. The workflow returns `holmes_chars` in its job result (visible in Windmill UI) — not currently Prometheus-exposed. Zero over 24h on a busy cluster suggests the AlertManager -> Windmill webhook (in `alertmanagerconfig.yaml`) is broken. Click the workflow link in the dashboard header for per-fire detail.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "yellow", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          },
+          "unit": "none"
+        }
+      },
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 24 },
+      "id": 8,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": "Loki",
+          "expr": "sum(count_over_time({namespace=\"home\", app=~\"windmill.*\"} |~ \"alertmanager-holmesgpt-notify\" [24h]))",
+          "legendFormat": "fires (24h)",
+          "refId": "A"
+        }
+      ],
+      "title": "Holmes loop fires (24h)",
+      "type": "stat"
+    },
+    {
+      "datasource": "Loki",
+      "description": "Holmes triage executions over the time window. Source: Windmill app logs in Loki for the alertmanager-holmesgpt-notify workflow. Each line is one alert firing -> Holmes /investigate -> Zulip + ntfy + langgraph routing. Look for `HolmesGPT returned no analysis` lines to spot empty-result loops (qwen2.5:32b sometimes returns tool-calls instead of a summary).",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" }
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 18, "x": 6, "y": 24 },
+      "id": 9,
+      "options": {
+        "showLabels": false,
+        "showCommonLabels": false,
+        "showTime": true,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "targets": [
+        {
+          "datasource": "Loki",
+          "expr": "{namespace=\"home\", app=~\"windmill.*\"} |~ \"alertmanager-holmesgpt-notify|HolmesGPT|holmes_chars\"",
+          "refId": "A"
+        }
+      ],
+      "title": "Recent Holmes loop fires (logs)",
+      "type": "logs"
+    },
+    {
+      "datasource": "Loki",
+      "description": "DM / notification fan-out from langgraph-agents over 24h. Counts `approval_post` (Rob asked to approve a Class C/D action) and `task_completed` (DM-back-to-Zulip) events emitted by `agents.queue.worker`. This is the closest proxy for 'is the notification path firing' without a Zulip Postgres datasource.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisLabel": "events/h",
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "stacking": { "group": "A", "mode": "normal" }
+          },
+          "mappings": [],
+          "unit": "none"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "id": 10,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": ["sum"]
+        },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": "Loki",
+          "expr": "sum by (event) (count_over_time({namespace=\"ai\", app=\"langgraph-agents\"} |~ \"approval_post|task_completed\" | json | __error__ != \"JSONParserErr\" [1h]))",
+          "legendFormat": "{{event}}",
+          "refId": "A"
+        }
+      ],
+      "title": "DMs / notifications sent (24h)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Loki",
+      "description": "Most-recent notification events emitted by langgraph-agents — approval requests + task completions. Each row should correspond to a Zulip DM Rob received from the bot.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" }
+          }
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "id": 11,
+      "options": {
+        "showLabels": false,
+        "showCommonLabels": false,
+        "showTime": true,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "targets": [
+        {
+          "datasource": "Loki",
+          "expr": "{namespace=\"ai\", app=\"langgraph-agents\"} |~ \"approval_post|task_completed\" | json | __error__ != \"JSONParserErr\"",
+          "refId": "A"
+        }
+      ],
+      "title": "Recent notification events",
+      "type": "logs"
+    }
+  ],
+  "preload": false,
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["aihomeops", "langgraph-agents", "overview"],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "HomeAIOps State",
+  "uid": "aihomeops-state",
+  "version": 1,
+  "weekStart": ""
+}

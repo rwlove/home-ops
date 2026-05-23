@@ -59,13 +59,19 @@ export async function main(
 
     // Compact meta footer — one line, much smaller than the prior
     // "You asked: <full prompt>" block.
+    //
+    // Italic uses `*...*`, NOT `_..._`. Zulip's markdown renderer
+    // recognizes asterisk-italics but treats single-underscores as
+    // literal characters. The prior `_..._` wrapping showed the
+    // underscores verbatim in the DM (ugly noise around the agent
+    // label / duration / task hint / hai link).
     lines.push("");
     lines.push("---");
     const taskHint = content
-        ? `_${agentLabel}, ${duration_s ? formatDuration(duration_s) : "done"} · task: ${truncate(content, 80)}_`
-        : `_${agentLabel}, ${duration_s ? formatDuration(duration_s) : "done"}_`;
+        ? `*${agentLabel}, ${duration_s ? formatDuration(duration_s) : "done"} · task: ${truncate(content, 80)}*`
+        : `*${agentLabel}, ${duration_s ? formatDuration(duration_s) : "done"}*`;
     lines.push(taskHint);
-    lines.push(`_${adminName} — full output: \`hai task show ${task_id}\` · [api](${haiUrl})_`);
+    lines.push(`*${adminName} — full output: \`hai task show ${task_id}\` · [api](${haiUrl})*`);
 
     const content_md = lines.join("\n");
 

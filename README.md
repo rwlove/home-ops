@@ -16,8 +16,8 @@ _Production-grade Kubernetes for a household._
 
 <br/>
 
-![apps](https://img.shields.io/badge/apps-181-blue?style=for-the-badge)
-![helmreleases](https://img.shields.io/badge/HelmReleases-193-326CE5?style=for-the-badge&logo=helm&logoColor=white)
+![apps](https://img.shields.io/badge/apps-182-blue?style=for-the-badge)
+![helmreleases](https://img.shields.io/badge/HelmReleases-194-326CE5?style=for-the-badge&logo=helm&logoColor=white)
 ![nodes](https://img.shields.io/badge/k8s_nodes-11-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white)
 ![cnpg](https://img.shields.io/badge/Postgres_clusters-25-336791?style=for-the-badge&logo=postgresql&logoColor=white)
 ![secrets](https://img.shields.io/badge/secrets-115-0572EC?style=for-the-badge&logo=1password&logoColor=white)
@@ -278,7 +278,7 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 </details>
 
 <details>
-<summary>🔌 <b>MCP Servers</b> — 16 Model Context Protocol servers behind an Authelia-gated gateway</summary>
+<summary>🔌 <b>MCP Servers</b> — 17 Model Context Protocol servers behind an Authelia-gated gateway</summary>
 
 | Server | Exposes |
 |--------|---------|
@@ -346,7 +346,7 @@ flowchart TB
     end
 
     subgraph Tools[Tools + retrieval]
-        Gw[MCP Gateway<br/>16 servers]
+        Gw[MCP Gateway<br/>17 servers]
         Q[(Qdrant<br/>vector DB)]
         Mem[(memory-mcp<br/>pgvector KG)]
     end

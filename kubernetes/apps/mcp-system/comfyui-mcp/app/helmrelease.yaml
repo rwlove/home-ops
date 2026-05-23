@@ -1,0 +1,95 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: comfyui-mcp
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  values:
+    defaultPodOptions:
+      securityContext:
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+    controllers:
+      comfyui-mcp:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        pod:
+          annotations:
+            sidecar.istio.io/inject: "true"
+        containers:
+          app:
+            image:
+              repository: ghcr.io/rwlove/comfyui-mcp
+              # Pinned to the first release built from rwlove/containers
+              # PR #32; Renovate manages bumps after the image lands.
+              tag: 0.5.0
+            env:
+              # Streamable-HTTP transport (artokun added 2026-05-21).
+              # See: rwlove/containers/comfyui-mcp/README.md
+              MCP_TRANSPORT: http
+              MCP_HOST: 0.0.0.0
+              MCP_PORT: "9100"
+              # Skip auto-detection — point directly at the cluster's
+              # ComfyUI Service. ai/comfyui:8188 has been live for 166d.
+              COMFYUI_URL: http://comfyui.ai.svc.cluster.local:8188
+              NODE_ENV: production
+              # Civitai integration is opt-in; if/when ADMIN wants
+              # checkpoint downloads from civitai.com, add CIVITAI_API_TOKEN
+              # via an ExternalSecret + 1Password item. Default omitted.
+            resources:
+              requests:
+                cpu: 10m
+                memory: 128Mi
+              limits:
+                memory: 512Mi  # 22-tool surface + workflow JSON parsing
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: {drop: ["ALL"]}
+    # tmpfs for /tmp + /home/node/.npm — artokun's npm runtime writes to
+    # both. readOnlyRootFilesystem otherwise blocks startup.
+    persistence:
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          comfyui-mcp:
+            app:
+              - path: /tmp
+              - path: /home/node/.npm
+    service:
+      app:
+        controller: comfyui-mcp
+        ports:
+          http:
+            port: 9100
+    route:
+      app:
+        hostnames:
+          - "comfyui-mcp.mcp.local"
+        parentRefs:
+          - name: mcp-gateway
+            namespace: mcp-system
+            sectionName: mcps
+        rules:
+          - matches:
+              - path:
+                  type: PathPrefix
+                  value: /mcp
+            filters:
+              # Strip inbound Authorization before forwarding — see
+              # arr-mcp/app/helmrelease.yaml for the full rationale
+              # (broker Bearer would otherwise mask the backend's own
+              # credential env).
+              - type: RequestHeaderModifier
+                requestHeaderModifier:
+                  remove:
+                    - Authorization
+            backendRefs:
+              - identifier: app
+                port: 9100

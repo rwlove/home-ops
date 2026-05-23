@@ -25,8 +25,32 @@ PR cites for "done."
 Per `goal.md` Gate 1: *"Stop here. Post the smoke test output and
 the runbook list. Wait for my approval before starting Stage 2."*
 Smoke evidence is in Batch 4 below; runbook list is the two
-entries at the bottom of this doc. **Awaiting operator approval
-to proceed to Stage 2.**
+entries at the bottom of this doc.
+
+**Gate 1: ✅ signed off by operator on 2026-05-23.**
+
+A second wave of UX-shaped Stage-1 work landed 2026-05-23 — the
+original DoD verified technical readiness, but dogfooding surfaced
+three gaps the rubric didn't catch (meaningless notifications,
+missing system-state dashboard, triager mis-routing on PR triage).
+These closed in the same session before signoff:
+
+- Reporter agent → universal final hop translates raw specialist
+  output into rich-text Zulip DMs with clickable `obsidian://` vault
+  references + labeled URLs (lga#73/#75/#76/#77 + home-ops#11997).
+- `target_agent` envelope field lets callers pin specialist routing
+  past the triager (lga#72 + home-ops#11990).
+- `aihomeops-state` Grafana dashboard surfaces queue depth, task
+  state, escalation gates, and cost in a single pane (home-ops#11989).
+- Agent definitions migrated from vault into the repo
+  (lga#71/#73/#75) — persona changes now ship as PRs with full
+  review + image-tag traceability.
+- `ADMIN_NAME` interpolated at the DM render boundary only
+  (home-ops#11990) — repo files stay generic; the name lives in
+  1Password (materialized by the ExternalSecret).
+
+**Proceeding to Stage 2 capability gap analysis** per `goal.md`
+("Show me the gap analysis before you start closing it.")
 
 ## Per-component-class checklist
 

@@ -3,18 +3,30 @@
 Workaround for Lidarr 3.1.2.4938 (develop) queue-tracker regression.
 
 Lidarr's `Refresh Monitored Downloads` task is supposed to fire
-DownloadedAlbumsScan for sab downloads that finish in /sabnzbd/complete/.
-In 3.1.2.4938 it doesn't — items sit in the queue with
-status=completed, trackedDownloadState=importing forever, the actual
-files pile up in /sabnzbd/complete, and the user has to manually
-trigger the scan in the Lidarr UI.
+DownloadedAlbumsScan for sab downloads that finish in /sabnzbd/complete/,
+and then drop the queue row once the import completes. In 3.1.2.4938
+both halves are broken:
 
-This cron kicks Lidarr by POSTing DownloadedAlbumsScan for each stuck
-queue item's outputPath. Lidarr's normal import logic does the rest
-(match score, move into /media library, etc.). The queue entry then
-drops once the import completes.
+  1. Scans don't fire — items sit in queue with status=completed,
+     trackedDownloadState=importing forever, and files pile up in
+     /sabnzbd/complete.
 
-Remove this whole app when upstream Lidarr fixes the regression — we'll
+  2. Queue rows don't clear — even after the import succeeds (manually
+     or via the scan-trigger half of this script), the row stays.
+     A new scan returns "Importing 0 tracks" because the files are
+     already in /media, so the row never drops on its own.
+
+This cron handles both halves:
+
+  - For each stuck row whose album isn't yet fully imported: POST
+     DownloadedAlbumsScan against outputPath so Lidarr's normal import
+     logic runs (match score, move into /media, etc.).
+
+  - For each stuck row whose album already reports 100% imported: DELETE
+     the queue row. The download is done, the files are in /media, the
+     row is just stale tracker state.
+
+Remove this whole app when upstream Lidarr fixes both halves — we'll
 know because new sab completions will start clearing on their own
 within ~1 min of the next `Refresh Monitored Downloads` cycle.
 """
@@ -38,34 +50,58 @@ def call_api(method, path, params=None, body=None):
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read())
+        raw = resp.read()
+        return json.loads(raw) if raw else {}
 
 
 def main():
-    q = call_api("GET", "/api/v1/queue", params={"pageSize": 100})
+    q = call_api(
+        "GET",
+        "/api/v1/queue",
+        params={"pageSize": 100, "includeAlbum": "true"},
+    )
     stuck = [
         r for r in q.get("records", [])
         if r.get("status") == "completed"
         and r.get("trackedDownloadState") == "importing"
-        and r.get("outputPath")
     ]
     if not stuck:
         print("no stuck queue items")
         return
 
-    seen = set()
+    scans = set()
+    drops = []
     for r in stuck:
-        path = r["outputPath"]
-        if path in seen:
+        stats = (r.get("album") or {}).get("statistics") or {}
+        already_imported = (
+            (stats.get("percentOfTracks") or 0) >= 100
+            and (stats.get("trackFileCount") or 0) > 0
+        )
+        if already_imported:
+            drops.append(r)
             continue
-        seen.add(path)
+        path = r.get("outputPath")
+        if not path or path in scans:
+            continue
+        scans.add(path)
         cmd = call_api(
             "POST",
             "/api/v1/command",
             body={"name": "DownloadedAlbumsScan", "path": path, "importMode": "auto"},
         )
         print(f"  scan id={cmd.get('id')} path={path}")
-    print(f"queued {len(seen)} scans")
+
+    for r in drops:
+        qid = r["id"]
+        title = (r.get("album") or {}).get("title") or r.get("title", "?")
+        call_api(
+            "DELETE",
+            f"/api/v1/queue/{qid}",
+            params={"removeFromClient": "false", "blocklist": "false"},
+        )
+        print(f"  drop queue id={qid} album={title!r} (already 100% imported)")
+
+    print(f"queued {len(scans)} scans, dropped {len(drops)} stale queue entries")
 
 
 if __name__ == "__main__":

@@ -32,21 +32,51 @@ export async function main(
 ) {
     const agentLabel = AGENT_LABEL[target_agent ?? ""] ?? target_agent ?? "Agent";
     const haiUrl = `https://hai.${Deno.env.get("SECRET_DOMAIN") ?? "thesteamedcrab.com"}/admin/tasks/${encodeURIComponent(task_id)}`;
+    const adminName = Deno.env.get("ADMIN_NAME") ?? "the admin";
 
+    // Lead with the agent's CONCLUSION, not the verbose prompt.
+    // The prior template buried the actual answer under a "You asked:"
+    // wall of prompt text that the operator already wrote (or that the
+    // workflow generated). Result: every DM looked the same.
+    //
+    // New shape:
+    //   [conclusion line — first line of agent output, bolded]
+    //   <rest of output as blockquote, truncated>
+    //   ---
+    //   _meta: agent, duration, [optional one-line task hint], hai link_
     const lines: string[] = [];
-    if (content) {
-        lines.push(`**You asked:** ${truncate(content, 200)}`);
-        lines.push("");
+    const out = (output ?? "").trim();
+    if (out) {
+        // Pull the first meaningful line as the conclusion. Skip leading
+        // blanks and YAML frontmatter delimiters; take the first non-
+        // header content line.
+        const firstLine = out
+            .split(/\r?\n/)
+            .map((l) => l.trim())
+            .find((l) => l.length > 0 && !l.startsWith("---") && !l.startsWith("#")) ??
+            out.slice(0, 120);
+        lines.push(`**${truncate(firstLine, 220)}**`);
+
+        const rest = out.split(/\r?\n/).slice(out.split(/\r?\n/).indexOf(firstLine) + 1).join("\n").trim();
+        if (rest) {
+            lines.push("");
+            lines.push("```quote");
+            lines.push(truncate(rest, 700));
+            lines.push("```");
+        }
+    } else {
+        lines.push(`✅ **${agentLabel}** finished — no output.`);
     }
-    lines.push(`✅ **${agentLabel}** finished${duration_s ? ` in ${formatDuration(duration_s)}` : ""}.`);
-    if (output) {
-        lines.push("");
-        lines.push("```quote");
-        lines.push(truncate(output, 800));
-        lines.push("```");
-    }
+
+    // Compact meta footer — one line, much smaller than the prior
+    // "You asked: <full prompt>" block.
     lines.push("");
-    lines.push(`_Full output:_ \`hai task show ${task_id}\` or [open in API](${haiUrl})`);
+    lines.push("---");
+    const taskHint = content
+        ? `_${agentLabel}, ${duration_s ? formatDuration(duration_s) : "done"} · task: ${truncate(content, 80)}_`
+        : `_${agentLabel}, ${duration_s ? formatDuration(duration_s) : "done"}_`;
+    lines.push(taskHint);
+    lines.push(`_${adminName} — full output: \`hai task show ${task_id}\` · [api](${haiUrl})_`);
 
     const content_md = lines.join("\n");
 

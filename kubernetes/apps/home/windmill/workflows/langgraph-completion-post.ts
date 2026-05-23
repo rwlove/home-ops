@@ -57,21 +57,22 @@ export async function main(
         lines.push(`✅ **${agentLabel}** finished — no output.`);
     }
 
-    // Compact meta footer — one line, much smaller than the prior
-    // "You asked: <full prompt>" block.
+    // Compact meta footer — one line, clickable. Italic uses `*...*`
+    // (Zulip's renderer treats `_..._` as literal underscores).
     //
-    // Italic uses `*...*`, NOT `_..._`. Zulip's markdown renderer
-    // recognizes asterisk-italics but treats single-underscores as
-    // literal characters. The prior `_..._` wrapping showed the
-    // underscores verbatim in the DM (ugly noise around the agent
-    // label / duration / task hint / hai link).
+    // Dropped from previous shape (visible-noise audit 2026-05-23):
+    //   - "task: <truncated content>" — body already conveys the ask
+    //   - "ADMIN — full output:" salutation — this IS a DM to ADMIN
+    //   - bare `hai task show <ULID>` — duplicates the URL link target
+    //   - separate "api" mini-link — promoted to the main "open task"
+    //
+    // Kept: agent label (debugging), duration (cost/latency signal),
+    // one clickable URL (HTTPS so it works on every surface incl.
+    // Gmail forwards).
     lines.push("");
     lines.push("---");
-    const taskHint = content
-        ? `*${agentLabel}, ${duration_s ? formatDuration(duration_s) : "done"} · task: ${truncate(content, 80)}*`
-        : `*${agentLabel}, ${duration_s ? formatDuration(duration_s) : "done"}*`;
-    lines.push(taskHint);
-    lines.push(`*${adminName} — full output: \`hai task show ${task_id}\` · [api](${haiUrl})*`);
+    const durStr = duration_s ? formatDuration(duration_s) : "done";
+    lines.push(`*${agentLabel} · ${durStr} · [open task ↗](${haiUrl})*`);
 
     const content_md = lines.join("\n");
 

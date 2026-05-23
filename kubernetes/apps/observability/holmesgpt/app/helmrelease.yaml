@@ -59,7 +59,18 @@ spec:
               # right ceiling. Investigation transcript in #11961 body.
               MODEL: ollama/qwen2.5:32b
               OLLAMA_API_BASE: http://ollama-spark.ai.svc.cluster.local:11434
-              OVERRIDE_MAX_CONTENT_SIZE: "16384"
+              # Raised 16384 → 32768 on 2026-05-23 to give Holmes' tool-loop
+              # room. The prior 16K cap meant a kubectl_logs payload could
+              # exhaust context BEFORE the synthesis pass — Holmes then
+              # returned a raw tool_call JSON instead of prose. 32K stays
+              # well inside qwen2.5:32b's 128K capability and the Spark
+              # memory envelope. Per-call latency rises with context size
+              # (linear-ish for Ollama-served qwen2.5), so monitor for
+              # alerts that now blow the 600s LITELLM_REQUEST_TIMEOUT —
+              # extend that next if needed, not the model size.
+              # See [[reference_qwen25_72b_infeasible_on_spark]] in memory
+              # for why "just go bigger" isn't an option on Spark.
+              OVERRIDE_MAX_CONTENT_SIZE: "32768"
               OVERRIDE_MAX_OUTPUT_TOKEN: "4096"
               # Upstream default 600s. Verified safe on Spark +
               # qwen2.5:32b 2026-05-21: 18 LLM calls observed in a real

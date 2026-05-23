@@ -1,7 +1,7 @@
 # Windmill workflow source
 
 These TypeScript scripts are the source-of-truth for the Windmill
-flows that replaced n8n in the `lovenet` workspace.
+flows that replaced in the `lovenet` workspace.
 
 Runtime lives in the Windmill DB; this directory is the *checked-in
 canonical text*. Push to Windmill via the API (see `tools/wmill-sync.sh`

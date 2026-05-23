@@ -5,7 +5,7 @@
 //   4 hr    → POST /admin/tasks/<id>/timeout-tier {tier: "4h"} (mark cold)
 //   7 day   → POST /admin/tasks/<id>/cancel (auto-cancel)
 //
-// Replaces the n8n flow "LangGraph → Awaiting-user sweep".
+// Replaces the flow "LangGraph → Awaiting-user sweep".
 
 type Task = {
     task_id: string;

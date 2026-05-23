@@ -8,7 +8,7 @@
 // langgraph-agents worker handles the graph invocation in the
 // background. Poll for completion before posting to Zulip.
 //
-// Replaces the n8n flow "LangGraph → Daily digest".
+// Replaces the flow "LangGraph → Daily digest".
 
 type InboxResp = { task_id?: string; status?: string };
 type AdminTaskResp = {

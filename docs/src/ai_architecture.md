@@ -111,7 +111,7 @@ only fires once Langfuse keys are populated in 1Password).
 
 There are **12 Windmill TypeScript workflows** in the repo today;
 they're all under `kubernetes/apps/home/windmill/workflows/`. There is
-**no n8n** — its flows were ported during the ntfy/Zulip approval
+No legacy orchestration substrate; flows were ported during the ntfy/Zulip approval
 migration.
 
 ## Inference backends

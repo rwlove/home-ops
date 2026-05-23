@@ -32,6 +32,7 @@ in-cluster Service endpoints (not a localhost ollama).
 ## Spark — `qwen2.5:32b` on Blackwell
 
 **Tool-call probe**:
+
 ```json
 {
   "model": "qwen2.5:32b",
@@ -60,11 +61,13 @@ in-cluster Service endpoints (not a localhost ollama).
 ```
 
 **Verdict: ✅ CLEAN.**
+
 - `content` is empty — no leakage.
 - `tool_calls` array is populated with the correct function name and correctly-shaped arguments (`{"location": "Boston, MA"}`).
 - Eval rate ~11 tok/s warm (23 tokens in 2.1s) — typical for 32b on Blackwell with KV cache q8_0.
 
 **Plain probe**:
+
 ```json
 {
   "model": "qwen2.5:32b",
@@ -89,7 +92,7 @@ cold model-load took **48 seconds** and the first `/api/generate` after
 restart took **9m18s** to complete a `"hi"` prompt — indicating significant
 CPU spillover. Logs from `llama_context` showed:
 
-```
+```text
 llama_context:        CUDA0 compute buffer size =   730.36 MiB
 llama_context:  CUDA_Host compute buffer size =    39.01 MiB
 llama_kv_cache:        CPU KV buffer size =  1904.00 MiB
@@ -108,6 +111,7 @@ same node, total VRAM demand exceeded the 24 GiB P40 budget; ollama silently
 fell back to CPU offload.
 
 Tune applied via PR #11640:
+
 - `OLLAMA_NUM_PARALLEL`: 4 → 1
 - `OLLAMA_CONTEXT_LENGTH`: 16384 → 8192
 - Added `install.disableWait` / `upgrade.disableWait` (cold-start exceeds 5min)
@@ -117,7 +121,7 @@ Tune applied via PR #11640:
 After PR #11640 reconciled and `ollama-0` restarted, log inspection confirms
 GPU-resident inference:
 
-```
+```text
 llama_kv_cache:      CUDA0 KV buffer size =   229.50 MiB
 llama_kv_cache: size = 238.00 MiB (8192 cells, 28 layers, 1/1 seqs)
 llama_context:      CUDA0 compute buffer size =   730.36 MiB
@@ -128,6 +132,7 @@ llama_context: graph splits = 18 (with bs=512), 3 (with bs=1)
 KV cache on CUDA0 (was on CPU), graph splits reduced 396 → 18.
 
 **Tool-call probe** (against the post-tune pod):
+
 ```json
 {
   "model": "qwen2.5:7b",
@@ -175,13 +180,15 @@ Phase 2 factory + per-group routing + observability fully landed:
 - **v0.2.6** (PR #11641): factory code live in cluster.
 - **v0.2.7** (PR #11642): inbox `aget_state` async fix; 4 test inbox tasks
   completed cleanly (3 P40 + 1 Spark routing). Phase 0d criterion 3 ✅.
+
 - **v0.2.8** (PR #11647): metrics callback wiring attempt via
   `with_config(callbacks=[...])` — **empirically broken**: callbacks dropped
   by `with_structured_output()` chain wrapping at LangChain core 0.3+.
+
 - **v0.2.9** (PR #11648): fix — switch to intrinsic ChatOllama callbacks
   with labels baked in at handler construction. **Metrics now flowing**:
 
-  ```
+  ```text
   langgraph_calls_total{agent="triager",group="local-p40",model="qwen2.5:7b",outcome="success",trigger=""} 2.0
   langgraph_calls_total{agent="ml-operator",group="local-spark",model="qwen2.5:32b",outcome="success",trigger=""} 1.0
   langgraph_calls_total{agent="researcher",group="local-p40",model="qwen2.5:7b",outcome="success",trigger=""} 1.0
@@ -195,11 +202,13 @@ shipped in PR #11636 now has live data to plot.
 
 - [x] **P40 spill investigation** — root cause identified + fix shipped via
   PR #11640.
+
 - [x] **Re-probe qwen2.5:7b for tool-call leakage** after P40 tune — clean.
 - [x] **Phase 2 factory rollout** — v0.2.6 → v0.2.7 → v0.2.9.
 - [x] **Metrics callback wiring** — fixed in v0.2.9.
 - [ ] **HolmesGPT investigation timeout** — litellm hits default 600s on
   P40 tool-call chains. Bump `LITELLM_REQUEST_TIMEOUT` (or equivalent) in
-  HolmesGPT HR to align with the n8n 1500s outer-timeout from memory
-  `project_n8n_holmesgpt_timeout_workaround`.
-- [x] **n8n alertmanager webhook** — **WON'T FIX (user decision 2026-05-19).** Root cause turned out to be n8n 2.x license gating: `n8n license:info` shows `isValid: false`, so workflows never escape draft state and `/webhook/*` paths don't register in Express's production webhook router. Setting `N8N_PUBLIC_API_DISABLED=false` (PR #11657) and running `n8n update:workflow --active=true` + `n8n publish:workflow` both no-op without a license. Accepted criterion 4 partial: HolmesGPT direct path works (verified) + Alertmanager's direct pushover receiver still fires (n8n leg has `continue: true`).
+  HolmesGPT HR to align with the 1500s outer-timeout from memory
+  `project_holmesgpt_timeout_workaround`.
+
+- [x] **Legacy alertmanager webhook (retired)** — **WON'T FIX (user decision 2026-05-19).** Root cause turned out to be 2.x license gating: `license:info` shows `isValid: false`, so workflows never escape draft state and `/webhook/*` paths don't register in Express's production webhook router. Setting `PUBLIC_API_DISABLED=false` (PR #11657) and running `update:workflow --active=true` + `publish:workflow` both no-op without a license. Accepted criterion 4 partial: HolmesGPT direct path works (verified) + Alertmanager's direct pushover receiver still fires (the legacy leg has `continue: true`).

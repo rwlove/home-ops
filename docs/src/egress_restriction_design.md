@@ -92,14 +92,14 @@ Grouped from the 51 CNPs by destination shape:
 | Container registries — pull-through via ZOT | n/a (in-cluster ZOT) | covered by `toEndpoints` | Already restricted |
 | S3 to AWS (offsite backups) | immich, paperless rclone CronJobs | `world:443` | Medium (AWS S3 IP ranges are published but rotate) |
 | LAN-internal hosts (host identity) | longhorn→beast NFS, snmp/omada→LAN devices | `toEntities: [host, remote-node, world]` mix | Already non-internet but `world` is the catch-all |
-| Truly broad / user-driven | home-assistant, esphome, n8n, node-red, searxng, glance, glance-user, open-webui, runners | `world:443` (sometimes + 80) | Inherently broad |
+| Truly broad / user-driven | home-assistant, esphome, node-red, searxng, glance, glance-user, open-webui, runners | `world:443` (sometimes + 80) | Inherently broad |
 | ESPHome compile / runners arbitrary code | esphome/code, actions-runner-system/runners | `world` + `matchPattern: "*"` | Inherently broad |
 
 **Distinct legitimate external destinations** (deduped across all apps):
 roughly 25-30 FQDN families. The bulk of `world:443` rules collapse to
 ~6 categories: GitHub/GHCR, HuggingFace + R2, 1Password (cloud + Connect),
 Cloudflare API, ACME endpoints, Mailgun, Pushover, Anthropic. The
-rest — home-assistant, esphome, searxng, n8n, runners, ESPHome
+rest — home-assistant, esphome, searxng, runners, ESPHome
 compile, recipe scrapers, etc. — are *inherently* broad because the
 operator-installable surface is user-driven.
 
@@ -235,7 +235,7 @@ silently down" — the operationally-safer direction.
 attacker gets one trip out before the alert fires. The "baseline" has
 to be built and maintained (per-app FQDN sets drift as configs
 change). Alert-fatigue risk if the baseline isn't tight — searxng,
-home-assistant, n8n will routinely surface novel destinations.
+home-assistant, will routinely surface novel destinations.
 
 **Verdict:** **Adopt as primary.** Detection plus per-app narrowing
 (approach F below) where genuinely tractable.
@@ -251,7 +251,7 @@ A focused, targeted second pass on the existing CNPs:
   FQDNs. Already the pattern in actions-runner-controller,
   media-pull-stack quality-rules app, pump-cv, github-mcp, paperless-ai.
 - For apps with **inherently unbounded** egress (home-assistant,
-  esphome, n8n, node-red, searxng, glance, glance-user, open-webui,
+  esphome, node-red, searxng, glance, glance-user, open-webui,
   runners, esphome/code, home-assistant/code): leave `world:443` and
   document the design decision in a per-CNP comment.
 - For apps that fall in between (e.g. ai/ollama, ai/comfyui pulling
@@ -405,7 +405,7 @@ browser-verification step on each.
 
 ### Phase 3 — Unbounded-app posture (1 week, design + documentation)
 
-For the unbounded population (home-assistant, esphome, n8n, node-red,
+For the unbounded population (home-assistant, esphome, node-red,
 searxng, glance, glance-user, open-webui, runners, /code variants):
 
 1. **Don't try to baseline.** The baseline would churn constantly

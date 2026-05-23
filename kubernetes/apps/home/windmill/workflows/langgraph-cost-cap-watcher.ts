@@ -5,7 +5,7 @@
 //
 // Endpoint may 404 until Langfuse phase is online — we degrade gracefully.
 //
-// Replaces the n8n flow "LangGraph → Cost cap watcher".
+// Replaces the flow "LangGraph → Cost cap watcher".
 
 type CostsResponse = {
     spent_usd?: number;

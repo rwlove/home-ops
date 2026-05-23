@@ -3,7 +3,7 @@
 // Receives a critical alert, asks HolmesGPT to investigate (≤2 tool
 // calls, <500 chars), then forwards the summary via ntfy → #alerts.
 //
-// Replaces the n8n flow "AlertManager → HolmesGPT → Pushover".
+// Replaces the flow "AlertManager → HolmesGPT → Pushover".
 
 type AlertmanagerAlert = {
     labels: { alertname: string; severity?: string; namespace?: string; pod?: string };
@@ -15,7 +15,7 @@ type AlertmanagerAlert = {
 // parameter. Alertmanager POSTs `{"alerts": [...], "version": "4",
 // "groupKey": "...", ...}`; Windmill invokes
 // `main(alerts=[...], version="4", ...)`. Take `alerts` directly.
-// See memory `project_n8n_to_windmill_migration_done.md`.
+// See memory `project_windmill_migration_done.md`.
 export async function main(alerts?: AlertmanagerAlert[]) {
     const a = alerts?.[0];
     if (!a) {

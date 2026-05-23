@@ -93,7 +93,7 @@ PVC; readOnlyRootFilesystem should land with at most a `tmpfs`
 24 HelmRelease-owned workloads set `fsGroup` but not
 `fsGroupChangePolicy: OnRootMismatch`. Cosmetic for already-chowned
 PVCs, but adds startup latency on large volumes (Immich, paperless,
-n8n). One-line fix per app:
+similar Node-style apps). One-line fix per app:
 
 ```text
 ai/{langgraph-agents}
@@ -124,7 +124,7 @@ test cycle:
 - `media/beets` (config + library import)
 - `media/romm` (scan state)
 - `home/home-assistant` (Python venvs, writes `__pycache__`)
-- `home/n8n`, `home/node-red` (Node-style app dirs)
+- `home/node-red` (Node-style app dirs)
 - `home/emqx` (Erlang VM cache)
 - `home/esphome-code`, `home/home-assistant-code` (code-server: writes
   to `/home/coder` — already PVC-backed, ROOTFS itself should be

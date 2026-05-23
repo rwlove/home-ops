@@ -1,6 +1,6 @@
 # Windmill
 
-FOSS workflow automation tool, replacing n8n. See the migration plan in
+FOSS workflow automation tool, replacing. See the migration plan in
 `docs/src/audit/` and the steady-marshmallow plan at
 `~/.claude-personal/plans/i-want-you-to-steady-marshmallow.md`.
 
@@ -115,6 +115,6 @@ Deploy" + workspace git-sync feature.
 
 Workspace `lovenet` already created via API for this purpose.
 
-Source-of-truth n8n workflows (to be migrated) live at
-`../n8n/workflows/*.json`. After cutover, that directory + the n8n
+Source-of-truth workflows (to be migrated) live at
+
 namespace go away (Phase 3).

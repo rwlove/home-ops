@@ -244,7 +244,7 @@ from an idealized in-cluster path that bypasses the failure mode.
   follow-up fixes shipped as separate PRs.
 - **Conservative defaults for "tool" or "scan" apps** that fan out
   arbitrarily (renovate scan jobs, GitHub actions runners,
-  search-engine scrapers like searxng, smart-home glue like n8n and
+  search-engine scrapers like searxng, smart-home glue like and
   home-assistant): use `toEntities: [world]` with comment explaining
   the by-design broad allow.
 - **Reusable kustomize components**: `network-policy/baseline` (5

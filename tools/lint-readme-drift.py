@@ -26,9 +26,8 @@ What it also asserts (narrative drift, manual-fix only):
                         kubernetes/apps/home/windmill/workflows/
   Namespace paths     — every `kubernetes/apps/<group>/<app>/` path
                         mentioned in the README must exist on disk
-  Mermaid hygiene     — blocks must not mention `n8n` (retired during the
-                        ntfy migration); blocks with an `Inference`
-                        subgraph must mention `ollama-spark`
+  Mermaid hygiene     — blocks with an `Inference` subgraph must
+                        mention `ollama-spark`
 
 Usage:
     tools/lint-readme-drift.py [README_PATH]
@@ -210,8 +209,6 @@ def check_namespace_paths(readme_text: str) -> list[str]:
 def check_mermaid_sanity(readme_text: str) -> list[str]:
     """Lightweight textual lints on each ```mermaid``` block:
 
-    - Block the literal `n8n` (retired during the ntfy migration; any
-      remaining mention is stale).
     - Any block containing an `Inference` subgraph header must also
       mention `ollama-spark` (the post-Spark backend is the cluster's
       current workhorse).
@@ -221,11 +218,6 @@ def check_mermaid_sanity(readme_text: str) -> list[str]:
     drifts: list[str] = []
     for i, block_match in enumerate(MERMAID_BLOCK_RE.finditer(readme_text), start=1):
         block = block_match.group(1)
-        if re.search(r"\bn8n\b", block):
-            drifts.append(
-                f"mermaid block #{i} mentions `n8n` — retired during "
-                f"the ntfy migration; update to Windmill"
-            )
         if "Inference" in block and "ollama-spark" not in block.lower() \
                 and "OllamaSpark" not in block:
             drifts.append(

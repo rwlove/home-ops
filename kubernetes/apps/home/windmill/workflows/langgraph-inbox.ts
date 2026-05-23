@@ -3,10 +3,10 @@
 // Forwards the inbox payload to langgraph-agents /inbox. If the agent
 // pauses (status=paused), runs the approval-post logic inline (ntfy
 // push with tap-actions + Zulip audit card) so there's no second
-// webhook hop, unlike n8n where the flow POSTed back to its own
+// webhook hop, unlike where the flow POSTed back to its own
 // /webhook/ URL.
 //
-// Replaces the n8n flow "LangGraph → Inbox webhook".
+// Replaces the flow "LangGraph → Inbox webhook".
 
 import { crypto } from "https://deno.land/std@0.224.0/crypto/mod.ts";
 

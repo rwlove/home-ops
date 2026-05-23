@@ -120,6 +120,15 @@ spec:
             type: file
     dashboards:
       ai:
+        aihomeops-state:
+          # Single-pane "what is HomeAIOps doing right now" view. Mixes
+          # Prometheus (cost cap, paused-thread gauges, per-agent activity),
+          # Loki (Holmes loop + DM fan-out), and Postgres (recent
+          # completions from `task_queue`). Companion — not replacement —
+          # to the langgraph-agents (LLM mechanics) and task-queue
+          # (lifecycle) dashboards.
+          datasource: Prometheus
+          url: https://raw.githubusercontent.com/rwlove/home-ops/main/kubernetes/apps/observability/grafana/dashboards/aihomeops-state.json
         langgraph-agents:
           datasource: Prometheus
           url: https://raw.githubusercontent.com/rwlove/home-ops/main/kubernetes/apps/observability/grafana/dashboards/langgraph-agents.json
@@ -269,11 +278,33 @@ spec:
             version: 1
 
             withCredentials: false
+          # Read-only Postgres datasource for the langgraph-agents
+          # checkpointer + task_queue. Backs the "Recent completions"
+          # panel on the HomeAIOps State dashboard. Uses the CNPG
+          # superuser cred already in grafana-secret; only SELECT
+          # queries from dashboards reach this datasource (Grafana is
+          # anonymous-Admin internally; readonly enforcement is the
+          # role's job upstream — see note below).
+          - access: proxy
+            basicAuth: false
+            database: langgraph_checkpoints
+            jsonData:
+              postgresVersion: 1700
+              sslmode: disable
+            name: langgraph_checkpoints
+            secureJsonData:
+              password: $__env{POSTGRES_PASS}
+            type: postgres
+            url: postgres-langgraph-checkpoints-ro.databases.svc.cluster.local:5432
+            user: $__env{POSTGRES_USER}
+            version: 1
+            withCredentials: false
         deleteDatasources:
           - {name: Alertmanager, orgId: 1}
           - {name: Loki, orgId: 1}
           - {name: Prometheus, orgId: 1}
           - {name: home_assistant, orgId: 1}
+          - {name: langgraph_checkpoints, orgId: 1}
     env:
       GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: false
       GF_ANALYTICS_CHECK_FOR_UPDATES: false

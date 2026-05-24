@@ -40,12 +40,21 @@ export async function main() {
     const client_task_id = `digest-${date}`;
 
     // Step 1: enqueue the digest task. Returns 202 + queue_task_id.
+    //
+    // `target_agent: "historian"` pins the daily-digest cron to the
+    // historian agent (its docstring: "activity log curator + daily/
+    // weekly/monthly accomplishment digests"). Without the pin, the
+    // qwen2.5:7b triager has to pick "historian" out of 20 alternatives
+    // from the prompt "Generate today's daily digest" — high enough
+    // mis-routing risk that a single bad routing decision on the
+    // 22:00 cron means Rob's daily summary doesn't arrive. Cheap fix.
     const lgResp = await fetch(`${LG_BASE}/inbox`, {
         method: "POST",
         headers: { ...lgaHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({
             task_id: client_task_id,
-            source: "test",
+            source: "scheduled",
+            target_agent: "historian",
             content: "Generate today's daily digest from the per-agent activity logs.",
             user: "rob",
         }),

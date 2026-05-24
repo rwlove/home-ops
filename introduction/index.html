@@ -3094,7 +3094,7 @@ _Production-grade Kubernetes for a household._
 | **Paperless-ngx** | Document scanning, OCR, tagging (CNPG-backed, offsite-backed) |
 | **Obsidian** + **obsidian-couchdb** | Notes sync (CouchDB w/ Cloudflare rate-limiting) |
 | **Zulip** | Self-hosted team chat (also wired into agent pipeline approvals) |
-| **Windmill** | Workflow automation; 19 checked-in TypeScript flows under `kubernetes/apps/home/windmill/workflows/` cover AlertManager → HolmesGPT, langgraph inbox/approval/digest/DLQ/cost-cap/awaiting-user/reviewer-weekly, weekly storage-health sweep, paperless RAG ingest+tombstone, Zulip triager webhook, the workaround upstream-watcher, and the errand-runner approval-flow smoke driver |
+| **Windmill** | Workflow automation; 22 checked-in TypeScript flows under `kubernetes/apps/home/windmill/workflows/` cover AlertManager → HolmesGPT, langgraph inbox/approval/digest/DLQ/cost-cap/awaiting-user/reviewer-weekly, weekly operator drift sweeps (storage / network / ml / observability), paperless RAG ingest+tombstone, Zulip triager webhook, the workaround upstream-watcher, and the errand-runner approval-flow smoke driver |
 | **ntfy** | Self-hosted push notifications (operator approvals via Android tap actions) |
 | **BentoPDF** | Self-hosted PDF toolkit |
 | **Kitchenowl** | Shopping lists + recipe / meal management |
@@ -3153,7 +3153,7 @@ references behind every claim here.</p>
         AM[AlertManager]
     end
 
-    subgraph Bridges[Windmill bridges&lt;br/&gt;19 TS workflows]
+    subgraph Bridges[Windmill bridges&lt;br/&gt;22 TS workflows]
         WInbox[langgraph-inbox.ts]
         WAlert[alertmanager-holmesgpt-notify.ts]
         WApprove[langgraph-approval-post/receive.ts]
@@ -3214,7 +3214,7 @@ in 1Password.</p>
 <li><strong>Khoj</strong> (<code>ai/</code>) — parallel personal-AI surface for notes + docs. Self-contained: own embedding pipeline (default gte-small, optionally ollama nomic-embed-text), chat via Ollama-P40. Does <strong>not</strong> consume MCP gateway or langgraph-agents.</li>
 <li><strong>HolmesGPT</strong> (<code>observability/</code>) — the only agent live in production. AlertManager firings reach it via Windmill's <code>alertmanager-holmesgpt-notify.ts</code>; it reasons over Prometheus + Loki + cluster state and posts a root-cause hypothesis to Zulip / ntfy. Open WebUI also surfaces it as a tool server.</li>
 <li><strong>langgraph-agents</strong> (<code>ai/</code>) — the FastAPI multi-agent runtime (<code>rwlove/langgraph-agents</code>, image <code>0.2.33</code>). Plumbed end-to-end (Postgres checkpoints + memory, live task-queue substrate in <code>postgres-langgraph-checkpoints</code>, vault PVCs, Windmill approval loop, cost caps in env) but cold: <code>ENABLE_CLAUDE_API: false</code> and no production triggers. Public ingress splits CLI traffic (<code>hai.${SECRET_DOMAIN}</code>, Bearer-only) from browser traffic (<code>hai-web.${SECRET_DOMAIN}</code>, Authelia). Goes hot when the Claude key lands in 1Password.</li>
-<li><strong>Windmill</strong> (<code>home/</code>) — 19 checked-in TypeScript flows under <code>kubernetes/apps/home/windmill/workflows/</code> are the bridges that knit the surfaces above together. Every alert webhook, Zulip-triggered DM, approval round-trip, daily digest, weekly vault-hygiene sweep, weekly storage-health sweep, DLQ retry, cost-cap pause, Paperless RAG ingest, and the errand-runner approval-flow smoke driver is a <code>.ts</code> file there.</li>
+<li><strong>Windmill</strong> (<code>home/</code>) — 22 checked-in TypeScript flows under <code>kubernetes/apps/home/windmill/workflows/</code> are the bridges that knit the surfaces above together. Every alert webhook, Zulip-triggered DM, approval round-trip, daily digest, weekly vault-hygiene sweep, weekly operator drift sweeps (storage / network / ml / observability), DLQ retry, cost-cap pause, Paperless RAG ingest, and the errand-runner approval-flow smoke driver is a <code>.ts</code> file there.</li>
 <li><strong>Langfuse</strong> (<code>ai/</code>) — OTLP trace sink for langgraph-agents. Chart deploys ClickHouse + Valkey + MinIO bundled; Postgres comes from CNPG <code>postgres-langfuse</code>.</li>
 <li><strong>memory-mcp</strong> (<code>mcp-system/</code>) — cross-agent knowledge graph on <code>postgres-langgraph-memory</code> with pgvector(1024). bge-m3 embeds via Ollama-Spark.</li>
 </ul>

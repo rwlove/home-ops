@@ -37,6 +37,8 @@ type AdminTaskResp = {
 };
 
 const LG_BASE = "http://langgraph-agents.ai.svc.cluster.local:8765";
+const PROM_BASE =
+    "http://kube-prometheus-stack-prometheus.observability.svc.cluster.local:9090";
 const POLL_INTERVAL_MS = 5_000;
 const POLL_TIMEOUT_MS = 900_000; // 15 min — storage-operator may walk many
                                   // resources (25 CNPG clusters, Ceph state,
@@ -45,6 +47,66 @@ const POLL_TIMEOUT_MS = 900_000; // 15 min — storage-operator may walk many
 function lgaHeaders(): Record<string, string> {
     const tok = Deno.env.get("HAI_CLI_TOKEN");
     return tok ? { Authorization: `Bearer ${tok}` } : {};
+}
+
+// PromQL helper. The agent has empty MCP tools today (see
+// `reference_agent_fleet_tool_binding_gap` in memory): every operator
+// node uses `with_structured_output()` over `state.content` without
+// dynamically querying anything. So this workflow pre-fetches the data
+// the agent needs and passes it inline. Path 2 of the tool-binding
+// workaround.
+//
+// All in-cluster queries — kube-prometheus-stack-prometheus is the
+// canonical Prom in this cluster; the CNP `cnp-allow.yaml` for
+// windmill grants egress to it on port 9090.
+async function promQuery(query: string): Promise<unknown> {
+    try {
+        const r = await fetch(
+            `${PROM_BASE}/api/v1/query?query=${encodeURIComponent(query)}`,
+            { signal: AbortSignal.timeout(15_000) },
+        );
+        if (!r.ok) {
+            return { error: `HTTP ${r.status}`, query };
+        }
+        const body = await r.json().catch(() => ({ error: "json parse failed" }));
+        return body;
+    } catch (e) {
+        return { error: (e as Error).message, query };
+    }
+}
+
+// Format a Prom instant-vector response as a compact human-readable
+// list (top N samples by value desc). Agents do better with prose-like
+// summaries than raw JSON; raw JSON is included only on errors so the
+// human in the loop can debug.
+function formatPromInstantVector(
+    label: string,
+    resp: unknown,
+    topN: number = 20,
+    valFormat: (v: number) => string = (v) => v.toFixed(2),
+): string {
+    const r = resp as { status?: string; data?: { result?: Array<{ metric: Record<string, string>; value: [number, string] }> }; error?: string };
+    if (r.error) {
+        return `### ${label}\n_(error fetching: ${r.error})_\n`;
+    }
+    if (r.status !== "success" || !r.data?.result) {
+        return `### ${label}\n_(unexpected response shape)_\n`;
+    }
+    const rows = r.data.result;
+    if (rows.length === 0) {
+        return `### ${label}\n_(no samples)_\n`;
+    }
+    const sorted = [...rows].sort((a, b) => parseFloat(b.value[1]) - parseFloat(a.value[1]));
+    const lines = sorted.slice(0, topN).map((row) => {
+        const labels = Object.entries(row.metric)
+            .filter(([k]) => k !== "__name__")
+            .slice(0, 4)
+            .map(([k, v]) => `${k}=${v}`)
+            .join(" ");
+        return `- \`${labels}\` → ${valFormat(parseFloat(row.value[1]))}`;
+    });
+    const truncatedNote = rows.length > topN ? `\n_(...${rows.length - topN} more truncated)_` : "";
+    return `### ${label}\n${lines.join("\n")}${truncatedNote}\n`;
 }
 
 // ISO week — same helper shape as langgraph-reviewer-weekly.ts. Kept
@@ -68,12 +130,68 @@ export async function main() {
     const weekStr = `${year}-W${String(week).padStart(2, "0")}`;
     const client_task_id = `storage-health-${weekStr}`;
 
-    // Storage-operator's persona expects a clear scope statement plus
-    // an explicit "Class A only" constraint to keep the sweep from
-    // overreaching into proposed remediations the operator hasn't
-    // signed off on. The agent's eight-clause execution gate would
-    // catch most overreach anyway, but a clear scope hint reduces
-    // wasted reasoning on bigger gate evaluations.
+    // Pre-fetch cluster state in parallel. The agent has no MCP tool
+    // bindings today; without this enrichment block the prompt asks
+    // questions like "what's the PV fill" and the agent responds with
+    // empty fields. With this block the agent gets a structured
+    // snapshot it can actually reason about. See [[reference_agent_fleet_tool_binding_gap]].
+    const [pvcFillResp, cephHealthResp, cephNearfullResp, longhornBackupResp, pgBarmanResp] = await Promise.all([
+        // PVC fill: only flag >80%. `kubelet_volume_stats_*` is the
+        // canonical source; works for ceph-block, longhorn, NFS-PV.
+        promQuery(
+            "100 * (kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes) > 80",
+        ),
+        // Ceph cluster health (0=ok, 1=warn, 2=err per rook-ceph
+        // exporter convention).
+        promQuery("ceph_health_status"),
+        // Ceph OSDs at >75% capacity.
+        promQuery("100 * (ceph_osd_stat_bytes_used / ceph_osd_stat_bytes) > 75"),
+        // Longhorn backup-job last-success age (seconds). Anything
+        // >7d for weekly-* and >32d for monthly-* is the surveillance
+        // signal.
+        promQuery(
+            "(time() - longhorn_recurring_job_last_success_time) / 86400",
+        ),
+        // CNPG Barman last-successful-backup age (seconds → days).
+        promQuery(
+            "(time() - cnpg_collector_last_failed_backup_timestamp) / 86400",
+        ),
+    ]);
+
+    const evidenceBlock = [
+        "## Pre-fetched cluster evidence (Prometheus snapshot)",
+        "",
+        formatPromInstantVector(
+            "PVCs >80% used (top 20)",
+            pvcFillResp,
+            20,
+            (v) => `${v.toFixed(1)}% used`,
+        ),
+        formatPromInstantVector(
+            "Ceph health status (0=ok, 1=warn, 2=err)",
+            cephHealthResp,
+            5,
+        ),
+        formatPromInstantVector(
+            "Ceph OSDs >75% capacity",
+            cephNearfullResp,
+            20,
+            (v) => `${v.toFixed(1)}% used`,
+        ),
+        formatPromInstantVector(
+            "Longhorn recurring-jobs days-since-last-success",
+            longhornBackupResp,
+            20,
+            (v) => `${v.toFixed(1)} days ago`,
+        ),
+        formatPromInstantVector(
+            "CNPG Barman backup days-since-last-success (top 25 clusters)",
+            pgBarmanResp,
+            25,
+            (v) => `${v.toFixed(1)} days ago`,
+        ),
+    ].join("\n");
+
     const promptBody = [
         "WEEKLY STORAGE HEALTH SWEEP — Class A analysis only.",
         "",
@@ -103,6 +221,8 @@ export async function main() {
         "",
         "Reference: storage-class.instructions.md for the durability",
         "matrix per backend.",
+        "",
+        evidenceBlock,
     ].join("\n");
 
     const lgResp = await fetch(`${LG_BASE}/inbox`, {

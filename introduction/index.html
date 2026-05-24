@@ -563,10 +563,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#current-state-2026-05-21" class="md-nav__link">
+  <a href="#current-state-2026-05-23" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Current state (2026-05-21)
+        Current state (2026-05-23)
       
     </span>
   </a>
@@ -2424,10 +2424,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#current-state-2026-05-21" class="md-nav__link">
+  <a href="#current-state-2026-05-23" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Current state (2026-05-21)
+        Current state (2026-05-23)
       
     </span>
   </a>
@@ -3010,7 +3010,7 @@ _Production-grade Kubernetes for a household._
 </details>
 
 <details>
-<summary>🤖 <b>AI & ML</b> — Local inference, agents, image generation (namespace <code>ai/</code>, plus <code>automation/</code> for claude-runner)</summary>
+<summary>🤖 <b>AI & ML</b> — Local inference, agents, image generation (namespace <code>ai/</code>)</summary>
 
 | App | Purpose |
 |-----|---------|
@@ -3018,9 +3018,8 @@ _Production-grade Kubernetes for a household._
 | **Ollama Spark** | LLM serving on Spark/GB10 (qwen2.5:32b for the agent fleet + HolmesGPT + Open WebUI, bge-m3 embeddings) |
 | **ComfyUI** | Image generation workflows |
 | **Khoj** + **khoj-oauth2-proxy** | Personal AI assistant over notes + docs (Authelia-gated) |
-| **LangGraph Agents** | Custom multi-agent runtime (`rwlove/langgraph-agents`, image `0.2.30`); Postgres-checkpointed with live `task_queue` + `task_dlq` substrate; MCP-gateway client. See **AI architecture** section below. |
+| **LangGraph Agents** | Custom multi-agent runtime (`rwlove/langgraph-agents`, image `0.2.33`); Postgres-checkpointed with live `task_queue` + `task_dlq` substrate; MCP-gateway client. See **AI architecture** section below. |
 | **Langfuse** | LLM observability — OTLP trace sink for the langgraph-agents fleet (CNPG-backed; ClickHouse/Valkey/MinIO bundled) |
-| **claude-runner** (namespace `automation/`) | Cron-driven Claude Code workflows — daily Renovate PR triage + Claude-spend projection cards to Zulip |
 | **Paperless-AI** | Auto-tagging for paperless-ngx |
 | **sync-receiver** | Cross-host AI state sync endpoint |
 | **tei-spark** | Text-embedding-inference reranker (unsuspended 2026-05-21) |
@@ -3165,14 +3164,12 @@ references behind every claim here.</p>
     subgraph Agents[Agents]
         Holmes[HolmesGPT&lt;br/&gt;✅ live · qwen2.5:32b]
         LG[langgraph-agents&lt;br/&gt;🟡 plumbed, cold]
-        CR[claude-runner&lt;br/&gt;✅ live · cron-only]
     end
 
     subgraph Inference[Inference]
         OllamaP40[(ollama / P40&lt;br/&gt;qwen2.5:7b · embeddings)]
         OllamaSpark[(ollama-spark / GB10&lt;br/&gt;qwen2.5:32b · bge-m3)]
         Claude[(Claude API)]
-        CC[(Claude Code CLI)]
     end
 
     subgraph Tools[Tools + retrieval]
@@ -3204,8 +3201,6 @@ references behind every claim here.</p>
     LG --&gt; Gw --&gt; Mem
     LG -.-&gt;|OTLP| LF
     WPaperless --&gt; Q
-    CR --&gt; CC
-    CR --&gt;|gh MCP| Gw
     LG --&gt; WApprove --&gt; Zulip &amp; Ntfy
     LG --&gt; Vault
     Holmes --&gt; Zulip
@@ -3218,11 +3213,10 @@ in 1Password.</p>
 <li><strong>Open WebUI</strong> (<code>collab/</code>) — primary chat UI. Defaults to qwen2.5:32b on Ollama-Spark; users can switch to any langgraph agent via the OpenAI-compatible API. RAG runs over Qdrant with bge-m3 embeds + BGE reranker-v2-m3 in-process. Tool servers wired in: HolmesGPT + the MCP gateway.</li>
 <li><strong>Khoj</strong> (<code>ai/</code>) — parallel personal-AI surface for notes + docs. Self-contained: own embedding pipeline (default gte-small, optionally ollama nomic-embed-text), chat via Ollama-P40. Does <strong>not</strong> consume MCP gateway or langgraph-agents.</li>
 <li><strong>HolmesGPT</strong> (<code>observability/</code>) — the only agent live in production. AlertManager firings reach it via Windmill's <code>alertmanager-holmesgpt-notify.ts</code>; it reasons over Prometheus + Loki + cluster state and posts a root-cause hypothesis to Zulip / ntfy. Open WebUI also surfaces it as a tool server.</li>
-<li><strong>langgraph-agents</strong> (<code>ai/</code>) — the FastAPI multi-agent runtime (<code>rwlove/langgraph-agents</code>, image <code>0.2.30</code>). Plumbed end-to-end (Postgres checkpoints + memory, live task-queue substrate in <code>postgres-langgraph-checkpoints</code>, vault PVCs, Windmill approval loop, cost caps in env) but cold: <code>ENABLE_CLAUDE_API: false</code> and no public route except <code>/approval</code>. Goes hot when the Claude key lands in 1Password.</li>
-<li><strong>claude-runner</strong> (<code>automation/</code>) — separate escalation lane. Two daily CronJobs (<code>pr-triage</code> 13:00 UTC, <code>cost-cap-commentary</code> 22:00 UTC) launch the Claude Code CLI with a <code>gh</code> MCP allowlist, post Zulip cards, then exit. Stateless; never consumes langgraph-agents.</li>
-<li><strong>Windmill</strong> (<code>home/</code>) — 16 checked-in TypeScript flows under <code>kubernetes/apps/home/windmill/workflows/</code> are the bridges that knit the surfaces above together. Every alert webhook, Zulip-triggered DM, approval round-trip, daily digest, DLQ retry, cost-cap pause, and Paperless RAG ingest is a <code>.ts</code> file there. was retired during the ntfy migration.</li>
+<li><strong>langgraph-agents</strong> (<code>ai/</code>) — the FastAPI multi-agent runtime (<code>rwlove/langgraph-agents</code>, image <code>0.2.33</code>). Plumbed end-to-end (Postgres checkpoints + memory, live task-queue substrate in <code>postgres-langgraph-checkpoints</code>, vault PVCs, Windmill approval loop, cost caps in env) but cold: <code>ENABLE_CLAUDE_API: false</code> and no production triggers. Public ingress splits CLI traffic (<code>hai.${SECRET_DOMAIN}</code>, Bearer-only) from browser traffic (<code>hai-web.${SECRET_DOMAIN}</code>, Authelia). Goes hot when the Claude key lands in 1Password.</li>
+<li><strong>Windmill</strong> (<code>home/</code>) — 16 checked-in TypeScript flows under <code>kubernetes/apps/home/windmill/workflows/</code> are the bridges that knit the surfaces above together. Every alert webhook, Zulip-triggered DM, approval round-trip, daily digest, DLQ retry, cost-cap pause, and Paperless RAG ingest is a <code>.ts</code> file there.</li>
 <li><strong>Langfuse</strong> (<code>ai/</code>) — OTLP trace sink for langgraph-agents. Chart deploys ClickHouse + Valkey + MinIO bundled; Postgres comes from CNPG <code>postgres-langfuse</code>.</li>
-<li><strong>memory-mcp</strong> (<code>mcp-system/</code>) — cross-agent knowledge graph on <code>postgres-langgraph-memory</code> with pgvector(1024). bge-m3 embeds via Ollama-Spark. Same surface for langgraph agents and claude-runner.</li>
+<li><strong>memory-mcp</strong> (<code>mcp-system/</code>) — cross-agent knowledge graph on <code>postgres-langgraph-memory</code> with pgvector(1024). bge-m3 embeds via Ollama-Spark.</li>
 </ul>
 <h3 id="agent-fleet--activation-status">Agent fleet — activation status<a class="headerlink" href="#agent-fleet--activation-status" title="Permanent link">&para;</a></h3>
 <table>
@@ -3240,18 +3234,13 @@ in 1Password.</p>
 <td>✅ live</td>
 </tr>
 <tr>
-<td><code>claude-runner pr-triage</code></td>
-<td>Daily Renovate-PR summarization to Zulip</td>
-<td>✅ live</td>
-</tr>
-<tr>
-<td><code>claude-runner cost-cap-commentary</code></td>
-<td>Daily LangGraph + Claude spend projection</td>
-<td>✅ live</td>
-</tr>
-<tr>
 <td><code>supervisor</code></td>
 <td>Routes work to specialist agents; opens approvals</td>
+<td>🟡 cold</td>
+</tr>
+<tr>
+<td><code>triager</code></td>
+<td>Classifies inbound items, assigns owner agent</td>
 <td>🟡 cold</td>
 </tr>
 <tr>
@@ -3270,13 +3259,13 @@ in 1Password.</p>
 <td>🟡 cold</td>
 </tr>
 <tr>
-<td><code>triager</code></td>
-<td>Classifies inbound items, assigns owner agent</td>
+<td><code>reporter</code></td>
+<td>Universal final hop — composes user-facing DM from upstream agent output</td>
 <td>🟡 cold</td>
 </tr>
 <tr>
-<td><code>reporter</code></td>
-<td>Daily digests, summaries, status rollups</td>
+<td><code>historian</code></td>
+<td>Activity log curator + daily/weekly/monthly accomplishment digests</td>
 <td>🟡 cold</td>
 </tr>
 <tr>
@@ -3290,6 +3279,21 @@ in 1Password.</p>
 <td>🟡 cold</td>
 </tr>
 <tr>
+<td><code>network-operator</code></td>
+<td>Lovenet L1–L7 ops (Omada SDN, Cilium BGP, VLANs, DNS, certs)</td>
+<td>🟡 cold</td>
+</tr>
+<tr>
+<td><code>storage-operator</code></td>
+<td>Ceph + Longhorn + Garage + CNPG + Barman + NFS planning</td>
+<td>🟡 cold</td>
+</tr>
+<tr>
+<td><code>observability-operator</code></td>
+<td>Prometheus rules, AlertManager routing, Loki, Grafana, HolmesGPT prompt tuning</td>
+<td>🟡 cold</td>
+</tr>
+<tr>
 <td><code>smart-home-operator</code></td>
 <td>Home Assistant entities, automations, ESPHome configs</td>
 <td>🟡 cold</td>
@@ -3297,6 +3301,21 @@ in 1Password.</p>
 <tr>
 <td><code>ml-operator</code></td>
 <td>Frigate, Immich CLIP, model tuning</td>
+<td>🟡 cold</td>
+</tr>
+<tr>
+<td><code>security</code></td>
+<td>Surveillance + physical-security analyst (Frigate triage)</td>
+<td>🟡 cold</td>
+</tr>
+<tr>
+<td><code>auditor</code></td>
+<td>CVE + vulnerability researcher (kubectl + OSV + GH Advisory)</td>
+<td>🟡 cold</td>
+</tr>
+<tr>
+<td><code>artist</code></td>
+<td>Image generation via ComfyUI MCP</td>
 <td>🟡 cold</td>
 </tr>
 <tr>
@@ -3351,11 +3370,6 @@ inference.</p>
 <td>Claude API (langgraph escalation)</td>
 <td>Explicit uncertainty markers, repeated local-retry failure, novel/long-context, or <code>requires_cloud</code> tag. Cost caps <code>$5/task</code> · <code>$10/agent/day</code> · <code>$30/global/day</code> enforced inside the cluster</td>
 </tr>
-<tr>
-<td>4</td>
-<td>Claude Code (claude-runner CronJobs)</td>
-<td>Cron-scheduled PR-triage + cost-cap-commentary only; not invoked by any agent path</td>
-</tr>
 </tbody>
 </table>
 <h3 id="voice-to-action-power-button--ha-assist--agents--obsidian">Voice-to-action: power button → HA Assist → agents → Obsidian<a class="headerlink" href="#voice-to-action-power-button--ha-assist--agents--obsidian" title="Permanent link">&para;</a></h3>
@@ -3402,11 +3416,11 @@ inference.</p>
 <li>HolmesGPT queries Prometheus, Loki, and the cluster directly to build a root-cause hypothesis</li>
 <li>Result posted back as a Pushover message + Zulip thread; the Windmill workflow sanitizes raw tool-call descriptors out of the agent text before delivery</li>
 </ul>
-<h3 id="current-state-2026-05-21">Current state (2026-05-21)<a class="headerlink" href="#current-state-2026-05-21" title="Permanent link">&para;</a></h3>
+<h3 id="current-state-2026-05-23">Current state (2026-05-23)<a class="headerlink" href="#current-state-2026-05-23" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>HolmesGPT</strong> — live, handling cluster alerts daily on Ollama-Spark / qwen2.5:32b.</li>
-<li><strong>claude-runner</strong> — live (PR triage 13:00 UTC + cost-cap commentary 22:00 UTC). Watching useful-card rate; kill criteria documented in the app's in-tree README.</li>
-<li><strong>LangGraph fleet</strong> — plumbed but cold (<code>ENABLE_CLAUDE_API: false</code>, no public route except <code>/approval</code>). Gated on the Claude API key + a cluster-confidence sign-off; the Spark migration that was the prior gate completed 2026-05-20.</li>
+<li><strong>LangGraph fleet</strong> — 21 specialist agents plumbed end-to-end but cold (<code>ENABLE_CLAUDE_API: false</code>, no production triggers). Public ingress split into CLI (<code>hai.${SECRET_DOMAIN}</code>, Bearer) and browser (<code>hai-web.${SECRET_DOMAIN}</code>, Authelia). Gated on the Claude API key + a cluster-confidence sign-off; the Spark migration that was the prior gate completed 2026-05-20.</li>
+<li><strong>claude-runner</strong> — retired 2026-05-23. Superseded by the langgraph fleet; the two CronJobs (PR triage + cost-cap commentary) graduated into agent workflows inside langgraph-agents.</li>
 <li><strong>KubeClaw</strong> — retired (memo <code>project_open_issues_cleanup_2026_05_20</code>).</li>
 </ul>
 <hr />

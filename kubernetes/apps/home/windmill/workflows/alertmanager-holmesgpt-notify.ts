@@ -28,7 +28,10 @@ export async function main(alerts?: AlertmanagerAlert[]) {
     // as `MCP error -32602`-style output and surfaces as "model
     // returned a tool-call instead of a summary." Tightening:
     //
-    //  - Explicit budget on tool calls (at most 2).
+    //  - Explicit budget on tool calls (at most 6, raised from 2
+    //    2026-05-23 — 2 was too tight for multi-step investigations
+    //    like SnmpExporterApcUpsAbsent that need `get pods` then
+    //    `describe pod` then `get events` to converge).
     //  - Explicit ban on additional tool calls after the budget.
     //  - Format pinned to a 2-line prose answer (root cause +
     //    remediation), forbidding JSON / structured output / further
@@ -36,14 +39,18 @@ export async function main(alerts?: AlertmanagerAlert[]) {
     //
     // Keep it short; long prompts are themselves a budget problem
     // (Holmes' system prompt + tool descriptions are already ~16K
-    // input tokens before this `ask`).
+    // input tokens before this `ask` — see OVERRIDE_MAX_CONTENT_SIZE
+    // in the HelmRelease, raised to 32K 2026-05-23 to give bigger
+    // tool-result payloads room to land).
     const ask = [
-        "Investigate this alert. Use AT MOST 2 tool calls",
-        "(typically kubectl_get_events on the namespace plus one other).",
+        "Investigate this alert. Use AT MOST 6 tool calls.",
+        "Reach for `kubectl_get_events`, `kubectl_get`, `kubectl_describe`,",
+        "and `kubectl_logs` as needed. Stop early when you have enough",
+        "evidence — converge as fast as the alert allows.",
         "",
-        "After the 2nd tool returns, you MUST produce your final answer",
-        "as plain text — NOT another tool call, NOT JSON, NOT structured",
-        "output. Stop calling tools and write prose.",
+        "After your investigation completes, you MUST produce your",
+        "final answer as plain text — NOT another tool call, NOT JSON,",
+        "NOT structured output. Stop calling tools and write prose.",
         "",
         "Final answer format (<500 characters total, two sentences max):",
         "  1) one sentence on the most likely root cause",
@@ -79,8 +86,23 @@ export async function main(alerts?: AlertmanagerAlert[]) {
         if (fallback && !isToolCallShape(fallback)) {
             message = `${fallback}\n\n_(Holmes' tool-loop wanted to: ${hint})_`;
         } else {
-            message = `⚠️ Holmes investigation incomplete — wanted to call ${hint}. ` +
-                `Re-prompt for prose also failed. Investigate manually.`;
+            // Both passes failed (empty `{}` or another tool_call shape).
+            // Don't let Rob receive an actionless card — include the
+            // alert metadata + what Holmes would have done next, so
+            // there's something to act on even when AI synthesis flopped.
+            // Tighter than the previous "Investigate manually." stub.
+            const summary = a.annotations.summary ?? a.annotations.description ?? "(no summary)";
+            message = [
+                `⚠️ Holmes couldn't synthesize a root cause. Alert details below — operator triage required.`,
+                ``,
+                `**Alert**: ${a.labels.alertname}`,
+                `**Severity**: ${a.labels.severity ?? "unknown"}`,
+                `**Namespace**: ${a.labels.namespace ?? "(global)"}`,
+                `**Pod**: ${a.labels.pod ?? "n/a"}`,
+                `**Summary**: ${summary}`,
+                ``,
+                `_(Holmes' tool-loop wanted to: ${hint} — try running it manually.)_`,
+            ].join("\n");
         }
     } else if (raw.length <= 1000) {
         message = raw;

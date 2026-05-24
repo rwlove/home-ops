@@ -25,12 +25,64 @@ type AdminTaskResp = {
 };
 
 const LG_BASE = "http://langgraph-agents.ai.svc.cluster.local:8765";
+const PROM_BASE =
+    "http://kube-prometheus-stack-prometheus.observability.svc.cluster.local:9090";
 const POLL_INTERVAL_MS = 5_000;
 const POLL_TIMEOUT_MS = 900_000;
 
 function lgaHeaders(): Record<string, string> {
     const tok = Deno.env.get("HAI_CLI_TOKEN");
     return tok ? { Authorization: `Bearer ${tok}` } : {};
+}
+
+// PromQL helper — same shape as langgraph-storage-weekly.ts. Workflows
+// pre-fetch cluster state so the agent reasons over real data instead
+// of empty fields from a contentless prompt. See
+// [[reference_agent_fleet_tool_binding_gap]] in memory.
+async function promQuery(query: string): Promise<unknown> {
+    try {
+        const r = await fetch(
+            `${PROM_BASE}/api/v1/query?query=${encodeURIComponent(query)}`,
+            { signal: AbortSignal.timeout(15_000) },
+        );
+        if (!r.ok) {
+            return { error: `HTTP ${r.status}`, query };
+        }
+        const body = await r.json().catch(() => ({ error: "json parse failed" }));
+        return body;
+    } catch (e) {
+        return { error: (e as Error).message, query };
+    }
+}
+
+function formatPromInstantVector(
+    label: string,
+    resp: unknown,
+    topN: number = 20,
+    valFormat: (v: number) => string = (v) => v.toFixed(2),
+): string {
+    const r = resp as { status?: string; data?: { result?: Array<{ metric: Record<string, string>; value: [number, string] }> }; error?: string };
+    if (r.error) {
+        return `### ${label}\n_(error fetching: ${r.error})_\n`;
+    }
+    if (r.status !== "success" || !r.data?.result) {
+        return `### ${label}\n_(unexpected response shape)_\n`;
+    }
+    const rows = r.data.result;
+    if (rows.length === 0) {
+        return `### ${label}\n_(no samples)_\n`;
+    }
+    const sorted = [...rows].sort((a, b) => parseFloat(b.value[1]) - parseFloat(a.value[1]));
+    const lines = sorted.slice(0, topN).map((row) => {
+        const labels = Object.entries(row.metric)
+            .filter(([k]) => k !== "__name__")
+            .slice(0, 4)
+            .map(([k, v]) => `${k}=${v}`)
+            .join(" ");
+        return `- \`${labels}\` → ${valFormat(parseFloat(row.value[1]))}`;
+    });
+    const truncatedNote = rows.length > topN ? `\n_(...${rows.length - topN} more truncated)_` : "";
+    return `### ${label}\n${lines.join("\n")}${truncatedNote}\n`;
 }
 
 function isoWeek(d: Date): { year: number; week: number } {
@@ -50,6 +102,72 @@ export async function main() {
     const { year, week } = isoWeek(now);
     const weekStr = `${year}-W${String(week).padStart(2, "0")}`;
     const client_task_id = `ml-health-${weekStr}`;
+
+    // Pre-fetch ML/inference cluster state in parallel. The agent
+    // has no MCP tool bindings today, so without this evidence block
+    // the agent has nothing concrete to reason about. See
+    // [[reference_agent_fleet_tool_binding_gap]].
+    //
+    // GB10 DCGM caveat: per `[[reference_gpu_resource_matrix]]` only
+    // POWER_USAGE + SM_CLOCK report on GB10; GR_ENGINE_ACTIVE +
+    // FB_USED are stuck at 0 (silent broken). So for Spark we use
+    // power-draw-as-proxy; P40 has all the standard DCGM signals.
+    const [
+        gpuPowerResp,
+        gpuUtilResp,
+        ollamaInflightResp,
+        nodeMemorySaturationResp,
+        scrapeDownResp,
+    ] = await Promise.all([
+        // Per-GPU power draw — works on both P40 (Pascal) and GB10 (Spark)
+        promQuery("DCGM_FI_DEV_POWER_USAGE"),
+        // P40 utilization — broken on GB10, will be empty for Spark
+        promQuery("DCGM_FI_DEV_GPU_UTIL"),
+        // Ollama in-flight requests — exposed on both ollama (P40)
+        // and ollama-spark services if metrics are scraped
+        promQuery("ollama_active_requests"),
+        // GPU node memory pressure (worker8 + spark) — GPU workloads
+        // often push memory; this catches imminent OOMs.
+        promQuery(
+            'sum(container_memory_working_set_bytes{namespace=~"ai|mcp-system"}) by (pod) > 1e9',
+        ),
+        // ServiceMonitor scrape failures for ai + mcp-system —
+        // catches when an LLM service stops being scraped.
+        promQuery('up{namespace=~"ai|mcp-system"} == 0'),
+    ]);
+
+    const evidenceBlock = [
+        "## Pre-fetched cluster evidence (Prometheus snapshot)",
+        "",
+        formatPromInstantVector(
+            "GPU power draw (watts) — both P40 + Spark GB10",
+            gpuPowerResp,
+            10,
+            (v) => `${v.toFixed(0)} W`,
+        ),
+        formatPromInstantVector(
+            "GPU utilization (P40 only — GB10 DCGM broken)",
+            gpuUtilResp,
+            10,
+            (v) => `${v.toFixed(0)}%`,
+        ),
+        formatPromInstantVector(
+            "Ollama in-flight requests",
+            ollamaInflightResp,
+            10,
+        ),
+        formatPromInstantVector(
+            "AI/MCP pod memory >1GB (top 10)",
+            nodeMemorySaturationResp,
+            10,
+            (v) => `${(v / 1e9).toFixed(2)} GB`,
+        ),
+        formatPromInstantVector(
+            "AI/MCP scrape targets DOWN (should be empty)",
+            scrapeDownResp,
+            10,
+        ),
+    ].join("\n");
 
     const promptBody = [
         "WEEKLY ML / INFERENCE HEALTH SWEEP — Class A analysis only.",
@@ -82,6 +200,8 @@ export async function main() {
         "evidence + one-sentence rationale + recommended next step.",
         "",
         "Reference: docs/src/ai_architecture.md, gpu-routing.md.",
+        "",
+        evidenceBlock,
     ].join("\n");
 
     const lgResp = await fetch(`${LG_BASE}/inbox`, {

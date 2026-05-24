@@ -3018,7 +3018,7 @@ _Production-grade Kubernetes for a household._
 | **Ollama Spark** | LLM serving on Spark/GB10 (qwen2.5:32b for the agent fleet + HolmesGPT + Open WebUI, bge-m3 embeddings) |
 | **ComfyUI** | Image generation workflows |
 | **Khoj** + **khoj-oauth2-proxy** | Personal AI assistant over notes + docs (Authelia-gated) |
-| **LangGraph Agents** | Custom multi-agent runtime (`rwlove/langgraph-agents`, image `0.2.33`); Postgres-checkpointed with live `task_queue` + `task_dlq` substrate; MCP-gateway client. See **AI architecture** section below. |
+| **LangGraph Agents** | Custom multi-agent runtime (`rwlove/langgraph-agents`, version pinned in `helmrelease.yaml`); Postgres-checkpointed with live `task_queue` + `task_dlq` substrate; MCP-gateway client. See **AI architecture** section below. |
 | **Langfuse** | LLM observability — OTLP trace sink for the langgraph-agents fleet (CNPG-backed; ClickHouse/Valkey/MinIO bundled) |
 | **Paperless-AI** | Auto-tagging for paperless-ngx |
 | **sync-receiver** | Cross-host AI state sync endpoint |
@@ -3212,8 +3212,8 @@ in 1Password.</p>
 <ul>
 <li><strong>Open WebUI</strong> (<code>collab/</code>) — primary chat UI. Defaults to qwen2.5:32b on Ollama-Spark; users can switch to any langgraph agent via the OpenAI-compatible API. RAG runs over Qdrant with bge-m3 embeds + BGE reranker-v2-m3 in-process. Tool servers wired in: HolmesGPT + the MCP gateway.</li>
 <li><strong>Khoj</strong> (<code>ai/</code>) — parallel personal-AI surface for notes + docs. Self-contained: own embedding pipeline (default gte-small, optionally ollama nomic-embed-text), chat via Ollama-P40. Does <strong>not</strong> consume MCP gateway or langgraph-agents.</li>
-<li><strong>HolmesGPT</strong> (<code>observability/</code>) — the only agent live in production. AlertManager firings reach it via Windmill's <code>alertmanager-holmesgpt-notify.ts</code>; it reasons over Prometheus + Loki + cluster state and posts a root-cause hypothesis to Zulip / ntfy. Open WebUI also surfaces it as a tool server.</li>
-<li><strong>langgraph-agents</strong> (<code>ai/</code>) — the FastAPI multi-agent runtime (<code>rwlove/langgraph-agents</code>, image <code>0.2.33</code>). Plumbed end-to-end (Postgres checkpoints + memory, live task-queue substrate in <code>postgres-langgraph-checkpoints</code>, vault PVCs, Windmill approval loop, cost caps in env) but cold: <code>ENABLE_CLAUDE_API: false</code> and no production triggers. Public ingress splits CLI traffic (<code>hai.${SECRET_DOMAIN}</code>, Bearer-only) from browser traffic (<code>hai-web.${SECRET_DOMAIN}</code>, Authelia). Goes hot when the Claude key lands in 1Password.</li>
+<li><strong>HolmesGPT</strong> (<code>observability/</code>) — live in production for alert triage. AlertManager firings reach it via Windmill's <code>alertmanager-holmesgpt-notify.ts</code>; it reasons over Prometheus + Loki + cluster state and posts a root-cause hypothesis to Zulip / ntfy. Open WebUI also surfaces it as a tool server. Prompt + context budget tuned for qwen2.5:32b on Spark (32K context, 6 tool-call budget per investigation).</li>
+<li><strong>langgraph-agents</strong> (<code>ai/</code>) — the FastAPI multi-agent runtime (<code>rwlove/langgraph-agents</code>, version pinned in <code>helmrelease.yaml</code>). Plumbed end-to-end (Postgres checkpoints + memory, live task-queue substrate in <code>postgres-langgraph-checkpoints</code>, vault PVCs, Windmill approval loop, cost caps in env). Trigger surface live: alertmanager → 6 namespace-mapped operators, daily 22:00 ET historian digest, weekly Saturday operator drift crons (ml / observability / network / reviewer / storage), errand-runner approval-flow smoke. <code>ENABLE_CLAUDE_API: false</code> so Claude API escalation is still gated. Public ingress splits CLI traffic (<code>hai.${SECRET_DOMAIN}</code>, Bearer-only) from browser traffic (<code>hai-web.${SECRET_DOMAIN}</code>, Authelia).</li>
 <li><strong>Windmill</strong> (<code>home/</code>) — 22 checked-in TypeScript flows under <code>kubernetes/apps/home/windmill/workflows/</code> are the bridges that knit the surfaces above together. Every alert webhook, Zulip-triggered DM, approval round-trip, daily digest, weekly vault-hygiene sweep, weekly operator drift sweeps (storage / network / ml / observability), DLQ retry, cost-cap pause, Paperless RAG ingest, and the errand-runner approval-flow smoke driver is a <code>.ts</code> file there.</li>
 <li><strong>Langfuse</strong> (<code>ai/</code>) — OTLP trace sink for langgraph-agents. Chart deploys ClickHouse + Valkey + MinIO bundled; Postgres comes from CNPG <code>postgres-langfuse</code>.</li>
 <li><strong>memory-mcp</strong> (<code>mcp-system/</code>) — cross-agent knowledge graph on <code>postgres-langgraph-memory</code> with pgvector(1024). bge-m3 embeds via Ollama-Spark.</li>
@@ -3234,99 +3234,99 @@ in 1Password.</p>
 <td>✅ live</td>
 </tr>
 <tr>
-<td><code>supervisor</code></td>
-<td>Routes work to specialist agents; opens approvals</td>
-<td>🟡 cold</td>
-</tr>
-<tr>
 <td><code>triager</code></td>
 <td>Classifies inbound items, assigns owner agent</td>
-<td>🟡 cold</td>
+<td>✅ live · default route for every untargeted <code>/inbox</code></td>
 </tr>
 <tr>
-<td><code>researcher</code></td>
-<td>Web + repo + vault research</td>
-<td>🟡 cold</td>
-</tr>
-<tr>
-<td><code>coder</code></td>
-<td>Code reading, drafting, PR descriptions</td>
-<td>🟡 cold</td>
-</tr>
-<tr>
-<td><code>reviewer</code></td>
-<td>Reviews drafts before they reach the operator</td>
-<td>🟡 cold</td>
-</tr>
-<tr>
-<td><code>reporter</code></td>
-<td>Universal final hop — composes user-facing DM from upstream agent output</td>
-<td>🟡 cold</td>
+<td><code>supervisor</code></td>
+<td>Routes work to specialist agents; opens approvals</td>
+<td>✅ live · in-graph fallback</td>
 </tr>
 <tr>
 <td><code>historian</code></td>
 <td>Activity log curator + daily/weekly/monthly accomplishment digests</td>
-<td>🟡 cold</td>
+<td>✅ live · daily 22:00 ET cron</td>
 </tr>
 <tr>
-<td><code>note-maker</code></td>
-<td>Captures decisions + facts back into the vault</td>
-<td>🟡 cold</td>
+<td><code>reporter</code></td>
+<td>Universal final hop — composes user-facing DM from upstream agent output</td>
+<td>✅ live · in-graph terminus</td>
 </tr>
 <tr>
-<td><code>homelab-engineer</code></td>
-<td>Cluster ops, HelmRelease drafting, PR-shaped output</td>
-<td>🟡 cold</td>
-</tr>
-<tr>
-<td><code>network-operator</code></td>
-<td>Lovenet L1–L7 ops (Omada SDN, Cilium BGP, VLANs, DNS, certs)</td>
-<td>🟡 cold</td>
+<td><code>reviewer</code></td>
+<td>Vault hygiene: aging TODOs, drift findings, dead <code>[[wiki-links]]</code></td>
+<td>✅ live · weekly Sat 06:00 ET cron</td>
 </tr>
 <tr>
 <td><code>storage-operator</code></td>
 <td>Ceph + Longhorn + Garage + CNPG + Barman + NFS planning</td>
-<td>🟡 cold</td>
+<td>✅ live · alertmanager + weekly Sun 07:00 ET cron</td>
+</tr>
+<tr>
+<td><code>network-operator</code></td>
+<td>Lovenet L1–L7 ops (Omada SDN, Cilium BGP, VLANs, DNS, certs)</td>
+<td>✅ live · alertmanager + weekly Sat 04:00 ET cron</td>
 </tr>
 <tr>
 <td><code>observability-operator</code></td>
 <td>Prometheus rules, AlertManager routing, Loki, Grafana, HolmesGPT prompt tuning</td>
-<td>🟡 cold</td>
+<td>✅ live · alertmanager + weekly Sat 03:00 ET cron</td>
+</tr>
+<tr>
+<td><code>ml-operator</code></td>
+<td>Frigate, Immich CLIP, model tuning, GPU placement</td>
+<td>✅ live · alertmanager + weekly Sat 02:00 ET cron</td>
 </tr>
 <tr>
 <td><code>smart-home-operator</code></td>
 <td>Home Assistant entities, automations, ESPHome configs</td>
-<td>🟡 cold</td>
+<td>✅ live · alertmanager + intent-drift cron</td>
 </tr>
 <tr>
-<td><code>ml-operator</code></td>
-<td>Frigate, Immich CLIP, model tuning</td>
-<td>🟡 cold</td>
+<td><code>homelab-engineer</code></td>
+<td>Cluster ops, HelmRelease drafting, PR-shaped output</td>
+<td>✅ live · alertmanager default-route</td>
+</tr>
+<tr>
+<td><code>researcher</code></td>
+<td>Web + repo + vault research</td>
+<td>✅ live · hourly renovate-triage cron</td>
+</tr>
+<tr>
+<td><code>errand-runner</code></td>
+<td>Class C+ MCP-write executor (the only agent that calls MCP write)</td>
+<td>✅ live · in-graph after approval · local-only</td>
+</tr>
+<tr>
+<td><code>note-maker</code></td>
+<td>Captures decisions + facts back into the vault</td>
+<td>🟡 reachable via <code>/inbox</code> (HA voice "inbox …"); no recurring trigger</td>
+</tr>
+<tr>
+<td><code>coder</code></td>
+<td>Code reading, drafting, PR descriptions</td>
+<td>🟡 reachable via <code>/inbox</code>; no recurring trigger</td>
 </tr>
 <tr>
 <td><code>security</code></td>
 <td>Surveillance + physical-security analyst (Frigate triage)</td>
-<td>🟡 cold</td>
+<td>🟡 cold · needs Frigate HTTP client wiring</td>
 </tr>
 <tr>
 <td><code>auditor</code></td>
 <td>CVE + vulnerability researcher (kubectl + OSV + GH Advisory)</td>
-<td>🟡 cold</td>
+<td>🟡 cold · needs OSV/GHSA client wiring</td>
 </tr>
 <tr>
 <td><code>artist</code></td>
 <td>Image generation via ComfyUI MCP</td>
-<td>🟡 cold</td>
-</tr>
-<tr>
-<td><code>errand-runner</code></td>
-<td>One-shot real-world tasks</td>
-<td>🟡 cold · local-only</td>
+<td>🟡 cold · needs ComfyUI MCP allowlist populated</td>
 </tr>
 <tr>
 <td><code>property-coordinator</code></td>
 <td>3532 Foxhall workstreams (contractors, deck, pool)</td>
-<td>🟡 cold</td>
+<td>🟡 cold · ad-hoc <code>/inbox</code> only</td>
 </tr>
 <tr>
 <td><code>health-tracker</code></td>
@@ -3340,7 +3340,8 @@ in 1Password.</p>
 </tr>
 </tbody>
 </table>
-<p>✅ live · 🟡 plumbed but cold (<code>ENABLE_CLAUDE_API: false</code>, no production triggers) · 🟥 not built</p>
+<p>✅ live · 🟡 wired but not on a recurring trigger or blocked on tool wiring · 🟥 not built</p>
+<p><strong>Tool-binding gap (load-bearing caveat):</strong> All ✅-live agents above use <code>with_structured_output()</code> against the prompt content they receive. Only <code>errand-runner</code> actually calls MCP at runtime. Operator weekly drift crons produce LLM reasoning over the prompt — they do NOT dynamically query Prometheus / kubectl / Omada / etc. (the MCP allowlists exist, but the LLM call doesn't bind them as tools). Adding ReAct-style tool-binding to an agent is a deferred architectural step.</p>
 <p><code>health-tracker</code> and <code>errand-runner</code> are pinned local-only at the
 routing layer — they never escalate to Claude API regardless of agent
 uncertainty, because the data class isn't suitable for off-site

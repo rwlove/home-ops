@@ -200,11 +200,38 @@ Cross-agent shared memory, not user-facing.
 
 | Agent | Surface | Status | Notes |
 |---|---|---|---|
-| HolmesGPT | `holmesgpt.observability` | ✅ live | qwen2.5:32b on ollama-spark; AlertManager-driven RCA; also a tool server for Open WebUI |
-| supervisor / researcher / coder / reviewer / triager / reporter / note-maker / homelab-engineer / smart-home-operator / ml-operator / errand-runner / property-coordinator / health-tracker | langgraph-agents fleet | 🟡 plumbed, cold | `ENABLE_CLAUDE_API: false`, no public route except `/approval`. Image `ghcr.io/rwlove/langgraph-agents:0.2.30` (post queue-substrate cutover, PR #11905 — #11891 was the initial attempt that #11901 reverted). Vault PVCs mounted; checkpoint + memory Postgres ready; queue substrate (`task_queue` + `task_dlq` tables) live in `postgres-langgraph-checkpoints` and the migration ran cleanly on 2026-05-21. Gated on Claude key + cluster confidence. |
+| HolmesGPT | `holmesgpt.observability` | ✅ live | qwen2.5:32b on ollama-spark; AlertManager-driven RCA; also a tool server for Open WebUI. Prompt + context budget tuned 2026-05-23 (32K context, 6 tool-call budget). |
+| triager | langgraph-agents fleet | ✅ live | Default route for every untargeted `/inbox`. Voice ("inbox …") + Zulip-DM ingress. qwen2.5:7b on P40. |
+| supervisor | langgraph-agents fleet | ✅ live | In-graph fallback router when a specialist rejects work. |
+| reporter | langgraph-agents fleet | ✅ live | Universal in-graph terminus — every chain ends here, rendering raw state into user-facing markdown. |
+| historian | langgraph-agents fleet | ✅ live | Daily 22:00 ET activity-log digest → Zulip `#digests`. Pinned via `target_agent` in `langgraph-daily-digest.ts`. |
+| reviewer | langgraph-agents fleet | ✅ live | Weekly Sat 06:00 ET vault hygiene sweep (aging TODOs, drift findings, dead `[[wiki-links]]`). |
+| storage-operator | langgraph-agents fleet | ✅ live | Alertmanager `rook-ceph` + `databases` namespaces + weekly Sun 07:00 ET drift sweep. |
+| network-operator | langgraph-agents fleet | ✅ live | Alertmanager `network` namespace + weekly Sat 04:00 ET Lovenet drift sweep. |
+| observability-operator | langgraph-agents fleet | ✅ live | Alertmanager `observability` namespace + weekly Sat 03:00 ET PrometheusRule/silence/flap drift. |
+| ml-operator | langgraph-agents fleet | ✅ live | Alertmanager `ai` + `mcp-system` namespaces + weekly Sat 02:00 ET GPU/Ollama/Frigate drift. |
+| smart-home-operator | langgraph-agents fleet | ✅ live | Alertmanager `home` + `collab` namespaces + intent-drift cron. |
+| homelab-engineer | langgraph-agents fleet | ✅ live | Alertmanager default route for any unmapped namespace. |
+| researcher | langgraph-agents fleet | ✅ live | Hourly renovate-triage cron (drafts a Zulip card per open Renovate PR). |
+| errand-runner | langgraph-agents fleet | ✅ live | The only agent that calls MCP write (HA, paperless, etc.). Gated on signed approval token. |
+| note-maker | langgraph-agents fleet | 🟡 wired | Reachable via `/inbox` (HA voice "inbox …"); no recurring trigger. |
+| coder | langgraph-agents fleet | 🟡 wired | Reachable via `/inbox`; no recurring trigger. |
+| security | langgraph-agents fleet | 🟡 cold | Needs Frigate HTTP client wiring (no Frigate MCP exists). |
+| auditor | langgraph-agents fleet | 🟡 cold | Needs OSV.dev / GHSA HTTP client wiring (no direct query path). |
+| artist | langgraph-agents fleet | 🟡 cold | Needs ComfyUI MCP allowlist populated (gateway deployed, agent's allowlist is intentional stub). |
+| property-coordinator | langgraph-agents fleet | 🟡 cold | Ad-hoc `/inbox` only; no recurring trigger. |
+| health-tracker | langgraph-agents fleet | 🟡 cold · local-only | Manual /inbox from Obsidian; data class restricts to local only. |
 | doc-writer (Scribner) | langgraph-agents (planned) | 🟥 aspirational | Not built. Goal: drafts README + `docs/` patches as diffs when commits land. |
-| claude-runner pr-triage | `automation/claude-runner` CronJob | ✅ live | Daily 13:00 UTC. Reads open PRs via gh MCP, posts one Zulip card per PR. |
-| claude-runner cost-cap-commentary | `automation/claude-runner` CronJob | ✅ live | Daily 22:00 UTC. Projects monthly Claude spend, flags if trending past `$30/mo`. |
+
+> **Tool-binding gap (load-bearing caveat).** Every ✅-live agent
+> above except `errand-runner` uses `with_structured_output()`
+> against the prompt content it receives — it reasons over text but
+> does NOT dynamically query its MCP allowlist. Operator weekly
+> drift crons produce LLM reasoning over the prompt, not
+> data-grounded analysis. The per-agent MCP allowlist is the
+> declared scope for *future* tool-binding (ReAct-style); the
+> binding itself is the next architectural step. See
+> `reference_agent_fleet_tool_binding_gap` in memory.
 
 `health-tracker` and `errand-runner` are pinned local-only at the
 routing layer — they never escalate to Claude API regardless of agent

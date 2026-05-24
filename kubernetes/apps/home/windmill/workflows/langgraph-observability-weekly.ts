@@ -27,12 +27,62 @@ type AdminTaskResp = {
 };
 
 const LG_BASE = "http://langgraph-agents.ai.svc.cluster.local:8765";
+const PROM_BASE =
+    "http://kube-prometheus-stack-prometheus.observability.svc.cluster.local:9090";
 const POLL_INTERVAL_MS = 5_000;
 const POLL_TIMEOUT_MS = 900_000;
 
 function lgaHeaders(): Record<string, string> {
     const tok = Deno.env.get("HAI_CLI_TOKEN");
     return tok ? { Authorization: `Bearer ${tok}` } : {};
+}
+
+// PromQL helper — same shape as the other Path-2-enriched weekly
+// crons (see [[reference_agent_fleet_tool_binding_gap]]).
+async function promQuery(query: string): Promise<unknown> {
+    try {
+        const r = await fetch(
+            `${PROM_BASE}/api/v1/query?query=${encodeURIComponent(query)}`,
+            { signal: AbortSignal.timeout(15_000) },
+        );
+        if (!r.ok) {
+            return { error: `HTTP ${r.status}`, query };
+        }
+        const body = await r.json().catch(() => ({ error: "json parse failed" }));
+        return body;
+    } catch (e) {
+        return { error: (e as Error).message, query };
+    }
+}
+
+function formatPromInstantVector(
+    label: string,
+    resp: unknown,
+    topN: number = 20,
+    valFormat: (v: number) => string = (v) => v.toFixed(2),
+): string {
+    const r = resp as { status?: string; data?: { result?: Array<{ metric: Record<string, string>; value: [number, string] }> }; error?: string };
+    if (r.error) {
+        return `### ${label}\n_(error fetching: ${r.error})_\n`;
+    }
+    if (r.status !== "success" || !r.data?.result) {
+        return `### ${label}\n_(unexpected response shape)_\n`;
+    }
+    const rows = r.data.result;
+    if (rows.length === 0) {
+        return `### ${label}\n_(no samples)_\n`;
+    }
+    const sorted = [...rows].sort((a, b) => parseFloat(b.value[1]) - parseFloat(a.value[1]));
+    const lines = sorted.slice(0, topN).map((row) => {
+        const labels = Object.entries(row.metric)
+            .filter(([k]) => k !== "__name__")
+            .slice(0, 4)
+            .map(([k, v]) => `${k}=${v}`)
+            .join(" ");
+        return `- \`${labels}\` → ${valFormat(parseFloat(row.value[1]))}`;
+    });
+    const truncatedNote = rows.length > topN ? `\n_(...${rows.length - topN} more truncated)_` : "";
+    return `### ${label}\n${lines.join("\n")}${truncatedNote}\n`;
 }
 
 function isoWeek(d: Date): { year: number; week: number } {
@@ -52,6 +102,60 @@ export async function main() {
     const { year, week } = isoWeek(now);
     const weekStr = `${year}-W${String(week).padStart(2, "0")}`;
     const client_task_id = `observability-health-${weekStr}`;
+
+    // Pre-fetch observability-stack state in parallel. The agent has
+    // no MCP tool bindings; without this evidence the observability-
+    // operator can't actually inspect what it's asked to inspect.
+    // See [[reference_agent_fleet_tool_binding_gap]].
+    const [
+        firingAlertsResp,
+        activeSilencesResp,
+        scrapeDownResp,
+        lokiIngestRateResp,
+        prometheusSdTargetsResp,
+    ] = await Promise.all([
+        // Currently-firing alerts grouped by alertname — flap signal
+        promQuery('ALERTS{alertstate="firing"}'),
+        // Active alertmanager silences (which may be hiding real alerts)
+        promQuery('alertmanager_silences{state="active"}'),
+        // Scrape targets DOWN cluster-wide — catches monitor coverage gaps
+        promQuery('up == 0'),
+        // Loki ingest rate (bytes/sec, last 5m) by stream
+        promQuery('rate(loki_distributor_bytes_received_total[5m])'),
+        // Prometheus SD discovery — orphaned targets that should be cleaned up
+        promQuery('prometheus_sd_kubernetes_state'),
+    ]);
+
+    const evidenceBlock = [
+        "## Pre-fetched cluster evidence (Prometheus snapshot)",
+        "",
+        formatPromInstantVector(
+            "Firing alerts (right now)",
+            firingAlertsResp,
+            30,
+        ),
+        formatPromInstantVector(
+            "Active silences",
+            activeSilencesResp,
+            20,
+        ),
+        formatPromInstantVector(
+            "Scrape targets DOWN (should be empty)",
+            scrapeDownResp,
+            30,
+        ),
+        formatPromInstantVector(
+            "Loki ingest rate (bytes/sec, top 10 streams)",
+            lokiIngestRateResp,
+            10,
+            (v) => `${(v / 1024).toFixed(1)} KB/s`,
+        ),
+        formatPromInstantVector(
+            "Prometheus SD state (orphan-target signal)",
+            prometheusSdTargetsResp,
+            5,
+        ),
+    ].join("\n");
 
     const promptBody = [
         "WEEKLY OBSERVABILITY STACK HEALTH SWEEP — Class A only.",
@@ -86,6 +190,8 @@ export async function main() {
         "",
         "Reference: HOMELAB-SPEC observability-operator prime",
         "directive (cannot bury a real alert under flap).",
+        "",
+        evidenceBlock,
     ].join("\n");
 
     const lgResp = await fetch(`${LG_BASE}/inbox`, {

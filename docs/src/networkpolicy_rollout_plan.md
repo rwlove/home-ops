@@ -84,7 +84,7 @@ posture inside these two namespaces.
 
 **Net posture:** 19 of 21 namespaces have full default-deny;
 downloads + vpn rely on cluster-perimeter controls (1P/SSO/firewalld,
-no public ingress to these workloads, only `bt.thesteamedcrab.com` +
+no public ingress to these workloads, only `bt.${SECRET_DOMAIN}` +
 media-pull-stack UIs which are still gated by oauth2-proxy).
 
 ## Full rollback 2026-05-18 — reset and redesign
@@ -517,7 +517,7 @@ spec:
       cnpg.io/cluster: <name>
   egress:
     - toFQDNs:
-        - matchName: "s3.thesteamedcrab.com"
+        - matchName: "s3.${SECRET_DOMAIN}"
       toPorts:
         - ports: [{port: "443", protocol: TCP}]
 ```

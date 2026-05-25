@@ -176,7 +176,7 @@ async function dispatchApprovalVerb(verb: ApprovalVerb): Promise<string> {
         method,
     );
 
-    const approvalUrl = `https://langgraph.${Deno.env.get("SECRET_DOMAIN") ?? "thesteamedcrab.com"}/approval`;
+    const approvalUrl = `https://langgraph.${Deno.env.get("SECRET_DOMAIN") ?? ""}/approval`;
     try {
         const r = await fetch(approvalUrl, {
             method: "POST",

@@ -165,7 +165,7 @@ async function postZulip(content: string) {
     const robId = parseInt(Deno.env.get("ROB_ZULIP_USER_ID") ?? "8", 10);
     const zulipApiUrl = Deno.env.get("ZULIP_API_URL") ?? "http://zulip.collab.svc.cluster.local";
     const zulipHostHeader = Deno.env.get("ZULIP_HOST_HEADER") ??
-        `chat.${Deno.env.get("SECRET_DOMAIN") ?? "thesteamedcrab.com"}`;
+        `chat.${Deno.env.get("SECRET_DOMAIN") ?? ""}`;
     const auth = "Basic " + btoa(`${email}:${apiKey}`);
     const form = new URLSearchParams({ type: "private", to: `[${robId}]`, content });
     const r = await fetch(`${zulipApiUrl}/api/v1/messages`, {

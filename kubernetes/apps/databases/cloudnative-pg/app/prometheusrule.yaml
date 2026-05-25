@@ -65,3 +65,26 @@ spec:
           for: 5m
           labels:
             severity: warning
+        - alert: BackupStale
+          annotations:
+            description: >-
+              Cluster {{ $labels.job }} in {{ $labels.namespace }} last successful
+              backup is over 10 days old. NOTE: plugin-method clusters (barman-cloud
+              plugin) do not populate this metric — they have no Prometheus-based
+              staleness signal until CNPG adds condition metrics.
+            summary: CNPG cluster has not had a successful backup in over 10 days.
+          expr: |-
+            (time() - cnpg_collector_last_available_backup_timestamp) / 86400 > 10
+              and cnpg_collector_last_available_backup_timestamp > 0
+          for: 10m
+          labels:
+            severity: warning
+        - alert: BackupFailed
+          annotations:
+            description: Cluster {{ $labels.job }} in {{ $labels.namespace }} has a recent backup failure.
+            summary: CNPG cluster backup failed recently.
+          expr: |-
+            increase(cnpg_collector_last_failed_backup_timestamp[25h]) > 0
+          for: 10m
+          labels:
+            severity: warning

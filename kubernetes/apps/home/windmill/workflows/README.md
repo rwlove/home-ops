@@ -26,9 +26,9 @@ or the inline curl in the README two levels up).
 | `LANGGRAPH_APPROVAL_SIGNING_KEY` | `langgraph-agents.LANGGRAPH_APPROVAL_SIGNING_KEY` |
 | `NTFY_URL` | literal template (`https://ntfy.${SECRET_DOMAIN}`) |
 | `NTFY_WRITE_TOKEN` | `ntfy.NTFY_WRITE_TOKEN` |
-| `ZULIP_BOT_EMAIL` | `zulip-n8n-bot.ZULIP_BOT_EMAIL` |
-| `ZULIP_BOT_API_KEY` | `zulip-n8n-bot.ZULIP_BOT_API_KEY` |
-| `ROB_ZULIP_USER_ID` | `zulip-n8n-bot.ROB_ZULIP_USER_ID` |
+| `ZULIP_BOT_EMAIL` | `zulip-windmill-bot.ZULIP_BOT_EMAIL` |
+| `ZULIP_BOT_API_KEY` | `zulip-windmill-bot.ZULIP_BOT_API_KEY` |
+| `ROB_ZULIP_USER_ID` | `zulip-windmill-bot.ROB_ZULIP_USER_ID` |
 | `PAPERLESS_TOKEN` | `paperless.mcp_token` (shared with paperless-mcp) |
 
 ## Approval-token signing (pre-sign at post-time)

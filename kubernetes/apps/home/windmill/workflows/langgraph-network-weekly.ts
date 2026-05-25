@@ -28,12 +28,75 @@ type AdminTaskResp = {
 };
 
 const LG_BASE = "http://langgraph-agents.ai.svc.cluster.local:8765";
+const PROM_BASE =
+    "http://kube-prometheus-stack-prometheus.observability.svc.cluster.local:9090";
 const POLL_INTERVAL_MS = 5_000;
 const POLL_TIMEOUT_MS = 900_000;
 
 function lgaHeaders(): Record<string, string> {
     const tok = Deno.env.get("HAI_CLI_TOKEN");
     return tok ? { Authorization: `Bearer ${tok}` } : {};
+}
+
+// PromQL helper. The agent has empty MCP tools today (see
+// `reference_agent_fleet_tool_binding_gap` in memory): every operator
+// node uses `with_structured_output()` over `state.content` without
+// dynamically querying anything. So this workflow pre-fetches the data
+// the agent needs and passes it inline. Path 2 of the tool-binding
+// workaround — same shape as storage-weekly / ml-weekly /
+// observability-weekly.
+//
+// All in-cluster queries — kube-prometheus-stack-prometheus is the
+// canonical Prom in this cluster; the CNP `cnp-allow.yaml` for windmill
+// grants egress to it on port 9090.
+async function promQuery(query: string): Promise<unknown> {
+    try {
+        const r = await fetch(
+            `${PROM_BASE}/api/v1/query?query=${encodeURIComponent(query)}`,
+            { signal: AbortSignal.timeout(15_000) },
+        );
+        if (!r.ok) {
+            return { error: `HTTP ${r.status}`, query };
+        }
+        const body = await r.json().catch(() => ({ error: "json parse failed" }));
+        return body;
+    } catch (e) {
+        return { error: (e as Error).message, query };
+    }
+}
+
+// Format a Prom instant-vector response as a compact human-readable
+// list (top N samples by value desc). Agents do better with prose-like
+// summaries than raw JSON; raw JSON is included only on errors so the
+// human in the loop can debug.
+function formatPromInstantVector(
+    label: string,
+    resp: unknown,
+    topN: number = 20,
+    valFormat: (v: number) => string = (v) => v.toFixed(2),
+): string {
+    const r = resp as { status?: string; data?: { result?: Array<{ metric: Record<string, string>; value: [number, string] }> }; error?: string };
+    if (r.error) {
+        return `### ${label}\n_(error fetching: ${r.error})_\n`;
+    }
+    if (r.status !== "success" || !r.data?.result) {
+        return `### ${label}\n_(unexpected response shape)_\n`;
+    }
+    const rows = r.data.result;
+    if (rows.length === 0) {
+        return `### ${label}\n_(no samples)_\n`;
+    }
+    const sorted = [...rows].sort((a, b) => parseFloat(b.value[1]) - parseFloat(a.value[1]));
+    const lines = sorted.slice(0, topN).map((row) => {
+        const labels = Object.entries(row.metric)
+            .filter(([k]) => k !== "__name__")
+            .slice(0, 4)
+            .map(([k, v]) => `${k}=${v}`)
+            .join(" ");
+        return `- \`${labels}\` → ${valFormat(parseFloat(row.value[1]))}`;
+    });
+    const truncatedNote = rows.length > topN ? `\n_(...${rows.length - topN} more truncated)_` : "";
+    return `### ${label}\n${lines.join("\n")}${truncatedNote}\n`;
 }
 
 function isoWeek(d: Date): { year: number; week: number } {
@@ -53,6 +116,75 @@ export async function main() {
     const { year, week } = isoWeek(now);
     const weekStr = `${year}-W${String(week).padStart(2, "0")}`;
     const client_task_id = `network-health-${weekStr}`;
+
+    // Pre-fetch in parallel — see `langgraph-storage-weekly.ts` for
+    // the design rationale. Network-flavored signals:
+    //   - Cilium BGP session state per neighbor (1=Established,
+    //     anything else = down/flap)
+    //   - Cert expiry days-remaining for every cert-manager cert
+    //   - certificate ready_status (0=NotReady, 1=Ready)
+    //   - external-dns last-sync age per controller (sync stalled?)
+    //   - external-dns consecutive_soft_errors per controller
+    const [
+        bgpSessionResp,
+        certExpiryResp,
+        certReadyResp,
+        edSyncAgeResp,
+        edSoftErrorsResp,
+    ] = await Promise.all([
+        // Cilium BGP session state. Values per cilium docs:
+        //   1=Idle, 2=Connect, 3=Active, 4=OpenSent, 5=OpenConfirm,
+        //   6=Established. Anything != 6 is the surveillance signal.
+        promQuery("cilium_bgp_control_plane_session_state"),
+        // Days until cert expiry. <30d is the typical lead time
+        // cert-manager uses; <14d is "intervene now."
+        promQuery(
+            "(certmanager_certificate_expiration_timestamp_seconds - time()) / 86400",
+        ),
+        // 0 = NotReady — the cert-manager reconciler couldn't issue.
+        promQuery("certmanager_certificate_ready_status == 0"),
+        // external-dns sync staleness. >5 min is a stuck controller.
+        promQuery(
+            "(time() - external_dns_controller_last_sync_timestamp_seconds) / 60",
+        ),
+        // external-dns retrying — non-zero means provider error loop.
+        promQuery("external_dns_controller_consecutive_soft_errors > 0"),
+    ]);
+
+    const evidenceBlock = [
+        "## Pre-fetched network evidence (Prometheus snapshot)",
+        "",
+        formatPromInstantVector(
+            "Cilium BGP session state per neighbor (6=Established, else=down/flap)",
+            bgpSessionResp,
+            20,
+            (v) => `state=${v.toFixed(0)}${v === 6 ? " (OK)" : " (NOT ESTABLISHED)"}`,
+        ),
+        formatPromInstantVector(
+            "Cert-manager certs by days-until-expiry (lowest first)",
+            certExpiryResp,
+            30,
+            (v) => `${v.toFixed(1)} days`,
+        ),
+        formatPromInstantVector(
+            "Cert-manager certs in NotReady state (status=0)",
+            certReadyResp,
+            10,
+            (v) => `status=${v.toFixed(0)}`,
+        ),
+        formatPromInstantVector(
+            "external-dns minutes-since-last-sync per controller",
+            edSyncAgeResp,
+            10,
+            (v) => `${v.toFixed(1)} min ago`,
+        ),
+        formatPromInstantVector(
+            "external-dns consecutive soft errors (>0 = retry loop)",
+            edSoftErrorsResp,
+            10,
+            (v) => `${v.toFixed(0)} errors`,
+        ),
+    ].join("\n");
 
     const promptBody = [
         "WEEKLY NETWORK HEALTH SWEEP — Class A analysis only.",
@@ -81,6 +213,8 @@ export async function main() {
         "",
         "Reference: lovenet-network-configuration repo for canonical",
         "Omada/netbox state; HOMELAB-SPEC for invariants.",
+        "",
+        evidenceBlock,
     ].join("\n");
 
     const lgResp = await fetch(`${LG_BASE}/inbox`, {

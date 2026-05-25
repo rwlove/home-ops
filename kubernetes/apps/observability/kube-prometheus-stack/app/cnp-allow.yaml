@@ -24,6 +24,11 @@ spec:
     # prometheus-mcp → prometheus:9090 (MCP backend queries Prometheus
     # via PROMETHEUS_URL; egress side already allowed in
     # mcp-system/prometheus-mcp-allow).
+    # windmill (home ns) → prometheus:9090 (operator weekly drift
+    # crons pre-fetch Prom data and pass it in /inbox content as
+    # Path-2 of the tool-binding gap workaround — see
+    # [[reference_agent_fleet_tool_binding_gap]] memory and
+    # PR #12029 for the windmill-side egress rule).
     - fromEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: network
@@ -34,6 +39,13 @@ spec:
         - matchLabels:
             io.kubernetes.pod.namespace: mcp-system
             app.kubernetes.io/name: prometheus-mcp
+        - matchExpressions:
+            - key: io.kubernetes.pod.namespace
+              operator: In
+              values: [home]
+            - key: app.kubernetes.io/name
+              operator: In
+              values: [windmill-app, windmill-workers, windmill-extra]
       toPorts:
         - ports:
             - port: "9090"

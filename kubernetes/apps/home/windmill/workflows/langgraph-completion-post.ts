@@ -30,7 +30,7 @@ export async function main(
     duration_s?: number,
 ) {
     const agentLabel = AGENT_LABEL[target_agent ?? ""] ?? target_agent ?? "Agent";
-    const haiUrl = `https://hai-web.${Deno.env.get("SECRET_DOMAIN") ?? "thesteamedcrab.com"}/admin/tasks/${encodeURIComponent(task_id)}`;
+    const haiUrl = `https://hai-web.${Deno.env.get("SECRET_DOMAIN") ?? ""}/admin/tasks/${encodeURIComponent(task_id)}`;
     const adminName = Deno.env.get("ADMIN_NAME") ?? "the admin";
 
     // Lead with the agent's CONCLUSION, not the verbose prompt.
@@ -138,7 +138,7 @@ export async function postZulip(args: {
     const auth = "Basic " + btoa(`${args.email}:${args.apiKey}`);
     const zulipApiUrl = Deno.env.get("ZULIP_API_URL") ?? "http://zulip.collab.svc.cluster.local";
     const zulipHostHeader = Deno.env.get("ZULIP_HOST_HEADER") ??
-        `chat.${Deno.env.get("SECRET_DOMAIN") ?? "thesteamedcrab.com"}`;
+        `chat.${Deno.env.get("SECRET_DOMAIN") ?? ""}`;
     const params: Record<string, string> = { type: args.type, to: args.to, content: args.content };
     if (args.topic) params.topic = args.topic;
     const form = new URLSearchParams(params);

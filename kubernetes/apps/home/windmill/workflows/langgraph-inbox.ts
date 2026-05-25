@@ -75,7 +75,7 @@ async function postApproval(task_id: string, r: ApprovalRequest) {
         priority: 5,
         tags: ["warning"],
         actions: buildApprovalActions(task_id, approveTok, rejectTok, deferTok),
-        click: `https://chat.thesteamedcrab.com/#narrow/stream/approvals/topic/${encodeURIComponent(topic)}`,
+        click: `https://chat.${Deno.env.get("SECRET_DOMAIN") ?? ""}/#narrow/stream/approvals/topic/${encodeURIComponent(topic)}`,
     });
 
     const zulipResp = await postZulipApprovalCard(task_id, r);
@@ -100,7 +100,7 @@ function buildApprovalActions(
     rejectTok: string,
     deferTok: string,
 ): NtfyAction[] {
-    const approvalUrl = `https://langgraph.${Deno.env.get("SECRET_DOMAIN") ?? "thesteamedcrab.com"}/approval`;
+    const approvalUrl = `https://langgraph.${Deno.env.get("SECRET_DOMAIN") ?? ""}/approval`;
     const make = (label: string, reaction: string, token: string): NtfyAction => ({
         action: "http",
         label,
@@ -126,7 +126,7 @@ async function publishNtfy(args: {
     actions?: NtfyAction[];
     click?: string;
 }) {
-    const url = Deno.env.get("NTFY_URL") ?? "https://ntfy.thesteamedcrab.com";
+    const url = Deno.env.get("NTFY_URL") ?? "";
     const token = Deno.env.get("NTFY_WRITE_TOKEN");
     if (!token) throw new Error("NTFY_WRITE_TOKEN env not set");
     const body = {

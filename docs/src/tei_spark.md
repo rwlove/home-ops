@@ -8,7 +8,7 @@
 | **Model** | `BAAI/bge-reranker-v2-m3` |
 | **Manifests** | `kubernetes/apps/ai/tei-spark/` |
 | **Cluster service** | `tei-spark.ai.svc.cluster.local:3000` (HTTP `/rerank`, `/metrics`) |
-| **Node** | `spark.thesteamedcrab.com` (arm64, GB10, sm_121) |
+| **Node** | `spark.${SECRET_DOMAIN}` (arm64, GB10, sm_121) |
 | **GPU** | `nvidia.com/gpu: 1`, `ai-gpu-critical` priority |
 | **Model cache** | 5 Gi `ceph-block` PVC (`tei-spark-cache-pvc`) at `/data` |
 

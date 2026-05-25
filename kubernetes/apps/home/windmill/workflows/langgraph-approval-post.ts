@@ -166,7 +166,7 @@ function buildApprovalActions(
     rejectTok: string,
     deferTok: string,
 ): NtfyAction[] {
-    const approvalUrl = `https://langgraph.${Deno.env.get("SECRET_DOMAIN") ?? "thesteamedcrab.com"}/approval`;
+    const approvalUrl = `https://langgraph.${Deno.env.get("SECRET_DOMAIN") ?? ""}/approval`;
     const make = (label: string, reaction: string, token: string): NtfyAction => ({
         action: "http",
         label,
@@ -192,7 +192,7 @@ export async function publishNtfy(args: {
     actions?: NtfyAction[];
     click?: string;
 }) {
-    const url = Deno.env.get("NTFY_URL") ?? "https://ntfy.thesteamedcrab.com";
+    const url = Deno.env.get("NTFY_URL") ?? "";
     const token = Deno.env.get("NTFY_WRITE_TOKEN");
     if (!token) throw new Error("NTFY_WRITE_TOKEN env not set");
     const body = {
@@ -260,7 +260,7 @@ async function postZulipApprovalDM(
 ) {
     const agentLabel = AGENT_LABEL[r.proposed_by] ?? r.proposed_by;
     const classLabel = ACTION_CLASS_LABEL[r.action_class] ?? `Class ${r.action_class}`;
-    const approvalUrl = `https://langgraph.${Deno.env.get("SECRET_DOMAIN") ?? "thesteamedcrab.com"}/approval`;
+    const approvalUrl = `https://langgraph.${Deno.env.get("SECRET_DOMAIN") ?? ""}/approval`;
     // Magic-link bodies — pre-signed HMAC tokens. /approval endpoint
     // accepts both POST-from-ntfy and GET-by-link (the langgraph-agents
     // side handles the GET variant; HMAC binding makes link leaks
@@ -316,7 +316,7 @@ export async function postZulip(args: {
 }) {
     const auth = "Basic " + btoa(`${args.email}:${args.apiKey}`);
     const zulipApiUrl = Deno.env.get("ZULIP_API_URL") ?? "http://zulip.collab.svc.cluster.local";
-    const zulipHostHeader = Deno.env.get("ZULIP_HOST_HEADER") ?? `chat.${Deno.env.get("SECRET_DOMAIN") ?? "thesteamedcrab.com"}`;
+    const zulipHostHeader = Deno.env.get("ZULIP_HOST_HEADER") ?? `chat.${Deno.env.get("SECRET_DOMAIN") ?? ""}`;
     const params: Record<string, string> = { type: args.type, to: args.to, content: args.content };
     if (args.topic) params.topic = args.topic;
     const form = new URLSearchParams(params);

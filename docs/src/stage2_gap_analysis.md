@@ -377,7 +377,7 @@ Build sequence steps 1-5 from §9 are complete. Verification:
 | Step | Status | Evidence |
 |---|---|---|
 | #1 lga PR-A — `"cli"` source enum + `/admin/tasks/<id>` + todo table | ✅ | `src/agents/state.py::Source` includes `"cli"`; `src/agents/api/todos.py` present; lga PRs #66-#68 merged |
-| #2 home-ops PR-B — `hai.${SECRET_DOMAIN}` route + auth + DNS | ✅ | `hai.thesteamedcrab.com` resolves to the cluster gateway; CLI auth works against it |
+| #2 home-ops PR-B — `hai.${SECRET_DOMAIN}` route + auth + DNS | ✅ | `hai.${SECRET_DOMAIN}` resolves to the cluster gateway; CLI auth works against it |
 | #3 lga PR-C — `hai` CLI in `cli/` subdir with subcommands | ✅ | `which hai` → `/home/rwlove/.local/bin/hai`; `task add/tail/ls/show`, `todo add/ls/done`, `cost`, `auth` all present |
 | #4 Image release | ✅ | tags v0.2.34 through v0.2.42 published |
 | #5 home-ops image bump (Renovate auto) | ✅ | cluster pod on v0.2.42 as of 2026-05-23 17:08Z |

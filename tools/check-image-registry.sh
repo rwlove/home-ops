@@ -64,11 +64,16 @@ for image in "${images[@]}"; do
     continue
   fi
 
-  # Normalize bare docker.io paths: `foo/bar` → `docker.io/foo/bar`,
-  # `busybox` → `docker.io/library/busybox`. The allowlist uses the
-  # fully-qualified docker.io form for clarity.
+  # Normalize bare docker.io paths to their fully-qualified
+  # `docker.io/<namespace>/<image>` form. Docker Hub treats unspecified
+  # namespace as `library/`, so all four of these are equivalent:
+  #   busybox / library/busybox / docker.io/busybox / docker.io/library/busybox
+  # The allowlist uses the `docker.io/library/...` form for clarity.
   case "$bare" in
-    *.*/* ) ;;                                    # already has registry host
+    docker.io/*/* ) ;;                            # `docker.io/org/img` — canonical
+    docker.io/* )
+      bare="docker.io/library/${bare#docker.io/}" ;;  # `docker.io/img` → `docker.io/library/img`
+    *.*/* ) ;;                                    # other registry host
     */* )   bare="docker.io/$bare" ;;             # `org/img`
     * )     bare="docker.io/library/$bare" ;;     # `img`
   esac

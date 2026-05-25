@@ -153,8 +153,13 @@ export async function main() {
             "(time() - longhorn_recurring_job_last_success_time) / 86400",
         ),
         // CNPG Barman last-successful-backup age (seconds → days).
+        // NB: `cnpg_collector_last_failed_backup_timestamp` is the LAST
+        // FAILED backup (defaults to 0 when no failures recorded), not
+        // the most-recent success. The Barman-managed equivalent of
+        // "last successful backup" is the metric below — exported by
+        // the barman-cloud sidecar per CNPG cluster.
         promQuery(
-            "(time() - cnpg_collector_last_failed_backup_timestamp) / 86400",
+            "(time() - barman_cloud_cloudnative_pg_io_last_available_backup_timestamp) / 86400",
         ),
     ]);
 

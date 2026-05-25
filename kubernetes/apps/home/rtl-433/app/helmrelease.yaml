@@ -37,45 +37,23 @@ spec:
         containers:
           app:
             image:
-              # hertzg/rtl_433_mqtt_autodiscovery wraps rtl_433 with HA
-              # MQTT autodiscovery publishing. Pin the tag once stable.
-              repository: hertzg/rtl_433_mqtt_autodiscovery
-              tag: latest
+              repository: docker.io/hertzg/rtl_433
+              tag: 25.12-alpine-3.23.4@sha256:bcfd12afa59efc1ae8316ac21757b5e4161d4a42baaa91f609b4bcca9525dcfd
 
-            # Extra rtl_433 arguments.
-            # -f 345M  — Honeywell 5800-series (most ADT US installs)
-            # -f 319.5M — GE Interlogix (older ADT installs)
-            # -H 60    — hop between frequencies every 60 seconds
-            # -G 4     — enable all decoders
-            # -M flags add ISO timestamps, protocol IDs, and RSSI to events.
-            # After the walk-test confirms the winning frequency, narrow to
-            # a single -f entry and remove -H to maximise dwell time.
+            # Shell wrapper so MQTT_USER/MQTT_PASS env vars can be
+            # interpolated into the -F mqtt:// URL at runtime.
+            command: ["/bin/sh", "-c"]
             args:
-              - "-f"
-              - "345M"
-              - "-f"
-              - "319.5M"
-              - "-H"
-              - "60"
-              - "-G"
-              - "4"
-              - "-M"
-              - "time:iso:tz"
-              - "-M"
-              - "protocol"
-              - "-M"
-              - "level"
-
-            env:
-              MQTT_HOST: emqx.home.svc.cluster.local
-              MQTT_PORT: "1883"
-              MQTT_TOPIC_PREFIX: rtl_433
-              # HA MQTT autodiscovery prefix — must match HA's
-              # discovery_prefix (default: homeassistant).
-              DISCOVERY_PREFIX: homeassistant
-              # Re-publish autodiscovery messages every 600 s so HA
-              # picks them up after restarts.
-              DISCOVERY_INTERVAL: "600"
+              - >-
+                exec rtl_433
+                -f 345M
+                -f 319.5M
+                -H 60
+                -G 4
+                -M time:iso:tz
+                -M protocol
+                -M level
+                -F "mqtt://${MQTT_USER}:${MQTT_PASS}@emqx.home.svc.cluster.local:1883,retain=1,events=rtl_433[/model][/id],states=rtl_433[/model][/id]/state,devices=rtl_433[/model][/id],ha=homeassistant"
 
             envFrom:
               - secretRef:
@@ -84,9 +62,9 @@ spec:
             resources:
               requests:
                 cpu: 50m
-                memory: 64M
+                memory: 32M
               limits:
-                memory: 128M
+                memory: 64M
 
             securityContext:
               privileged: true

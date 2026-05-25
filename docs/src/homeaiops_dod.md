@@ -52,6 +52,25 @@ These closed in the same session before signoff:
 **Proceeding to Stage 2 capability gap analysis** per `goal.md`
 ("Show me the gap analysis before you start closing it.")
 
+### Stage 2 early progress (2026-05-25)
+
+**v0.2.50 — MCP transport fix + auditor ReAct smoke (lga PR-T, merged 2026-05-25):**
+Rewrote the MCP client from the stale REST pattern to `langchain-mcp-adapters`
+Streamable HTTP transport. 997 tools now discovered from the live Kuadrant MCP
+gateway (protocol version `2025-11-25`). Auditor ReAct smoke task
+`01KSFKW5F41ZRF9DY53QA08N1M` ran for 70 s, executed one `kubectl_get_pods` tool
+call, produced a real cluster-state report, and completed the full chain
+(triager → auditor ReAct → reporter → `completion_post` 201). This is the first
+time any agent executed a real MCP tool call end-to-end; previously all agents
+used `with_structured_output()` over `state.content` with zero queries.
+
+**v0.2.51 — conversation_id for multi-turn continuity (lga PR #92, merged 2026-05-25):**
+`InboxRequest.conversation_id` (optional): when set, the worker uses it as the
+LangGraph `thread_id` to continue an existing conversation thread.
+`InboxResponse.conversation_id` echoes the thread used. `hai task add
+--conversation-id <id>` CLI flag exposes this at the surface. v0.2.51 is the
+current live version (pod `langgraph-agents-66848bc9f4-n2rv2` on worker8).
+
 ## Per-component-class checklist
 
 Every HomeAIOps component sits in one of three classes. Each class
@@ -247,6 +266,7 @@ blocking issue · ⏳ not yet audited · 🟥 aspirational (no audit).
 | researcher | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
 | coder | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
 | reviewer | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
+| auditor | B | ✅ ReAct tool-binding live — smoke task `01KSFKW5F41ZRF9DY53QA08N1M` (v0.2.50, 2026-05-25): MCP session negotiated (`2025-11-25`), 997 tools discovered, `kubectl_get_pods` executed, real cluster report produced, full chain triager → auditor → reporter → 201 | lga PR-T (v0.2.50) |
 | triager | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
 | reporter | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
 | note-maker | B | 🟡 cold via substrate — exercise pending E2E smoke | — |

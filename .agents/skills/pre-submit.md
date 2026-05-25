@@ -42,9 +42,11 @@ independent agent).
    `~/.claude-personal/projects/-home-rwlove-workspace-claude-workspace-home-ops/memory/`
    for any prior decisions that contradict the change. Cross-namespace
    grep too (per global `CLAUDE.md` "Cross-namespace memory").
-7. **Data classification** — review the diff and PR description per
-   `.agents/instructions/data-classification.md`. Refuse to emit
-   restricted content to external surfaces.
+7. **Data classification** — run the four grep checks in
+   `.agents/skills/data-classification-audit.md` against the diff and
+   PR description. Fail on any `FAIL:` output; review any `WARN:`
+   before proceeding. Refuse to emit restricted content to external
+   surfaces.
 
 ## Why
 

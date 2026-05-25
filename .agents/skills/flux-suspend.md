@@ -11,12 +11,13 @@ maintenance, or to keep Flux from clobbering an in-flight workaround.
 
 If you see this in `git log`, **do not "fix" it**:
 
-```
+```text
 abc1234 new: disable-<app>          # commit that pauses reconciliation
 def5678 Revert "disable-<app>"      # commit that unpauses
 ```
 
 Without explicit user instruction, never:
+
 - Revert a `disable-<app>` commit.
 - Run `flux resume` on a suspended Kustomization or HelmRelease.
 - Edit `spec.suspend` in a manifest.
@@ -34,37 +35,42 @@ For an app's HelmRelease, set `spec.suspend: true` (or comment out the
 ks.yaml entry in the parent `kustomization.yaml`) on a branch named
 `disable-<app>` and commit with a message like:
 
-```
+```text
 new: disable-<app>
 
 <reason — e.g. "manual hand-edit during X migration">
 ```
 
 For imperative-only emergencies:
-```
+
+```sh
 flux suspend kustomization <name> -n flux-system
 flux suspend helmrelease <name> -n <namespace>
 ```
+
 But follow up by committing the suspend so it's tracked in Git.
 
 ## Resuming
 
 Revert the suspend commit:
-```
+
+```sh
 git revert <disable-commit-sha>
 ```
+
 The commit message should be left as the default
 `Revert "disable-<app>"` — that's the searchable pattern.
 
 For imperative-only resume:
-```
+
+```sh
 flux resume kustomization <name> -n flux-system
 flux resume helmrelease <name> -n <namespace>
 ```
 
 ## Inspecting suspend state
 
-```
+```sh
 # Everything that's currently suspended
 flux get all -A --status-selector ready=false | grep -i suspend
 

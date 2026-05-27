@@ -39,6 +39,8 @@ skills can discover them.
 | `add-app.md` | Scaffold a generic app-template HelmRelease application. |
 | `add-cnpg-cluster.md` | Scaffold a CNPG postgres cluster with Garage-backed barman backups. |
 | `add-mcp-server.md` | Scaffold an MCP server under `mcp-system/` with the sidecar `MCPServerRegistration`. |
+| `claude-config-lint.md` | Audit Claude config health — @-import targets, symlinks, frontmatter, MEMORY.md budget. |
+| `data-classification-audit.md` | Grep a PR diff + description for restricted-tier names, credentials, and internal hostnames per data-classification.md. |
 | `dependency-mapper.md` | Build and validate the Flux Kustomization dependency graph. |
 | `expose-app.md` | Attach an HTTPRoute to a per-app Gateway listener with shim-managed TLS. |
 | `flux-suspend.md` | Document the suspend / unsuspend workflow and the `disable-<app>` commit pattern. |

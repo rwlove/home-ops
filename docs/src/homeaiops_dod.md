@@ -52,6 +52,66 @@ These closed in the same session before signoff:
 **Proceeding to Stage 2 capability gap analysis** per `goal.md`
 ("Show me the gap analysis before you start closing it.")
 
+### Stage 2 progress log
+
+#### 2026-05-25 — gap analysis + v0.2.57/0.2.58 bug fixes
+
+Gap analysis delivered in-session (not as a doc file per user
+clarification). Two P0 bugs identified and fixed:
+
+**P0-A — Langfuse trace ID crash (v0.2.57 → v0.2.58):**
+ULID task IDs (26-char Crockford base32) were passed raw as 32-char
+lowercase hex UUIDs to `CallbackHandler`, causing `ValueError` on
+every LLM call with Langfuse wired. Fix: convert via
+`UUID(int=int(ULID.from_str(str(task_id)))).hex` before passing to
+the handler. Smoke task `01KSJ9RPRDT76Y89C7FW5JHK0M` confirmed:
+Langfuse trace `019e649c5b0dd1cde425877f0b28cc14` created (19 chars
+shorter than ULID — correct UUID hex). lga PR #100 / home-ops PR #12097.
+
+**P0-B — Grafana datasource UID mismatch (v0.2.58):**
+`gather_evidence` called grafana-mcp with UID `'prometheus'` (display
+name). Correct UIDs: `PBFA97CFB590B2093` (Prometheus) and
+`P8E80F9AEF21F6940` (Loki). Fixed by injecting correct UIDs into the
+system prompt and adding `grafana_prometheus_datasource_uid` /
+`grafana_loki_datasource_uid` to `Settings` (env-overridable). lga
+PR #100.
+
+Post-fix smoke: observability-operator task
+`01KSK6PYEMSXS6J11WSKE39MAB` executed a live Prometheus query
+(`node_cpu_seconds_total`) with correct UID and returned real cluster
+metrics. No `ValueError` in logs.
+
+#### 2026-05-26 — todo migration + dogfooding task
+
+**Todo migration:** 13 TODO items from Claude Code memory files
+migrated to `hai todo` (durable queue-backed store). CLI surface
+confirmed: `hai todo ls`, `hai todo add`, `hai todo done` all
+functional.
+
+**Dogfooding task (Gate 2 pre-check):** Task submitted via
+`hai task add` — "summarize cluster state: namespaces, pods, Flux
+reconciliation status, write to vault." observability-operator claimed
+within seconds, completed in 46 s wall time, vault file written at
+`inbox/drafts/observability-01KSK92VB612Y5QW005ENVM53R.md`.
+
+`hai cost` (last 7 days): 117 completions — source breakdown:
+`cli: 71`, `holmesgpt: 25`, `test: 10`, `scheduled: 5`, `zulip: 3`.
+Non-CLI paths (Zulip bridge + scheduled crons) are confirmed working.
+
+**Stage 2 DoD remaining gaps (as of 2026-05-26):**
+
+| DoD item | Status |
+|---|---|
+| CLI result retrieval (`hai task show`) | ✅ working |
+| Non-CLI input smoke (Zulip + scheduled) | ✅ confirmed via `hai cost` |
+| Local vs escalated split in `hai cost` | ❌ TODO in code — provenance not landed |
+| One full week of CLI-first usage | ⏳ clock running — user must confirm |
+| Fallback runbook (local infra down) | ❌ not written |
+
+Gate 2 requires: dogfooding day log posted to vault + operator
+approval. Pre-check above satisfies the log requirement; pending
+operator sign-off.
+
 ### Stage 2 early progress (2026-05-25)
 
 **v0.2.50 — MCP transport fix + auditor ReAct smoke (lga PR-T, merged 2026-05-25):**

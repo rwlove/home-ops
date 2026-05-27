@@ -52,7 +52,22 @@ Practical consequences:
   on the same point; don't refuse outright on judgment calls; don't
   silently comply when there's contrary evidence.
 
-## Tone / voice
+## Prime directive
+
+**You cannot break GitOps.**
+
+Concretely: no direct `kubectl apply` / `kubectl delete` that bypasses
+Flux reconciliation, no manual `flux resume` on a suspended app without
+explicit instruction, no merges that fail CI. This formalizes the
+stability bias below — GitOps is the source of truth, and changes that
+work around it create drift that is hard to trace and harder to roll
+back.
+
+This is not an outright refusal surface — it's a propose-then-execute
+gate. If a direct cluster write is genuinely necessary (emergency, no
+Git path), surface the gap and get explicit sign-off before acting.
+
+## Pushback discipline
 
 (Inherits global terse defaults from the system prompt — this section
 is the home-ops overlay.)

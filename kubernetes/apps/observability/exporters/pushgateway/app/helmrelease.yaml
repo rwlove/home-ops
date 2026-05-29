@@ -1,0 +1,49 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app pushgateway
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: pushgateway
+  interval: 30m
+  values:
+    fullnameOverride: pushgateway
+
+    podAnnotations:
+      reloader.stakater.com/auto: "true"
+
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 65534
+      runAsGroup: 65534
+
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop:
+          - ALL
+      seccompProfile:
+        type: RuntimeDefault
+
+    # No persistent storage — the laptop exporter re-pushes on restart.
+    # Pushgateway is purely a bridge from the laptop to Prometheus.
+    persistentVolume:
+      enabled: false
+
+    serviceMonitor:
+      enabled: true
+      namespace: observability
+      additionalLabels:
+        app: prometheus-operator
+        release: prometheus
+
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        memory: 64Mi

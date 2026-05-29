@@ -1,0 +1,69 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/daemonset-apps-v1.json
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: generic-device-plugin
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: generic-device-plugin
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: generic-device-plugin
+    spec:
+      serviceAccountName: generic-device-plugin
+      priorityClassName: system-node-critical
+      tolerations:
+        - operator: Exists
+          effect: NoExecute
+        - operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: generic-device-plugin
+          # renovate: datasource=docker depName=docker.io/squat/generic-device-plugin
+          image: docker.io/squat/generic-device-plugin:0.2.0
+          args:
+            # Each group represents one allocation of squat.ai/snd; all
+            # paths in the group bind-mount together. The plugin requires
+            # every path in a group to exist on the node, so each card's
+            # specific minor enumeration gets its own group. Add a new
+            # group when a node has a different /dev/snd layout (e.g.
+            # worker2's audio card when snapclient-deck lands).
+            #
+            # master1 — Intel HDA ALC294 (onboard analog + HDMI):
+            - --device
+            - |
+              name: snd
+              groups:
+                - paths:
+                    - path: /dev/snd/controlC0
+                    - path: /dev/snd/hwC0D0
+                    - path: /dev/snd/hwC0D2
+                    - path: /dev/snd/pcmC0D0c
+                    - path: /dev/snd/pcmC0D0p
+                    - path: /dev/snd/pcmC0D3p
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 32Mi
+          securityContext:
+            # Required: device plugin writes to kubelet's plugin socket
+            # at /var/lib/kubelet/device-plugins and probes /dev. Workload
+            # pods consuming squat.ai/snd remain unprivileged.
+            privileged: true
+          volumeMounts:
+            - name: device-plugin
+              mountPath: /var/lib/kubelet/device-plugins
+            - name: dev
+              mountPath: /dev
+      volumes:
+        - name: device-plugin
+          hostPath:
+            path: /var/lib/kubelet/device-plugins
+        - name: dev
+          hostPath:
+            path: /dev

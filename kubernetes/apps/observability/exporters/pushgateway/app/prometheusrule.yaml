@@ -3,70 +3,105 @@
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
-  name: claude-code-cost-rules
+  name: claude-cost-rules
 spec:
   groups:
-    - name: claude-code-cost.rules
+    - name: claude-cost.rules
       rules:
-        # ── Daily ───────────────────────────────────────────────────────
-        - alert: ClaudeCodeDailySoft
-          expr: claude_code_cost_usd{window="24h"} > 10
+        # ── Recording rules — rolling spend windows ──────────────────
+        # Source: langgraph_cost_usd_total{group="claude"} — populated by
+        # LangGraphMetricsCallback.on_llm_end in langgraph-agents v0.2.58+.
+        # Claude Code CLI usage is NOT included (MAX subscription, no API key).
+        - record: claude:cost_usd:increase24h
+          expr: >-
+            sum(increase(langgraph_cost_usd_total{group="claude"}[24h]))
+
+        - record: claude:cost_usd:increase7d
+          expr: >-
+            sum(increase(langgraph_cost_usd_total{group="claude"}[168h]))
+
+        - record: claude:cost_usd:increase30d
+          expr: >-
+            sum(increase(langgraph_cost_usd_total{group="claude"}[720h]))
+
+        # ── Daily ─────────────────────────────────────────────────────
+        - alert: ClaudeApiDailySoft
+          expr: claude:cost_usd:increase24h > 10
           for: 0m
           labels:
             severity: warning
             group: claude-cost
           annotations:
-            summary: "Claude Code 24h spend at ${{ $value | printf \"%.2f\" }}"
+            summary: "Claude API 24h spend at ${{ $value | printf \"%.2f\" }}"
             description: >-
-              Claude Code cost over the last 24h is ${{ $value | printf "%.2f" }}
-              (soft limit $10). Consider switching to a lower-cost model tier.
+              langgraph-agents Anthropic API cost over the last 24h is
+              ${{ $value | printf "%.2f" }} (soft limit $10).
+              Consider switching to a lower-cost model tier.
 
-        - alert: ClaudeCodeDailyHard
-          expr: claude_code_cost_usd{window="24h"} > 20
+        - alert: ClaudeApiDailyHard
+          expr: claude:cost_usd:increase24h > 20
           for: 0m
           labels:
             severity: critical
             group: claude-cost
           annotations:
-            summary: "Claude Code daily gate: ${{ $value | printf \"%.2f\" }}"
+            summary: "Claude API daily gate: ${{ $value | printf \"%.2f\" }}"
             description: >-
-              Claude Code cost over the last 24h is ${{ $value | printf "%.2f" }}
-              (hard limit $20). Run: claude-gate approve 2h
+              langgraph-agents Anthropic API cost over the last 24h is
+              ${{ $value | printf "%.2f" }} (hard limit $20).
+              Run: claude-gate approve 2h
 
-        # ── Weekly ──────────────────────────────────────────────────────
-        - alert: ClaudeCodeWeeklySoft
-          expr: claude_code_cost_usd{window="7d"} > 20
+        # ── Weekly ────────────────────────────────────────────────────
+        - alert: ClaudeApiWeeklySoft
+          expr: claude:cost_usd:increase7d > 20
           for: 0m
           labels:
             severity: warning
             group: claude-cost
           annotations:
-            summary: "Claude Code 7d spend at ${{ $value | printf \"%.2f\" }}"
+            summary: "Claude API 7d spend at ${{ $value | printf \"%.2f\" }}"
             description: >-
-              Claude Code cost over the last 7 days is ${{ $value | printf "%.2f" }}
-              (soft limit $20).
+              langgraph-agents Anthropic API cost over the last 7 days is
+              ${{ $value | printf "%.2f" }} (soft limit $20).
 
-        - alert: ClaudeCodeWeeklyHard
-          expr: claude_code_cost_usd{window="7d"} > 30
+        - alert: ClaudeApiWeeklyHard
+          expr: claude:cost_usd:increase7d > 30
           for: 0m
           labels:
             severity: critical
             group: claude-cost
           annotations:
-            summary: "Claude Code weekly gate: ${{ $value | printf \"%.2f\" }}"
+            summary: "Claude API weekly gate: ${{ $value | printf \"%.2f\" }}"
             description: >-
-              Claude Code cost over the last 7 days is ${{ $value | printf "%.2f" }}
-              (hard limit $30). Run: claude-gate approve 4h
+              langgraph-agents Anthropic API cost over the last 7 days is
+              ${{ $value | printf "%.2f" }} (hard limit $30).
+              Run: claude-gate approve 4h
 
-        # ── Monthly ─────────────────────────────────────────────────────
-        - alert: ClaudeCodeMonthlyHard
-          expr: claude_code_cost_usd{window="30d"} > 60
+        # ── Monthly ───────────────────────────────────────────────────
+        - alert: ClaudeApiMonthlyHard
+          expr: claude:cost_usd:increase30d > 60
           for: 0m
           labels:
             severity: critical
             group: claude-cost
           annotations:
-            summary: "Claude Code monthly gate: ${{ $value | printf \"%.2f\" }}"
+            summary: "Claude API monthly gate: ${{ $value | printf \"%.2f\" }}"
             description: >-
-              Claude Code cost over the last 30 days is ${{ $value | printf "%.2f" }}
-              (hard limit $60). Run: claude-gate approve 24h
+              langgraph-agents Anthropic API cost over the last 30 days is
+              ${{ $value | printf "%.2f" }} (hard limit $60).
+              Run: claude-gate approve 24h
+
+        # ── Metric dark alert ─────────────────────────────────────────
+        # Fires if langgraph_cost_usd_total stops being scraped — ensures
+        # a gate-metric blackout doesn't silently disable the gates.
+        - alert: ClaudeApiCostMetricMissing
+          expr: absent(langgraph_cost_usd_total{group="claude"})
+          for: 1h
+          labels:
+            severity: warning
+            group: claude-cost
+          annotations:
+            summary: "Claude API cost metric absent"
+            description: >-
+              langgraph_cost_usd_total{group="claude"} has been absent for 1h.
+              Cost gates are blind. Check langgraph-agents pod and ServiceMonitor.

@@ -83,10 +83,33 @@ keytool -importkeystore -noprompt \
 cp -a "$KEYSTORE" "${KEYSTORE}.bak.$(date +%Y%m%d%H%M%S)"
 install -m 600 -o root -g root "$WORK/eap.keystore" "$KEYSTORE"
 
-log "restarting Omada controller (tpeap restart)"
-if tpeap restart >/dev/null 2>&1; then
-  log "Omada restarted; new cert active"
-else
-  log "WARNING: tpeap restart returned non-zero — check 'tpeap status'"
-  exit 1
-fi
+# `tpeap restart` is unreliable on this controller (v6.2.0.17): it can
+# return success while leaving the embedded mongod down, so the
+# controller times out connecting to :27217 and self-shuts. Do an
+# explicit stop -> start and verify the portal port actually comes
+# back, so an unattended renewal that fails to restart is loud in the
+# journal (unit exits non-zero) instead of silently leaving guest auth
+# down on the router host.
+PORTAL_PORT=8843
+
+log "stopping Omada controller (tpeap stop)"
+tpeap stop >/dev/null 2>&1 || true
+for _ in $(seq 1 30); do                 # wait for full shutdown (~60s max)
+  tpeap status 2>/dev/null | grep -qi 'is running' || break
+  sleep 2
+done
+
+log "starting Omada controller (tpeap start)"
+tpeap start >/dev/null 2>&1 || true
+
+for _ in $(seq 1 30); do                 # poll portal port, ~150s max
+  if (exec 3<>"/dev/tcp/127.0.0.1/${PORTAL_PORT}") 2>/dev/null; then
+    exec 3>&- 3<&-
+    log "Omada restarted; new cert active (portal :${PORTAL_PORT} up)"
+    exit 0
+  fi
+  sleep 5
+done
+
+log "ERROR: Omada did not come back on :${PORTAL_PORT} after restart — cert WAS swapped; run 'tpeap start' and check 'tpeap status'"
+exit 1

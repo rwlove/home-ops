@@ -32,11 +32,22 @@ within ~1 min of the next `Refresh Monitored Downloads` cycle.
 """
 import json
 import os
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
 LIDARR_URL = os.environ.get("LIDARR_URL", "http://lidarr.media.svc.cluster.local:8686")
 LIDARR_API_KEY = os.environ["LIDARR__API_KEY"]
+
+# The python:*-alpine base uses musl libc, which returns EAI_AGAIN
+# ([Errno -3] Try again) on brief CoreDNS hiccups where glibc would
+# retry internally. Every call here targets an in-cluster Service, and
+# the operations are idempotent (DownloadedAlbumsScan / DELETE queue
+# row), so retry connection-level failures and transient 5xx instead of
+# failing the whole run on one DNS blip.
+MAX_ATTEMPTS = 4
+RETRY_BACKOFF_S = 2
 
 
 def call_api(method, path, params=None, body=None):
@@ -49,9 +60,26 @@ def call_api(method, path, params=None, body=None):
         data = json.dumps(body).encode("utf-8")
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        raw = resp.read()
-        return json.loads(raw) if raw else {}
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                raw = resp.read()
+                return json.loads(raw) if raw else {}
+        except urllib.error.HTTPError as e:
+            # Server answered — only 5xx is worth retrying; 4xx is fatal.
+            if e.code < 500 or attempt == MAX_ATTEMPTS:
+                raise
+            err = e
+        except urllib.error.URLError as e:
+            # Connection-level failure: transient DNS (EAI_AGAIN),
+            # refused, timeout. Retry until attempts exhausted.
+            if attempt == MAX_ATTEMPTS:
+                raise
+            err = e
+        sleep_s = RETRY_BACKOFF_S * attempt
+        print(f"  call_api {method} {path} attempt {attempt}/{MAX_ATTEMPTS} "
+              f"failed ({err}); retrying in {sleep_s}s")
+        time.sleep(sleep_s)
 
 
 def main():

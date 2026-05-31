@@ -54,6 +54,49 @@ These closed in the same session before signoff:
 
 ### Stage 2 progress log
 
+#### 2026-05-31 — surface/bridge inventory flips + ntfy round-trip + Langfuse orphaned-span finding
+
+No-Rob-required DoD-advancing sweep — three workstreams run in parallel,
+recorded here, with two items held back for Rob as propose-then-execute.
+
+**Ingress inventory promoted on provenance evidence.** The
+per-completion provenance now persisted on the task row lets several
+Surfaces/Bridges rows move ⏳ → ✅ on real completion counts, not
+inference:
+
+- **AlertManager → HolmesGPT** — 65 `source=holmesgpt` completions land
+  via `alertmanager-holmesgpt-notify.ts` posting to `/inbox` (workflow
+  line 224). The Holmes→inbox bridge is hot.
+- **Cron schedules** — 15 `source=scheduled` completions; daily-digest
+  and the weekly bridges are firing on their crons.
+- **Operator tap on ntfy + the two approval bridges** — promoted on the
+  round-trip smoke below.
+
+**Ntfy tap-to-approve — round-trip proven.** Smoke exercised all three
+*automatable* legs of the guardian gate: `langgraph-approval-post.ts`
+emits the push with action buttons, the buttons are wired, and
+`langgraph-approval-receive.ts` resumes the task on webhook callback —
+3/3. Only the literal finger-tap on a phone is unsimulable. The gate is
+hot in prod: ~13 Holmes-originated tasks are parked awaiting approval.
+Ntfy output sink moves 🚧 → ✅.
+
+**Langfuse traces — confirmed-open gap (NOT closeable by smoke).** Frames
+from the langgraph hot path do reach Langfuse, but the worker spans are
+**orphaned**: there is no ingress root span and the parent ids are
+absent, so a single task can't be walked ingress → worker as one trace
+tree. This needs a **trace-context propagation fix in langgraph-agents**
+— carry the `trace_id` / span context across the queue boundary into the
+worker. Surfaced to Rob as propose-then-execute; the row stays 🚧.
+
+**Grafana HR stall — diagnosed, fix proposed (propose-then-execute).**
+The grafana HelmRelease has been stalling on upgrade: a values-only
+change (PR #11989) misses the 5-minute Flux timeout because the upgrade
+blocks on plugin downloads + an `image-renderer:latest` pull; the pod
+itself stays healthy on the prior revision. Proposed fix — bump
+`spec.upgrade.timeout` to `10m` and pin grafana-image-renderer off
+`:latest`. **Not applied** — awaiting Rob's go-ahead per the GitOps
+propose-then-execute gate.
+
 #### 2026-05-31 — router scorer + per-group num_ctx + provenance deployed (v0.2.63)
 
 **Shipped in one release (lga v0.2.63, home-ops PR #12189, HR Ready):**
@@ -360,9 +403,9 @@ blocking issue · ⏳ not yet audited · 🟥 aspirational (no audit).
 | Zulip DM (Triager bot) | A | ⏳ | — |
 | Open WebUI chat | A | ⏳ | — |
 | Khoj UI | A | ⏳ | — |
-| AlertManager firing alert → HolmesGPT | A | ⏳ | — |
-| Cron schedules (Windmill + k8s CronJob) | A | ⏳ | — |
-| Operator tap on ntfy | A | ⏳ | — |
+| AlertManager firing alert → HolmesGPT | A | ✅ hot — 65 `source=holmesgpt` completions via `alertmanager-holmesgpt-notify.ts` → `/inbox` | — |
+| Cron schedules (Windmill + k8s CronJob) | A | ✅ hot — 15 `source=scheduled` completions (daily-digest + weekly bridges firing) | — |
+| Operator tap on ntfy | A | ✅ hot — round-trip smoke 3/3 automatable links + ~13 prod tasks parked in guardian queue | — |
 
 ### Bridges (Windmill TS workflows)
 
@@ -370,13 +413,13 @@ blocking issue · ⏳ not yet audited · 🟥 aspirational (no audit).
 |---|---|---|---|
 | `langgraph-inbox.ts` | A | ⏳ | — |
 | `zulip-triager-webhook.ts` | A | ⏳ | — |
-| `alertmanager-holmesgpt-notify.ts` | A | ⏳ | — |
-| `langgraph-daily-digest.ts` | A | ⏳ | — |
+| `alertmanager-holmesgpt-notify.ts` | A | ✅ posts `source=holmesgpt` to `/inbox` (line 224); 65 completions | — |
+| `langgraph-daily-digest.ts` | A | ✅ scheduled cron firing (`source=scheduled` completions) | — |
 | `langgraph-cost-cap-watcher.ts` | A | ⏳ | — |
 | `langgraph-awaiting-user-sweep.ts` | A | ⏳ | — |
 | `langgraph-dlq-watcher.ts` | A | ⏳ | — |
-| `langgraph-approval-post.ts` | A | ⏳ | — |
-| `langgraph-approval-receive.ts` | A | ⏳ | — |
+| `langgraph-approval-post.ts` | A | ✅ push emitted + action buttons wired (smoke-proven) | — |
+| `langgraph-approval-receive.ts` | A | ✅ webhook resume proven (round-trip smoke) | — |
 | `paperless-rag-ingest.ts` | A | ⏳ | — |
 | `paperless-rag-tombstone.ts` | A | ⏳ | — |
 | `workaround-watcher.ts` | A | ⏳ | — |
@@ -461,8 +504,8 @@ blocking issue · ⏳ not yet audited · 🟥 aspirational (no audit).
 |---|---|---|---|
 | Obsidian vault (via `langgraph-vault` PVC) | A | 🚧 PVC bound (`langgraph-agents` pod mounts it) — write-side exercise pending E2E smoke | — |
 | Zulip threads (ops + per-agent) | A | 🚧 Zulip live (`collab/zulip` HR Ready) — write-side exercise pending E2E smoke | — |
-| Ntfy push (tap-to-approve) | A | 🚧 `home/ntfy` HR Ready — push exercise pending E2E smoke | — |
-| Langfuse traces (OTLP sink) | A | 🚧 sink ready (Langfuse stack Ready post-#11922); first OTLP frame pending langgraph hot-path | — |
+| Ntfy push (tap-to-approve) | A | ✅ hot — push + action buttons + webhook resume all proven (3/3 automatable links); only the literal finger-tap is unsimulable; guardian gate hot in prod (~13 parked tasks) | — |
+| Langfuse traces (OTLP sink) | A | 🚧 frames flow, but worker spans are **orphaned** — no ingress root span, parent ids absent; needs trace-context propagation fix in langgraph-agents | — |
 
 > **Reconciliation note (2026-05-31).** Two output sinks have moved off
 > 🚧 in practice but the rows above are conservatively left as-is pending
@@ -474,14 +517,19 @@ blocking issue · ⏳ not yet audited · 🟥 aspirational (no audit).
 >   cadence). Treat these as functionally A-hot; the 🚧 reflects that no
 >   single trace has been walked end-to-end from ingress → vault note in
 >   one audited pass.
-> - **Langfuse traces** — an OTLP frame from the langgraph hot path did
->   land post-P0-A (trace `019e649c…`), so the sink is confirmed
->   receiving. The 🚧 stays until trace continuity (ingress→worker span
->   parentage) is verified, which is an explicit langgraph-agents
->   follow-up, not a substrate gap.
-> - **Ntfy tap-to-approve** remains genuinely 🚧 — the HR is Ready and
->   push delivery works, but no audited tap-to-approve round-trip has
->   been captured. This is the one output sink with no E2E evidence yet.
+> - **Langfuse traces** — frames from the langgraph hot path do land, so
+>   the sink is confirmed receiving. But the 2026-05-31 audit found the
+>   worker spans are **orphaned**: there is no ingress root span and the
+>   parent ids are absent, so a task can't be walked ingress→worker as
+>   one tree. This is a **confirmed-open** gap, not closeable by a smoke —
+>   it needs a trace-context propagation fix in langgraph-agents (carry
+>   the `trace_id`/span context across the queue boundary into the
+>   worker). Surfaced to Rob as propose-then-execute.
+> - **Ntfy tap-to-approve** moved off 🚧 on 2026-05-31. The round-trip
+>   smoke proved all three automatable legs — push emitted, action
+>   buttons wired, webhook resume fires — leaving only the literal
+>   finger-tap unsimulable. The guardian gate is hot in prod (~13 Holmes
+>   tasks parked awaiting approval), so the path is exercised, not cold.
 
 ### Langfuse storage substrate
 

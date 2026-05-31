@@ -54,6 +54,40 @@ These closed in the same session before signoff:
 
 ### Stage 2 progress log
 
+#### 2026-05-31 — router scorer + per-group num_ctx + provenance deployed (v0.2.63)
+
+**Shipped in one release (lga v0.2.63, home-ops PR #12189, HR Ready):**
+
+- **Router scorer live (lga #112/#114):** the deterministic
+  local-vs-Claude gate at the `llm()` chokepoint
+  (`agents.router.score_route`). Escalates on exactly one
+  capability-driven condition — estimated input over a per-group
+  context ceiling (`context_overflow`) — and emits
+  `langgraph_router_decision_total{agent,decision,reason}` on every
+  routing decision. Restricted-tier and already-Claude calls are
+  no-ops; opt-in `destructive`/`cascade` triggers ship wired but
+  **OFF** (they stay off until provenance gives a real escalation-rate
+  signal to tune against).
+- **Per-group num_ctx (lga #112/#114):** P40 (24 GB, shared by 5 GPU
+  pods) gets `num_ctx=16384` / escalate-threshold `12000`; Spark
+  (128 GB unified) gets `num_ctx=32768` / threshold `24000`. Selected
+  by `effective_group`, so a Spark request degraded to P40 inherits the
+  P40 ceiling. Invariant `threshold <= num_ctx` holds per group. Closes
+  the unsafe global-32k window that the interim 0.2.62 had opened.
+- **Per-completion provenance (lga #111):** `served_groups` persisted on
+  the task row. **Verified post-deploy:** `hai cost` now reports a
+  **MODEL GROUP** section — 223 local (222 `local-spark`, 1
+  `local-spark-coder`), 4 `(unknown)` (pre-provenance rows), **0
+  Claude**. Runtime escalations and Spark-down degrades surface here;
+  the all-local split is correct behavior for the 100%-local fleet, not
+  a gap. This closes the one open Stage-2 🚧 (local-vs-escalated split).
+
+This makes the local-vs-Claude decision an explicit, observable,
+deterministic gate where "never escalate" was previously an accident of
+wiring. The scorer does **not** yet score *live backend health* (fail
+local→Claude on a down backend) — that prevention, cited in the
+fallback runbook below, remains forward-looking.
+
 #### 2026-05-31 — ingress validator deployed + DoD reconciliation
 
 **Task-contract validator live (v0.2.61):** the last open
@@ -77,9 +111,9 @@ Live: pod `langgraph-agents-69674b9b65-n666z` on `0.2.61`, HR v75
   smoke" that Batch 4 and the Stage 2 logs had already exercised).
   Reconciled the clearly-stale rows against in-hand evidence;
   see the per-table notes.
-- **Local-vs-escalated split in `hai cost`** — 🚧 in flight in a
-  separate langgraph-agents PR (the provenance aggregation). Tracked
-  in the gaps table below.
+- **Local-vs-escalated split in `hai cost`** — ✅ closed later the same
+  day; provenance shipped in lga #111 / v0.2.63 and was verified live
+  (see the v0.2.63 entry above). Tracked in the gaps table below.
 
 Note: this reconciliation does not re-run the full Class-A/Class-B
 per-component DoD (pod-restart × suspend-resume × runbook for every
@@ -135,7 +169,7 @@ Non-CLI paths (Zulip bridge + scheduled crons) are confirmed working.
 |---|---|
 | CLI result retrieval (`hai task show`) | ✅ working |
 | Non-CLI input smoke (Zulip + scheduled) | ✅ confirmed via `hai cost` |
-| Local vs escalated split in `hai cost` | 🚧 in flight — langgraph-agents provenance PR (2026-05-31) |
+| Local vs escalated split in `hai cost` | ✅ closed 2026-05-31 — provenance shipped (lga #111, v0.2.63); `hai cost` MODEL GROUP section verified live (223 local / 0 Claude / 4 pre-provenance unknown) |
 | One full week of CLI-first usage | ⏳ clock running — user must confirm |
 | Fallback runbook (local infra down) | ✅ written 2026-05-31 — see Runbooks below |
 
@@ -352,7 +386,7 @@ blocking issue · ⏳ not yet audited · 🟥 aspirational (no audit).
 | Agent | Class | Status | Verifying PR |
 |---|---|---|---|
 | HolmesGPT | A | 🟢 batch-audit pass (HR Ready, pod Running 4h+) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
-| langgraph-agents (substrate) | A | ✅ hot — pod `0.2.61` Running (HR v75 `Ready=True`); `ENABLE_CLAUDE_API: true` with in-cluster cost caps ($5/task, $10/agent/day, $30/global/day); queue + DLQ + guardian-approval + TTL + trace-id + Layer 5 envelope validator all live (lga #103–#107). Promoted B→A: the path through it is no longer cold | [#12172](https://github.com/rwlove/home-ops/pull/12172) |
+| langgraph-agents (substrate) | A | ✅ hot — pod `0.2.63` Running (HR Ready, #12189); `ENABLE_CLAUDE_API: true` with in-cluster cost caps ($5/task, $10/agent/day, $30/global/day); queue + DLQ + guardian-approval + TTL + trace-id + Layer 5 envelope validator all live (lga #103–#107). Promoted B→A: the path through it is no longer cold | [#12172](https://github.com/rwlove/home-ops/pull/12172) |
 | supervisor (langgraph specialist) | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
 | researcher | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
 | coder | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
@@ -1204,8 +1238,9 @@ langgraph-agents pod, with in-cluster cost caps ($5/task,
 $10/agent/day, $30/global/day). When local capacity is genuinely
 unavailable the router's escalation path to the `claude` group is the
 fallback — but today the fleet routes 100% local and **never escalates
-on backend failure automatically** (the router scores on task class, not
-on live backend health). So recovery is operator-driven:
+on backend failure automatically** (the router scorer escalates on
+context overflow per group, not on live backend health). So recovery is
+operator-driven:
 
 1. **First, try to restore local** — it's faster and free, and the most
    common cause is a wedged Ollama that a restart clears:
@@ -1239,10 +1274,13 @@ on live backend health). So recovery is operator-driven:
    notes) and the P40 (`local-p40`, ≤8b) remains the only local option.
    Route what fits in 8b to P40; escalate the rest per step 2.
 
-**Prevention.** The durable fix is the router scoring live backend
-health and failing over local→Claude on its own, inside the cost caps —
-that is the open router-scorer work
-(`project_todo_homelab_router_queue_substrate`), explicitly forward-looking
+**Prevention.** The deterministic router scorer now ships in v0.2.63
+(lga PRs 112 and 114): it makes the local-vs-Claude call an explicit,
+metric-emitting gate and escalates automatically on context overflow.
+What it does **not** yet do is score *live backend health* — failing
+over local→Claude on its own when a backend is down, inside the cost
+caps. That health-failover is the remaining durable fix
+(`project_todo_homelab_router_queue_substrate`), still forward-looking
 because the fleet has had no escalation pressure to date. Until it
 lands, the OllamaWedged synthetic probe + Pushover alert is the
 detection half, and this runbook is the manual response half. Keep

@@ -563,6 +563,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#2026-05-31--surfacebridge-inventory-flips--ntfy-round-trip--langfuse-orphaned-span-finding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2026-05-31 — surface/bridge inventory flips + ntfy round-trip + Langfuse orphaned-span finding
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#2026-05-31--router-scorer--per-group-num_ctx--provenance-deployed-v0263" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2435,6 +2446,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#2026-05-31--surfacebridge-inventory-flips--ntfy-round-trip--langfuse-orphaned-span-finding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2026-05-31 — surface/bridge inventory flips + ntfy round-trip + Langfuse orphaned-span finding
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#2026-05-31--router-scorer--per-group-num_ctx--provenance-deployed-v0263" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2943,6 +2965,44 @@ These closed in the same session before signoff:</p>
 <p><strong>Proceeding to Stage 2 capability gap analysis</strong> per <code>goal.md</code>
 ("Show me the gap analysis before you start closing it.")</p>
 <h3 id="stage-2-progress-log">Stage 2 progress log<a class="headerlink" href="#stage-2-progress-log" title="Permanent link">&para;</a></h3>
+<h4 id="2026-05-31--surfacebridge-inventory-flips--ntfy-round-trip--langfuse-orphaned-span-finding">2026-05-31 — surface/bridge inventory flips + ntfy round-trip + Langfuse orphaned-span finding<a class="headerlink" href="#2026-05-31--surfacebridge-inventory-flips--ntfy-round-trip--langfuse-orphaned-span-finding" title="Permanent link">&para;</a></h4>
+<p>No-Rob-required DoD-advancing sweep — three workstreams run in parallel,
+recorded here, with two items held back for Rob as propose-then-execute.</p>
+<p><strong>Ingress inventory promoted on provenance evidence.</strong> The
+per-completion provenance now persisted on the task row lets several
+Surfaces/Bridges rows move ⏳ → ✅ on real completion counts, not
+inference:</p>
+<ul>
+<li><strong>AlertManager → HolmesGPT</strong> — 65 <code>source=holmesgpt</code> completions land
+  via <code>alertmanager-holmesgpt-notify.ts</code> posting to <code>/inbox</code> (workflow
+  line 224). The Holmes→inbox bridge is hot.</li>
+<li><strong>Cron schedules</strong> — 15 <code>source=scheduled</code> completions; daily-digest
+  and the weekly bridges are firing on their crons.</li>
+<li><strong>Operator tap on ntfy + the two approval bridges</strong> — promoted on the
+  round-trip smoke below.</li>
+</ul>
+<p><strong>Ntfy tap-to-approve — round-trip proven.</strong> Smoke exercised all three
+<em>automatable</em> legs of the guardian gate: <code>langgraph-approval-post.ts</code>
+emits the push with action buttons, the buttons are wired, and
+<code>langgraph-approval-receive.ts</code> resumes the task on webhook callback —
+3/3. Only the literal finger-tap on a phone is unsimulable. The gate is
+hot in prod: ~13 Holmes-originated tasks are parked awaiting approval.
+Ntfy output sink moves 🚧 → ✅.</p>
+<p><strong>Langfuse traces — confirmed-open gap (NOT closeable by smoke).</strong> Frames
+from the langgraph hot path do reach Langfuse, but the worker spans are
+<strong>orphaned</strong>: there is no ingress root span and the parent ids are
+absent, so a single task can't be walked ingress → worker as one trace
+tree. This needs a <strong>trace-context propagation fix in langgraph-agents</strong>
+— carry the <code>trace_id</code> / span context across the queue boundary into the
+worker. Surfaced to Rob as propose-then-execute; the row stays 🚧.</p>
+<p><strong>Grafana HR stall — diagnosed, fix proposed (propose-then-execute).</strong>
+The grafana HelmRelease has been stalling on upgrade: a values-only
+change (PR #11989) misses the 5-minute Flux timeout because the upgrade
+blocks on plugin downloads + an <code>image-renderer:latest</code> pull; the pod
+itself stays healthy on the prior revision. Proposed fix — bump
+<code>spec.upgrade.timeout</code> to <code>10m</code> and pin grafana-image-renderer off
+<code>:latest</code>. <strong>Not applied</strong> — awaiting Rob's go-ahead per the GitOps
+propose-then-execute gate.</p>
 <h4 id="2026-05-31--router-scorer--per-group-num_ctx--provenance-deployed-v0263">2026-05-31 — router scorer + per-group num_ctx + provenance deployed (v0.2.63)<a class="headerlink" href="#2026-05-31--router-scorer--per-group-num_ctx--provenance-deployed-v0263" title="Permanent link">&para;</a></h4>
 <p><strong>Shipped in one release (lga v0.2.63, home-ops PR #12189, HR Ready):</strong></p>
 <ul>
@@ -3258,19 +3318,19 @@ blocking issue · ⏳ not yet audited · 🟥 aspirational (no audit).</p>
 <tr>
 <td>AlertManager firing alert → HolmesGPT</td>
 <td>A</td>
-<td>⏳</td>
+<td>✅ hot — 65 <code>source=holmesgpt</code> completions via <code>alertmanager-holmesgpt-notify.ts</code> → <code>/inbox</code></td>
 <td>—</td>
 </tr>
 <tr>
 <td>Cron schedules (Windmill + k8s CronJob)</td>
 <td>A</td>
-<td>⏳</td>
+<td>✅ hot — 15 <code>source=scheduled</code> completions (daily-digest + weekly bridges firing)</td>
 <td>—</td>
 </tr>
 <tr>
 <td>Operator tap on ntfy</td>
 <td>A</td>
-<td>⏳</td>
+<td>✅ hot — round-trip smoke 3/3 automatable links + ~13 prod tasks parked in guardian queue</td>
 <td>—</td>
 </tr>
 </tbody>
@@ -3301,13 +3361,13 @@ blocking issue · ⏳ not yet audited · 🟥 aspirational (no audit).</p>
 <tr>
 <td><code>alertmanager-holmesgpt-notify.ts</code></td>
 <td>A</td>
-<td>⏳</td>
+<td>✅ posts <code>source=holmesgpt</code> to <code>/inbox</code> (line 224); 65 completions</td>
 <td>—</td>
 </tr>
 <tr>
 <td><code>langgraph-daily-digest.ts</code></td>
 <td>A</td>
-<td>⏳</td>
+<td>✅ scheduled cron firing (<code>source=scheduled</code> completions)</td>
 <td>—</td>
 </tr>
 <tr>
@@ -3331,13 +3391,13 @@ blocking issue · ⏳ not yet audited · 🟥 aspirational (no audit).</p>
 <tr>
 <td><code>langgraph-approval-post.ts</code></td>
 <td>A</td>
-<td>⏳</td>
+<td>✅ push emitted + action buttons wired (smoke-proven)</td>
 <td>—</td>
 </tr>
 <tr>
 <td><code>langgraph-approval-receive.ts</code></td>
 <td>A</td>
-<td>⏳</td>
+<td>✅ webhook resume proven (round-trip smoke)</td>
 <td>—</td>
 </tr>
 <tr>
@@ -3710,13 +3770,13 @@ open and intentionally deferred.</p>
 <tr>
 <td>Ntfy push (tap-to-approve)</td>
 <td>A</td>
-<td>🚧 <code>home/ntfy</code> HR Ready — push exercise pending E2E smoke</td>
+<td>✅ hot — push + action buttons + webhook resume all proven (3/3 automatable links); only the literal finger-tap is unsimulable; guardian gate hot in prod (~13 parked tasks)</td>
 <td>—</td>
 </tr>
 <tr>
 <td>Langfuse traces (OTLP sink)</td>
 <td>A</td>
-<td>🚧 sink ready (Langfuse stack Ready post-#11922); first OTLP frame pending langgraph hot-path</td>
+<td>🚧 frames flow, but worker spans are <strong>orphaned</strong> — no ingress root span, parent ids absent; needs trace-context propagation fix in langgraph-agents</td>
 <td>—</td>
 </tr>
 </tbody>
@@ -3732,14 +3792,19 @@ a deliberate write-side audit:</p>
   cadence). Treat these as functionally A-hot; the 🚧 reflects that no
   single trace has been walked end-to-end from ingress → vault note in
   one audited pass.</li>
-<li><strong>Langfuse traces</strong> — an OTLP frame from the langgraph hot path did
-  land post-P0-A (trace <code>019e649c…</code>), so the sink is confirmed
-  receiving. The 🚧 stays until trace continuity (ingress→worker span
-  parentage) is verified, which is an explicit langgraph-agents
-  follow-up, not a substrate gap.</li>
-<li><strong>Ntfy tap-to-approve</strong> remains genuinely 🚧 — the HR is Ready and
-  push delivery works, but no audited tap-to-approve round-trip has
-  been captured. This is the one output sink with no E2E evidence yet.</li>
+<li><strong>Langfuse traces</strong> — frames from the langgraph hot path do land, so
+  the sink is confirmed receiving. But the 2026-05-31 audit found the
+  worker spans are <strong>orphaned</strong>: there is no ingress root span and the
+  parent ids are absent, so a task can't be walked ingress→worker as
+  one tree. This is a <strong>confirmed-open</strong> gap, not closeable by a smoke —
+  it needs a trace-context propagation fix in langgraph-agents (carry
+  the <code>trace_id</code>/span context across the queue boundary into the
+  worker). Surfaced to Rob as propose-then-execute.</li>
+<li><strong>Ntfy tap-to-approve</strong> moved off 🚧 on 2026-05-31. The round-trip
+  smoke proved all three automatable legs — push emitted, action
+  buttons wired, webhook resume fires — leaving only the literal
+  finger-tap unsimulable. The guardian gate is hot in prod (~13 Holmes
+  tasks parked awaiting approval), so the path is exercised, not cold.</li>
 </ul>
 </blockquote>
 <h3 id="langfuse-storage-substrate">Langfuse storage substrate<a class="headerlink" href="#langfuse-storage-substrate" title="Permanent link">&para;</a></h3>

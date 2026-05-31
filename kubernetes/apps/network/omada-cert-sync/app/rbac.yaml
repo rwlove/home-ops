@@ -1,0 +1,45 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/serviceaccount-v1.json
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: omada-cert-reader
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/role-rbac-v1.json
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: omada-cert-reader
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["thesteamedcrab-com-tls"]
+    verbs: ["get"]
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/rolebinding-rbac-v1.json
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: omada-cert-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: omada-cert-reader
+subjects:
+  - kind: ServiceAccount
+    name: omada-cert-reader
+    namespace: network
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/secret-v1.json
+# Long-lived token for an OFF-CLUSTER consumer (the Omada controller on
+# brain, which cannot use a TokenRequest-rotated projected token). The
+# token-controller populates .data.token + .data["ca.crt"] at runtime;
+# nothing secret is committed here. Rob copies these two values onto
+# brain at install time (see ./brain/README.md).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: omada-cert-reader-token
+  annotations:
+    kubernetes.io/service-account.name: omada-cert-reader
+type: kubernetes.io/service-account-token

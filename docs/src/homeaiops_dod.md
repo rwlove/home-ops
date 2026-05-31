@@ -54,6 +54,37 @@ These closed in the same session before signoff:
 
 ### Stage 2 progress log
 
+#### 2026-05-31 — ingress validator deployed + DoD reconciliation
+
+**Task-contract validator live (v0.2.61):** the last open
+queue-substrate ingress item — a HOMELAB-SPEC Layer 5 envelope
+validator at `/inbox` — shipped (lga PR #107) and deployed to the
+cluster (home-ops PR #12172). The validator is **lenient /
+minimal-mandatory**: it 422s only the semantic invalids Pydantic can't
+express (blank `task_id` / `content`, non-positive `ttl`, blank
+`idempotency_key`, unknown `target_agent`), while optional envelope
+fields ride on defaults so zero current traffic is rejected. Each
+rejection bumps `langgraph_inbox_envelope_rejected_total{reason}`.
+Live: pod `langgraph-agents-69674b9b65-n666z` on `0.2.61`, HR v75
+`Ready=True`.
+
+**DoD-line closures this session:**
+
+- **Fallback runbook (local infra down)** — ✅ written; see the
+  "Local inference path down — escalation fallback" runbook below.
+- **Inventory reconciliation** — the component-inventory tables below
+  were drifting (rows still read "cold via substrate / pending E2E
+  smoke" that Batch 4 and the Stage 2 logs had already exercised).
+  Reconciled the clearly-stale rows against in-hand evidence;
+  see the per-table notes.
+- **Local-vs-escalated split in `hai cost`** — 🚧 in flight in a
+  separate langgraph-agents PR (the provenance aggregation). Tracked
+  in the gaps table below.
+
+Note: this reconciliation does not re-run the full Class-A/Class-B
+per-component DoD (pod-restart × suspend-resume × runbook for every
+row). It corrects status that lagged behind already-captured evidence.
+
 #### 2026-05-25 — gap analysis + v0.2.57/0.2.58 bug fixes
 
 Gap analysis delivered in-session (not as a doc file per user
@@ -104,9 +135,9 @@ Non-CLI paths (Zulip bridge + scheduled crons) are confirmed working.
 |---|---|
 | CLI result retrieval (`hai task show`) | ✅ working |
 | Non-CLI input smoke (Zulip + scheduled) | ✅ confirmed via `hai cost` |
-| Local vs escalated split in `hai cost` | ❌ TODO in code — provenance not landed |
+| Local vs escalated split in `hai cost` | 🚧 in flight — langgraph-agents provenance PR (2026-05-31) |
 | One full week of CLI-first usage | ⏳ clock running — user must confirm |
-| Fallback runbook (local infra down) | ❌ not written |
+| Fallback runbook (local infra down) | ✅ written 2026-05-31 — see Runbooks below |
 
 Gate 2 requires: dogfooding day log posted to vault + operator
 approval. Pre-check above satisfies the log requirement; pending
@@ -321,7 +352,7 @@ blocking issue · ⏳ not yet audited · 🟥 aspirational (no audit).
 | Agent | Class | Status | Verifying PR |
 |---|---|---|---|
 | HolmesGPT | A | 🟢 batch-audit pass (HR Ready, pod Running 4h+) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
-| langgraph-agents (substrate) | B | 🟢 substrate batch-audit pass (HR Ready, pod 0.2.33 Running 3h+, queue `task_queue` 5 done / 0 pending / DLQ 0) — Claude API gate still cold, see [#11923](https://github.com/rwlove/home-ops/pull/11923) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| langgraph-agents (substrate) | A | ✅ hot — pod `0.2.61` Running (HR v75 `Ready=True`); `ENABLE_CLAUDE_API: true` with in-cluster cost caps ($5/task, $10/agent/day, $30/global/day); queue + DLQ + guardian-approval + TTL + trace-id + Layer 5 envelope validator all live (lga #103–#107). Promoted B→A: the path through it is no longer cold | [#12172](https://github.com/rwlove/home-ops/pull/12172) |
 | supervisor (langgraph specialist) | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
 | researcher | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
 | coder | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
@@ -340,13 +371,27 @@ blocking issue · ⏳ not yet audited · 🟥 aspirational (no audit).
 | claude-runner cost-cap-commentary | A | 🟢 batch-audit pass (CronJob 22:00 UTC daily) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
 | doc-writer / Scribner | C | 🟥 n/a | — |
 
+> **Reconciliation note (2026-05-31).** Several specialist rows above
+> still read "🟡 cold via substrate — exercise pending E2E smoke," but
+> that predates Batch 4 and the Stage 2 logs. Already exercised
+> end-to-end with captured evidence: **triager** (routes every Batch 4
+> task), **note-maker** (Batch 4 smoke 1 → vault note), **homelab-engineer**
+> and **errand-runner** (Batch 4 smoke 2 → homelab-finding + approval
+> interrupt), **reporter** (UX wave lga#73/75/76/77 → rich-text Zulip
+> DMs), **observability-operator** (Stage 2 P0-B smoke → live Prometheus
+> query). **auditor** is full ✅ (ReAct tool-binding). The remaining 🟡
+> rows are substrate-cold only because no task has happened to route to
+> them yet — not because the path is unproven. A full per-agent
+> Class-B DoD pass (each agent × pod-restart × suspend-resume) is still
+> open and intentionally deferred.
+
 ### Inference backends
 
 | Backend | Class | Status | Verifying PR |
 |---|---|---|---|
 | ollama (P40) | A | 🟢 batch-audit pass (HR `Ready=True / UpgradeSucceeded`, pod 2d17h uptime, 0 restarts) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
 | ollama-spark (GB10) | A | 🟢 batch-audit pass (HR `Ready=True`, pod 41h uptime, 0 restarts) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
-| Claude API (via langgraph) | B | 🚧 cold-gate (`ENABLE_CLAUDE_API: false`); secret-wiring single-source in [#11923](https://github.com/rwlove/home-ops/pull/11923) | [#11923](https://github.com/rwlove/home-ops/pull/11923) |
+| Claude API (via langgraph) | A | ✅ armed — `ENABLE_CLAUDE_API: true` (enabled 2026-05-21, #11923 single-sourced the key); cost caps active; Batch 4 confirmed the gate hot with `spent_usd=0.0` (local routing sufficed). The escalation path is ready; the fleet still routes 100% local, so live Claude spend remains $0 — correct behavior, not a gap | [#11923](https://github.com/rwlove/home-ops/pull/11923) |
 | Claude Code (via claude-runner) | A | 🟢 batch-audit pass (CronJob-driven, `claude-runner-secret` has live 108-byte key) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
 | tei-spark (reranker) | A | 🟢 batch-audit pass (HR `Ready=True`, pod 4h32m uptime, 0 restarts) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
 
@@ -384,6 +429,25 @@ blocking issue · ⏳ not yet audited · 🟥 aspirational (no audit).
 | Zulip threads (ops + per-agent) | A | 🚧 Zulip live (`collab/zulip` HR Ready) — write-side exercise pending E2E smoke | — |
 | Ntfy push (tap-to-approve) | A | 🚧 `home/ntfy` HR Ready — push exercise pending E2E smoke | — |
 | Langfuse traces (OTLP sink) | A | 🚧 sink ready (Langfuse stack Ready post-#11922); first OTLP frame pending langgraph hot-path | — |
+
+> **Reconciliation note (2026-05-31).** Two output sinks have moved off
+> 🚧 in practice but the rows above are conservatively left as-is pending
+> a deliberate write-side audit:
+>
+> - **Vault write-side** and **Zulip threads** were both exercised in the
+>   Batch 4 E2E smoke (the queue worker posted approval + completion
+>   payloads; the historian skill writes vault summaries on its own
+>   cadence). Treat these as functionally A-hot; the 🚧 reflects that no
+>   single trace has been walked end-to-end from ingress → vault note in
+>   one audited pass.
+> - **Langfuse traces** — an OTLP frame from the langgraph hot path did
+>   land post-P0-A (trace `019e649c…`), so the sink is confirmed
+>   receiving. The 🚧 stays until trace continuity (ingress→worker span
+>   parentage) is verified, which is an explicit langgraph-agents
+>   follow-up, not a substrate gap.
+> - **Ntfy tap-to-approve** remains genuinely 🚧 — the HR is Ready and
+>   push delivery works, but no audited tap-to-approve round-trip has
+>   been captured. This is the one output sink with no E2E evidence yet.
 
 ### Langfuse storage substrate
 
@@ -1088,3 +1152,107 @@ storage agree.
 Time budget: 2–3 m of downtime per HR. Pick a maintenance
 window per `CLAUDE.md` if the component is operator- or
 Renee-facing.
+
+### Local inference path down — escalation fallback
+
+**Symptom.** Agent tasks queued at `/inbox` stop completing, or
+complete with empty/garbage model output. The langgraph-agents pod is
+`Running` and the queue is draining (no DLQ pileup from worker crashes),
+but every task that routes to a local model group (`local-p40`,
+`local-spark`) errors out or times out. Symptoms that point here rather
+than at the worker: HolmesGPT alert-triage returns "model unavailable,"
+`hai cost` shows no new local rows accumulating, and Ollama's own probes
+are red.
+
+**How to confirm.** Check the two local inference backends directly —
+this is read-only:
+
+```sh
+# P40 (≤8b class) and Spark (32b class) Ollama endpoints
+kubectl get pods -n ai -l app.kubernetes.io/name=ollama
+kubectl get pods -n ai -l app.kubernetes.io/name=ollama-spark
+# Are the models actually loaded / responding?
+kubectl logs -n ai deploy/ollama --tail=50
+kubectl logs -n ai deploy/ollama-spark --tail=50
+```
+
+A GB10/Spark-specific tell: most DCGM counters are broken on GB10, so
+use **power draw** as the "is the GPU doing work" proxy, not
+`GPU_UTIL`:
+
+```promql
+DCGM_FI_DEV_POWER_USAGE{Hostname=~".*spark.*"}
+```
+
+Flat-at-idle power while the queue has work waiting confirms the Spark
+inference path is dead, not merely quiet. Cross-check the OllamaWedged
+blackbox synthetic probe (see `project_wedge_detection_blackbox_synthetic_probe`)
+— it exercises both P40 and Spark on a schedule and is the fastest
+single signal that a backend has wedged versus crashed.
+
+**Root cause.** Common drivers, roughly in order: Ollama wedged (model
+load hung — the classic Pascal/P40 failure, recovered by a pod restart,
+*not* a node action); the Spark host down or its containerd runtime
+unhealthy (Spark is the lone non-CRI-O node); a model pull mid-flight
+left no resident model; or the GPU itself fell off the bus. The queue
+substrate is healthy in all of these — the failure is purely the
+inference layer the router points at.
+
+**Recovery.** The design intent is that the cluster *already has* an
+escalation fallback armed: `ENABLE_CLAUDE_API: true` on the
+langgraph-agents pod, with in-cluster cost caps ($5/task,
+$10/agent/day, $30/global/day). When local capacity is genuinely
+unavailable the router's escalation path to the `claude` group is the
+fallback — but today the fleet routes 100% local and **never escalates
+on backend failure automatically** (the router scores on task class, not
+on live backend health). So recovery is operator-driven:
+
+1. **First, try to restore local** — it's faster and free, and the most
+   common cause is a wedged Ollama that a restart clears:
+
+   ```sh
+   kubectl rollout restart -n ai deploy/ollama         # P40
+   kubectl rollout restart -n ai deploy/ollama-spark   # Spark
+   ```
+
+   Re-run the wedge probe (or `hai` a trivial task) and confirm local
+   rows resume in `hai cost`.
+
+2. **If local can't be restored quickly** and tasks are time-sensitive,
+   the escalation path is the bridge. The gate is already hot
+   (`ENABLE_CLAUDE_API: true`), so escalation needs a routing decision,
+   not a config flip. Until the router scores backend health
+   automatically, escalate by pinning the affected task class to the
+   `claude` group — propose this to Rob first; it spends real money and
+   the cost caps are the only guardrail. Watch spend live:
+
+   ```promql
+   sum(increase(langgraph_cost_usd_total[1h]))
+   ```
+
+   The caps degrade the router back to local / queue lower-priority
+   remote work as the daily budget is approached — that is the intended
+   self-throttle, not a failure.
+
+3. **If the Spark host itself is down**, that is a node-level recovery
+   (out of scope for this runbook — see the node-drain / physical-restart
+   notes) and the P40 (`local-p40`, ≤8b) remains the only local option.
+   Route what fits in 8b to P40; escalate the rest per step 2.
+
+**Prevention.** The durable fix is the router scoring live backend
+health and failing over local→Claude on its own, inside the cost caps —
+that is the open router-scorer work
+(`project_todo_homelab_router_queue_substrate`), explicitly forward-looking
+because the fleet has had no escalation pressure to date. Until it
+lands, the OllamaWedged synthetic probe + Pushover alert is the
+detection half, and this runbook is the manual response half. Keep
+`ENABLE_CLAUDE_API: true` and the cost caps in place so the escalation
+path stays one routing decision away rather than a config change under
+pressure.
+
+> **Note on the cost caps as a safety floor.** The escalation fallback
+> is only safe *because* the per-task / per-agent / per-day caps bound
+> the blast radius of a runaway escalation. Do not raise or remove them
+> as part of incident response — if a real local outage drives sustained
+> escalation into the cap, that is the cap doing its job; the answer is
+> to restore local capacity, not to widen the budget.

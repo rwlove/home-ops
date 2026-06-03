@@ -86,27 +86,52 @@ while IFS= read -r LINE; do
 
   TOTAL=$((TOTAL + 1))
 
-  # Re-init per host. Avoids the stale-session 404s seen after ~5 calls.
-  if ! mcp_init; then
-    printf '%-9s  %-45s  %s\n' "FAIL" "$${HOST}" "<session init failed>"
-    FAILED=$((FAILED + 1))
-    continue
-  fi
+  # Navigate with one retry. A single transient blip — a stale MCP
+  # session, a slow OIDC redirect, or a 45s nav timeout — shouldn't fail
+  # the whole sweep; only a host unreachable on BOTH attempts counts as
+  # FAIL. KubeJobFailed on a once-daily Job pages, so one 5am hiccup on
+  # one of N hosts must not trip it. (Mirrors the lidarr-sab-autoimport
+  # in-script retry fix, PR #12203.)
+  ATTEMPT=0
+  STATUS="FAIL"
+  TITLE=""
+  FINAL_URL=""
+  ERRORS=0
+  while [ "$${ATTEMPT}" -lt 2 ]; do
+    ATTEMPT=$((ATTEMPT + 1))
 
-  REQ_ID=$((REQ_ID + 1))
-  BODY="$(printf '{"jsonrpc":"2.0","id":%d,"method":"tools/call","params":{"name":"browser_navigate","arguments":{"url":"https://%s"}}}' "$${REQ_ID}" "$${HOST}")"
-  RESP="$(mcp_post "$${BODY}")"
+    # Re-init per attempt. Avoids the stale-session 404s seen after ~5 calls.
+    if ! mcp_init; then
+      TITLE="<session init failed>"
+      if [ "$${ATTEMPT}" -lt 2 ]; then
+        sleep 3
+        continue
+      fi
+      break
+    fi
 
-  TEXT="$(printf '%s' "$${RESP}" | jq -r '.result.content[]?.text // empty' 2>/dev/null)"
+    REQ_ID=$((REQ_ID + 1))
+    BODY="$(printf '{"jsonrpc":"2.0","id":%d,"method":"tools/call","params":{"name":"browser_navigate","arguments":{"url":"https://%s"}}}' "$${REQ_ID}" "$${HOST}")"
+    RESP="$(mcp_post "$${BODY}")"
 
-  TITLE="$(printf '%s\n' "$${TEXT}" | sed -n 's/^- Page Title: //p' | head -1 | cut -c1-60)"
-  FINAL_URL="$(printf '%s\n' "$${TEXT}" | sed -n 's/^- Page URL: //p' | head -1)"
-  ERRORS="$(printf '%s\n' "$${TEXT}" | sed -n 's/^- Console: \([0-9]*\) errors.*/\1/p' | head -1)"
-  ERRORS="$${ERRORS:-0}"
+    TEXT="$(printf '%s' "$${RESP}" | jq -r '.result.content[]?.text // empty' 2>/dev/null)"
 
-  STATUS="OK"
-  if [ -z "$${FINAL_URL}" ]; then
-    STATUS="FAIL"
+    TITLE="$(printf '%s\n' "$${TEXT}" | sed -n 's/^- Page Title: //p' | head -1 | cut -c1-60)"
+    FINAL_URL="$(printf '%s\n' "$${TEXT}" | sed -n 's/^- Page URL: //p' | head -1)"
+    ERRORS="$(printf '%s\n' "$${TEXT}" | sed -n 's/^- Console: \([0-9]*\) errors.*/\1/p' | head -1)"
+    ERRORS="$${ERRORS:-0}"
+
+    if [ -n "$${FINAL_URL}" ]; then
+      STATUS="OK"
+      break
+    fi
+    # Unreachable this attempt; back off briefly before the retry.
+    if [ "$${ATTEMPT}" -lt 2 ]; then
+      sleep 3
+    fi
+  done
+
+  if [ "$${STATUS}" = "FAIL" ]; then
     FAILED=$((FAILED + 1))
   elif [ "$${ERRORS}" -gt 15 ]; then
     STATUS="LOUD"

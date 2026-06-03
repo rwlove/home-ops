@@ -10,14 +10,15 @@ spec:
     name: rook-ceph
   interval: 1h
   values:
-    # workaround: https://github.com/rwlove/home-ops/issues/12266 — remove when rook
-    # ships a non-empty csiServiceAccountPrefix default for the bundled
-    # ceph-csi-operator subchart. rook 1.20.0's parent chart overrides the subchart
-    # default ("ceph-csi-operator-") to "", so the operator never creates the
-    # rbd/cephfs ctrlplugin+nodeplugin SAs and the ctrlplugin Deployments wedge at
-    # 0/2 (FailedCreate: serviceaccount not found), killing ceph-block + cephfs
-    # attach/detach cluster-wide. Restore the subchart's own default prefix.
-    # Renovate is pinned <1.20.0 alongside this until upstream is fixed.
+    # workaround: https://github.com/rook/rook/issues/17644 — remove when rook ships
+    # the ceph-csi driver ServiceAccounts/RBAC its bundled ceph-csi-operator
+    # references. rook 1.20.0 deploys the operator + Driver CRs but NOT the driver
+    # SAs/RBAC — the operator only references SAs by name (<prefix><driver>-<role>-sa)
+    # and never creates them, so ctrlplugin Deployments wedge at 0/2 (serviceaccount
+    # not found), killing ceph-block + cephfs attach/detach cluster-wide. We vendor
+    # the SAs+RBAC in ./csi-driver-rbac.yaml; this prefix aligns the operator's SA
+    # references to those vendored names. Renovate is pinned <1.20.0. Tracking:
+    # home-ops#12266.
     ceph-csi-operator:
       controllerManager:
         manager:

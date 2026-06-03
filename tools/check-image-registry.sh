@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Check that container images use ghcr.io, or are explicitly allowlisted.
+# Check that container images do not pull from Docker Hub unless the
+# image is explicitly allowlisted.
 #
 # Usage:
 #   tools/check-image-registry.sh < images.txt           # one image per line
@@ -10,7 +11,12 @@
 # Pass --json if the input is a JSON array of image strings (e.g. the
 # output of `flux-local get cluster --only-images --output json`).
 #
-# Exits 0 if all images are ghcr.io or allowlisted; 1 otherwise.
+# Policy: Docker Hub (docker.io) is the only restricted registry — it
+# rate-limits anonymous/free pulls. Every other registry (ghcr.io,
+# quay.io, registry.k8s.io, nvcr.io, ...) is allowed. The allowlist
+# holds docker.io images that have no acceptable alternative.
+#
+# Exits 0 if no non-allowlisted docker.io images are present; 1 otherwise.
 # Prints offenders to stderr with the allowlist path so the fix is
 # obvious.
 
@@ -59,16 +65,12 @@ for image in "${images[@]}"; do
   bare="${image%@*}"
   bare="${bare%:*}"
 
-  # ghcr.io — always OK
-  if [[ "$bare" == ghcr.io/* ]]; then
-    continue
-  fi
-
-  # Normalize bare docker.io paths to their fully-qualified
+  # Normalize bare/implicit paths to their fully-qualified
   # `docker.io/<namespace>/<image>` form. Docker Hub treats unspecified
   # namespace as `library/`, so all four of these are equivalent:
   #   busybox / library/busybox / docker.io/busybox / docker.io/library/busybox
-  # The allowlist uses the `docker.io/library/...` form for clarity.
+  # This resolves short Docker Hub refs so they're caught by the gate
+  # below. The allowlist uses the `docker.io/library/...` form for clarity.
   case "$bare" in
     docker.io/*/* ) ;;                            # `docker.io/org/img` — canonical
     docker.io/* )
@@ -78,6 +80,14 @@ for image in "${images[@]}"; do
     * )     bare="docker.io/library/$bare" ;;     # `img`
   esac
 
+  # Only Docker Hub is restricted (it rate-limits free pulls). Every
+  # other registry — ghcr.io, quay.io, registry.k8s.io, nvcr.io, ... —
+  # passes without an allowlist entry.
+  if [[ "$bare" != docker.io/* ]]; then
+    continue
+  fi
+
+  # docker.io image — must be explicitly allowlisted.
   matched=false
   for p in "${prefixes[@]}"; do
     if [[ "$bare" == "$p"* ]]; then
@@ -90,18 +100,20 @@ for image in "${images[@]}"; do
 done
 
 if (( ${#violations[@]} == 0 )); then
-  echo "OK: all $(printf '%s\n' "${images[@]}" | wc -l) images use ghcr.io or are allowlisted."
+  echo "OK: none of the $(printf '%s\n' "${images[@]}" | wc -l) images pull from Docker Hub (or they are allowlisted)."
   exit 0
 fi
 
 {
-  echo "Non-ghcr.io images found that are not allowlisted:"
+  echo "Docker Hub (docker.io) images found that are not allowlisted:"
   printf '  - %s\n' "${violations[@]}"
   echo
-  echo "Repo policy is to prefer ghcr.io. For each offender, either:"
-  echo "  1. Switch to the upstream ghcr.io publication if one exists, or"
+  echo "Docker Hub rate-limits anonymous/free pulls, so it is restricted."
+  echo "For each offender, either:"
+  echo "  1. Switch to a non-docker.io publication (ghcr.io, quay.io,"
+  echo "     registry.k8s.io, ... — any of these is fine), or"
   echo "  2. Add the image's prefix to ${ALLOWLIST#"$PWD/"} with a one-line"
-  echo "     reason (e.g. 'no ghcr publication', 'official canonical home')."
+  echo "     reason (e.g. 'no non-docker publication')."
   echo
   echo "Check for a ghcr.io equivalent with:"
   echo "  skopeo list-tags docker://ghcr.io/<org>/<image>"

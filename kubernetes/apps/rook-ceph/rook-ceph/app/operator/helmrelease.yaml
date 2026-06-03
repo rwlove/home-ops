@@ -10,6 +10,19 @@ spec:
     name: rook-ceph
   interval: 1h
   values:
+    # workaround: https://github.com/rwlove/home-ops/issues/12266 — remove when rook
+    # ships a non-empty csiServiceAccountPrefix default for the bundled
+    # ceph-csi-operator subchart. rook 1.20.0's parent chart overrides the subchart
+    # default ("ceph-csi-operator-") to "", so the operator never creates the
+    # rbd/cephfs ctrlplugin+nodeplugin SAs and the ctrlplugin Deployments wedge at
+    # 0/2 (FailedCreate: serviceaccount not found), killing ceph-block + cephfs
+    # attach/detach cluster-wide. Restore the subchart's own default prefix.
+    # Renovate is pinned <1.20.0 alongside this until upstream is fixed.
+    ceph-csi-operator:
+      controllerManager:
+        manager:
+          env:
+            csiServiceAccountPrefix: "ceph-csi-operator-"
     csi:
       # Tolerate Spark's arm64 dedication taint. ollama-spark-0 uses
       # ceph-block PVCs (ollama-spark-data-pvc + ollama-spark-models-

@@ -39,14 +39,16 @@ spec:
         containers:
           app:
             image:
-              # workaround: https://github.com/pytorch/pytorch/issues/119400 — remove when sm_61 (Pascal) is restored OR when this workload migrates to Spark (GB10)
-              # Tracking: home-ops#11853
-              # P40-compat fork: torch 2.7+cu128 dropped sm_61, so the
-              # upstream cuda image can't run inference on this hardware.
-              # See project_immich_pet_tagger_p40_fork — revert to upstream
-              # (ghcr.io/tedornitier/immich-pet-tagger) when Spark lands.
-              repository: ghcr.io/rwlove/immich-pet-tagger
-              tag: v1.2.0-p40-skip-yolo-m-cuda@sha256:4cbfdd2afa2241e47d91ffe85c394a39255195b00e63d6e654114f6f3d79415a
+              # P40 (Pascal/sm_61): upstream's default cuda image uses torch
+              # cu128, which dropped sm_61. Upstream's `cuda-legacy` variant
+              # pins cu126 (keeps Maxwell–Hopper) and runs on the P40, so we
+              # run upstream directly. Migrated off the rwlove fork (now
+              # retired) — upstream absorbed the Pascal pin, the multi-variant
+              # build, and the no-animal skip behavior (v1.3.0). Tracking:
+              # home-ops#11853. Note: upstream runs yolov8n (vs the fork's
+              # yolov8m); watch first-backfill detection quality.
+              repository: ghcr.io/tedornitier/immich-pet-tagger
+              tag: v1.4.0-cuda-legacy@sha256:f6f0b28286a27678f9bb404703965e0aee02582e9038881a9c4142d3f38a3fc2
             env:
               IMMICH_URL: http://immich-server.media.svc.cluster.local:2283
               POLL_INTERVAL: "300"

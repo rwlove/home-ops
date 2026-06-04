@@ -93,6 +93,17 @@ def process_dir(src_dir):
         moved += 1
     print(f"  moved {moved} entries", flush=True)
 
+    # shutil.move preserves the upstream file mode (slskd/soularr downloads can
+    # be group-only 770), and the importMode=auto ManualImport below registers
+    # the files in place so Lidarr never chmods them. gonic serves this tree as
+    # "other" (gid 1112) and skips anything without world-read, making the album
+    # show empty in DSub. Force world-readable here so the bridge path matches
+    # the rest of the library.
+    for root, _dirs, fnames in os.walk(target_dir):
+        os.chmod(root, 0o775)
+        for fn in fnames:
+            os.chmod(os.path.join(root, fn), 0o664)
+
     new_proposals = call_api(
         "GET",
         "/api/v1/manualimport",

@@ -10,32 +10,12 @@ spec:
     name: rook-ceph
   interval: 1h
   values:
-    # workaround: https://github.com/rook/rook/issues/17644 — remove when rook ships
-    # the ceph-csi driver ServiceAccounts/RBAC its bundled ceph-csi-operator
-    # references. rook 1.20.0 deploys the operator + Driver CRs but NOT the driver
-    # SAs/RBAC — the operator only references SAs by name (<prefix><driver>-<role>-sa)
-    # and never creates them, so ctrlplugin Deployments wedge at 0/2 (serviceaccount
-    # not found), killing ceph-block + cephfs attach/detach cluster-wide. We vendor
-    # the SAs+RBAC in ./csi-driver-rbac.yaml; this prefix aligns the operator's SA
-    # references to those vendored names. Renovate is pinned <1.20.0. Tracking:
-    # home-ops#12266.
-    ceph-csi-operator:
-      controllerManager:
-        manager:
-          env:
-            csiServiceAccountPrefix: "ceph-csi-operator-"
-    csi:
-      # Tolerate Spark's arm64 dedication taint. ollama-spark-0 uses
-      # ceph-block PVCs (ollama-spark-data-pvc + ollama-spark-models-
-      # pvc), so the RBD CSI nodeplugin MUST run on Spark — without
-      # this it cannot mount RBD volumes on a tainted node. The chart
-      # applies pluginTolerations to both RBD and CephFS nodeplugin
-      # DaemonSets; cephfs CSI on Spark is unused but harmless.
-      pluginTolerations:
-        - key: kubernetes.io/arch
-          operator: Equal
-          value: arm64
-          effect: NoSchedule
+    # CSI driver SAs/RBAC, the csiServiceAccountPrefix, and the driver
+    # nodePlugin tolerations are all owned by the ceph-csi-drivers
+    # HelmRelease now (../../csi-drivers). rook 1.20 removed CSI settings
+    # from this chart: csi.pluginTolerations is silently ignored here and
+    # the Spark arm64 toleration lives in the drivers chart values. See
+    # rook/rook#17644 and reference_rook_1_20_csi_rbac_outage in memory.
     image:
       repository: ghcr.io/rook/ceph
 

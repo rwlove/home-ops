@@ -1,0 +1,69 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/cronjob-batch-v1.json
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: frigate-restart
+  # workaround: https://github.com/blakeblackshear/frigate/discussions/19925 — remove when upstream ships a recording/ffmpeg leak fix and our 14d frigate working-set trend stays flat
+spec:
+  # Weekly restart to clear the upstream ffmpeg/recording memory leak
+  # (frigate working-set sawtooths to ~14Gi and OOM-resets). Tuesday
+  # 02:00 is the Renee-facing maintenance window (CLAUDE.md). k8tz
+  # transparently injects timeZone: America/New_York on this cluster, so
+  # the schedule below is local ET — do NOT set an explicit timeZone
+  # (matches frigate-snapshot). NOTE: a weekly cadence does not prevent
+  # inter-Tuesday OOMs; the 14Gi limit remains the involuntary backstop.
+  schedule: "0 2 * * 2"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: frigate-restart
+        spec:
+          serviceAccountName: frigate-restart
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+          containers:
+            - name: restart
+              image: docker.io/alpine/k8s:1.36.1
+              command:
+                - /bin/sh
+                - -ceu
+                # Delete the pod by name — the StatefulSet controller
+                # recreates frigate-0 with no spec mutation (GitOps-clean).
+                - |
+                  kubectl -n home delete pod frigate-0 --wait=false
+                  echo "Requested restart of frigate-0"
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+                limits:
+                  memory: 128Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+                - name: kube
+                  mountPath: /.kube
+          volumes:
+            - name: tmp
+              emptyDir: {}
+            - name: kube
+              emptyDir: {}

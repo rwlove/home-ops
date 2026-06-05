@@ -1,0 +1,31 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: frigate-restart
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: frigate-restart
+rules:
+  # StatefulSet pod name is deterministic (frigate-0), so scope delete to
+  # that name — tighter than a label selector, which would need an
+  # unscopeable `list`. The StatefulSet controller recreates the pod, so
+  # no StatefulSet spec mutation (and thus no Flux drift) is involved.
+  - apiGroups: [""]
+    resources: ["pods"]
+    resourceNames: ["frigate-0"]
+    verbs: ["get", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: frigate-restart
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: frigate-restart
+subjects:
+  - kind: ServiceAccount
+    name: frigate-restart

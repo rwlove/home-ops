@@ -12,7 +12,11 @@ spec:
     - name: node-exporter.rules
       rules:
         - alert: HostOutOfMemory
-          expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes * 100 < 10
+          # security-storage excluded: it's a RAM-starved Core 2 box (7.4 GiB)
+          # whose steady state is <10% MemAvailable because the Frigate write
+          # path keeps page cache pegged. Expected, not an incident — the real
+          # fix is the NAS rebuild (project_todo_security_storage_new_build).
+          expr: node_memory_MemAvailable_bytes{instance!~"security-storage.*"} / node_memory_MemTotal_bytes{instance!~"security-storage.*"} * 100 < 10
           for: 2m
           labels:
             severity: warning
@@ -175,13 +179,20 @@ spec:
         #     description: "Context switching is growing on node (> 8000 / s)\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
 
         - alert: HostSwapIsFillingUp
-          expr: (1 - (node_memory_SwapFree_bytes / node_memory_SwapTotal_bytes)) * 100 > 80
-          for: 2m
+          # beast is the only swap-enabled host (4 GiB swap / 188 GiB RAM) and
+          # parks flat at ~86% — a static >80% threshold cries wolf forever.
+          # Require swap to be both high AND trending toward exhaustion so the
+          # rule only fires on a real fill event, not steady-state parked swap.
+          expr: |
+            (1 - (node_memory_SwapFree_bytes / node_memory_SwapTotal_bytes)) * 100 > 80
+            and
+            predict_linear(node_memory_SwapFree_bytes[1h], 3600) < 0
+          for: 10m
           labels:
             severity: warning
           annotations:
             summary: Host swap is filling up (instance {{ $labels.instance }})
-            description: "Swap is filling up (>80%)\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+            description: "Swap is filling up (>80%) and still growing\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
 
         - alert: HostSystemdServiceCrashed
           expr: node_systemd_unit_state{state="failed"} == 1

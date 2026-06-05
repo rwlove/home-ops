@@ -112,8 +112,9 @@ export async function main(alerts?: AlertmanagerAlert[]) {
         message = ((m && m[0].length > 600) ? m[0] : cut).trimEnd() + "…";
     }
 
-    const sev = (a.labels.severity ?? "").toLowerCase();
-    const priority = sev === "critical" ? 5 : sev === "warning" ? 4 : 3;
+    // ntfy priority pinned to 3 (default/simple buzz) — Rob doesn't want
+    // the insistent max/urgent vibration pattern on alert relays.
+    const priority = 3;
 
     const notifyResp = await publishNtfy({
         topic: "alerts",

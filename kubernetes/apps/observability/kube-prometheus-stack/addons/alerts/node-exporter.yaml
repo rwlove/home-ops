@@ -175,13 +175,20 @@ spec:
         #     description: "Context switching is growing on node (> 8000 / s)\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
 
         - alert: HostSwapIsFillingUp
-          expr: (1 - (node_memory_SwapFree_bytes / node_memory_SwapTotal_bytes)) * 100 > 80
-          for: 2m
+          # beast is the only swap-enabled host (4 GiB swap / 188 GiB RAM) and
+          # parks flat at ~86% — a static >80% threshold cries wolf forever.
+          # Require swap to be both high AND trending toward exhaustion so the
+          # rule only fires on a real fill event, not steady-state parked swap.
+          expr: |
+            (1 - (node_memory_SwapFree_bytes / node_memory_SwapTotal_bytes)) * 100 > 80
+            and
+            predict_linear(node_memory_SwapFree_bytes[1h], 3600) < 0
+          for: 10m
           labels:
             severity: warning
           annotations:
             summary: Host swap is filling up (instance {{ $labels.instance }})
-            description: "Swap is filling up (>80%)\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+            description: "Swap is filling up (>80%) and still growing\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
 
         - alert: HostSystemdServiceCrashed
           expr: node_systemd_unit_state{state="failed"} == 1

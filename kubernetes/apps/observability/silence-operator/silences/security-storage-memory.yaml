@@ -1,0 +1,26 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/observability.giantswarm.io/silence_v1alpha2.json
+#
+# security-storage is a RAM-starved Core 2 box (7.4 GiB) whose steady state is
+# >90% memory used: the Frigate recording write path keeps page cache pegged.
+# This is expected, not an incident. NodeMemoryHighUtilization is a
+# kube-prometheus-stack chart built-in (can't take a per-instance exclusion
+# inline like our own rules can), so it's silenced here scoped to this one
+# instance only — every other host still alerts normally.
+#
+# Companion change: PR #12324 excluded security-storage from our own
+# HostOutOfMemory and from the blunt KubeNFSExportFillingUp critical. The
+# permanent fix for all of these is the NAS rebuild
+# (project_todo_security_storage_new_build). Remove this silence when that box
+# is replaced.
+apiVersion: observability.giantswarm.io/v1alpha2
+kind: Silence
+metadata:
+  name: nodememoryhighutilization-security-storage
+spec:
+  matchers:
+    - name: alertname
+      value: NodeMemoryHighUtilization
+    - matchType: "=~"
+      name: instance
+      value: security-storage.*

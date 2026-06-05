@@ -1,0 +1,38 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: comfyui-spark-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: comfyui-spark
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on internal gateway → comfyui-spark:8188 (validation UI).
+    # comfyui-mcp ingress is NOT added yet — the MCP server still fronts
+    # the P40 comfyui until cutover.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "8188"
+              protocol: TCP
+  egress:
+    # First run pulls ComfyUI (git), the Python venv (pypi), ComfyUI
+    # Manager, and re-downloads models (HuggingFace / civitai / github).
+    # The pypi family forces toEntities:[world]+443 (matchPattern FQDN
+    # gaps, see project_cilium_matchpattern_fqdn_limits.md), so the rule
+    # collapses to world:443 — matches the comfyui-allow precedent.
+    - toEntities: [world]
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

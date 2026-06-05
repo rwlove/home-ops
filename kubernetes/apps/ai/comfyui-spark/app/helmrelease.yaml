@@ -45,6 +45,24 @@ spec:
 
         type: statefulset
 
+        initContainers:
+          # mmartial refuses to chown a volume mount root and expects it
+          # pre-owned by WANTED_UID:WANTED_GID (the Docker model: mkdir the
+          # dirs as your user before run). Fresh ceph-block volumes mount as
+          # 0:0, and fsGroup only fixes the group — so chown both mounts to
+          # 1000:1000 here. Reuses the already-cached app image (no 2nd pull).
+          init-perms:
+            image:
+              repository: docker.io/mmartial/comfyui-nvidia-docker
+              tag: ubuntu24_cuda13.2-dgx-20260509@sha256:b1821811c57fab76a906e0eecbd7d66d96069d68e90579d06f001a9211c64468
+            command:
+              - sh
+              - -c
+              - chown -R 1000:1000 /comfy/mnt /basedir
+            securityContext:
+              runAsUser: 0
+              runAsNonRoot: false
+
         containers:
           app:
             image:
@@ -120,6 +138,8 @@ spec:
         existingClaim: comfyui-spark-basedir-pvc
         advancedMounts:
           comfyui-spark:
+            init-perms:
+              - path: /basedir
             app:
               - path: /basedir
       # ComfyUI source checkout + Python venv + pip/uv caches (regenerable).
@@ -127,5 +147,7 @@ spec:
         existingClaim: comfyui-spark-run-pvc
         advancedMounts:
           comfyui-spark:
+            init-perms:
+              - path: /comfy/mnt
             app:
               - path: /comfy/mnt

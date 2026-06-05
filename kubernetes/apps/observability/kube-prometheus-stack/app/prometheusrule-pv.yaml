@@ -133,6 +133,15 @@ spec:
             severity: warning
     - name: kubernetes-storage-nfs-export
       rules:
+        # security-storage is excluded from this blunt <3%-free critical: the
+        # Frigate recording export is *designed* to run pegged near-full
+        # (Frigate fills to its retention cap, then GCs the oldest segments —
+        # a sawtooth that lives at the top), so <3% free is its healthy steady
+        # state, not an incident. A genuine "GC actually broke and it's heading
+        # to true zero" event is still caught by the predict_linear variant
+        # below, whose 6h trend stays flat during a healthy sawtooth and goes
+        # negative only on a real monotonic decline. Permanent capacity fix is
+        # the NAS rebuild (project_todo_security_storage_new_build).
         - alert: KubeNFSExportFillingUp
           annotations:
             description: NFS export on {{ $labels.nfs_server }} is only {{ $value | humanizePercentage }} free. One or more PVCs backed by this server share the same underlying filesystem; check `df` on the server and identify the largest consumer.
@@ -147,7 +156,7 @@ spec:
                 * on (namespace, persistentvolumeclaim) group_left(persistentvolume)
               label_replace(kube_persistentvolumeclaim_info, "persistentvolume", "$1", "volumename", "(.+)")
                 * on (persistentvolume) group_left(nfs_server)
-              kube_persistentvolume_info{nfs_server!=""}
+              kube_persistentvolume_info{nfs_server!="", nfs_server!~"security-storage\\..*"}
             ) < 0.03
           for: 1m
           labels:

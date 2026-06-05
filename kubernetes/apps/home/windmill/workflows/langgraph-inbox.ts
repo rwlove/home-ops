@@ -72,7 +72,7 @@ async function postApproval(task_id: string, r: ApprovalRequest) {
             `Undo: ${r.undo_path ?? "(none)"}`,
             `Cost: $${r.cost_estimate_usd ?? 0}`,
         ].join("\n"),
-        priority: 5,
+        priority: 3,
         tags: ["warning"],
         actions: buildApprovalActions(task_id, approveTok, rejectTok, deferTok),
         click: `https://chat.${Deno.env.get("SECRET_DOMAIN") ?? ""}/#narrow/stream/approvals/topic/${encodeURIComponent(topic)}`,

@@ -58,7 +58,7 @@ export async function main(
             `Undo: ${r.undo_path ?? "(none)"}`,
             `Cost: $${r.cost_estimate_usd ?? 0}`,
         ].join("\n"),
-        priority: r.action_class === "D" ? 5 : 4,
+        priority: 3,
         tags: r.action_class === "D" ? ["warning", "rotating_light"] : ["warning"],
         actions: buildApprovalActions(task_id, approveTok, rejectTok, deferTok),
     });

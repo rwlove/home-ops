@@ -66,7 +66,7 @@ async function handle(t: Task, tier: "30min" | "4h" | "7d", age: number) {
             message: `Agent ${t.target_agent ?? "unknown"} is paused, age ${
                 Math.round(age / 60000)
             }m. Tap an action in the original approval push, or react in Zulip #approvals.`,
-            priority: 5,
+            priority: 3,
             tags: ["alarm_clock"],
         });
         return { action: "ntfy", ok: resp.ok };

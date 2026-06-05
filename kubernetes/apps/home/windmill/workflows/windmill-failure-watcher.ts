@@ -177,7 +177,7 @@ async function notify(groups: Grouped[]) {
             topic: "alerts",
             title: `🚨 Windmill workflows failing: ${groups.length}`,
             message: lines.join("\n"),
-            priority: 4,
+            priority: 3,
             tags: ["warning", "windmill"],
         }),
         postZulipDM(lines.join("\n")),

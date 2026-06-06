@@ -8,13 +8,24 @@ spec:
   endpointSelector:
     matchLabels:
       app.kubernetes.io/name: music-assistant
-  # Additive — default-deny is what triggers the lockdown. Ingress from
-  # music-assistant-oauth2-proxy (same ns, :8095 upstream) is covered by
-  # baseline allow-intra-namespace.
+  # Additive — default-deny is what triggers the lockdown.
   enableDefaultDeny:
     egress: false
     ingress: false
   ingress:
+    # HTTPRoute on internal envoy gateway → music-assistant:8095 (web UI).
+    # oauth2-proxy was removed 2026-06-06; the gateway now proxies the
+    # same-origin wss://.../ws upgrade straight to MA. The envoy pod is a
+    # distinct Cilium identity (not `world`), so the world rule below does
+    # not cover it.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "8095"
+              protocol: TCP
     # LoadBalancer Service at 10.45.0.20 exposes :1780 (HTTP2 streaming)
     # and :3483 (SlimProto) directly to LAN clients (sonos, HA
     # media_player, the phone app on :8095, etc.). These arrive from

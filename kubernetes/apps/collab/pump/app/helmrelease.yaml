@@ -32,7 +32,7 @@ spec:
           pump:
             image:
               repository: ghcr.io/rwlove/pump
-              tag: v0.0.92@sha256:15abc4a671ed2b96460261b92d90d8bf841ed94238c853e5444319b323a279e4
+              tag: v0.0.93@sha256:7e78489a840271d8ed0ff3ea02106970d65873a8c9cd6ee1c69f76d1411800a3
 
             env:
               # Activates the /api/cv/* proxy in pump (see internal/web/exercise.go).
@@ -88,11 +88,13 @@ spec:
                 port: 4180
 
       # Off-cluster ingest path. Bypasses oauth2-proxy and goes straight
-      # to pump-api:8851. Scoped to /api/weight only via the path match —
-      # all other /api/* endpoints on this hostname 404. App-side auth is
-      # WEIGHT_INGEST_KEY (env from pump-secret), enforced by the
-      # weightIngestAuth middleware on POST /api/weight in pump v0.0.91+.
-      # Only intended caller today is the bt-scale ESPHome device.
+      # to pump-api:8851. Scoped by path match to /api/weight and POST
+      # /api/health — all other /api/* endpoints on this hostname 404.
+      # App-side auth is WEIGHT_INGEST_KEY / HEALTH_INGEST_KEY (env from
+      # pump-secret), enforced by the weightIngestAuth / healthIngestAuth
+      # middleware on the respective POST routes (pump v0.0.91+ / v0.0.93+).
+      # Callers: the bt-scale ESPHome device (weight) and the Android
+      # Health Connect HC Webhook bridge on Rob's S26 (health).
       ingest:
         hostnames:
           - "pump-ingest.${SECRET_DOMAIN}"
@@ -117,6 +119,19 @@ spec:
               - path:
                   type: PathPrefix
                   value: /api/weight
+            backendRefs:
+              - kind: Service
+                name: pump-api
+                port: 8851
+          # Wearable metrics from Android Health Connect. Scoped to POST so
+          # GET /api/health (unauthenticated health-record read) is NOT
+          # reachable off-cluster — tighter than the weight rule above
+          # because health data is more sensitive.
+          - matches:
+              - path:
+                  type: PathPrefix
+                  value: /api/health
+                method: POST
             backendRefs:
               - kind: Service
                 name: pump-api

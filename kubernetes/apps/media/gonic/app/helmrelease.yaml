@@ -33,6 +33,29 @@ spec:
           reloader.stakater.com/auto: "true"
         type: statefulset
 
+        initContainers:
+          # gonic writes playlists as m3u files under GONIC_PLAYLISTS_PATH and
+          # touches them via os.Chtimes() with an explicit mtime, which the
+          # kernel only permits to the file owner. The pre-existing playlist
+          # tree was created root-owned (uid 0) before this controller pinned
+          # runAsUser 1112, so the non-root gonic process gets EPERM on every
+          # playlist edit ("touch m3u: ... operation not permitted") and clients
+          # like Music Assistant fail to add tracks. fsGroup fixes the GID but
+          # never the UID. Reclaim ownership on startup; idempotent + self-heals.
+          init-perms:
+            image:
+              repository: ghcr.io/sentriz/gonic
+              tag: v0.21.0@sha256:a6b7abf599cdfdf079a18df16ec2b8067cf85d60d056b439e3096b6a157e4dd9
+            command:
+              - chown
+              - -R
+              - 1112:1112
+              - /data/playlists
+            securityContext:
+              runAsUser: 0
+              runAsGroup: 0
+              runAsNonRoot: false
+
         containers:
           app:
             image:

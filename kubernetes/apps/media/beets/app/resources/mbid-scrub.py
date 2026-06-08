@@ -8,10 +8,12 @@ validates every MBID as a UUID and aborts the ENTIRE track-sync pass on the
 first bad one, silently freezing MA's library. gonic passes the bad value
 straight through from the file tag.
 
-This scrub runs after each import. For every item it blanks any mb_* field
-whose value is present but is NOT a valid UUID — both in the beets DB and in
-the file's tags (what gonic actually reads). A valid UUID is never touched,
-so this is safe to run across the whole library; it only removes garbage.
+This scrub runs after each import. For every item it (a) blanks any mb_* field
+whose value is present but is NOT a valid UUID and (b) lowercases any valid
+UUID that carries uppercase hex — MA rejects non-lowercase MBIDs and aborts the
+sync exactly the same way (e.g. `…-A3fb…`). Both the beets DB and the file's
+tags (what gonic actually reads) are corrected. Already-lowercase UUIDs are
+never touched, so this is safe to run across the whole library.
 
 Idempotent. Non-fatal by contract: it must never fail the import job.
 """
@@ -40,11 +42,23 @@ FILE_FIELDS = [
 ]
 
 
-def is_bad(value) -> bool:
+def fix(value):
+    """Return the corrected MBID for a field, or None if no change is needed.
+
+    ''            -> blank it (value present but not a valid UUID)
+    lowercased    -> valid UUID that contained uppercase hex (MA rejects it)
+    None          -> empty, or already a valid lowercase UUID; leave as-is
+    """
     if not value:
-        return False
-    raw = value if isinstance(value, bytes) else str(value).encode()
-    return UUID.match(raw.strip()) is None
+        return None
+    s = value.decode() if isinstance(value, (bytes, bytearray)) else str(value)
+    st = s.strip()
+    if not st:
+        return None
+    if UUID.match(st.encode()) is None:
+        return ""
+    low = st.lower()
+    return low if low != s else None
 
 
 def main() -> int:
@@ -66,16 +80,21 @@ def main() -> int:
     fixed_db = fixed_files = miss = noperm = err = 0
     for row in rows:
         item_id, path = row[0], row[1]
-        bad_db = [f for f, v in zip(db_fields, row[2:]) if is_bad(v)]
-        if not bad_db:
+        # field -> corrected value ('' blanks a non-UUID, or a lowercased UUID)
+        db_changes = {
+            f: nv for f, nv in
+            ((f, fix(v)) for f, v in zip(db_fields, row[2:]))
+            if nv is not None
+        }
+        if not db_changes:
             continue
 
-        # 1) beets DB — blank the bad columns so they are not re-stamped.
+        # 1) beets DB — blank bad / lowercase upper so values aren't re-stamped.
         try:
             db.execute(
                 "UPDATE items SET %s WHERE id=?"
-                % ",".join("%s=''" % f for f in bad_db),
-                (item_id,),
+                % ",".join("%s=?" % f for f in db_changes),
+                list(db_changes.values()) + [item_id],
             )
             db.commit()
             fixed_db += 1
@@ -98,8 +117,9 @@ def main() -> int:
             mf = mediafile.MediaFile(ap)
             changed = False
             for f in FILE_FIELDS:
-                if is_bad(getattr(mf, f, None)):
-                    setattr(mf, f, None)
+                nv = fix(getattr(mf, f, None))
+                if nv is not None:
+                    setattr(mf, f, nv or None)  # '' -> None blanks the tag
                     changed = True
             if changed:
                 mf.save()

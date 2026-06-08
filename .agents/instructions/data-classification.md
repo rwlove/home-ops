@@ -26,6 +26,16 @@ the tier before you emit. Per HOMELAB-SPEC Layer 5.
   mdBook output, or any artifact a third party could see** (per
   HOMELAB-SPEC Layer 2 #2). They exist in `kubernetes/apps/media/`
   but narrative artifacts treat them as "the media stack."
+- **Media file names are restricted** (per HOMELAB-SPEC Layer 2 #10).
+  Track / album / artist filenames and library paths never appear in
+  commit messages, PR titles/descriptions, public code, code comments,
+  `docs/`, or externally-visible metadata. Describe the *issue*
+  generically — "a library track", "the affected file" — never the
+  name. This applies even when debugging a specific file (e.g. a bad
+  tag on one track): reference it by an opaque ID (gonic track id,
+  DB row id) in public artifacts, not its filename. MusicBrainz IDs
+  and similar opaque public identifiers are fine; the human-readable
+  name is not.
 - Anything under `kubernetes/apps/security/` — this namespace exists
   for hardening / audit work; assume restricted unless proven
   otherwise.
@@ -50,6 +60,9 @@ the tier before you emit. Per HOMELAB-SPEC Layer 5.
   not the actual app names).
 - Replace internal hostnames with `<hostname>` or the role (`the
   gateway`, `the storage node`).
+- Replace media file names with a generic descriptor (`a library
+  track`) or an opaque ID (`gonic tr-<id>`) — never the
+  artist/album/track filename or library path.
 - For secrets: do not redact — refuse to emit at all. If a secret has
   to appear in narrative, you're producing the wrong artifact.
 

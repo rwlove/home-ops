@@ -16,13 +16,17 @@ spec:
     # Public via cloudflared so the Android app reaches the server
     # from cellular without requiring wg-easy 24/7. ntfy native auth
     # gates publish + subscribe; cloudflared is unauthenticated tunnel.
+    #
+    # External-only by design: the internal gateway was removed because
+    # attaching to both gateways made the bind external-dns instance
+    # (no gateway-label-filter) emit two CNAME targets for one name
+    # (external + gateway-int), flapping the record every 1m and
+    # churning brain's zone journal. LAN clients still resolve
+    # ntfy.${SECRET_DOMAIN} to a LAN LB IP via bind's
+    # external.${SECRET_DOMAIN} A record (no WAN hairpin) — same as
+    # every other public app. Windmill workflows hit the in-cluster
+    # Service directly and are unaffected.
     - name: external
-      namespace: network
-      sectionName: https
-    # LAN reachability for cluster-internal callers (Windmill workflows
-    # hit the in-cluster Service directly, but in-browser PWA users on
-    # LAN benefit from internal split-horizon resolution).
-    - name: internal
       namespace: network
       sectionName: https
   rules:

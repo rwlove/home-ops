@@ -36,7 +36,7 @@ declare -A REQ=(
   [postgres-nametag]=512 [postgres-netbox]=512 [postgres-nextcloud]=512
   [postgres-paperless]=512 [postgres-romm]=1024
   [postgres-sparkyfitness]=1024
-  [postgres-workoutdiary]=1024
+  [postgres-pump]=1024
 )
 kubectl top pods -n "$ns" --no-headers 2>/dev/null \
   | awk '/^postgres-/ { print $1, $3 }' \

@@ -63,7 +63,7 @@ surface → bridge → langgraph-agents queue → triager → specialist → out
 | Specialist routing | Triager agent (LLM-driven) | Decides which specialist gets the task based on content |
 | Specialist execution | 13 named agents (supervisor, researcher, coder, reviewer, triager, reporter, note-maker, homelab-engineer, smart-home-operator, ml-operator, errand-runner, property-coordinator, health-tracker) | All run inside langgraph-agents pod; share the same graph |
 | Approval gate | `interrupt()` + Windmill `langgraph-approval-post.ts` + ntfy/Zulip | Class A/B/C/D taxonomy; ntfy tap → /approval endpoint |
-| Model selection | Per-agent default (qwen2.5:32b on Spark) + `requires_cloud` tag → Claude API escalation | Cost caps enforced in-cluster: `$5/task`, `$10/agent/day`, `$30/global/day` |
+| Model selection | Per-agent default (qwen3-next:80b-a3b-instruct-q4_K_M on Spark) + `requires_cloud` tag → Claude API escalation | Cost caps enforced in-cluster: `$5/task`, `$10/agent/day`, `$30/global/day` |
 | Inference backends | ollama-spark (GB10), ollama (P40), tei-spark (reranker), Claude API | Routing in `langgraph-agents/.agents/instructions/hardware-routing.md` |
 | Tool surface | MCP Gateway + 16 MCP servers via Istio | Same set as Claude Code, accessed differently (HTTP MCP not CLI MCP) |
 | Persistent outputs | Vault (`langgraph-vault` PVC + RO sync from laptop), Zulip threads, ntfy push, Langfuse traces | Outputs land in multiple sinks per task |

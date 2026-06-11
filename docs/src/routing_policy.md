@@ -67,7 +67,7 @@ runtime wiring lands.
 
 Rules are evaluated in document order. The first rule whose `match`
 block matches all specified keys wins. If no rule matches, the `default`
-route applies (currently `local-spark`, i.e. qwen2.5:32b on Spark).
+route applies (currently `local-spark`, i.e. qwen3-next:80b-a3b-instruct-q4_K_M on Spark).
 
 **Match keys** (all optional; combined with AND):
 
@@ -86,7 +86,7 @@ route applies (currently `local-spark`, i.e. qwen2.5:32b on Spark).
 | Value | Hardware | Model |
 |---|---|---|
 | `local-p40` | P40 (Pascal, 24 GB) | `qwen2.5:7b` |
-| `local-spark` | DGX Spark (GB10) | `qwen2.5:32b` |
+| `local-spark` | DGX Spark (GB10) | `qwen3-next:80b-a3b-instruct-q4_K_M` |
 | `local-spark-coder` | DGX Spark (GB10) | `qwen2.5-coder:32b` |
 | `claude` | Anthropic API | `claude-sonnet-4-6` (default) |
 | `local-only` | whichever path is healthy | per rule; raises if both down |
@@ -135,7 +135,7 @@ capability):
 ### Context size threshold
 
 Requests exceeding 50,000 tokens escalate to Claude (`claude-sonnet-4-6`).
-The 50k threshold reflects qwen2.5:32b's reliable quality window —
+The 50k threshold reflects qwen3-next:80b-a3b-instruct-q4_K_M's reliable quality window —
 the model's nominal context is 128k, but quality degrades significantly
 above ~64k. 50k is a conservative gate that avoids truncation or quality
 collapse on borderline cases.
@@ -159,7 +159,7 @@ greppable from the policy file without needing to read Python source.
 P40 (`qwen2.5:7b`) agents: `triager`, `note-maker`, `errand-runner`,
 `property-coordinator`, `doc-writer`, `health-tracker`.
 
-Spark general (`qwen2.5:32b`) agents: `historian`, `researcher`,
+Spark general (`qwen3-next:80b-a3b-instruct-q4_K_M`) agents: `historian`, `researcher`,
 `supervisor`, `reporter`, `homelab-engineer`, `network-operator`,
 `storage-operator`, `smart-home-operator`, `ml-operator`,
 `observability-operator`, `security`, `auditor`, `artist`.

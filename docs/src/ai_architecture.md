@@ -44,7 +44,7 @@ flowchart TB
 
     subgraph Inference[Inference]
         OllamaP40[(ollama / P40<br/>qwen2.5:7b · gte-small)]
-        OllamaSpark[(ollama-spark / GB10<br/>qwen2.5:32b · bge-m3)]
+        OllamaSpark[(ollama-spark / GB10<br/>qwen3-next:80b-a3b-instruct-q4_K_M · bge-m3)]
         Claude[(Claude API<br/>via langgraph-agents)]
         ClaudeCode[(Claude Code<br/>via claude-runner CronJobs)]
     end
@@ -119,7 +119,7 @@ migration.
 | Backend | Hardware | Service URL | Models | Notes |
 |---|---|---|---|---|
 | `ollama` | P40 (Pascal, 24 GB) on worker8 | `http://ollama.ai.svc.cluster.local:11434` | qwen2.5:7b, qwen3:8b (voice), bge-m3 (memory rebuild), gte-small/nomic-embed-text (khoj) | The pre-Spark generation. ≤8b chat, embeddings, voice STT/TTS pipeline support. |
-| `ollama-spark` | GB10 (Grace-Blackwell, 128 GB unified) | `http://ollama-spark.ai.svc.cluster.local:11434` | qwen2.5:32b (chat default), bge-m3 (1024-dim embeds) | The post-Spark workhorse. Open WebUI default; HolmesGPT model; langgraph-agents default for memory embeds. |
+| `ollama-spark` | GB10 (Grace-Blackwell, 128 GB unified) | `http://ollama-spark.ai.svc.cluster.local:11434` | qwen3-next:80b-a3b-instruct-q4_K_M (chat default), bge-m3 (1024-dim embeds) | The post-Spark workhorse. Open WebUI default; HolmesGPT model; langgraph-agents default for memory embeds. |
 | Claude API | Anthropic-hosted | langgraph-agents only, gated | per-task | Off by default — `ENABLE_CLAUDE_API: "false"` (`kubernetes/apps/ai/langgraph-agents/app/helmrelease.yaml:36`). Cost caps `$5/task`, `$10/agent/day`, `$30/global/day` (lines 54-56) enforced in code, not Anthropic's billing. |
 | Claude Code | Anthropic-hosted, CLI | `claude-runner` only | per-task | `claude` CLI baked into `ghcr.io/rwlove/claude-runner:0.1.1`; called from CronJobs with `--max-turns 20`. |
 
@@ -200,7 +200,7 @@ Cross-agent shared memory, not user-facing.
 
 | Agent | Surface | Status | Notes |
 |---|---|---|---|
-| HolmesGPT | `holmesgpt.observability` | ✅ live | qwen2.5:32b on ollama-spark; AlertManager-driven RCA; also a tool server for Open WebUI. Prompt + context budget tuned 2026-05-23 (32K context, 6 tool-call budget). |
+| HolmesGPT | `holmesgpt.observability` | ✅ live | qwen3-next:80b-a3b-instruct-q4_K_M on ollama-spark; AlertManager-driven RCA; also a tool server for Open WebUI. Prompt + context budget tuned 2026-05-23 (32K context, 6 tool-call budget). |
 | triager | langgraph-agents fleet | ✅ live | Default route for every untargeted `/inbox`. Voice ("inbox …") + Zulip-DM ingress. qwen2.5:7b on P40. |
 | supervisor | langgraph-agents fleet | ✅ live | In-graph fallback router when a specialist rejects work. |
 | reporter | langgraph-agents fleet | ✅ live | Universal in-graph terminus — every chain ends here, rendering raw state into user-facing markdown. |

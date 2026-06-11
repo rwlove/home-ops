@@ -3,13 +3,15 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: memory-mcp-schema-init
+  name: memory-mcp-migrate
   annotations:
-    # Re-run this Job whenever the SQL changes. The ConfigMap is hashed
-    # into the Job name via configMapGenerator name suffix... except
-    # we have disableNameSuffixHash. So bump this manually if you edit
-    # resources/schema.sql, OR delete the Job and let Flux recreate it.
-    home-ops/schema-version: "1"
+    # The schema DDL now ships inside the memory-mcp image (package
+    # data) and is applied by its `memory-mcp-migrate` entry point — no
+    # vendored schema.sql / ConfigMap. Job spec is immutable, so to
+    # re-run on a new image just bump the image tag (a new digest =>
+    # Flux recreates the Job). Bump this when you want to force a re-run
+    # without an image change.
+    home-ops/schema-version: "2"
 spec:
   backoffLimit: 5
   template:
@@ -24,27 +26,16 @@ spec:
     spec:
       restartPolicy: OnFailure
       securityContext:
-        fsGroup: 1000
-        fsGroupChangePolicy: OnRootMismatch
         runAsGroup: 1000
         runAsNonRoot: true
         runAsUser: 1000
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: psql
-          image: ghcr.io/cloudnative-pg/postgresql:14.17
+        - name: migrate
+          image: ghcr.io/rwlove/memory-mcp:v0.2.0@sha256:c8214aba3ec5eb886456c5e4f0dbbee64f8fa437d70f10f52c756e96f7a882cb
           command:
-            - /bin/bash
-            - -c
-            - |
-              set -euo pipefail
-              # Don't echo DATABASE_URL — contains credentials. The earlier
-              # ${DATABASE_URL%%\?*} attempt globbed away the whole string
-              # because `?*` matches everything (bash glob, not regex).
-              echo "Applying kg schema to the langgraph_memory database."
-              psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f /sql/schema.sql
-              echo "Schema apply complete."
+            - memory-mcp-migrate
           env:
             - name: DATABASE_URL
               valueFrom:
@@ -64,15 +55,8 @@ spec:
                 - ALL
             readOnlyRootFilesystem: true
           volumeMounts:
-            - mountPath: /sql/schema.sql
-              name: schema
-              readOnly: true
-              subPath: schema.sql
             - mountPath: /tmp
               name: tmp
       volumes:
-        - configMap:
-            name: memory-mcp-schema
-          name: schema
         - emptyDir: {}
           name: tmp

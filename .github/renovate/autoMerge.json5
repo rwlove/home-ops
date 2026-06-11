@@ -9,17 +9,17 @@
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
   packageRules: [
     {
-      description: "Auto merge container digests",
+      // Auto-merge all container digest re-tags (same version, rebuilt
+      // content). flux-local can't meaningfully validate a re-tag, so
+      // minimumReleaseAge is the real safety belt — a bad rebuild gets
+      // 3 days to be caught upstream before it can land. ignoreTests
+      // stays false so a red CI for any other reason still blocks.
+      description: "Auto-merge container digests",
       matchDatasources: ["docker"],
       automerge: true,
       automergeType: "pr",
       matchUpdateTypes: ["digest"],
-      matchPackageNames: [
-        "ghcr.io/home-operations/**",
-        "ghcr.io/onedr0p/**",
-        "ghcr.io/bjw-s/**",
-        "ghcr.io/bjw-s-labs/**",
-      ],
+      minimumReleaseAge: "3 days",
       ignoreTests: false,
     },
     {
@@ -63,13 +63,18 @@
       ignoreTests: true,
     },
     {
-      description: "Auto-merge GitHub Releases",
+      // Blanket non-major auto-merge for github-releases (CRD/version
+      // pins, etc). Semver-safe like the container+helm rule; majors
+      // are firewalled in packageRules.json5. Now CI-gated
+      // (ignoreTests=false, was true for the old trusted allowlist)
+      // plus a 3-day soak.
+      description: "Auto-merge github-releases minor + patch",
       matchDatasources: ["github-releases"],
       automerge: true,
       automergeType: "pr",
       matchUpdateTypes: ["minor", "patch"],
-      matchPackageNames: ["/external-dns/", "/gateway-api/", "/prometheus-operator/"],
-      ignoreTests: true,
+      minimumReleaseAge: "3 days",
+      ignoreTests: false,
     },
     {
       description: "Auto-merge rwlove personal container images",

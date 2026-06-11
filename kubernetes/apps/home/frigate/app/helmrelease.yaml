@@ -17,6 +17,21 @@ spec:
           annotations:
             k8s.v1.cni.cncf.io/networks: frigate-security-static
 
+          # Lower ndots from the cluster default (5) to 2 so a 2-label
+          # external name like api.frigate.video is queried directly
+          # instead of being search-domain-expanded first. Under ndots:5
+          # the resolver tried api.frigate.video.home.svc.cluster.local
+          # first, which resolved to the real ELB IPs; Cilium's DNS proxy
+          # then bound those IPs to the search-suffixed name, which does
+          # NOT match the `*.frigate.video` toFQDNs selector in
+          # cnp-allow.yaml — so Frigate+ egress was POLICY_DENIED and
+          # FrigateUnauthorizedEgressAttempt false-fired. ndots:2 keeps
+          # 1-label in-cluster short names (e.g. emqx) expanding normally.
+          dnsConfig:
+            options:
+              - name: ndots
+                value: "2"
+
           nodeSelector:
             google.feature.node.kubernetes.io/coral-usb: "true"
             intel.feature.node.kubernetes.io/gpu: "true"

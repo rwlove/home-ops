@@ -1,0 +1,32 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: arc-runner-set-containers-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: arc-runner-set-containers
+  # Additive — punches holes through the namespace default-deny. Mirrors
+  # arc-runner-set-home-ops-allow. The dind sidecar shares the runner
+  # pod's network namespace, so this single pod-level egress covers both
+  # the runner and the in-pod Docker daemon.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # Wildcard 80/443 for the builder pods: image builds `docker pull`
+    # arbitrary base images, `git clone`, fetch build deps from any URL,
+    # and `docker push` to ghcr.io. Locking egress to an allow-list would
+    # break the moment a Dockerfile adds a new base image or apt/pip
+    # source, so — exactly as for arc-runner-set-home-ops — the trust
+    # boundary is the controller's GitHub-App scoping, not the network.
+    - toFQDNs:
+        - matchPattern: "*"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "80"
+              protocol: TCP

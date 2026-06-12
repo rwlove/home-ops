@@ -35,8 +35,15 @@ spec:
               fallthrough in-addr.arpa ip6.arpa
             name: kubernetes
             parameters: cluster.local in-addr.arpa ip6.arpa
-          - name: autopath
-            parameters: "@kubernetes"
+          # NOTE: autopath @kubernetes intentionally NOT enabled. It collapses
+          # client search-path expansion server-side and returns external
+          # names (e.g. api.frigate.video) as a CNAME under the *queried*
+          # search-suffixed name. Cilium's toFQDNs DNS proxy matches on the
+          # queried name, so the real IPs get bound to
+          # `<host>.<ns>.svc.cluster.local` instead of the bare host —
+          # silently breaking every toFQDNs egress allow. Cilium docs
+          # recommend disabling autopath when using FQDN policies. See
+          # reference_cilium_tofqdns_ndots_searchdomain_bind / PR #12456.
           - name: forward
             parameters: . /etc/resolv.conf
           - configBlock: |-

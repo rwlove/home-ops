@@ -28,15 +28,24 @@ spec:
 
     # dind (docker-in-docker), NOT kubernetes mode: the containers
     # workflows run `docker buildx` / build-push-action, which need a
-    # real Docker daemon. The chart injects a privileged dind sidecar
-    # that provides it. (The home-ops set uses kubernetes mode because
+    # real Docker daemon. (The home-ops set uses kubernetes mode because
     # its flux-local jobs only need `container:` job pods, not a daemon.)
     # Privilege is inherent to dind image builds; the pod is scoped to
     # building this repo's own Dockerfiles, isolated by namespace +
     # CNP, and scheduled only on amd64 workers (never the Spark
     # inference node).
-    containerMode:
-      type: dind
+    #
+    # The dind sidecar is templated explicitly rather than via
+    # `containerMode.type: dind`. The chart's auto-injected dind sidecar
+    # gives dockerd no volume for /var/lib/docker, so its graph lands on
+    # the pod's overlayfs rootfs — dockerd's overlay2 driver on top of
+    # overlayfs is overlay-on-overlay, which the kernel rejects on some
+    # nodes ("failed to mount ... overlay ... invalid argument"). Builds
+    # then passed or failed depending on which amd64 node the runner drew.
+    # Mounting a volume at /var/lib/docker puts the graph on the node's
+    # real filesystem, where overlay2 works everywhere. Everything else
+    # here reproduces what `containerMode: dind` rendered; only the
+    # var-lib-docker volume + its mount are new.
 
     controllerServiceAccount:
       name: actions-runner-controller
@@ -49,10 +58,66 @@ spec:
         # privileged builder never lands on the Spark (arm64) GPU node.
         nodeSelector:
           kubernetes.io/arch: amd64
+        initContainers:
+          # Stage the runner externals where the dind sidecar can read
+          # them (standard ARC dind bootstrap).
+          - name: init-dind-externals
+            image: ghcr.io/home-operations/actions-runner:2.335.1@sha256:3d544e5eed58722c0b6a97212a31eada0f9f2e99f189c41911a5573a23d7386a
+            command: ["cp", "-r", "/home/runner/externals/.", "/home/runner/tmpDir/"]
+            volumeMounts:
+              - name: dind-externals
+                mountPath: /home/runner/tmpDir
+          # The Docker daemon, as a native sidecar (restartPolicy: Always).
+          - name: dind
+            image: docker:dind
+            args:
+              - dockerd
+              - --host=unix:///var/run/docker.sock
+              - --group=$(DOCKER_GROUP_GID)
+            env:
+              - name: DOCKER_GROUP_GID
+                value: "123"
+            securityContext:
+              privileged: true
+            restartPolicy: Always
+            volumeMounts:
+              - name: work
+                mountPath: /home/runner/_work
+              - name: dind-sock
+                mountPath: /var/run
+              - name: dind-externals
+                mountPath: /home/runner/externals
+              # The fix: docker graph on the node's real fs, not the pod's
+              # overlayfs rootfs (avoids overlay-on-overlay).
+              - name: var-lib-docker
+                mountPath: /var/lib/docker
         containers:
           - name: runner
             image: ghcr.io/home-operations/actions-runner:2.335.1@sha256:3d544e5eed58722c0b6a97212a31eada0f9f2e99f189c41911a5573a23d7386a
             command: ["/home/runner/run.sh"]
+            env:
+              - name: DOCKER_HOST
+                value: unix:///var/run/docker.sock
+              - name: RUNNER_WAIT_FOR_DOCKER_IN_SECONDS
+                value: "120"
+            volumeMounts:
+              - name: work
+                mountPath: /home/runner/_work
+              - name: dind-sock
+                mountPath: /var/run
+        volumes:
+          - name: work
+            emptyDir: {}
+          - name: dind-sock
+            emptyDir: {}
+          - name: dind-externals
+            emptyDir: {}
+          # Genuine scratch (storage rule 6): the docker graph rebuilds
+          # every pod lifecycle (the set scales to 0). Bounded so a large
+          # image build can't fill the node's root filesystem.
+          - name: var-lib-docker
+            emptyDir:
+              sizeLimit: 50Gi
 
   valuesFrom:
     - kind: Secret

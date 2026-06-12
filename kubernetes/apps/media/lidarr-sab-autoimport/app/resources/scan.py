@@ -97,10 +97,32 @@ def main():
         print("no stuck queue items")
         return
 
+    # The queue endpoint's embedded `album` object does NOT carry the
+    # `statistics` block (percentOfTracks / trackFileCount) — not even with
+    # includeAlbum=true. Reading stats off the queue row therefore always
+    # yielded an empty dict, so `already_imported` was always False and the
+    # drop-branch below never fired: completed rows whose tracks are already
+    # in /media got re-scanned every cycle ("Importing 0 tracks") and never
+    # dropped. Re-fetch each stuck row's album by id to get real statistics.
+    album_stats_cache = {}
+
+    def album_stats(album_id):
+        if album_id in album_stats_cache:
+            return album_stats_cache[album_id]
+        stats = {}
+        if album_id:
+            try:
+                album = call_api("GET", f"/api/v1/album/{album_id}") or {}
+                stats = album.get("statistics") or {}
+            except Exception as e:
+                print(f"  could not fetch album {album_id} statistics: {e}")
+        album_stats_cache[album_id] = stats
+        return stats
+
     scans = set()
     drops = []
     for r in stuck:
-        stats = (r.get("album") or {}).get("statistics") or {}
+        stats = album_stats(r.get("albumId"))
         already_imported = (
             (stats.get("percentOfTracks") or 0) >= 100
             and (stats.get("trackFileCount") or 0) > 0

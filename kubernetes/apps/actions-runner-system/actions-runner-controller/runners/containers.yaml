@@ -1,0 +1,69 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: arc-containers
+spec:
+  interval: 1h
+  chartRef:
+    kind: OCIRepository
+    name: gha-runner-scale-set
+  driftDetection:
+    mode: enabled
+  values:
+    runnerScaleSetName: arc-runner-set-containers
+
+    # Dedicated builder runner set for the PRIVATE rwlove/containers repo.
+    # containers' image builds were the sole consumer of the rwlove
+    # account's 2,000-min Actions quota (home-ops is public → free). This
+    # set moves those builds off-quota onto local hardware.
+    githubConfigUrl: https://github.com/rwlove/containers
+
+    # Scale to zero when idle — unlike the home-ops set (which keeps a
+    # warm runner for fast PR feedback), image releases are infrequent and
+    # bursty, so paying for an idle privileged dind pod isn't worth it.
+    minRunners: 0
+    maxRunners: 4
+
+    # dind (docker-in-docker), NOT kubernetes mode: the containers
+    # workflows run `docker buildx` / build-push-action, which need a
+    # real Docker daemon. The chart injects a privileged dind sidecar
+    # that provides it. (The home-ops set uses kubernetes mode because
+    # its flux-local jobs only need `container:` job pods, not a daemon.)
+    # Privilege is inherent to dind image builds; the pod is scoped to
+    # building this repo's own Dockerfiles, isolated by namespace +
+    # CNP, and scheduled only on amd64 workers (never the Spark
+    # inference node).
+    containerMode:
+      type: dind
+
+    controllerServiceAccount:
+      name: actions-runner-controller
+      namespace: actions-runner-system
+
+    template:
+      spec:
+        # Native amd64 builds; av1corrector's arm64 image builds via QEMU
+        # in the dind daemon (still off-quota). Pinned to amd64 so a
+        # privileged builder never lands on the Spark (arm64) GPU node.
+        nodeSelector:
+          kubernetes.io/arch: amd64
+        containers:
+          - name: runner
+            image: ghcr.io/home-operations/actions-runner:2.335.1@sha256:3d544e5eed58722c0b6a97212a31eada0f9f2e99f189c41911a5573a23d7386a
+            command: ["/home/runner/run.sh"]
+
+  valuesFrom:
+    - kind: Secret
+      name: actions-runner-controller-auth
+      valuesKey: github_app_id
+      targetPath: githubConfigSecret.github_app_id
+    - kind: Secret
+      name: actions-runner-controller-auth
+      valuesKey: github_app_installation_id
+      targetPath: githubConfigSecret.github_app_installation_id
+    - kind: Secret
+      name: actions-runner-controller-auth
+      valuesKey: github_app_private_key
+      targetPath: githubConfigSecret.github_app_private_key

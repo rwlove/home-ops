@@ -9,6 +9,7 @@
 @.agents/instructions/schema.correction.md
 @.agents/instructions/storage-class.instructions.md
 @.agents/instructions/workarounds.md
+@.agents/instructions/worktree-isolation.md
 
 # Home Operations - AI Assistant Guide
 

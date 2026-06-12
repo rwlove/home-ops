@@ -1,0 +1,49 @@
+# nginx reverse-proxy for github-mcp.
+#
+# github-mcp-server's `http` transport requires a per-request
+# Authorization: Bearer <PAT> header (it has no static-token env mode —
+# the GITHUB_PERSONAL_ACCESS_TOKEN env is only honored by the stdio
+# transport). The mcp-gateway broker strips Authorization at the route
+# hop (fleet convention) and forwards none, so the upstream rejects with
+# "authorization required". This proxy injects the Bearer from
+# $GITHUB_PERSONAL_ACCESS_TOKEN (set via env from the github-mcp-secret
+# ExternalSecret) before forwarding to the github-mcp-server sidecar on
+# 127.0.0.1:8082.
+#
+# Same token-injection pattern as windmill-mcp; the difference is the
+# upstream here is an in-pod sidecar (localhost) rather than a service
+# in another namespace.
+
+server {
+    listen 8080;
+    server_name _;
+
+    # /healthz — simple liveness/readiness target. No auth, no proxy.
+    location = /healthz {
+        access_log off;
+        return 200 "ok\n";
+        default_type text/plain;
+    }
+
+    # /mcp — broker entrypoint. Inject the Bearer token and forward to
+    # the github-mcp-server sidecar, which serves MCP at /mcp
+    # (--base-path /mcp).
+    location /mcp {
+        proxy_pass http://127.0.0.1:8082;
+
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        # `$${GITHUB_PERSONAL_ACCESS_TOKEN}` (double-$) escapes Flux
+        # postBuild substitution — Flux renders it back to
+        # `${GITHUB_PERSONAL_ACCESS_TOKEN}`, which nginx's envsubst then
+        # expands from the env var at startup.
+        proxy_set_header Authorization "Bearer $${GITHUB_PERSONAL_ACCESS_TOKEN}";
+
+        # SSE / streamable-HTTP friendliness — the MCP transport streams.
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_read_timeout 1h;
+        proxy_send_timeout 1h;
+        chunked_transfer_encoding on;
+    }
+}

@@ -24,7 +24,10 @@ permissions:
 jobs:
   filter-changes:
     name: Filter changes
-    runs-on: ubuntu-latest
+    # Self-hosted: keep the whole flux-local pipeline off GitHub-hosted
+    # quota. This is a JS action (bundled node), so it runs directly on
+    # the ARC runner pod — no container: needed.
+    runs-on: arc-runner-set-home-ops
     outputs:
       changed-files: ${{ steps.changed-files.outputs.changed_files }}
     steps:
@@ -132,7 +135,10 @@ jobs:
     # both need.
     if: ${{ github.event_name == 'pull_request' && needs.filter-changes.outputs.changed-files != '[]' }}
     name: Flux Local Comment
-    runs-on: ubuntu-latest
+    # Self-hosted: download-artifact + create-github-app-token +
+    # sticky-pull-request-comment are all JS actions (bundled node), so
+    # they run directly on the ARC runner pod — no container: needed.
+    runs-on: arc-runner-set-home-ops
     needs:
       - filter-changes
       - diff
@@ -187,7 +193,7 @@ jobs:
       - diff-comment
     if: ${{ !cancelled() }}
     name: Flux Local successful
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-set-home-ops
     steps:
       - name: Check job status
         if: ${{ contains(needs.*.result, 'failure') }}

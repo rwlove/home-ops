@@ -94,6 +94,22 @@
         "/^zot\\.kube-system\\.svc\\.cluster\\.local:5000\\//",
       ],
       enabled: false
+    },
+    {
+      // The ollama image serves the fleet's qwen3-next:80b-a3b reasoning
+      // model (ollama-spark) which cold-loads in ~9min off ceph — novel
+      // hybrid-attention arch + ~50GB weights. Any image bump restarts
+      // the pod and stalls the WHOLE reasoning tier (the 13 local-spark
+      // agents + HolmesGPT + Open WebUI default chat) for that load. Gate
+      // the (auto-merged, non-major) bump to the overnight routine window
+      // so the stall lands at 02:00-05:00 ET, not mid-day. Both ollama
+      // HelmReleases (spark + P40) share this image; overnight is fine for
+      // the P40 one too. Window interpreted in the repo timezone
+      // (America/New_York). See memory reference_qwen3_next_reasoning_model.
+      description: "Schedule ollama image bumps to the overnight maintenance window — ollama-spark qwen3-next cold-load stalls the reasoning tier ~9min on restart.",
+      matchDatasources: ["docker"],
+      matchPackageNames: ["docker.io/ollama/ollama"],
+      schedule: ["after 2am and before 5am"],
     }
   ]
 }

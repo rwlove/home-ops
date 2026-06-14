@@ -5,16 +5,22 @@ kind: CiliumNetworkPolicy
 metadata:
   name: renovate-jobs-allow
 spec:
-  # Selector covers both `executor` and `discovery` Job pods spawned
-  # by the operator from the RenovateJob CRs in this directory. They
-  # carry `renovate-operator.mogenius.com/job-type` but no
-  # `app.kubernetes.io/name`. Matching the label key without a value
-  # is not supported in CNP, so list both known values.
+  # Egress allowlist for the operator-spawned Job pods (executor +
+  # discovery + the pump jobs). Operator 4.11.0 (#12472) moved repo
+  # discovery into its own Job pod that carries ONLY batch labels — no
+  # `renovate-operator.mogenius.com/job-type` — so the previous
+  # job-type In[executor,discovery] selector silently stopped matching
+  # discovery pods. default-deny then dropped their api.github.com
+  # egress (verified via Hubble: `Policy denied DROPPED` SYN→140.82.x:443),
+  # discovery failed auth every hour, and no executor ever spawned —
+  # stalling the dependency dashboard from 2026-06-12. Match any Job pod
+  # in this renovate-only namespace by label-key presence instead, which
+  # is robust against operator label churn and also covers executors.
+  # Mirrors the ARC allow-job-container-egress pattern.
   endpointSelector:
     matchExpressions:
-      - key: renovate-operator.mogenius.com/job-type
-        operator: In
-        values: ["executor", "discovery"]
+      - key: batch.kubernetes.io/job-name
+        operator: Exists
   # Additive — default-deny is what triggers the lockdown.
   enableDefaultDeny:
     egress: false

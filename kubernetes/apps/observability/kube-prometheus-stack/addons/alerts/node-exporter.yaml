@@ -16,7 +16,14 @@ spec:
           # whose steady state is <10% MemAvailable because the Frigate write
           # path keeps page cache pegged. Expected, not an incident — the real
           # fix is the NAS rebuild (project_todo_security_storage_new_build).
-          expr: node_memory_MemAvailable_bytes{instance!~"security-storage.*"} / node_memory_MemTotal_bytes{instance!~"security-storage.*"} * 100 < 10
+          #
+          # spark excluded: GB10/Grace-Blackwell uses unified memory, so models
+          # warm-pinned in ollama-spark/comfyui (e.g. qwen2.5-coder:32b) live in
+          # system RAM (what would be VRAM on a discrete GPU) and read as <10%
+          # MemAvailable by design. kubectl top undercounts because the weights
+          # are GPU-mapped outside cgroups. Real inference failure is caught by
+          # SparkOllamaWedged + the ollama-spark-embed probe, not this rule.
+          expr: node_memory_MemAvailable_bytes{instance!~"security-storage.*|spark.*"} / node_memory_MemTotal_bytes{instance!~"security-storage.*|spark.*"} * 100 < 10
           for: 2m
           labels:
             severity: warning

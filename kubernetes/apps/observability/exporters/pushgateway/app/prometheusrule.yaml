@@ -102,10 +102,19 @@ spec:
               The Anthropic Console billing limit is the account-side backstop.
 
         # ── Metric dark alert ─────────────────────────────────────────
-        # Fires if langgraph_cost_usd_total stops being scraped — ensures
-        # a gate-metric blackout doesn't silently disable the gates.
+        # Fires only when Claude calls ARE happening but their cost is not
+        # being recorded — the genuine "gates blind while spending" case.
+        # A bare absent() can't be used here: langgraph_cost_usd_total is a
+        # lazily-created counter that only exists after the first Claude
+        # on_llm_end, so it is legitimately absent whenever the fleet routes
+        # 100% local (the Layer 6 MAX-to-local steady state) and would
+        # false-fire. The `unless` guard mirrors the `or vector(0)` pattern
+        # in the sibling LangGraphClaudeEscalationFailing alert.
         - alert: ClaudeApiCostMetricMissing
-          expr: absent(langgraph_cost_usd_total{group="claude"})
+          expr: >-
+            (sum(increase(langgraph_calls_total{group="claude"}[1h])) > 0)
+            unless
+            (sum(increase(langgraph_cost_usd_total{group="claude"}[1h])) > 0)
           for: 1h
           labels:
             severity: warning
@@ -113,5 +122,6 @@ spec:
           annotations:
             summary: "Claude API cost metric absent"
             description: >-
-              langgraph_cost_usd_total{group="claude"} has been absent for 1h.
+              Claude API calls happened in the last hour but
+              langgraph_cost_usd_total{group="claude"} recorded no spend.
               Cost gates are blind. Check langgraph-agents pod and ServiceMonitor.

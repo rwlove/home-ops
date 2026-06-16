@@ -31,14 +31,18 @@ spec:
               a dependency it needs; check recent netpol changes and Hubble
               flows for the offending source/destination pair.
             summary: Sustained CiliumNetworkPolicy drops into {{ $labels.destination_namespace }}.
-          # >5 drops/min (0.083 pkt/s) sustained for 10m = real policy gap,
-          # not a transient reconcile race. Drops with no destination_namespace
-          # label (host-network or unmapped) get aggregated into the empty
-          # bucket but still alert.
+          # >30 drops/min (0.5 pkt/s) sustained for 10m = real policy gap,
+          # not a transient reconcile race. The prior 5/min (0.083) tripped on
+          # benign audit noise — chiefly envoy<->observability same-node
+          # identity/conntrack races (~1/min) where the traffic actually
+          # succeeds. A genuinely broken egress rule drops hundreds/min, so
+          # 0.5 still catches it. Drops with no destination_namespace label
+          # (host-network or unmapped) get aggregated into the empty bucket
+          # but still alert.
           expr: |
             sum by (destination_namespace) (
               rate(hubble_drop_total{reason="POLICY_DENIED"}[5m])
-            ) > 0.083
+            ) > 0.5
           for: 10m
           labels:
             severity: warning

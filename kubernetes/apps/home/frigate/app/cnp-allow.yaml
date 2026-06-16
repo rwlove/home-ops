@@ -68,6 +68,23 @@ spec:
         - ports:
             - port: "443"
               protocol: TCP
+    # Frigate+ serves model blobs and snapshot uploads from an S3 bucket in
+    # us-east-2 (api.frigate.video hands back a presigned S3 URL). That host
+    # isn't covered by *.frigate.video, so the fetch was POLICY_DENIED and
+    # fired FrigateUnauthorizedEgressAttempt. matchPattern only matches one
+    # DNS label (see [[project_cilium_matchpattern_fqdn_limits]]), so the
+    # path-style host needs an explicit matchName while the virtual-hosted
+    # bucket form (<bucket>.s3.us-east-2.amazonaws.com) needs the pattern.
+    # NOTE: Frigate caches DNS, so a fresh resolution (pod restart) is
+    # required for the cached S3 IPs to bind to this rule — same caveat as
+    # the YouTube RTMP path above.
+    - toFQDNs:
+        - matchName: s3.us-east-2.amazonaws.com
+        - matchPattern: "*.s3.us-east-2.amazonaws.com"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
     # go2rtc birdcam publish destination — RTMP to YouTube Live
     # (rtmp://a.rtmp.youtube.com/live2/{BIRDCAM_YOUTUBE_KEY} in
     # snapshots/config.yml). YouTube ingest IPs are AWS-fronted Google

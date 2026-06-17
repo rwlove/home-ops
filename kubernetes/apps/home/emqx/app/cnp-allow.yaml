@@ -57,7 +57,28 @@ spec:
         - ports:
             - port: "1883"
               protocol: TCP
-    # Egress: no external integrations. zigbee2mqtt in same ns connects
-    # to emqx:1883; baseline allow-intra-namespace covers that as
-    # ingress for emqx and egress for zigbee2mqtt. emqx clustering is
-    # over the headless service inside the StatefulSet — also intra-ns.
+    # emqx inter-node clustering: Erlang distribution (4370) and gen_rpc
+    # TCP server (5369) must be open between the 3 StatefulSet pods.
+    # allow-intra-namespace is in audit-mode so does NOT permit this;
+    # these rules are the authoritative allow for clustering traffic.
+    # zigbee2mqtt (home ns) → emqx:1883 is also covered here.
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: emqx
+      toPorts:
+        - ports:
+            - port: "4370"
+              protocol: TCP
+            - port: "5369"
+              protocol: TCP
+            - port: "1883"
+              protocol: TCP
+    # zigbee2mqtt (home ns) connects to emqx:1883.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: zigbee2mqtt
+      toPorts:
+        - ports:
+            - port: "1883"
+              protocol: TCP

@@ -201,15 +201,12 @@ spec:
             summary: Host swap is filling up (instance {{ $labels.instance }})
             description: "Swap is filling up (>80%) and still growing\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
 
-        - alert: HostSystemdServiceCrashed
-          expr: node_systemd_unit_state{state="failed"} == 1
-          for: 0m
-          labels:
-            severity: warning
-          annotations:
-            summary: Host systemd service crashed (instance {{ $labels.instance }})
-            description: "systemd service crashed\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
-
+        # HostSystemdServiceCrashed removed: the kube-prometheus-stack built-in
+        # NodeSystemdServiceFailed covers the identical condition with a 5m
+        # debounce, and the static-scrape hosts (brain/beast/security-storage)
+        # are relabeled to job=node-exporter, so the built-in's job scope
+        # reaches them too. This custom rule (for: 0m, no job filter) only
+        # duplicated alerts and flapped on transient unit restarts.
         - alert: HostPhysicalComponentTooHot
           expr: node_hwmon_temp_celsius * ignoring(label) group_left(instance, job, node, sensor) node_hwmon_sensor_label{label!="tctl"} > 98
           for: 5m

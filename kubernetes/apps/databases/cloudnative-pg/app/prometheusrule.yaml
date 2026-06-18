@@ -71,12 +71,18 @@ spec:
         # clusters — it freezes at the migration timestamp instead of advancing on each
         # successful backup (verified 2026-05-25, all 6 "stale" clusters are actually
         # healthy). Tracking: https://github.com/rwlove/home-ops/issues/12075
+        # changes()[25h] false-fires when the gauge is re-emitted after a CNPG
+        # pod restart, even when the last failure is weeks old (same gauge
+        # re-emission problem documented for BackupStale above). Gate on the
+        # failure timestamp being genuinely recent (<24h) instead.
         - alert: BackupFailed
           annotations:
             description: Cluster {{ $labels.job }} in {{ $labels.namespace }} has a recent backup failure.
             summary: CNPG cluster backup failed recently.
           expr: |-
-            changes(cnpg_collector_last_failed_backup_timestamp[25h]) > 0
+            (cnpg_collector_last_failed_backup_timestamp > 0)
+            and
+            (time() - cnpg_collector_last_failed_backup_timestamp < 86400)
           for: 10m
           labels:
             severity: warning

@@ -28,7 +28,7 @@
 // LightRAG's doc status — the stable key for clean updates AND the
 // tombstone sweep (lightrag-rag-tombstone).
 
-import * as wmill from "windmill-client";
+import * as wmill from "npm:windmill-client@1.527.0";
 
 const LIGHTRAG = Deno.env.get("LIGHTRAG_URL") ??
     "http://lightrag.ai.svc.cluster.local:9621";

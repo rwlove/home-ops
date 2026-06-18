@@ -277,7 +277,7 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 </details>
 
 <details>
-<summary>🔌 <b>MCP Servers</b> — 17 Model Context Protocol servers behind an Authelia-gated gateway</summary>
+<summary>🔌 <b>MCP Servers</b> — 18 Model Context Protocol servers behind an Authelia-gated gateway</summary>
 
 | Server | Exposes |
 |--------|---------|
@@ -298,6 +298,7 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 | **memory-mcp** | Cross-agent knowledge graph backed by Postgres + pgvector (bge-m3 1024-dim) |
 | **cilium-mcp** | Read-only Cilium / Hubble introspection (kubectl-mcp-style, Cilium-scoped) |
 | **windmill-mcp** | Aggregated Windmill workspace tools (script run, flow trigger) |
+| **codegraph-mcp** | Code knowledge-graph queries (CodeGraphContext via `mcp-proxy --stateless`) |
 
 </details>
 

@@ -22,7 +22,9 @@ spec:
             summary: UPS is running on battery.
           # upsBasicOutputStatus: 2=onLine, 3=onBattery
           expr: upsBasicOutputStatus == 3
-          for: 10s
+          # SNMP poll jitter can briefly read onBattery; the UPS carries
+          # the load, so a 1m debounce avoids false pages on a real outage.
+          for: 1m
           labels:
             severity: critical
         - alert: UPSLowRuntime
@@ -39,6 +41,7 @@ spec:
             description: UPS {{ $labels.target }} battery charge is {{ $value }}%, below 50%.
             summary: UPS battery charge low.
           expr: upsAdvBatteryCapacity < 50
+          for: 1m
           labels:
             severity: warning
         - alert: UPSBatteryReplace
@@ -47,7 +50,8 @@ spec:
             summary: Replace UPS battery.
           # upsAdvBatteryReplaceIndicator: 1=noBatteryNeedsReplacing, 2=batteryNeedsReplacing
           expr: upsAdvBatteryReplaceIndicator == 2
-          for: 10s
+          # Non-urgent advisory; 5m debounce kills SNMP-jitter false pages.
+          for: 5m
           labels:
             severity: critical
     # Derived/aggregated power metrics. Single source of truth for the

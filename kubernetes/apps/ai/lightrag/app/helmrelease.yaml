@@ -1,0 +1,154 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app lightrag
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  install:
+    # First start creates the storage layout and warms the Ollama models;
+    # helm-controller's 5-min wait can outlast that cold path.
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+      strategy: rollback
+  values:
+    defaultPodOptions:
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+    controllers:
+      lightrag:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        type: deployment
+        replicas: 1
+        strategy: Recreate  # single replica, RWO data PVC
+        containers:
+          app:
+            image:
+              repository: ghcr.io/hkuds/lightrag
+              tag: v1.5.3
+            env:
+              HOST: "0.0.0.0"
+              PORT: "9621"
+              # All durable paths live under the data PVC mount (/app/data).
+              WORKING_DIR: /app/data/rag_storage
+              INPUT_DIR: /app/data/inputs
+              PROMPT_DIR: /app/data/prompts
+              # --- LLM: graph extraction + query synthesis via Ollama-Spark ---
+              # qwen3-next:80b-a3b is an MoE (~3B active) → fast despite the
+              # 80b name, and already warm on the Spark (verified via
+              # `ollama list`). bge-m3 lives there too, so both calls stay on
+              # one host and never touch the P40 (no model-swap churn).
+              LLM_BINDING: ollama
+              LLM_BINDING_HOST: http://ollama-spark.ai.svc.cluster.local:11434
+              LLM_MODEL: qwen3-next:80b-a3b-instruct-q4_K_M
+              OLLAMA_LLM_NUM_CTX: "32768"
+              LLM_TIMEOUT: "240"
+              # --- Embeddings: bge-m3 (1024-dim) on Ollama-Spark ---
+              EMBEDDING_BINDING: ollama
+              EMBEDDING_BINDING_HOST: http://ollama-spark.ai.svc.cluster.local:11434
+              EMBEDDING_MODEL: bge-m3:latest
+              EMBEDDING_DIM: "1024"
+              OLLAMA_EMBEDDING_NUM_CTX: "8192"
+            envFrom:
+              - secretRef:
+                  name: lightrag-secret
+            probes:
+              # tcpSocket (not httpGet) — robust without asserting an exact
+              # health-endpoint path on first deploy.
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: &httpPort 9621
+                  initialDelaySeconds: 30
+                  periodSeconds: 30
+                  timeoutSeconds: 5
+                  failureThreshold: 5
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: *httpPort
+                  initialDelaySeconds: 15
+                  periodSeconds: 15
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: *httpPort
+                  initialDelaySeconds: 15
+                  periodSeconds: 10
+                  failureThreshold: 30
+            resources:
+              requests:
+                cpu: 100m
+                memory: 1Gi
+              limits:
+                memory: 4Gi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+              # readOnlyRootFilesystem omitted for first deploy: the image
+              # may write Python caches / scratch under / at startup.
+              # Durable state is on the data PVC; /tmp is tmpfs below.
+              # Revisit with RO rootfs once the image's write paths are
+              # confirmed clean.
+              seccompProfile:
+                type: RuntimeDefault
+    service:
+      app:
+        controller: lightrag
+        ports:
+          http:
+            port: *httpPort
+    route:
+      app:
+        annotations:
+          glance/name: "LightRAG"
+          glance/show: "true"
+          glance/id: "AI"
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: *httpPort
+    persistence:
+      data:
+        existingClaim: lightrag-data
+        advancedMounts:
+          lightrag:
+            app:
+              - path: /app/data
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          lightrag:
+            app:
+              - path: /tmp

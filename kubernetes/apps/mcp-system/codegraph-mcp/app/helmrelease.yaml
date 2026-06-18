@@ -1,0 +1,156 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app codegraph-mcp
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  values:
+    defaultPodOptions:
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+    controllers:
+      codegraph-mcp:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        pod:
+          annotations:
+            sidecar.istio.io/inject: "true"
+        containers:
+          app:
+            image:
+              repository: ghcr.io/rwlove/codegraph-mcp
+              tag: "0.5.1"
+            env:
+              HOST: "0.0.0.0"
+              PORT: &httpPort 8080
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: *httpPort
+                  initialDelaySeconds: 20
+                  periodSeconds: 30
+                  timeoutSeconds: 5
+                  failureThreshold: 5
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: *httpPort
+                  initialDelaySeconds: 10
+                  periodSeconds: 15
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+            resources:
+              requests:
+                cpu: 50m
+                memory: 256Mi
+              limits:
+                memory: 2Gi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+              # readOnlyRootFilesystem omitted for first deploy: tree-sitter
+              # grammar handling / embedded graph engine may write outside
+              # the mounted volumes at startup. Durable graph is on the PVC
+              # (~/.codegraphcontext); /tmp is tmpfs. Revisit with RO once
+              # the write paths are confirmed clean.
+              seccompProfile:
+                type: RuntimeDefault
+          git-sync:
+            image:
+              repository: registry.k8s.io/git-sync/git-sync
+              tag: v4.4.0
+            env:
+              # Repo to index. Change to whichever repo you want graphed;
+              # the credentials in codegraph-mcp-secret must grant read
+              # Contents on it.
+              GITSYNC_REPO: https://github.com/rwlove/langgraph-agents
+              GITSYNC_ROOT: /workspace
+              GITSYNC_LINK: langgraph-agents
+              GITSYNC_PERIOD: 5m
+              GITSYNC_ONE_TIME: "false"
+            envFrom:
+              - secretRef:
+                  name: codegraph-mcp-secret
+            resources:
+              requests:
+                cpu: 10m
+                memory: 32Mi
+              limits:
+                memory: 128Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+              readOnlyRootFilesystem: true
+              seccompProfile:
+                type: RuntimeDefault
+    service:
+      app:
+        controller: codegraph-mcp
+        ports:
+          http:
+            port: *httpPort
+    route:
+      app:
+        hostnames:
+          - "codegraph-mcp.mcp.local"
+        parentRefs:
+          - name: mcp-gateway
+            namespace: mcp-system
+            sectionName: mcps
+        rules:
+          - matches:
+              - path:
+                  type: PathPrefix
+                  value: /mcp
+            filters:
+              # Strip the broker Bearer before forwarding (fleet-wide MCP
+              # backend pattern — see time-mcp).
+              - type: RequestHeaderModifier
+                requestHeaderModifier:
+                  remove:
+                    - Authorization
+            backendRefs:
+              - identifier: app
+                port: *httpPort
+    persistence:
+      # Embedded code knowledge graph (FalkorDB-Lite/KuzuDB) — CodeGraphContext
+      # persists it under HOME/.codegraphcontext.
+      graph:
+        existingClaim: codegraph-graph
+        advancedMounts:
+          codegraph-mcp:
+            app:
+              - path: /home/app/.codegraphcontext
+      # Shared checkout: git-sync writes, the app reads /workspace/<repo>.
+      workspace:
+        type: emptyDir
+        advancedMounts:
+          codegraph-mcp:
+            app:
+              - path: /workspace
+            git-sync:
+              - path: /workspace
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          codegraph-mcp:
+            app:
+              - path: /tmp

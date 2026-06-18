@@ -1,0 +1,50 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: lightrag-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: lightrag
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on internal gateway → lightrag:9621 (lightrag.${SECRET_DOMAIN}
+    # for the WebUI + REST API).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "9621"
+              protocol: TCP
+    # Ingest pusher: a Windmill flow reads the paperless corpus and POSTs
+    # documents into LightRAG's REST API (mirrors the existing
+    # paperless-rag-ingest → Qdrant flow). Windmill workers live in home ns.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: windmill-workers
+      toPorts:
+        - ports:
+            - port: "9621"
+              protocol: TCP
+  egress:
+    # LLM (graph extraction + query synthesis) and embeddings (bge-m3) are
+    # both served by ollama-spark in this same ns. Baseline
+    # allow-intra-namespace already covers ai→ai; explicit here for
+    # grep-ability (paperless-ai pattern).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: ollama-spark
+      toPorts:
+        - ports:
+            - port: "11434"
+              protocol: TCP

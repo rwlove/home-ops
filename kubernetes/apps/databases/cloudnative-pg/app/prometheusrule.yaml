@@ -47,13 +47,22 @@ spec:
           for: 10m
           labels:
             severity: warning
+        # delta()[5m] false-fires on every CNPG pod restart: the gauge
+        # resets then re-emits the persisted last-failed timestamp, which
+        # reads as a positive delta even when the failure is weeks old
+        # (same restart re-emission class as BackupFailed below). Gate on
+        # the failure timestamp being genuinely recent (<1h) instead. The
+        # metric is -1 when archiving has never failed, so the >0 guard
+        # excludes that case.
         - alert: LastFailedArchiveTime
           annotations:
-            description: Archiving failed for {{ $labels.pod }}
-            summary: Checks the last time archiving failed. Will be -1 when it has not failed.
+            description: Archiving failed recently for {{ $labels.pod }}
+            summary: CNPG WAL archiving failed within the last hour.
           expr: |-
-            delta(cnpg_pg_stat_archiver_last_failed_time[5m]) > 0
-          for: 1m
+            (cnpg_pg_stat_archiver_last_failed_time > 0)
+            and
+            (time() - cnpg_pg_stat_archiver_last_failed_time < 3600)
+          for: 5m
           labels:
             severity: warning
         - alert: DatabaseDeadlockConflicts

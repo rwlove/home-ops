@@ -30,6 +30,7 @@ or the inline curl in the README two levels up).
 | `ZULIP_BOT_API_KEY` | `zulip-windmill-bot.ZULIP_BOT_API_KEY` |
 | `ROB_ZULIP_USER_ID` | `zulip-windmill-bot.ROB_ZULIP_USER_ID` |
 | `PAPERLESS_TOKEN` | `paperless.mcp_token` (shared with paperless-mcp) |
+| `LIGHTRAG_API_KEY` | `lightrag.api_key` (shared with the ai-ns lightrag ExternalSecret) |
 
 ## Approval-token signing (pre-sign at post-time)
 

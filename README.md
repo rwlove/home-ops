@@ -261,7 +261,7 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 | **Paperless-ngx** | Document scanning, OCR, tagging (CNPG-backed, offsite-backed) |
 | **Obsidian** + **obsidian-couchdb** | Notes sync (CouchDB w/ Cloudflare rate-limiting) |
 | **Zulip** | Self-hosted team chat (also wired into agent pipeline approvals) |
-| **Windmill** | Workflow automation; 22 checked-in TypeScript flows under `kubernetes/apps/home/windmill/workflows/` cover AlertManager → HolmesGPT, langgraph inbox/approval/digest/DLQ/cost-cap/awaiting-user/reviewer-weekly, weekly operator drift sweeps (storage / network / ml / observability), paperless RAG ingest+tombstone, Zulip triager webhook, the workaround upstream-watcher, and the errand-runner approval-flow smoke driver |
+| **Windmill** | Workflow automation; 24 checked-in TypeScript flows under `kubernetes/apps/home/windmill/workflows/` cover AlertManager → HolmesGPT, langgraph inbox/approval/digest/DLQ/cost-cap/awaiting-user/reviewer-weekly, weekly operator drift sweeps (storage / network / ml / observability), paperless RAG ingest+tombstone (Qdrant) and LightRAG graph-RAG ingest+tombstone, Zulip triager webhook, the workaround upstream-watcher, and the errand-runner approval-flow smoke driver |
 | **ntfy** | Self-hosted push notifications (operator approvals via Android tap actions) |
 | **BentoPDF** | Self-hosted PDF toolkit |
 | **Kitchenowl** | Shopping lists + recipe / meal management |
@@ -324,7 +324,7 @@ flowchart TB
         AM[AlertManager]
     end
 
-    subgraph Bridges[Windmill bridges<br/>22 TS workflows]
+    subgraph Bridges[Windmill bridges<br/>24 TS workflows]
         WInbox[langgraph-inbox.ts]
         WAlert[alertmanager-holmesgpt-notify.ts]
         WApprove[langgraph-approval-post/receive.ts]
@@ -388,7 +388,7 @@ in 1Password.
 - **Khoj** (`ai/`) — parallel personal-AI surface for notes + docs. Self-contained: own embedding pipeline (default gte-small, optionally ollama nomic-embed-text), chat via Ollama-P40. Does **not** consume MCP gateway or langgraph-agents.
 - **HolmesGPT** (`observability/`) — live in production for alert triage. AlertManager firings reach it via Windmill's `alertmanager-holmesgpt-notify.ts`; it reasons over Prometheus + Loki + cluster state and posts a root-cause hypothesis to Zulip / ntfy. Open WebUI also surfaces it as a tool server. Prompt + context budget tuned for qwen3-next:80b-a3b-instruct-q4_K_M on Spark (32K context, 6 tool-call budget per investigation).
 - **langgraph-agents** (`ai/`) — the FastAPI multi-agent runtime (`rwlove/langgraph-agents`, version pinned in `helmrelease.yaml`). Plumbed end-to-end (Postgres checkpoints + memory, live task-queue substrate in `postgres-langgraph-checkpoints`, vault PVCs, Windmill approval loop, cost caps in env). Trigger surface live: alertmanager → 6 namespace-mapped operators, daily 22:00 ET historian digest, weekly Saturday operator drift crons (ml / observability / network / reviewer / storage), errand-runner approval-flow smoke. `ENABLE_CLAUDE_API: false` so Claude API escalation is still gated. Public ingress splits CLI traffic (`hai.${SECRET_DOMAIN}`, Bearer-only) from browser traffic (`hai-web.${SECRET_DOMAIN}`, Authelia).
-- **Windmill** (`home/`) — 22 checked-in TypeScript flows under `kubernetes/apps/home/windmill/workflows/` are the bridges that knit the surfaces above together. Every alert webhook, Zulip-triggered DM, approval round-trip, daily digest, weekly vault-hygiene sweep, weekly operator drift sweeps (storage / network / ml / observability), DLQ retry, cost-cap pause, Paperless RAG ingest, and the errand-runner approval-flow smoke driver is a `.ts` file there.
+- **Windmill** (`home/`) — 24 checked-in TypeScript flows under `kubernetes/apps/home/windmill/workflows/` are the bridges that knit the surfaces above together. Every alert webhook, Zulip-triggered DM, approval round-trip, daily digest, weekly vault-hygiene sweep, weekly operator drift sweeps (storage / network / ml / observability), DLQ retry, cost-cap pause, Paperless RAG ingest (Qdrant + LightRAG graph-RAG), and the errand-runner approval-flow smoke driver is a `.ts` file there.
 - **Langfuse** (`ai/`) — OTLP trace sink for langgraph-agents. Chart deploys ClickHouse + Valkey + MinIO bundled; Postgres comes from CNPG `postgres-langfuse`.
 - **memory-mcp** (`mcp-system/`) — cross-agent knowledge graph on `postgres-langgraph-memory` with pgvector(1024). bge-m3 embeds via Ollama-Spark.
 

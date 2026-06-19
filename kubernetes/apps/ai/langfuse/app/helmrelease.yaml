@@ -84,12 +84,26 @@ spec:
     langfuse:
       web:
         replicas: 1
+        # langfuse-web (Next.js 16) crashlooped with V8 heap OOM
+        # (exit 134, `Reached heap limit Allocation failed`) during
+        # init scripts: Node's default old-space (~520Mi) is sized to
+        # the host, not the 1Gi cgroup, so it OOMs the heap well under
+        # the container limit. Pin the heap to the container via
+        # NODE_OPTIONS (see langfuse.additionalEnv) and give the cgroup
+        # headroom above the new 1536Mi heap.
         resources:
           requests:
             cpu: 100m
             memory: 768Mi
           limits:
-            memory: 1Gi
+            memory: 2Gi
+        pod:
+          # Size the V8 heap to the container rather than the host.
+          # Scoped to web only (worker keeps its 1Gi cgroup); the
+          # chart injects this into the web pods exclusively.
+          additionalEnv:
+            - name: NODE_OPTIONS
+              value: --max-old-space-size=1536
       worker:
         replicas: 1
         # The worker container shipped with no resources block at

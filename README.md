@@ -42,7 +42,7 @@ flowchart LR
     Dev[👤 Operator] -->|git push| Repo[(📦 GitHub<br/>home-ops)]
     Renovate[🤖 Renovate] -.->|automated PRs| Repo
     Repo -->|reconciles| Flux[⚙️ Flux]
-    Flux -->|deploys| Cluster[☸️ Kubernetes<br/>11 nodes · 177 apps]
+    Flux -->|deploys| Cluster[☸️ Kubernetes<br/>11 nodes · 188 apps]
 
     Cluster --> Ceph[(🪨 Ceph<br/>block · default durable)]
     Cluster --> LH[(🐂 Longhorn<br/>+ recurring backups)]
@@ -78,10 +78,10 @@ Storage tiers are picked deliberately per workload — see [`storage-class.instr
 | **TLS**          | cert-manager                        | Let's Encrypt + internal CA                           |
 | **Tunnel**       | cloudflared                         | Public ingress without exposing home WAN              |
 | **AuthN/Z**      | Authelia + oauth2-proxy             | OIDC SSO; 24 oauth2-proxy instances gate apps         |
-| **Secrets**      | External Secrets Operator + 1Password | 111 ExternalSecrets, zero plain-text in Git         |
+| **Secrets**      | External Secrets Operator + 1Password | 116 ExternalSecrets, zero plain-text in Git         |
 | **VPN**          | wg-easy                             | Operator OOB WireGuard access                         |
 | **Storage**      | Rook-Ceph, Longhorn, Garage, direct NFS | Tiered by durability requirement                  |
-| **Databases**    | CloudNative-PG, Dragonfly, Qdrant   | 25 Postgres clusters, KV, vector                      |
+| **Databases**    | CloudNative-PG, Dragonfly, Qdrant   | 24 Postgres clusters, KV, vector                      |
 | **Observability**| kube-prometheus-stack, Loki, Tempo, Grafana, HolmesGPT | Metrics, logs, traces, dashboards, AI alert triage |
 | **Telemetry**    | OpenTelemetry Collector + Vector    | Trace pipeline (→ Tempo) + log shipping (→ Loki)      |
 | **Images**       | ZOT                                 | Pull-through registry / local cache                   |
@@ -219,7 +219,7 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 
 | App | Purpose |
 |-----|---------|
-| **CloudNative-PG** | 25 Postgres clusters with WAL archiving to Garage |
+| **CloudNative-PG** | 24 Postgres clusters with WAL archiving to Garage |
 | **Dragonfly** | Redis-compatible in-memory store |
 | **Qdrant** | Vector DB for embeddings / RAG |
 | **pgAdmin** | Postgres admin UI |
@@ -519,7 +519,7 @@ Four tiers, picked by what the data has to survive — node loss, Ceph loss, clu
 
 ### 🔐 Secrets — zero plain-text in Git
 
-All 111 ExternalSecrets resolve through External Secrets Operator from 1Password. Application credentials are templated into `ExternalSecret` resources and never live in YAML. Cross-namespace mirrors use the reflector pattern when consumer charts hard-code secret names.
+All 116 ExternalSecrets resolve through External Secrets Operator from 1Password. Application credentials are templated into `ExternalSecret` resources and never live in YAML. Cross-namespace mirrors use the reflector pattern when consumer charts hard-code secret names.
 
 ### 🪪 Authentication — single sign-on everywhere
 

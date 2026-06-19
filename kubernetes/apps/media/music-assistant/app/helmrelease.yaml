@@ -28,6 +28,32 @@ spec:
           reloader.stakater.com/auto: "true"
 
         type: statefulset
+
+        initContainers:
+          # Startup-race guard. MA's music library is the OpenSubsonic
+          # provider pointed at gonic.media, and its provider loader is
+          # one-shot: if gonic isn't answering when MA first pings it on
+          # boot — e.g. both pods restart together after a power event and
+          # gonic is still initializing — MA marks the provider failed and
+          # never auto-retries, so every track is unresolvable ("no
+          # playable items found") until someone reloads the provider by
+          # hand. Block MA's start until gonic's Subsonic API returns 200.
+          # Intra-namespace egress is allowed by the allow-intra-namespace
+          # CNP; alpine is multi-arch (MA may land on an arm64 node).
+          wait-for-gonic:
+            image:
+              repository: docker.io/library/alpine
+              tag: "3.24"
+            command:
+              - sh
+              - -c
+              - |
+                until wget -q -T 5 -O /dev/null http://gonic.media/rest/ping.view; do
+                  echo "waiting for gonic to serve its API..."
+                  sleep 3
+                done
+                echo "gonic is up"
+
         containers:
           app:
             image:

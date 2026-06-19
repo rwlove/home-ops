@@ -70,6 +70,29 @@ spec:
               GONIC_PLAYLISTS_PATH: "/data/playlists"
               GONIC_SCAN_INTERVAL: "120"
 
+            probes:
+              # Gate Ready on the Subsonic API actually answering, not just
+              # the port being open. gonic's HTTP listener binds before the
+              # API is fully serving on a cold start; a default TCP probe
+              # would mark the pod Ready too early and put a half-up gonic
+              # into the Service endpoints. Music Assistant's OpenSubsonic
+              # provider loader is one-shot — if it pings a not-yet-serving
+              # gonic and times out, it marks the provider permanently
+              # failed (library shows "no playable items found" until a
+              # manual reload). /rest/ping.view returns 200 unauthenticated
+              # once the API is live. Pairs with MA's wait-for-gonic init.
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /rest/ping.view
+                    port: 4747
+                  initialDelaySeconds: 10
+                  periodSeconds: 10
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+
             resources:
               requests:
                 cpu: 15m

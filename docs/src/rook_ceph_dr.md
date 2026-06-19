@@ -127,7 +127,7 @@ What survives:
    .spec.storageClassName == "ceph-block") | .metadata.namespace +
    "/" + .metadata.name'` — scale them to zero.
 4. Tear down the existing rook-ceph deployment per
-   <https://rook.io/docs/rook/v1.18/Storage-Configuration/Advanced/ceph-teardown/>
+   <https://rook.io/docs/rook/latest-release/Getting-Started/ceph-teardown/>
    — `Cluster`, `OperatorConfig`, then delete the namespace.
 5. Wipe the OSD disks on each worker (Rook-Ceph teardown does NOT
    wipe disks; you must `dd if=/dev/zero of=/dev/<osd-disk>

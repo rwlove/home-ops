@@ -15,8 +15,11 @@ when:
 Tasks that touch cluster state, alert routing, or need multi-step
 approval go through the `ai/langgraph-agents` `/inbox` flow instead.
 
-## Status: scaffolded, NOT activated
+## Status: no active workloads
 
-The `claude-runner` Flux Kustomization ships with `spec.suspend: true`
-intentionally. Activating Phase 4 needs three gating items first; see
-[the claude-runner README](./claude-runner/README.md) for the recipe.
+The `claude-runner` Kustomization that was scaffolded here was retired
+in [#12008](https://github.com/rwlove/home-ops/pull/12008) — the
+cron-Claude-Code approach was superseded by the `ai/langgraph-agents`
+fleet, which now owns the periodic "report on the world" jobs. The
+namespace remains for future automation workloads but currently ships
+no apps.

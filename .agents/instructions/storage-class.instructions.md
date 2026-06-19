@@ -160,6 +160,32 @@ rather than introducing a new mount on a new server unprompted.
 Backup is app-specific (immich/paperless rclone CronJobs, snapshot
 retention), not provided by the tier itself.
 
+### NFS mountOptions by workload class
+
+When declaring a direct-NFS PV, set `mountOptions` to its workload tier's full
+set in a **single** block — `mountOptions` are immutable, so each later change
+means deleting/recreating the PV and remounting the pod (a maintenance window;
+Renee-facing PVs → Tuesday 02:00–04:00). For the reference pattern
+(`["nfsvers=4.2","nconnect=8","hard","noatime"]`) see the already-tuned PVs at
+`kubernetes/apps/media/immich/app/nfs-pvc.yaml` and
+`kubernetes/apps/storage/garage/app/nfs-pvc.yaml`.
+
+| Tier | Workloads | mountOptions |
+|---|---|---|
+| **A — static read libraries** | media-library read mounts (movies / music / pictures) | `nfsvers=4.2`, `nconnect=8`, `hard`, `noatime`, `actimeo=600` (aggressive attr cache — files rarely change) |
+| **B — active scratch / pull** | media-pull-stack scratch + completed-download mounts | `nfsvers=4.2`, `nconnect=8`, `hard`, `noatime` — **no** aggressive attr cache (apps must see file changes promptly) |
+| **C — already tuned (reference)** | the photo-management app + Garage S3 substrate | `nfsvers=4.2`, `nconnect=8`, `hard`, `noatime` |
+
+- `nconnect=8` (parallel TCP) is the biggest single-client throughput lever; the
+  cluster nodes support it (kernel ≥5.3). The **Kodi boxes cannot** (kernel 4.9)
+  — their levers are server-side nfsd threads + client `buffermode`.
+- **Sequencing:** beast-served mounts (the media libraries + image-gen output)
+  gate behind beast's nfsd `8→16` bump (don't pile parallel connections on an
+  8-thread pool); brain-served mounts (download/scratch + Garage + TV) can take
+  `nconnect` anytime (brain is idle, already 16 threads, 26 GB cache).
+- Keep server exports `sync` (durability) — `nconnect` + threads get the speed
+  without the crash-consistency risk of `async`.
+
 ## What this is NOT
 
 - A cost-optimization guide. We don't bin-pack across backends; pick

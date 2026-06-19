@@ -591,7 +591,7 @@ So don't enter Phase 4 unless you're confident in the new state.
   exist transiently during issuance/renewal)
 - `kubectl describe clusterissuer letsencrypt-production` — surfaces
   ACME backoff messages if rate-limited
-- ACME audit log at <https://crt.sh/?Identity=${SECRET_DOMAIN}> —
+- ACME audit log at `https://crt.sh/?Identity=${SECRET_DOMAIN}` —
   external counter you don't control, useful sanity check
 
 ## When to stop and ask
@@ -610,7 +610,7 @@ If managing a private CA root on every client device is unacceptable:
 - All ~70 routes go through ACME
 - Wave size still 5/day; total elapsed ~14 days
 - Internal hostnames will appear in public CT logs
-  (<https://crt.sh/?Identity=${SECRET_DOMAIN}>) — anyone can
+  (`https://crt.sh/?Identity=${SECRET_DOMAIN}`) — anyone can
   enumerate your service catalog from the cert transparency feed.
   Mitigate with hostnames that don't betray service identity if this
   matters.

@@ -9,7 +9,7 @@ _Production-grade Kubernetes for a household._
 
 <br/>
 
-[![Renovate](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thesteamedcrab.com%2Frenovate_last_run&style=for-the-badge&logo=renovatebot&logoColor=white)](https://github.com/rwlove/home-ops/issues/10329)
+[![Renovate](https://img.shields.io/badge/Renovate-enabled-1A1F6C?style=for-the-badge&logo=renovatebot&logoColor=white)](https://github.com/rwlove/home-ops/issues/10329)
 [![Flux](https://img.shields.io/badge/Flux-managed-5468FF?style=for-the-badge&logo=flux&logoColor=white)](https://fluxcd.io)
 [![Documentation](https://img.shields.io/badge/docs-Material_for_MkDocs-526CFE?style=for-the-badge&logo=materialformkdocs&logoColor=white)](https://rwlove.github.io/home-ops/)
 [![Check Links](https://img.shields.io/github/actions/workflow/status/rwlove/home-ops/lychee.yaml?label=links&style=for-the-badge)](https://github.com/rwlove/home-ops/actions/workflows/lychee.yaml)

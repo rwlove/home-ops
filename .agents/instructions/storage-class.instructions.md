@@ -81,7 +81,28 @@ app — see `media/jellyfin/app/longhorn-pvc.yaml` for the pattern.
 
 New Longhorn volumes need:
 
-- Labeled for the recurring backup jobs to pick them up.
+- Labeled for the recurring backup jobs to pick them up. **Important
+  mechanics:** Longhorn's recurring jobs select on the *Volume CR's*
+  `recurring-job-group.longhorn.io/<group>` labels, **not** the PV's.
+  PV labels do not propagate to the Volume CR — Longhorn instead
+  **auto-applies the `default` group** to any volume whose CR has no
+  recurring-job labels, and `default` is what actually protects nearly
+  every volume in this cluster (daily snapshot + weekly + monthly
+  backup + weekly trim). The named groups (`daily-snapshot`,
+  `weekly-backup`, `weekly-snapshot`, `monthly-backup`) are wired into
+  `longhorn/config/recurring-jobs.yaml` as functional aliases, so a
+  volume whose CR *does* carry them is still covered. **Trap to avoid:**
+  if a manual op (e.g. restoring a volume by re-creating the Volume CR)
+  copies the PV's named labels onto the Volume CR, the volume drops out
+  of auto-`default`; ensure a functional group label is present or it
+  is silently un-backed-up. This bit `paperless-data-xfs` after its
+  2026-06-19 restore — see
+  [[reference_longhorn_snapshot_not_crash_consistent_use_backup]].
+- A **detached** volume cannot be backed up (no engine to read from).
+  CronJob-only or scaled-to-zero workloads (e.g. `beets`) whose volume
+  is detached during the Saturday 00:00 UTC backup window silently miss
+  weekly backups — their DR floor is whenever the volume last happened
+  to be attached at backup time.
 - `unmapMarkSnapChainRemoved=enabled` set per-Volume to prevent
   snapshot-pinned slack.
 - `chmod 755` on `lost+found` if the app runs non-root — fresh ext4

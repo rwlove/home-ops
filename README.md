@@ -540,7 +540,7 @@ Driver lifecycle is handled by the NVIDIA GPU Operator. Spark is the lone contai
 
 ### 🛟 Disaster recovery
 
-Per-app rclone CronJobs ship Immich originals and Paperless documents — plus their Garage-stored Postgres backups — to encrypted AWS S3 with a 1-day Glacier Deep Archive transition. Recovery procedure is documented at [Offsite recovery](https://rwlove.github.io/home-ops/offsite_recovery.html) and was last validated 2026-05-05.
+Per-app rclone CronJobs ship Immich originals and Paperless documents — plus their Garage-stored Postgres backups — to encrypted AWS S3 with a 1-day Glacier Deep Archive transition. Recovery procedure is documented at [Offsite recovery](https://rwlove.github.io/home-ops/offsite_recovery/) and was last validated 2026-05-05.
 
 ### 🌪️ Strict GitOps
 
@@ -554,18 +554,18 @@ The full operator handbook lives at **<https://rwlove.github.io/home-ops/>**.
 
 Frequently referenced pages:
 
-- [AI architecture](https://rwlove.github.io/home-ops/ai_architecture.html)
-- [Cluster rebuild](https://rwlove.github.io/home-ops/cluster_rebuild.html)
-- [Initialization & teardown](https://rwlove.github.io/home-ops/init_teardown.html)
-- [Cluster upgrade](https://rwlove.github.io/home-ops/cluster_upgrade.html)
-- [Power outage recovery](https://rwlove.github.io/home-ops/power-outage.html)
-- [Limits & requests philosophy](https://rwlove.github.io/home-ops/limits.html)
-- [Debugging playbook](https://rwlove.github.io/home-ops/debugging.html)
-- [Offsite recovery](https://rwlove.github.io/home-ops/offsite_recovery.html)
-- [Immich restore to new CNPG database](https://rwlove.github.io/home-ops/immich_cnpg.html)
-- [NVIDIA P40 GPU setup](https://rwlove.github.io/home-ops/p40.html)
-- [master1 etcd disk swap](https://rwlove.github.io/home-ops/master1_etcd_disk_swap.html)
-- [GitHub webhook](https://rwlove.github.io/home-ops/github_webhook.html)
+- [AI architecture](https://rwlove.github.io/home-ops/ai_architecture/)
+- [Cluster rebuild](https://rwlove.github.io/home-ops/cluster_rebuild/)
+- [Initialization & teardown](https://rwlove.github.io/home-ops/init_teardown/)
+- [Cluster upgrade](https://rwlove.github.io/home-ops/cluster_upgrade/)
+- [Power outage recovery](https://rwlove.github.io/home-ops/power-outage/)
+- [Limits & requests philosophy](https://rwlove.github.io/home-ops/limits/)
+- [Debugging playbook](https://rwlove.github.io/home-ops/debugging/)
+- [Offsite recovery](https://rwlove.github.io/home-ops/offsite_recovery/)
+- [Immich restore to new CNPG database](https://rwlove.github.io/home-ops/immich_cnpg/)
+- [NVIDIA P40 GPU setup](https://rwlove.github.io/home-ops/p40/)
+- [master1 etcd disk swap](https://rwlove.github.io/home-ops/master1_etcd_disk_swap/)
+- [GitHub webhook](https://rwlove.github.io/home-ops/github_webhook/)
 
 Repo-local conventions (auto-loaded by AI agents from [`.agents/instructions/`](https://github.com/rwlove/home-ops/tree/main/.agents/instructions)):
 

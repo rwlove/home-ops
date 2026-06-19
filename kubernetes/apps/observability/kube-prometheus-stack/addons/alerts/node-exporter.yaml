@@ -145,6 +145,24 @@ spec:
             summary: Host high CPU load (instance {{ $labels.instance }})
             description: "CPU load is > 90%\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
 
+        - alert: HostCpuSteal
+          # Only the 6 beast-hosted VMs (master2/3 + worker5-8) can register steal:
+          # beast runs 46 guest vCPUs on 16c/32t with no pinning, while every other
+          # node is bare metal (steal == 0 always), so a global rule self-scopes to
+          # the overcommitted guests. Baseline is ~0.07% avg / 1.8% 24h-peak
+          # (measured 2026-06-19) — harmless headroom today. Fires only if the
+          # overcommit crosses into real starvation: >5% steal sustained 30m (clears
+          # backup-window bursts). The fix when it fires is right-sizing worker
+          # vCPUs / NUMA pinning, not this alert — see
+          # reference_beast_compute_topology_and_cp_quorum_spof.
+          expr: 100 * avg by (instance) (rate(node_cpu_seconds_total{mode="steal"}[15m])) > 5
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: Host CPU steal high (instance {{ $labels.instance }})
+            description: "vCPU steal > 5% — the hypervisor (beast) is overcommitted and starving this guest of CPU\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+
         # You may want to increase the alert manager 'repeat_interval' for this type of alert to daily or weekly
         # - alert: HostCpuIsUnderUtilized
         #   expr: 100 - (rate(node_cpu_seconds_total{mode="idle"}[30m]) * 100) < 20

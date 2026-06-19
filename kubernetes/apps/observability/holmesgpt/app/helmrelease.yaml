@@ -37,23 +37,47 @@ spec:
           app:
             image:
               repository: docker.io/robustadev/holmes
-              tag: 0.30.0
+              tag: 0.33.0
             command:
               - python
               - /app/server.py
             env:
-              MODEL: ollama/qwen2.5:7b
-              OLLAMA_API_BASE: http://ollama.ai.svc.cluster.local:11434
-              OVERRIDE_MAX_CONTENT_SIZE: "16384"
+              # REVERTED 2026-05-22 from qwen2.5:72b → qwen2.5:32b after
+              # measuring real Spark inference speed under Holmes' tool-
+              # loop. PR #11959 bumped to 72b on the theory that quality
+              # would lift; in practice 72b at q4 runs ~4 tok/s on
+              # GB10 vs ~12 tok/s for 32b (3× slower per token), and
+              # Holmes' first LLM call alone took 9m36s processing 16K
+              # context + tool-plan generation. The tool-loop then
+              # consumed 37K chars of kubectl_logs output into the next
+              # call, which never completed before the 600s workflow
+              # timeout. Conclusion: Holmes' prompt shape is not
+              # 72b-friendly — too much context up-front, too many
+              # tool-loop iterations. The architecture would need
+              # prompt surgery (context trimming + tool-call budget)
+              # before a >32b model is viable. Until then, 32b is the
+              # right ceiling. Investigation transcript in #11961 body.
+              MODEL: ollama/qwen3-next:80b-a3b-instruct-q4_K_M
+              OLLAMA_API_BASE: http://ollama-spark.ai.svc.cluster.local:11434
+              # Raised 16384 → 32768 on 2026-05-23 to give Holmes' tool-loop
+              # room. The prior 16K cap meant a kubectl_logs payload could
+              # exhaust context BEFORE the synthesis pass — Holmes then
+              # returned a raw tool_call JSON instead of prose. 32K stays
+              # well inside qwen2.5:32b's 128K capability and the Spark
+              # memory envelope. Per-call latency rises with context size
+              # (linear-ish for Ollama-served qwen2.5), so monitor for
+              # alerts that now blow the 600s LITELLM_REQUEST_TIMEOUT —
+              # extend that next if needed, not the model size.
+              # See [[reference_qwen25_72b_infeasible_on_spark]] in memory
+              # for why "just go bigger" isn't an option on Spark.
+              OVERRIDE_MAX_CONTENT_SIZE: "32768"
               OVERRIDE_MAX_OUTPUT_TOKEN: "4096"
-              # Default litellm timeout is 600s — tool-calling investigations
-              # against qwen2.5:7b on P40 frequently exceed it (verified
-              # 2026-05-19 via direct /api/chat probe; investigation timed out
-              # at 600s with `litellm.Timeout: Connection timed out`). Align
-              # with the n8n outer-timeout of 1500s per
-              # `project_n8n_holmesgpt_timeout_workaround` memory.
-              LITELLM_REQUEST_TIMEOUT: "1500"
-              LITELLM_TIMEOUT: "1500"
+              # Upstream default 600s. Verified safe on Spark +
+              # qwen2.5:32b 2026-05-21: 18 LLM calls observed in a real
+              # multi-tool investigation, per-call max 92s (16K-prompt /
+              # 4K-output round-trip). 600s gives ~6.5× headroom.
+              LITELLM_REQUEST_TIMEOUT: "600"
+              LITELLM_TIMEOUT: "600"
               HOLMES_HOST: 0.0.0.0
               HOLMES_PORT: "8080"
             resources:
@@ -78,6 +102,12 @@ spec:
             port: 8080
     route:
       app:
+        # No `glance/*` annotations: HolmesGPT is API-only (no webui).
+        # The HTTPRoute exists to back the alertmanager → HolmesGPT
+        # path and the Open WebUI tool-server registration. Visiting
+        # the hostname in a browser returns FastAPI's default 404 at
+        # `/`. The chat surface for Holmes is Open WebUI's tool
+        # picker, not a direct dashboard.
         hostnames:
           - "holmesgpt.${SECRET_DOMAIN}"
         parentRefs:

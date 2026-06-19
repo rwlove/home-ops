@@ -13,7 +13,7 @@ spec:
         name: windmill
       # Pinned to 4.0.158 — first deploy on chart v4 line. Chart appVersion
       # 1.704.1. Re-pin when bumping; let Renovate manage the suffix.
-      version: 4.0.158
+      version: 4.0.180
   install:
     disableWait: true
   interval: 30m
@@ -72,13 +72,9 @@ spec:
           # spawned Deno/Python/Bash subprocesses (default is none for
           # nsjail-style isolation; Windmill strips parent env without
           # an explicit allowlist).
-          # Pushover envs remain for the brief overlap window between
-          # Flux applying this manifest and the new ntfy-shape workflow
-          # scripts being synced to the Windmill DB. Removed in a
-          # follow-up PR once sync + verification is complete.
           extraEnv: &workflow_secrets
             - name: WHITELIST_ENVS
-              value: LANGGRAPH_APPROVAL_SIGNING_KEY,NTFY_URL,NTFY_WRITE_TOKEN,PUSHOVER_APP_TOKEN,PUSHOVER_USER_KEY,ZULIP_BOT_EMAIL,ZULIP_BOT_API_KEY,ROB_ZULIP_USER_ID
+              value: LANGGRAPH_APPROVAL_SIGNING_KEY,NTFY_URL,NTFY_WRITE_TOKEN,ZULIP_API_URL,ZULIP_BOT_EMAIL,ZULIP_BOT_API_KEY,ROB_ZULIP_USER_ID,PAPERLESS_TOKEN,LIGHTRAG_API_KEY,WINDMILL_TOKEN,HAI_CLI_TOKEN,ADMIN_NAME
             - name: LANGGRAPH_APPROVAL_SIGNING_KEY
               valueFrom:
                 secretKeyRef:
@@ -94,16 +90,11 @@ spec:
                 secretKeyRef:
                   name: windmill-workflows-secret
                   key: NTFY_WRITE_TOKEN
-            - name: PUSHOVER_APP_TOKEN
+            - name: ZULIP_API_URL
               valueFrom:
                 secretKeyRef:
                   name: windmill-workflows-secret
-                  key: PUSHOVER_APP_TOKEN
-            - name: PUSHOVER_USER_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: windmill-workflows-secret
-                  key: PUSHOVER_USER_KEY
+                  key: ZULIP_API_URL
             - name: ZULIP_BOT_EMAIL
               valueFrom:
                 secretKeyRef:
@@ -114,11 +105,51 @@ spec:
                 secretKeyRef:
                   name: windmill-workflows-secret
                   key: ZULIP_BOT_API_KEY
+            - name: PAPERLESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: windmill-workflows-secret
+                  key: PAPERLESS_TOKEN
+            # LIGHTRAG_API_KEY: used by lightrag-rag-ingest / -tombstone to
+            # POST/DELETE LightRAG's /documents API (X-API-Key). Sourced
+            # from the `lightrag.api_key` 1P field.
+            - name: LIGHTRAG_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: windmill-workflows-secret
+                  key: LIGHTRAG_API_KEY
+            # WINDMILL_TOKEN: used by `windmill-failure-watcher` to query
+            # its own /api/w/.../jobs/list_completed. Sourced from the
+            # `windmill.windmill_api_token` 1P field (PR #11953).
+            - name: WINDMILL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: windmill-workflows-secret
+                  key: WINDMILL_TOKEN
+            # HAI_CLI_TOKEN: used by workflows that call langgraph-agents
+            # /admin/* or /inbox (cost-cap-watcher, awaiting-user-sweep,
+            # daily-digest, dlq-watcher, zulip-triager-webhook). Sourced
+            # from the `hai-cli.TOKEN` 1P field — same value
+            # `langgraph-agents-secret` consumes (PR #11964).
+            - name: HAI_CLI_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: windmill-workflows-secret
+                  key: HAI_CLI_TOKEN
             - name: ROB_ZULIP_USER_ID
               valueFrom:
                 secretKeyRef:
                   name: windmill-workflows-secret
                   key: ROB_ZULIP_USER_ID
+            # Admin's display name — used ONLY by user-facing DM/notification
+            # templates at the render boundary. NOT injected into agent
+            # system prompts (per the user-class architecture in
+            # langgraph-agents/agents/_shared/USER.md).
+            - name: ADMIN_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: windmill-workflows-secret
+                  key: ADMIN_NAME
         # Native worker — runs Bash/PowerShell/etc. without nsjail.
         - name: native
           replicas: 1
@@ -137,27 +168,29 @@ spec:
       # the same env (Windmill execs scripts inline for short flows).
       app:
         extraEnv: *workflow_secrets
-
-      # App pod resources.
-      resources:
-        requests:
-          cpu: 100m
-          memory: 256Mi
-        limits:
-          memory: 1Gi
+        # App pod resources. The chart keys these under
+        # `windmill.app.resources`; a top-level `windmill.resources`
+        # block is a no-op (verified against chart 4.0.175 — the app
+        # pod was silently running on the chart default of 2Gi req=limit).
+        resources:
+          requests:
+            cpu: 100m
+            memory: 768Mi
+          limits:
+            memory: 1536Mi
 
       # Tell Windmill it's behind a TLS-terminating proxy (Envoy).
       proxy:
         # Forward the actual client IP via the headers Envoy sets.
         enabled: true
 
-      # NOTE: Windmill's bootstrap admin is hardcoded by the binary to
-      # `admin@windmill.dev` with default password `changeme`. The
-      # chart does NOT expose an admin-password override (the
-      # `windmill.extraEnv` block has no analog in the chart). Operators
-      # must rotate the password immediately after first deploy via:
-      #   curl -X POST https://windmill.${SECRET_DOMAIN}/api/users/setpassword
-      # See ../README.md for the full bootstrap recipe.
+        # NOTE: Windmill's bootstrap admin is hardcoded by the binary to
+        # `admin@windmill.dev` with default password `changeme`. The
+        # chart does NOT expose an admin-password override (the
+        # `windmill.extraEnv` block has no analog in the chart). Operators
+        # must rotate the password immediately after first deploy via:
+        #   curl -X POST https://windmill.${SECRET_DOMAIN}/api/users/setpassword
+        # See ../README.md for the full bootstrap recipe.
 
     indexer:
       enabled: true

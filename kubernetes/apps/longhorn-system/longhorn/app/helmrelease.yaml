@@ -12,11 +12,9 @@ spec:
       sourceRef:
         kind: HelmRepository
         name: longhorn-charts
-      version: 1.11.2
+      version: 1.12.0
   interval: 30m
   values:
-    # preUpgradeChecker and image sections are workarounds until 1.11.1 is released
-    # https://github.com/longhorn/longhorn/issues/12573
     defaultSettings:
       backupTarget: "nfs://beast:/mnt/mass_storage/longhorn-backups"
       createDefaultDiskLabeledNodes: true
@@ -29,24 +27,19 @@ spec:
     global:
       imageRegistry: docker.io
 
-    image:
-      longhorn:
-        instanceManager:
-          tag: v1.11.0-hotfix-1
-        manager:
-          tag: v1.11.0-hotfix-1
-
     longhornManager:
+      # Request-only (no memory limit): storage control plane; a tight
+      # limit risks OOM during volume recovery. Sized to 14d peak ~1.2Gi.
+      resources:
+        requests:
+          cpu: 100m
+          memory: 1Gi
       securityContext:
         privileged: true
     persistence:
       defaultClass: false
       defaultClassReplicaCount: 1
       reclaimPolicy: Retain
-
-    preUpgradeChecker:
-      jobEnabled: false
-      upgradeVersionCheck: false
   # Scope the chart-shipped `longhorn-support-bundle` ClusterRoleBinding
   # from `cluster-admin` down to `view`. The chart hardcodes the binding
   # with no values knob to disable it (clusterrolebinding.yaml lines

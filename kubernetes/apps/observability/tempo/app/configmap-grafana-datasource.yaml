@@ -1,0 +1,42 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/configmap-v1.json
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tempo-grafana-datasource
+  labels:
+    # Picked up by Grafana's sidecar discovery (label key configured via
+    # the grafana HelmRelease's sidecar.datasources.label/labelValue;
+    # see `kubernetes/apps/observability/grafana/app/helmrelease.yaml`).
+    grafana_datasource: "1"
+data:
+  tempo-datasource.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Tempo
+        type: tempo
+        uid: tempo
+        access: proxy
+        url: http://tempo.observability.svc.cluster.local:3100
+        jsonData:
+          # Link traces ↔ logs ↔ metrics via these data sources.
+          tracesToLogsV2:
+            datasourceUid: loki
+            tags:
+              - key: service.name
+                value: service_name
+              - key: task_id
+                value: task_id
+          tracesToMetrics:
+            datasourceUid: prometheus
+            tags:
+              - key: service.name
+                value: service_name
+          serviceMap:
+            datasourceUid: prometheus
+          nodeGraph:
+            enabled: true
+          search:
+            hide: false
+          lokiSearch:
+            datasourceUid: loki

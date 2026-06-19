@@ -1,0 +1,76 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app lidarr-sab-autoimport
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  values:
+    defaultPodOptions:
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile: {type: RuntimeDefault}
+
+    controllers:
+      lidarr-sab-autoimport:
+        pod:
+          automountServiceAccountToken: false
+          restartPolicy: Never
+        cronjob:
+          schedule: "*/5 * * * *"
+          concurrencyPolicy: Forbid
+          successfulJobsHistory: 1
+          failedJobsHistory: 3
+          # Retry transient failures (e.g. musl EAI_AGAIN DNS blips) on a
+          # fresh pod instead of failing the run on the first hiccup. The
+          # script also retries internally; this is the outer net.
+          backoffLimit: 2
+          activeDeadlineSeconds: 300
+          ttlSecondsAfterFinished: 86400
+        type: cronjob
+        containers:
+          app:
+            image:
+              repository: python
+              tag: 3.14-alpine
+
+            command:
+              - python3
+              - /script/scan.py
+
+            env:
+              LIDARR_URL: http://lidarr.media.svc.cluster.local:8686
+
+            envFrom:
+              - secretRef:
+                  name: lidarr
+
+            resources:
+              requests:
+                cpu: 10m
+                memory: 32M
+              limits:
+                memory: 64M
+
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: {drop: ["ALL"]}
+
+    persistence:
+      script:
+        type: configMap
+        name: lidarr-sab-autoimport-script
+        defaultMode: 0555
+        globalMounts:
+          - path: /script/scan.py
+            subPath: scan.py
+            readOnly: true

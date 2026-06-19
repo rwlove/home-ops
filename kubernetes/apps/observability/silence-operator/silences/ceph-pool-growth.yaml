@@ -1,0 +1,30 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/observability.giantswarm.io/silence_v1alpha2.json
+#
+# CephPoolGrowthWarning is a predictive alert shipped by the rook-ceph
+# cluster chart (monitoring.createPrometheusRules: true). Its expression is
+#   predict_linear(ceph_pool_percent_used[2d], 5d) >= 95
+# i.e. a linear extrapolation of the last 2 days' slope projected 5 days out.
+# predict_linear is unbounded and very sensitive to short-window slope: a
+# transient write burst (snapshot, backup, bulk import) steepens the 2-day
+# regression enough to momentarily project >=95%, the alert fires + pages
+# Pushover, then resolves minutes later when the slope relaxes. ceph-blockpool
+# actual usage sits at ~46%; the prediction is pure noise at this fill level.
+#
+# This is a chart built-in, so it can't take an inline guard like our own
+# rules can. Silencing the predictive rule is safe because real capacity
+# pressure is still caught by the actual-usage backstops in the SAME shipped
+# rule set: CephPoolNearFull / CephPoolFull (POOL_NEAR_FULL / POOL_FULL),
+# CephOSDNearFull / CephOSDFull, and CephOSDBackfillFull. Those fire on
+# ceph_health_detail flags, not extrapolation, and are not silenced.
+#
+# Revisit if blockpool climbs toward the NearFull threshold — at that point a
+# tuned growth rule (wider window + actual-usage gate) would be worth adding.
+apiVersion: observability.giantswarm.io/v1alpha2
+kind: Silence
+metadata:
+  name: cephpoolgrowthwarning
+spec:
+  matchers:
+    - name: alertname
+      value: CephPoolGrowthWarning

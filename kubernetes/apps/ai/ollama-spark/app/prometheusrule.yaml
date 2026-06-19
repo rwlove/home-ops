@@ -1,0 +1,72 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: ollama-spark-rules
+spec:
+  groups:
+    # GB10 traditional DCGM utilization counters (GPU_UTIL,
+    # GR_ENGINE_ACTIVE, FB_USED, MEM_COPY_UTIL) are broken on this
+    # arch — see reference_dcgm_gb10_broken_counters.md. The only
+    # signals that reliably report on GB10 are POWER_USAGE and
+    # SM_CLOCK. POWER_USAGE is the activity proxy.
+    - name: ollama-spark.availability
+      rules:
+        # Pod-level failure — covers OOM, image-pull, scheduling,
+        # crash-loop. High-precision pager. With Stream 1 routing
+        # langgraph / HolmesGPT / Open WebUI to Spark, a dead Pod
+        # means the cluster's chat surface is degraded to the P40
+        # fallback.
+        - alert: SparkOllamaPodDown
+          annotations:
+            summary: ollama-spark Pod not Ready (Spark inference unavailable)
+            description: |
+              Pod {{ $labels.namespace }}/{{ $labels.pod }} on Spark
+              has been not-Ready for >5 minutes. Inspect with
+              `kubectl -n ai describe pod {{ $labels.pod }}` and
+              `kubectl -n ai logs {{ $labels.pod }} --previous`.
+          expr: |-
+            kube_pod_status_ready{namespace="ai",pod=~"ollama-spark-.*",condition="true"} == 0
+          for: 5m
+          labels:
+            severity: critical
+        # Synthetic-probe wedge detector. Replaces the original
+        # DCGM power-draw heuristic, which couldn't distinguish
+        # "Ollama hung" from "no inference traffic." The
+        # ollama-spark-embed Probe (see
+        # kubernetes/apps/observability/exporters/blackbox-exporter/app/probes.yaml)
+        # POSTs against /api/embed every 5 min; if Ollama can't
+        # service the request, probe_success drops to 0 and this
+        # alert fires within 5 min. Side benefit: the probe itself
+        # is the heartbeat the alert annotation used to recommend,
+        # so quiet stretches no longer cause false positives or
+        # bge-m3 eviction.
+        #
+        # Companion alert: BlackboxProbeFailed (defined in the
+        # blackbox-exporter HelmRelease) is critical and will fire
+        # on the same probe. This alert duplicates it but carries
+        # ollama-spark-specific runbook context. Single root cause
+        # = 2 notifications; accept the dupe for richer triage.
+        - alert: SparkOllamaWedged
+          annotations:
+            summary: ollama-spark synthetic embed probe failing (Spark inference unavailable)
+            description: |
+              The ollama-spark-embed Probe (POST /api/embed against
+              bge-m3) has been failing for ≥5 minutes. Pod may
+              report Ready, but Ollama isn't actually serving
+              inference. Common causes:
+              (1) routing regression — verify
+                  langgraph-agents/HolmesGPT/Open WebUI env still
+                  points at ollama-spark;
+              (2) Ollama worker hung — try
+                  `kubectl -n ai rollout restart sts ollama-spark`;
+              (3) bge-m3 failed to load — `kubectl -n ai logs
+                  ollama-spark-0 -c main --tail=200`;
+              (4) probe payload changed / model removed — check the
+                  Probe + module definition.
+          expr: |-
+            probe_success{instance=~"https?://ollama-spark.*"} == 0
+          for: 5m
+          labels:
+            severity: critical

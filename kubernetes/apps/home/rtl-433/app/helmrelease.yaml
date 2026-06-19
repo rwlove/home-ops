@@ -1,0 +1,69 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app rtl-433
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+
+  interval: 30m
+  values:
+    controllers:
+      rtl-433:
+        pod:
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: nooelec.feature.node.kubernetes.io/nesdr-mini
+                        operator: In
+                        values:
+                          - "true"
+
+          nodeSelector:
+            nooelec.feature.node.kubernetes.io/nesdr-mini: "true"
+
+          priorityClassName: home-cluster-critical
+
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        type: statefulset
+
+        containers:
+          app:
+            image:
+              repository: docker.io/hertzg/rtl_433
+              tag: 25.12-alpine-3.23.4@sha256:fe663cb780f363a9aef5065375557ee80e2c80fce591c91b5115810020c7388e
+
+            command: ["/bin/sh", "-c"]
+            args:
+              - |
+                MQTT_URL="mqtt://emqx.home.svc.cluster.local:1883,user=$${MQTT_USER},pass=$${MQTT_PASS},retain=1,events=rtl_433[/model][/id],states=rtl_433[/model][/id]/state,devices=rtl_433[/model][/id]"
+                exec rtl_433 -f 345M -M time:iso:tz -M protocol -M level -F "$$MQTT_URL" -F log
+
+            envFrom:
+              - secretRef:
+                  name: rtl-433-secret
+
+            resources:
+              requests:
+                cpu: 50m
+                memory: 32M
+              limits:
+                memory: 64M
+
+            securityContext:
+              privileged: true
+
+    persistence:
+      usb:
+        type: hostPath
+        hostPath: /dev/rtl_sdr
+        hostPathType: CharDevice
+        globalMounts:
+          - path: /dev/rtl_sdr

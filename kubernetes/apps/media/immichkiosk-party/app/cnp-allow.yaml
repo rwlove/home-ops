@@ -1,0 +1,82 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: immichkiosk-party-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: immichkiosk-party
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on internal envoy gateway → immichkiosk-party:3000.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+  egress:
+    # Kiosk reaches Immich via the public FQDN (KIOSK_IMMICH_URL is the
+    # public address; traffic loops back through the external envoy
+    # gateway on container port 10443). Matches the existing immichkiosk
+    # hairpin pattern.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "10443"
+              protocol: TCP
+    # Webhook to the curator on every asset.prefetch event.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: media
+            app.kubernetes.io/name: kiosk-party-curator
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: kiosk-party-curator-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: kiosk-party-curator
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # Webhook arrivals from the kiosk pod.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: media
+            app.kubernetes.io/name: immichkiosk-party
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+  egress:
+    # Curator talks to Immich in-cluster (not via public FQDN) — direct
+    # path is faster and more reliable for webhook-rate API calls.
+    # Immich's chart uses a non-standard label set: instance=immich,
+    # name=server (vs the per-app pattern most charts use).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: media
+            app.kubernetes.io/instance: immich
+            app.kubernetes.io/name: server
+      toPorts:
+        - ports:
+            - port: "2283"
+              protocol: TCP

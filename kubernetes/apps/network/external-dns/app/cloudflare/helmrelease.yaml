@@ -16,6 +16,9 @@ spec:
   url: oci://zot.kube-system.svc.cluster.local:5000/ghcr.io/home-operations/charts-mirror/external-dns
   verify:
     provider: cosign
+    matchOIDCIdentity:
+      - issuer: https://token.actions.githubusercontent.com
+        subject: https://github.com/home-operations/charts-mirror.*
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
 apiVersion: helm.toolkit.fluxcd.io/v2
@@ -65,6 +68,12 @@ spec:
       - --events
       - --ignore-ingress-tls-spec
       - --gateway-label-filter=type=external
+      # Exclude internal-only DNSEndpoints (dns-provider=bind) from the
+      # Cloudflare instance. Set-based "!=" also matches objects without
+      # the label, so all public records are still published; only
+      # bind-scoped private-IP records are skipped. Ref: guest-portal
+      # DNSEndpoint pushing 10.10.30.1/192.168.1.1 → Cloudflare err 9003.
+      - --label-filter=dns-provider!=bind
       # - --annotation-filter=external-dns.alpha.kubernetes.io/target
       # - --gateway-name=external
       # - --gateway-name=tcp

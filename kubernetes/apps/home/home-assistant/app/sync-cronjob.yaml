@@ -7,29 +7,33 @@ metadata:
 spec:
   schedule: "*/5 * * * *"
   successfulJobsHistoryLimit: 1
-  failedJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 0
   concurrencyPolicy: Forbid
   jobTemplate:
     spec:
       backoffLimit: 1
       ttlSecondsAfterFinished: 86400
       template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: home-assistant-config-sync
         spec:
           restartPolicy: OnFailure
-          # Run as root so apk add can install git/curl/openssh. /config is
-          # chmod 777 and HA writes its own files as uid 568, so root-created
-          # files written by `git pull` remain accessible to HA. The
-          # safe.directory line below stops git's CVE-2022-24765 check from
-          # tripping on the uid mismatch.
+          # Run as root so files created by `git pull` keep working with
+          # uid 568 (HA). /config is owned 568; safe.directory below opts
+          # past git's CVE-2022-24765 uid-mismatch check.
           containers:
             - name: sync
-              image: docker.io/library/alpine:3.23
+              # Pre-baked image with git + ssh + wget. Avoids runtime
+              # `apk add` (which fails under home/default-deny since
+              # 2026-05-18 — alpine repos aren't reachable from this
+              # pod's egress slice).
+              image: docker.io/alpine/git:v2.54.0
               command:
                 - /bin/sh
                 - -c
                 - |
                   set -eu
-                  apk add --no-cache --quiet git curl openssh-client > /dev/null
 
                   # Set up SSH for GitHub deploy key
                   export HOME=/tmp/git-home
@@ -68,11 +72,12 @@ spec:
                     echo "Updated $BEFORE -> $AFTER"
                     # Trigger HA to reload everything reloadable; restart for unreloadable changes
                     # (this only reloads — for new packages or integrations a full restart is still needed)
-                    curl -sSf -X POST \
-                      -H "Authorization: Bearer $HA_TOKEN" \
-                      -H "Content-Type: application/json" \
+                    wget --quiet -O - \
+                      --post-data='{}' \
+                      --header="Authorization: Bearer $HA_TOKEN" \
+                      --header="Content-Type: application/json" \
                       http://home-assistant.home.svc.cluster.local:8123/api/services/homeassistant/reload_all \
-                      -d '{}' > /dev/null
+                      > /dev/null
                     echo "Triggered HA reload_all"
                   else
                     echo "No changes (HEAD=$AFTER)"

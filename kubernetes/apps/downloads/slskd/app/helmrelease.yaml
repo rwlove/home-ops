@@ -53,7 +53,48 @@ spec:
                   name: *app
 
             probes:
-              liveness: &probes
+              # slskd 0.25 doesn't bind its HTTP listener until the initial share
+              # scan completes — for our 3Ti music library that's ~15-20 min on
+              # the first scan after a chart change. A startupProbe defers both
+              # liveness and readiness during that window so the pod isn't
+              # killed mid-scan, then liveness/readiness take over for steady
+              # state. failureThreshold: 180 * periodSeconds: 10 = 30 min grace.
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /health
+                    port: *httpPort
+                  failureThreshold: 180
+                  initialDelaySeconds: 0
+                  periodSeconds: 10
+                  timeoutSeconds: 3
+              # Liveness goes beyond /health (which only checks slskd's API) and asserts
+              # that slskd's Soulseek server connection is making forward progress.
+              # When the downloads-gateway VXLAN tunnel flaps, slskd loses its server
+              # session and — without VPN integration — sits in "Disconnecting" forever
+              # because connectionWatchdog never engages. The exec probe catches that
+              # state and restarts the pod after 10×30s = 5 min of stuck Disconnecting,
+              # which is the only path back to a logged-in state until upstream slskd
+              # exposes a real watchdog config.
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  exec:
+                    command:
+                      - sh
+                      - -c
+                      - |
+                        wget -qO- http://localhost:5030/health >/dev/null || exit 1
+                        wget -qO- http://localhost:5030/api/v0/application \
+                          | jq -e '.server.isLoggedIn or .server.isConnecting or .server.isLoggingIn or .connectionWatchdog.isAwaitingVpn' >/dev/null
+                  failureThreshold: 10
+                  initialDelaySeconds: 0
+                  periodSeconds: 30
+                  timeoutSeconds: 5
+              readiness:
                 enabled: true
                 custom: true
                 spec:
@@ -64,14 +105,13 @@ spec:
                   initialDelaySeconds: 0
                   periodSeconds: 10
                   timeoutSeconds: 1
-              readiness: *probes
 
             resources:
               requests:
                 cpu: 25m
-                memory: 2G
+                memory: 1Gi
               limits:
-                memory: 2G
+                memory: 2Gi
 
             securityContext:
               allowPrivilegeEscalation: false
@@ -116,6 +156,16 @@ spec:
 
       media:
         existingClaim: slskd-downloads-pvc
+
+      # Soulseek peers deprioritize zero-share users → every transfer parks
+      # in "Queued, Remotely" indefinitely. Mount the music NFS read-only at
+      # /media/shared (the path slskd.yml's `shares.directories` lists) so
+      # slskd has something to share back and gets normal peer reciprocity.
+      shares:
+        existingClaim: slskd-shares-pvc
+        globalMounts:
+          - path: /media/shared
+            readOnly: true
 
       tmp:
         type: emptyDir

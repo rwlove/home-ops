@@ -1,0 +1,124 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/cronjob-batch-v1.json
+# ONE-SHOT maintenance job — REMOVE this file after it runs.
+#
+# Retroactively embeds cover art into every track and strips the loose
+# folder.jpg/cover files left behind before embedart.remove_art_file:yes
+# (the retroactive half of that config change). Walks ~131k tracks; expect
+# 1-3h. Idempotent: ifempty:yes skips already-embedded files, remove_art_file
+# no-ops on absent art. Non-destructive to audio.
+#
+# Scheduled "0 6 6 6 *" = 06:00 UTC on June 6 (02:00 EDT maintenance window).
+# day-of-month + month are pinned so it fires ONCE and will not recur until
+# next year — a self-limiting one-shot even if cleanup slips. Mirrors the
+# beets CronJob pod spec exactly, only the app command differs.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: beets-embedart-oneshot
+  labels:
+    app.kubernetes.io/name: beets
+spec:
+  schedule: "0 6 6 6 *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 39600
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: beets
+        spec:
+          automountServiceAccountToken: false
+          serviceAccountName: beets
+          restartPolicy: Never
+          securityContext:
+            fsGroup: 1001
+            fsGroupChangePolicy: OnRootMismatch
+            runAsGroup: 1001
+            runAsNonRoot: true
+            runAsUser: 1109
+          initContainers:
+            - name: config-setup
+              image: ghcr.io/dmfrey/bash:5.2.26-alpine3.20
+              command:
+                - /usr/local/bin/bash
+                - -c
+                - |
+                  envsubst < /tmptmp/config.yaml > /tmp/config.yaml
+                  exit 0
+              envFrom:
+                - secretRef:
+                    name: beets-secret
+              volumeMounts:
+                - name: config
+                  mountPath: /config
+                - name: config-source
+                  mountPath: /tmptmp/config.yaml
+                  subPath: config.yaml
+                  readOnly: true
+                - name: media
+                  mountPath: /media
+                - name: tmp
+                  mountPath: /tmp
+                - name: tmptmp
+                  mountPath: /tmptmp
+          containers:
+            - name: app
+              image: ghcr.io/linuxserver/beets:2.11.0@sha256:bb73b8be1142a7b22e13d6f76f986bec99e60761a967714b098f8d766f88ca37
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  export PATH="/lsiopy/bin:$PATH"
+                  echo "[$(date)] one-shot beets embedart on /media starting..."
+                  beet -c /tmp/config.yaml embedart -y
+                  rc=$?
+                  echo "[$(date)] embedart finished, exit=$rc"
+                  exit $rc
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 6G
+                limits:
+                  memory: 6G
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: false
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: config
+                  mountPath: /config
+                - name: config-source
+                  mountPath: /tmptmp/config.yaml
+                  subPath: config.yaml
+                  readOnly: true
+                - name: media
+                  mountPath: /media
+                - name: tmp
+                  mountPath: /tmp
+                - name: tmptmp
+                  mountPath: /tmptmp
+          volumes:
+            - name: config
+              persistentVolumeClaim:
+                claimName: beets-config-pvc
+            - name: config-source
+              configMap:
+                name: beets-config
+                defaultMode: 420
+            - name: media
+              persistentVolumeClaim:
+                claimName: beets-media-pvc
+            - name: tmp
+              emptyDir:
+                medium: Memory
+            - name: tmptmp
+              emptyDir:
+                medium: Memory

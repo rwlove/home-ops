@@ -1,0 +1,158 @@
+#!/usr/bin/env python3
+"""
+Workaround for Lidarr 3.1.2.4938 (develop) queue-tracker regression.
+
+Lidarr's `Refresh Monitored Downloads` task is supposed to fire
+DownloadedAlbumsScan for sab downloads that finish in /sabnzbd/complete/,
+and then drop the queue row once the import completes. In 3.1.2.4938
+both halves are broken:
+
+  1. Scans don't fire — items sit in queue with status=completed,
+     trackedDownloadState=importing forever, and files pile up in
+     /sabnzbd/complete.
+
+  2. Queue rows don't clear — even after the import succeeds (manually
+     or via the scan-trigger half of this script), the row stays.
+     A new scan returns "Importing 0 tracks" because the files are
+     already in /media, so the row never drops on its own.
+
+This cron handles both halves:
+
+  - For each stuck row whose album isn't yet fully imported: POST
+     DownloadedAlbumsScan against outputPath so Lidarr's normal import
+     logic runs (match score, move into /media, etc.).
+
+  - For each stuck row whose album already reports 100% imported: DELETE
+     the queue row. The download is done, the files are in /media, the
+     row is just stale tracker state.
+
+Remove this whole app when upstream Lidarr fixes both halves — we'll
+know because new sab completions will start clearing on their own
+within ~1 min of the next `Refresh Monitored Downloads` cycle.
+"""
+import json
+import os
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+LIDARR_URL = os.environ.get("LIDARR_URL", "http://lidarr.media.svc.cluster.local:8686")
+LIDARR_API_KEY = os.environ["LIDARR__API_KEY"]
+
+# The python:*-alpine base uses musl libc, which returns EAI_AGAIN
+# ([Errno -3] Try again) on brief CoreDNS hiccups where glibc would
+# retry internally. Every call here targets an in-cluster Service, and
+# the operations are idempotent (DownloadedAlbumsScan / DELETE queue
+# row), so retry connection-level failures and transient 5xx instead of
+# failing the whole run on one DNS blip.
+MAX_ATTEMPTS = 4
+RETRY_BACKOFF_S = 2
+
+
+def call_api(method, path, params=None, body=None):
+    url = f"{LIDARR_URL}{path}"
+    if params:
+        url += "?" + urllib.parse.urlencode(params)
+    headers = {"X-Api-Key": LIDARR_API_KEY}
+    data = None
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                raw = resp.read()
+                return json.loads(raw) if raw else {}
+        except urllib.error.HTTPError as e:
+            # Server answered — only 5xx is worth retrying; 4xx is fatal.
+            if e.code < 500 or attempt == MAX_ATTEMPTS:
+                raise
+            err = e
+        except urllib.error.URLError as e:
+            # Connection-level failure: transient DNS (EAI_AGAIN),
+            # refused, timeout. Retry until attempts exhausted.
+            if attempt == MAX_ATTEMPTS:
+                raise
+            err = e
+        sleep_s = RETRY_BACKOFF_S * attempt
+        print(f"  call_api {method} {path} attempt {attempt}/{MAX_ATTEMPTS} "
+              f"failed ({err}); retrying in {sleep_s}s")
+        time.sleep(sleep_s)
+
+
+def main():
+    q = call_api(
+        "GET",
+        "/api/v1/queue",
+        params={"pageSize": 100, "includeAlbum": "true"},
+    )
+    stuck = [
+        r for r in q.get("records", [])
+        if r.get("status") == "completed"
+        and r.get("trackedDownloadState") == "importing"
+    ]
+    if not stuck:
+        print("no stuck queue items")
+        return
+
+    # The queue endpoint's embedded `album` object does NOT carry the
+    # `statistics` block (percentOfTracks / trackFileCount) — not even with
+    # includeAlbum=true. Reading stats off the queue row therefore always
+    # yielded an empty dict, so `already_imported` was always False and the
+    # drop-branch below never fired: completed rows whose tracks are already
+    # in /media got re-scanned every cycle ("Importing 0 tracks") and never
+    # dropped. Re-fetch each stuck row's album by id to get real statistics.
+    album_stats_cache = {}
+
+    def album_stats(album_id):
+        if album_id in album_stats_cache:
+            return album_stats_cache[album_id]
+        stats = {}
+        if album_id:
+            try:
+                album = call_api("GET", f"/api/v1/album/{album_id}") or {}
+                stats = album.get("statistics") or {}
+            except Exception as e:
+                print(f"  could not fetch album {album_id} statistics: {e}")
+        album_stats_cache[album_id] = stats
+        return stats
+
+    scans = set()
+    drops = []
+    for r in stuck:
+        stats = album_stats(r.get("albumId"))
+        already_imported = (
+            (stats.get("percentOfTracks") or 0) >= 100
+            and (stats.get("trackFileCount") or 0) > 0
+        )
+        if already_imported:
+            drops.append(r)
+            continue
+        path = r.get("outputPath")
+        if not path or path in scans:
+            continue
+        scans.add(path)
+        cmd = call_api(
+            "POST",
+            "/api/v1/command",
+            body={"name": "DownloadedAlbumsScan", "path": path, "importMode": "auto"},
+        )
+        print(f"  scan id={cmd.get('id')} path={path}")
+
+    for r in drops:
+        qid = r["id"]
+        title = (r.get("album") or {}).get("title") or r.get("title", "?")
+        call_api(
+            "DELETE",
+            f"/api/v1/queue/{qid}",
+            params={"removeFromClient": "false", "blocklist": "false"},
+        )
+        print(f"  drop queue id={qid} album={title!r} (already 100% imported)")
+
+    print(f"queued {len(scans)} scans, dropped {len(drops)} stale queue entries")
+
+
+if __name__ == "__main__":
+    main()

@@ -16,6 +16,9 @@ spec:
   url: oci://zot.kube-system.svc.cluster.local:5000/ghcr.io/home-operations/charts-mirror/node-feature-discovery
   verify:
     provider: cosign
+    matchOIDCIdentity:
+      - issuer: https://token.actions.githubusercontent.com
+        subject: https://github.com/home-operations/charts-mirror.*
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
 apiVersion: helm.toolkit.fluxcd.io/v2
@@ -50,6 +53,17 @@ spec:
             - pci
             - system
             - usb
+        sources:
+          usb:
+            # Default whitelist omits class 00 (interface-defined).
+            # RTL2832U (Nooelec NESDR Mini) reports class 00; add it so
+            # the nesdr-mini NodeFeatureRule can match vendor/device.
+            deviceClassWhitelist:
+              - "00"
+              - "0e"
+              - "ef"
+              - "fe"
+              - "ff"
 
       resources:
         limits:
@@ -57,5 +71,14 @@ spec:
         requests:
           cpu: 20m
           memory: 86M
+
+      # Tolerate Spark's arm64 dedication taint so NFD discovers GPU /
+      # PCI features there too — needed by gpu-operator's nodeSelector
+      # logic (`nvidia.com/gpu.deploy.*` labels are NFD-driven).
+      tolerations:
+        - key: kubernetes.io/arch
+          operator: Equal
+          value: arm64
+          effect: NoSchedule
   uninstall:
     keepHistory: false

@@ -1,0 +1,153 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app immichkiosk-party
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 30m
+  dependsOn:
+    - name: immich
+      namespace: media
+
+  values:
+    controllers:
+      immichkiosk-party:
+        type: statefulset
+
+        containers:
+          app:
+            image:
+              repository: ghcr.io/damongolding/immich-kiosk
+              tag: 0.39.3@sha256:b65371b9fbe93cde8355c06ba095fb4801bbb5d7c8c51065a5bfa02183536771
+
+            env:
+              # Required settings
+              # KIOSK_IMMICH_API_KEY: FROM SECRET
+              # KIOSK_IMMICH_URL: FROM SECRET
+              KIOSK_DEBUG: true
+              # Clock
+              KIOSK_SHOW_TIME: false
+              KIOSK_TIME_FORMAT: 24
+              KIOSK_SHOW_DATE: false
+              KIOSK_DATE_FORMAT: "DDDD DD MMMM YYYY"
+              # Kiosk behaviour
+              KIOSK_DURATION: 30
+              KIOSK_DISABLE_SCREENSAVER: false
+              KIOSK_OPTIMIZE_IMAGES: false
+              KIOSK_USE_GPU: true
+              # Asset sources — Party Album, excluding assets already shown
+              # this cycle. kiosk-party-curator tags shown assets and clears
+              # the tag when the unplayed pool is exhausted.
+              KIOSK_SHOW_ARCHIVED: false
+              KIOSK_ALBUMS: "59526fba-9726-4976-a6da-b7f71ebd16cd"
+              KIOSK_ALBUM_ORDER: random
+              KIOSK_EXCLUDED_TAGS: "kiosk-party-shown"
+              KIOSK_MEMORIES: false
+              # FILTER
+              KIOSK_DATE_FILTER: ""
+              # UI
+              KIOSK_DISABLE_NAVIGATION: false
+              KIOSK_DISABLE_UI: false
+              KIOSK_FRAMELESS: false
+              KIOSK_HIDE_CURSOR: false
+              KIOSK_FONT_SIZE: 120
+              KIOSK_BACKGROUND_BLUR: true
+              KIOSK_THEME: fade
+              KIOSK_LAYOUT: splitview
+              # Sleep mode
+              KIOSK_SLEEP_START: 22
+              KIOSK_SLEEP_END: 7
+              # Transition options
+              KIOSK_TRANSITION: cross-fade
+              KIOSK_FADE_TRANSITION_DURATION: 1
+              KIOSK_CROSS_FADE_TRANSITION_DURATION: 1
+              # Image display settings
+              KIOSK_SHOW_PROGRESS_BAR: true
+              KIOSK_IMAGE_FIT: contain
+              KIOSK_IMAGE_EFFECT: smart-zoom
+              KIOSK_IMAGE_EFFECT_AMOUNT: 100
+              KIOSK_USE_ORIGINAL_IMAGE: true
+              # Video display settings
+              KIOSK_ALBUM_VIDEO: true
+              # Image metadata
+              KIOSK_SHOW_ALBUM_NAME: false
+              KIOSK_SHOW_PERSON_NAME: true
+              KIOSK_SHOW_IMAGE_TIME: false
+              KIOSK_IMAGE_TIME_FORMAT: 12
+              KIOSK_SHOW_IMAGE_DATE: true
+              KIOSK_IMAGE_DATE_FORMAT: "DDDD, MMMM DD, YYYY"
+              KIOSK_SHOW_IMAGE_DESCRIPTION: false
+              KIOSK_SHOW_IMAGE_EXIF: false
+              KIOSK_SHOW_IMAGE_LOCATION: true
+              KIOSK_HIDE_COUNTRIES: "HIDDEN_COUNTRY,HIDDEN_COUNTRY"
+              KIOSK_SHOW_IMAGE_ID: false
+              KIOSK_SHOW_MORE_INFO: true
+              KIOSK_SHOW_MORE_INFO_IMAGE_LINK: true
+              KIOSK_SHOW_MORE_INFO_QR_CODE: true
+              KIOSK_SHOW_PERSON_AGE: true
+              # Kiosk settings — cache off so newly added Party Album
+              # photos enter the unplayed pool within one cycle, not
+              # eight hours later. Buffer at 300 (not the main kiosk's
+              # 1000) keeps the pool fresh while giving prefetch enough
+              # margin to avoid htmx fetch-timeout reloads, which the
+              # ImmichFrame webview escapes into a bare browser.
+              KIOSK_WATCH_CONFIG: false
+              KIOSK_FETCHED_ASSETS_SIZE: 300
+              KIOSK_HTTP_TIMEOUT: 20
+              KIOSK_PASSWORD: ""
+              KIOSK_CACHE: false
+              KIOSK_PREFETCH: true
+              KIOSK_ASSET_WEIGHTING: false
+              KIOSK_PORT: 3000
+              KIOSK_SHOW_USER: false
+
+            envFrom:
+              - secretRef:
+                  name: *app
+
+            resources:
+              requests:
+                cpu: 15m
+                memory: 1Gi
+              limits:
+                memory: 2Gi
+
+    service:
+      app:
+        controller: immichkiosk-party
+        ports:
+          http:
+            port: &httpPort 3000
+
+    persistence:
+      config-file:
+        type: configMap
+        name: immichkiosk-party-config
+        advancedMounts:
+          immichkiosk-party:
+            app:
+              - path: /config/config.yaml
+                subPath: config.yaml
+                readOnly: true
+
+    route:
+      app:
+        annotations:
+          glance/name: "Party Slideshow"
+          glance/show: "true"
+          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/immich-kiosk.png"
+          glance/id: "Media"
+        hostnames:
+          - "party-slideshow.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: *httpPort

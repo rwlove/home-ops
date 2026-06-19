@@ -1,0 +1,31 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/gateway.networking.k8s.io/httproute_v1.json
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: langfuse
+  annotations:
+    glance/name: "Langfuse"
+    glance/show: "true"
+    glance/id: "AI"
+spec:
+  hostnames:
+    - "langfuse.${SECRET_DOMAIN}"
+  parentRefs:
+    # Internal-only: langfuse.${SECRET_DOMAIN} resolves via bind9 to
+    # an internal LB IP. The trace UI is operator-facing; LAN access
+    # via Tailscale or the home network is sufficient and avoids the
+    # added complexity of a dedicated oauth2-proxy sidecar.
+    # Langfuse's built-in auth (email + password) handles the user
+    # gate. Public exposure can be added later via a langfuse-oauth2-
+    # proxy sibling, same pattern as khoj-oauth2-proxy.
+    - name: internal
+      namespace: network
+      sectionName: https
+  rules:
+    - backendRefs:
+        # Web frontend exposed by the chart as `langfuse-web` on port
+        # 3000 (chart default). Confirm with `kubectl get svc -n ai`
+        # post-deploy in case the chart renames.
+        - name: langfuse-web
+          port: 3000

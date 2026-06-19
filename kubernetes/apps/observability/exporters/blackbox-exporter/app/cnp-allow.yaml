@@ -27,16 +27,23 @@ spec:
             - port: "9115"
               protocol: TCP
   egress:
-    # Blackbox probes LAN hosts (~60 devices: cameras, UPSes, iDRAC,
-    # ESPHome devices, WLED, Roborock, Kodi, voice satellites, NFS
-    # servers, etc.) with ICMP + tcp_connect + http_2xx modules.
-    # Targets are short LAN hostnames resolved via DNS to RFC1918
-    # addresses scattered across the home LAN — `world` is the
-    # simplest correct identity here (LAN-only because there's no
-    # default route to public internet at the pod level after this
-    # policy). Future tightening could restrict to ICMP + a small
-    # TCP/HTTP port set but the surface is wide and stable.
+    # Blackbox probes a mix of LAN hosts (~60 devices: cameras, UPSes,
+    # iDRAC, ESPHome devices, WLED, Roborock, Kodi, voice satellites,
+    # NFS servers, etc.) with ICMP + tcp_connect + http_2xx modules,
+    # plus in-cluster synthetic probers (ollama-spark-embed,
+    # ollama-embed) that POST against /api/embed. `cluster` covers
+    # the in-cluster targets; `world` + `host` + `remote-node` covers
+    # the LAN devices reached via the home DNS + RFC1918 routing.
+    #
+    # NB: targeted `toEndpoints + toPorts: 11434` rules for ai/ollama
+    # were attempted (PRs #11859, #11862) but Cilium 1.19 did not
+    # realize them in the endpoint's allowed-egress-identities even
+    # though the selector → identity resolution succeeded. Using
+    # `toEntities: cluster` (the prometheus-allow pattern) sidesteps
+    # that. Tradeoff: any port to any in-cluster pod from blackbox.
+    # Blackbox is a sealed prober — the broader surface is acceptable.
     - toEntities:
-        - world
+        - cluster
         - host
         - remote-node
+        - world

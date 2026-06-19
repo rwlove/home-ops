@@ -8,23 +8,40 @@ spec:
   endpointSelector:
     matchLabels:
       app.kubernetes.io/name: music-assistant
-  # Additive — default-deny is what triggers the lockdown. Ingress from
-  # music-assistant-oauth2-proxy (same ns, :8095 upstream) is covered by
-  # baseline allow-intra-namespace.
+  # Additive — default-deny is what triggers the lockdown.
   enableDefaultDeny:
     egress: false
     ingress: false
   ingress:
+    # HTTPRoute on internal envoy gateway → music-assistant:8095 (web UI).
+    # oauth2-proxy was removed 2026-06-06; the gateway now proxies the
+    # same-origin wss://.../ws upgrade straight to MA. The envoy pod is a
+    # distinct Cilium identity (not `world`), so the world rule below does
+    # not cover it.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "8095"
+              protocol: TCP
     # LoadBalancer Service at 10.45.0.20 exposes :1780 (HTTP2 streaming)
-    # and :1704 (Snapserver) directly to LAN clients (sonos, snapcast,
-    # HA media_player, etc.). These arrive from `reserved:world`.
+    # and :3483 (SlimProto) directly to LAN clients (sonos, HA
+    # media_player, the phone app on :8095, etc.). These arrive from
+    # `reserved:world`. :3483 here is for LAN SlimProto clients — notably
+    # the future LAN-based BOOM Pi bridge. The in-cluster squeezelite
+    # pool/deck pods do NOT use this rule: they reach MA via the ClusterIP
+    # for SlimProto control (:3483) and fetch the audio flow from the
+    # streamserver (:8097, publish_ip=ClusterIP) — both intra-namespace,
+    # covered by the baseline allow-intra-namespace policy.
     - fromEntities:
         - world
       toPorts:
         - ports:
             - port: "1780"
               protocol: TCP
-            - port: "1704"
+            - port: "3483"
               protocol: TCP
             - port: "8095"
               protocol: TCP
@@ -43,6 +60,12 @@ spec:
     # mDNS-style LAN discovery to local devices (Sonos, Chromecast,
     # AirPlay). Provider set + LAN device set both rotate; world keeps
     # the policy maintenance-free.
+    # UDP/1900 covers SSDP / UPnP discovery — Sonos, DLNA renderers,
+    # and Chromecast announce themselves via 239.255.255.250:1900.
+    # Cilium classifies the multicast destination as `world`.
+    # (IGMP membership reports to 224.0.0.22 also drop with
+    # CT_UNKNOWN_L4_PROTOCOL — that's a Cilium datapath limitation,
+    # no CNP knob; accepted as a known cost.)
     - toEntities:
         - world
       toPorts:
@@ -51,6 +74,8 @@ spec:
               protocol: TCP
             - port: "80"
               protocol: TCP
+            - port: "1900"
+              protocol: UDP
     # Music-assistant calls back into Home Assistant (callback events,
     # entity-state subscriptions) — HA REST + WebSocket on :8123.
     - toEndpoints:

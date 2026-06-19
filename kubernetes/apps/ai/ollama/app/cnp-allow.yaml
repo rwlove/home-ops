@@ -26,15 +26,19 @@ spec:
               protocol: TCP
     # Cross-ns callers observed via Hubble + helmrelease survey:
     #   home/home-assistant   — voice assist / conversation agent
+    #   home/windmill-workers — Windmill flows that hit Ollama API
     #   media/suggestarr      — LLM-driven recommendation enrichment
     #   collab/open-webui     — primary OLLAMA_BASE_URL
     #   mcp-system/*          — some MCP servers may proxy ollama calls
-    # Intra-ns callers (kubeclaw-gateway, langgraph-agents, khoj,
-    # comfyui prompt eval) are covered by baseline allow-intra-namespace.
+    # Intra-ns callers (langgraph-agents, khoj, comfyui prompt eval) are
+    # covered by baseline allow-intra-namespace.
     - fromEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: home
             app.kubernetes.io/name: home-assistant
+        - matchLabels:
+            io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: windmill-workers
         - matchLabels:
             io.kubernetes.pod.namespace: media
             app.kubernetes.io/name: suggestarr
@@ -43,6 +47,25 @@ spec:
             app.kubernetes.io/name: open-webui
         - matchLabels:
             io.kubernetes.pod.namespace: mcp-system
+        # OllamaWedged synthetic probe (ollama_embed blackbox module
+        # against bge-m3). Distinct from the Prometheus scrape allowed
+        # by the baseline allow-monitoring-scrape — that one matches
+        # `app.kubernetes.io/name: prometheus`.
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: prometheus-blackbox-exporter
+        # HolmesGPT rollback path. Active MODEL is on ollama-spark
+        # post-Spark cutover (PR #11752), but a one-env-flip back to
+        # this P40 endpoint is the documented rollback — keep ingress
+        # open so the rollback doesn't silently fail at this CNP.
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: holmesgpt
+        # Frigate genai integration — LLM description generation for
+        # detection events (genai.provider=ollama in Frigate config).
+        - matchLabels:
+            io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: frigate
       toPorts:
         - ports:
             - port: "11434"

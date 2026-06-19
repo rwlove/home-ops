@@ -1,0 +1,36 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/observability.giantswarm.io/silence_v1alpha2.json
+#
+# security-storage holds Frigate's recordings/clips, which run by design at the
+# top of their XFS quotas: Frigate fills the filesystem and garbage-collects the
+# oldest footage to stay under cap. The steady state is a near-full sawtooth, not
+# an incident (see reference_security_storage_hardware).
+#
+# CephNodeDiskspaceWarning is a rook-ceph cluster-chart built-in whose
+# predict_linear runs over a 2-day window — long enough that the accumulate-
+# toward-cap drift reads as a slow monotonic decline and trips
+# `predict_linear(...) < 0`. It can't model the GC sawtooth, so it false-fires
+# on this host continuously. It's a chart built-in (can't take a per-instance
+# exclusion inline the way our own rules can), so it's silenced here scoped to
+# this one instance only — every other node still alerts normally.
+#
+# The real "GC actually broke and it's heading to true zero" event is still
+# caught: our own KubeNFSExportFillingUp predict_linear variant
+# (kube-prometheus-stack/app/prometheusrule-pv.yaml, 6h window, severity:warning)
+# does NOT exclude security-storage — its short window stays flat during a
+# healthy sawtooth and goes negative only on a real decline. So this silence
+# mutes redundant noise, not the backstop.
+#
+# Permanent fix is the NAS rebuild (project_todo_security_storage_new_build).
+# Remove this silence when that box is replaced.
+apiVersion: observability.giantswarm.io/v1alpha2
+kind: Silence
+metadata:
+  name: cephnodediskspacewarning-security-storage
+spec:
+  matchers:
+    - name: alertname
+      value: CephNodeDiskspaceWarning
+    - matchType: "=~"
+      name: instance
+      value: security-storage.*

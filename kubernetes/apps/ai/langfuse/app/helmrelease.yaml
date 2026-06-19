@@ -1,0 +1,242 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: langfuse
+spec:
+  chart:
+    spec:
+      chart: langfuse
+      sourceRef:
+        kind: HelmRepository
+        name: langfuse
+      version: 1.5.35
+  interval: 30m
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+      strategy: rollback
+  values:
+    # ----- External Postgres -----
+    # Use the CNPG-managed `postgres-langfuse` cluster instead of the
+    # chart's bundled bitnami postgresql. The CNPG-generated secret is
+    # mirrored into the ai namespace by emberstack reflector (see
+    # databases/cloudnative-pg/config/langfuse/cluster.yaml).
+    postgresql:
+      deploy: false
+      auth:
+        existingSecret: postgres-langfuse-app
+        secretKeys:
+          # CNPG exposes the full DSN at key `uri`.
+          userPasswordKey: uri
+
+    # ----- Bundled dependencies the chart deploys in-namespace -----
+    # ClickHouse, Valkey (Redis), MinIO (S3) are all required by
+    # langfuse v3 — the chart deploys them with sane defaults.
+    # Persistent storage uses the cluster default (ceph-block via
+    # the rook-ceph default StorageClass).
+    #
+    # Each subchart hard-requires either an inline `auth.password`
+    # or an `auth.existingSecret`. Point them at `langfuse-secret`
+    # with explicit key names; the ExternalSecret extension that
+    # populates those keys is a follow-up (the keys must be present
+    # in the 1P `langfuse-app` item before Flux can install the
+    # HelmRelease, but CI's `helm template` doesn't validate that —
+    # the render passes as long as the values structure is correct).
+    clickhouse:
+      deploy: true
+      auth:
+        existingSecret: langfuse-secret
+        existingSecretKey: CLICKHOUSE_PASSWORD
+      # Bitnami clickhouse subchart bundles zookeeper at the
+      # "micro" resourcesPreset (256Mi req / 384Mi limit). All
+      # three replicas were sitting at 90–99 % of the 384Mi limit
+      # under steady-state traffic (audit on 2026-05-21 — see
+      # docs/src/homeaiops_dod.md initial-state survey, item 3).
+      # zookeeper-2 was OOMKilled at 01:48 UTC the same day.
+      # Bumping to 768Mi req / 1Gi limit gives ~2.6× headroom
+      # over observed steady-state.
+      zookeeper:
+        resources:
+          requests:
+            cpu: 250m
+            memory: 768Mi
+          limits:
+            memory: 1Gi
+    redis:
+      deploy: true
+      auth:
+        existingSecret: langfuse-secret
+        existingSecretPasswordKey: REDIS_PASSWORD
+      primary:
+        # The bundled valkey shipped at the chart's tiny default
+        # (~192Mi limit) and was OOMKilled (exit 137) repeatedly under
+        # langfuse v3's queue load. Each death dropped langfuse-worker's
+        # redis connection and crashed it (exit 1) — the worker was a
+        # downstream victim, not the cause. Bump to 512Mi with a
+        # matching request; AOF is persisted on ceph-block so the
+        # reconcile restart is lossless.
+        resources:
+          requests:
+            cpu: 150m
+            memory: 256Mi
+          limits:
+            memory: 512Mi
+    s3:
+      deploy: true
+      auth:
+        existingSecret: langfuse-secret
+        rootUserSecretKey: S3_ROOT_USER
+        rootPasswordSecretKey: S3_ROOT_PASSWORD
+
+    # ----- Langfuse web + worker -----
+    langfuse:
+      web:
+        replicas: 1
+        # langfuse-web (Next.js 16) crashlooped with V8 heap OOM
+        # (exit 134, `Reached heap limit Allocation failed`) during
+        # init scripts: Node's default old-space (~520Mi) is sized to
+        # the host, not the 1Gi cgroup, so it OOMs the heap well under
+        # the container limit. Pin the heap to the container via
+        # NODE_OPTIONS (see langfuse.additionalEnv) and give the cgroup
+        # headroom above the new 1536Mi heap.
+        resources:
+          requests:
+            cpu: 100m
+            memory: 768Mi
+          limits:
+            memory: 2Gi
+        pod:
+          # Size the V8 heap to the container rather than the host.
+          # Scoped to web only (worker keeps its 1Gi cgroup); the
+          # chart injects this into the web pods exclusively.
+          additionalEnv:
+            - name: NODE_OPTIONS
+              value: --max-old-space-size=1536
+      worker:
+        replicas: 1
+        # The worker container shipped with no resources block at
+        # all — `resources: {}` in the running pod spec. 26
+        # lifetime restarts with exit-137 came from node-level
+        # OOM pressure with no pod-level bound. Setting request
+        # +  limit constrains the failure to a single pod and
+        # gives the cluster something to schedule against.
+        resources:
+          requests:
+            cpu: 100m
+            memory: 512Mi
+          limits:
+            memory: 1Gi
+      # SALT / ENCRYPTION_KEY / NextAuth must use the chart's native
+      # `secretKeyRef` plumbing — the chart's worker/deployment.yaml
+      # renders these as secret env refs and aborts `helm template`
+      # if the values-side path is empty. (PR #11796 set them only
+      # via `additionalEnv` which is the pod-runtime path but does
+      # not satisfy the chart template's rendering.)
+      salt:
+        secretKeyRef:
+          name: langfuse-secret
+          key: SALT
+      encryptionKey:
+        secretKeyRef:
+          name: langfuse-secret
+          key: ENCRYPTION_KEY
+      nextauth:
+        url: https://langfuse.${SECRET_DOMAIN}
+        secret:
+          secretKeyRef:
+            name: langfuse-secret
+            key: NEXTAUTH_SECRET
+      features:
+        # Chart-side telemetry off (mirrors the old TELEMETRY_ENABLED
+        # additionalEnv entry; can't set both — chart validates).
+        telemetryEnabled: false
+      # DATABASE_URL stays in additionalEnv because the CNPG `uri`
+      # carries the full DSN, while the chart's
+      # `postgresql.auth.existingSecret` path only handles a
+      # username/password pair. First-boot bootstrap fields stay
+      # here too — the chart has no native value paths for those.
+      additionalEnv:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: postgres-langfuse-app
+              key: uri
+        # First-boot bootstrap. Langfuse's init script only fires when
+        # LANGFUSE_INIT_ORG_ID is set; missing ORG_ID silently skips
+        # user/project creation even when the other LANGFUSE_INIT_*
+        # vars are present (warning in web pod logs:
+        # `LANGFUSE_INIT_ORG_ID is not set but other LANGFUSE_INIT_*
+        # variables are configured. The following variables will be
+        # ignored: ...`). Adding all six required keys here.
+        #
+        # Setting PROJECT_PUBLIC_KEY + PROJECT_SECRET_KEY at init means
+        # the langgraph-agents pod can be wired to traces without a
+        # manual UI bootstrap step — the same pk/sk land in the 1P
+        # `langgraph-agents` item and feed the Langfuse SDK on next
+        # reconcile.
+        - name: LANGFUSE_INIT_ORG_ID
+          valueFrom:
+            secretKeyRef:
+              name: langfuse-secret
+              key: LANGFUSE_INIT_ORG_ID
+              optional: true
+        - name: LANGFUSE_INIT_ORG_NAME
+          valueFrom:
+            secretKeyRef:
+              name: langfuse-secret
+              key: LANGFUSE_INIT_ORG_NAME
+              optional: true
+        - name: LANGFUSE_INIT_PROJECT_ID
+          valueFrom:
+            secretKeyRef:
+              name: langfuse-secret
+              key: LANGFUSE_INIT_PROJECT_ID
+              optional: true
+        - name: LANGFUSE_INIT_PROJECT_NAME
+          valueFrom:
+            secretKeyRef:
+              name: langfuse-secret
+              key: LANGFUSE_INIT_PROJECT_NAME
+              optional: true
+        - name: LANGFUSE_INIT_PROJECT_PUBLIC_KEY
+          valueFrom:
+            secretKeyRef:
+              name: langfuse-secret
+              key: LANGFUSE_INIT_PROJECT_PUBLIC_KEY
+              optional: true
+        - name: LANGFUSE_INIT_PROJECT_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: langfuse-secret
+              key: LANGFUSE_INIT_PROJECT_SECRET_KEY
+              optional: true
+        - name: LANGFUSE_INIT_USER_NAME
+          valueFrom:
+            secretKeyRef:
+              name: langfuse-secret
+              key: LANGFUSE_INIT_USER_NAME
+              optional: true
+        - name: LANGFUSE_INIT_USER_EMAIL
+          valueFrom:
+            secretKeyRef:
+              name: langfuse-secret
+              key: LANGFUSE_INIT_USER_EMAIL
+              optional: true
+        - name: LANGFUSE_INIT_USER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: langfuse-secret
+              key: LANGFUSE_INIT_USER_PASSWORD
+              optional: true
+
+    # ----- Native Ingress is disabled; we wire Gateway API HTTPRoute
+    # in a sibling route.yaml so the cluster's existing Envoy Gateway
+    # handles the edge.
+    ingress:
+      enabled: false

@@ -1,0 +1,56 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: ollama-rules
+spec:
+  groups:
+    # Sister rules to ollama-spark. The P40 serves ≤8b inference and
+    # bge-m3 fallback (per .agents/instructions/gpu-routing.md). A
+    # hung P40 ollama is just as cluster-degrading as a hung Spark.
+    # DCGM_FI_DEV_POWER_USAGE works on Pascal — but we use the same
+    # synthetic-probe approach as Spark for consistency and to catch
+    # "responding to /api/tags but inference is broken" classes of
+    # bug that power-draw alone misses.
+    - name: ollama.availability
+      rules:
+        - alert: OllamaPodDown
+          annotations:
+            summary: ollama (P40) Pod not Ready (P40 inference unavailable)
+            description: |
+              Pod {{ $labels.namespace }}/{{ $labels.pod }} (P40
+              ollama on worker8) has been not-Ready for >5 minutes.
+              Inspect with `kubectl -n ai describe pod {{ $labels.pod }}`
+              and `kubectl -n ai logs {{ $labels.pod }} --previous`.
+          expr: |-
+            kube_pod_status_ready{namespace="ai",pod=~"ollama-[0-9]+",condition="true"} == 0
+          for: 5m
+          labels:
+            severity: critical
+        # Synthetic-probe wedge detector. Fires when the ollama-embed
+        # Probe (POST /api/embed against bge-m3) fails for ≥5 min.
+        # Pod may report Ready but ollama isn't actually serving
+        # inference (process hung, model failed to load, etc.).
+        # BlackboxProbeFailed (chart-shipped) will also fire on this
+        # probe; this alert carries ollama-specific runbook.
+        - alert: OllamaWedged
+          annotations:
+            summary: ollama (P40) synthetic embed probe failing (P40 inference unavailable)
+            description: |
+              The ollama-embed Probe (POST /api/embed against bge-m3)
+              has been failing for ≥5 minutes. Pod may report Ready,
+              but the P40 ollama isn't serving inference. Common causes:
+              (1) routing regression — verify consumer envs still hit
+                  ollama.ai.svc;
+              (2) ollama worker hung — try
+                  `kubectl -n ai rollout restart sts ollama`;
+              (3) bge-m3 failed to load — `kubectl -n ai logs ollama-0
+                  -c main --tail=200`;
+              (4) probe payload changed / model removed — check the
+                  ollama-embed Probe + ollama_embed module definition.
+          expr: |-
+            probe_success{instance=~"https?://ollama\\.ai\\.svc.*"} == 0
+          for: 5m
+          labels:
+            severity: critical

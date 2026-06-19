@@ -33,7 +33,12 @@ spec:
           app:
             image:
               repository: ghcr.io/joeru/claw2immich
-              tag: latest
+              # Upstream publishes digest-only (no semver tags survive
+              # rolls; current digest has tags=[] on GHCR). Pin the
+              # digest currently running (verified via `kubectl describe
+              # pod` on 2026-05-20); the `latest` tag portion is
+              # decorative — the @sha256 enforces.
+              tag: latest@sha256:716fac23f99634b0c260ffe692ee4714a8c4b375936a746b7077a377e0dc7d66
             env:
               IMMICH_BASE_URL: http://immich-server.media.svc.cluster.local:2283
               IMMICH_PROFILE: read_only
@@ -87,6 +92,21 @@ spec:
               - path:
                   type: PathPrefix
                   value: /mcp
+            filters:
+              # Strip inbound Authorization before forwarding to the
+              # backend MCP server. The Kuadrant mcp-gateway forwards
+              # all client headers; the broker-side Bearer (used to
+              # authentication can take
+              # precedence over the backend's own credential env in
+              # any upstream MCP client that honors `Authorization`,
+              # causing 401s against the real target service. Backend
+              # MCP servers each carry their own env-loaded creds —
+              # stripping the broker Bearer at this hop lets those
+              # take effect uniformly across the fleet.
+              - type: RequestHeaderModifier
+                requestHeaderModifier:
+                  remove:
+                    - Authorization
             backendRefs:
               - identifier: app
                 port: 8000

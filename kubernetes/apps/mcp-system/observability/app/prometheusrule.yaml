@@ -1,0 +1,171 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: mcp-system-rules
+spec:
+  groups:
+    # Per-backend recording rules project each backend's native metric
+    # names into a normalized series with a `backend` label. Alerts
+    # query the projected metric and fan out across backends
+    # automatically. Add one group per instrumented backend.
+    - name: mcp.recording.memory.rules
+      interval: 1m
+      rules:
+        - record: mcp:tool_calls:rate5m
+          expr: sum by (tool, status) (rate(memory_mcp_tool_calls_total[5m]))
+          labels:
+            backend: memory
+        - record: mcp:tool_call_duration:p99_5m
+          expr: |
+            histogram_quantile(
+              0.99,
+              sum by (le, tool) (rate(memory_mcp_tool_call_duration_seconds_bucket[5m]))
+            )
+          labels:
+            backend: memory
+        - record: mcp:embed_calls:rate5m
+          expr: sum by (status) (rate(memory_mcp_embed_calls_total[5m]))
+          labels:
+            backend: memory
+    - name: mcp.recording.time.rules
+      interval: 1m
+      rules:
+        - record: mcp:tool_calls:rate5m
+          expr: sum by (tool, status) (rate(time_mcp_tool_calls_total[5m]))
+          labels:
+            backend: time
+        - record: mcp:tool_call_duration:p99_5m
+          expr: |
+            histogram_quantile(
+              0.99,
+              sum by (le, tool) (rate(time_mcp_tool_call_duration_seconds_bucket[5m]))
+            )
+          labels:
+            backend: time
+    - name: mcp.recording.netbox.rules
+      interval: 1m
+      rules:
+        - record: mcp:tool_calls:rate5m
+          expr: sum by (tool, status) (rate(netbox_mcp_tool_calls_total[5m]))
+          labels:
+            backend: netbox
+        - record: mcp:tool_call_duration:p99_5m
+          expr: |
+            histogram_quantile(
+              0.99,
+              sum by (le, tool) (rate(netbox_mcp_tool_call_duration_seconds_bucket[5m]))
+            )
+          labels:
+            backend: netbox
+
+    # Alerts are deliberately minimal and recording-rule-driven so a
+    # new backend = adding one `mcp.recording.<x>.rules` group, no
+    # alert-rule edit. ScrapeFailed remains per-backend because each
+    # `absent()` clause is a separate selector; that's the documented
+    # exception in the plan.
+    - name: mcp.alerts.rules
+      interval: 1m
+      rules:
+        # --- Per-backend scrape failure (cluster convention:
+        # absent(up{...} == 1), not raw `up == 0`. Catches both
+        # "target unhealthy" and "target removed from discovery"). ---
+        - alert: MCPBackendScrapeFailed
+          expr: absent(up{namespace="mcp-system", service="memory-mcp"} == 1)
+          for: 15m
+          labels:
+            severity: warning
+            backend: memory
+          annotations:
+            summary: "MCP backend memory-mcp unscrapable for ≥15m"
+            description: >-
+              scrape target `up{namespace=mcp-system, service=memory-mcp}`
+              has been absent or unhealthy for 15+ minutes. Pod likely
+              down, SM mislabeled, or /metrics endpoint hung past the
+              10s scrapeTimeout. Tools served by memory-mcp will fail.
+        - alert: MCPBackendScrapeFailed
+          expr: absent(up{namespace="mcp-system", service="time-mcp"} == 1)
+          for: 15m
+          labels:
+            severity: warning
+            backend: time
+          annotations:
+            summary: "MCP backend time-mcp unscrapable for ≥15m"
+            description: >-
+              scrape target `up{namespace=mcp-system, service=time-mcp}`
+              has been absent or unhealthy for 15+ minutes. Pod likely
+              down, SM mislabeled, or /metrics endpoint hung past the
+              10s scrapeTimeout. Tools served by time-mcp will fail.
+        - alert: MCPBackendScrapeFailed
+          expr: absent(up{namespace="mcp-system", service="netbox-mcp"} == 1)
+          for: 15m
+          labels:
+            severity: warning
+            backend: netbox
+          annotations:
+            summary: "MCP backend netbox-mcp unscrapable for ≥15m"
+            description: >-
+              scrape target `up{namespace=mcp-system, service=netbox-mcp}`
+              has been absent or unhealthy for 15+ minutes. Pod likely
+              down, SM mislabeled, or /metrics endpoint hung past the
+              10s scrapeTimeout. Tools served by netbox-mcp will fail.
+
+        # --- High-error-rate alert via normalized recording rule.
+        # Adding a backend = adding its mcp.recording.<x>.rules group;
+        # this alert automatically fans out across all backends
+        # present in mcp:tool_calls:rate5m. ---
+        - alert: MCPBackendHighErrorRate
+          expr: |
+            (
+              sum by (backend) (mcp:tool_calls:rate5m{status="error"})
+              /
+              clamp_min(sum by (backend) (mcp:tool_calls:rate5m), 0.001)
+            ) > 0.10
+            and on (backend) sum by (backend) (mcp:tool_calls:rate5m) > 0.05
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "MCP backend {{ $labels.backend }} >10% tool-call errors"
+            description: >-
+              Backend `{{ $labels.backend }}` is returning errors on
+              >10% of tool calls over the last 5 minutes (gated on
+              ≥0.05 calls/sec so quiet backends don't false-positive).
+              Inspect logs and recent upstream changes.
+
+        # --- High-latency alert via normalized recording rule. ---
+        - alert: MCPBackendHighLatency
+          expr: max by (backend) (mcp:tool_call_duration:p99_5m) > 5
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "MCP backend {{ $labels.backend }} p99 latency >5s"
+            description: >-
+              Backend `{{ $labels.backend }}` p99 tool-call latency has
+              been >5s for 10 minutes. Either a slow downstream
+              (Ollama/Postgres/NetBox API) or a hot tool. Check the
+              dashboard's per-tool panel.
+
+        # --- Phase 5b: critical-tier gateway-down alert.
+        # Triggers HolmesGPT enrichment via the `windmill-investigate`
+        # AlertManager route. If the broker is down, all MCP traffic
+        # stops — worth a 5-min `for:` rather than 15m.
+        # Scrape target is the PodMonitor at
+        # kubernetes/apps/mcp-system/mcp-gateway/app/podmonitor.yaml
+        # (Istio Gateway pod's pilot-agent on :15020/stats/prometheus —
+        # the auto-generated `mcp-gateway-istio` Service doesn't expose
+        # a metrics port, so a Service-based ServiceMonitor is not an
+        # option here). ---
+        - alert: MCPGatewayDown
+          expr: absent(up{namespace="mcp-system", container="istio-proxy", pod=~"mcp-gateway-istio-.*"} == 1)
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "MCP gateway down — all MCP tool traffic blocked"
+            description: >-
+              `mcp-gateway-istio` is unscrapable. All agents (langgraph,
+              HolmesGPT, Claude Code) lose access to the MCP fleet.
+              HolmesGPT triage will run via windmill-investigate.

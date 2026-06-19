@@ -1,0 +1,29 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: windmill-mcp-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: windmill-mcp
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it. Ingress from same-ns mcp-gateway broker is
+  # covered by baseline allow-intra-namespace.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # windmill-app in home ns. The matching ingress rule on
+    # `home/windmill-allow` will need to permit mcp-system → 8000;
+    # that side is owned by the windmill HelmRelease and updated in
+    # a separate PR if not already covered.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: windmill-app
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP

@@ -1,0 +1,46 @@
+#!/bin/sh
+# Block pushes from branches that are not rebased on origin/main.
+#
+# Stale branches cause CI failures on the merge commit even when the branch
+# itself passes lint locally. This hook catches that before the push lands.
+#
+# Install with:
+#   ln -sf ../../tools/git-hooks/pre-push .git/hooks/pre-push
+#
+# tools/claude-worktree.sh installs this automatically in new worktrees.
+#
+# Bypass for a single push (rare, e.g., initial branch setup):
+#   git push --no-verify
+set -eu
+
+remote="$1"
+# $2 is the remote URL — unused.
+
+# Read refs from stdin: <local-ref> <local-sha> <remote-ref> <remote-sha>
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # Deletes: local_sha is all zeros — nothing to check.
+  case "$local_sha" in
+    0000000000000000000000000000000000000000) continue ;;
+  esac
+
+  # Tags: skip.
+  case "$local_ref" in
+    refs/tags/*) continue ;;
+  esac
+
+  # Pushing main itself: skip (we're not rebasing main on itself).
+  case "$local_ref" in
+    refs/heads/main) continue ;;
+  esac
+
+  # Fetch current origin/main so the check is against the live remote state.
+  git fetch --quiet "$remote" main 2>/dev/null || git fetch --quiet origin main 2>/dev/null || true
+
+  if ! git merge-base --is-ancestor origin/main "$local_sha" 2>/dev/null; then
+    printf '\n%s\n' "ERROR: branch $(git symbolic-ref --short HEAD 2>/dev/null || echo "$local_ref") is behind origin/main." >&2
+    printf '%s\n'   "       Run: git rebase origin/main" >&2
+    printf '%s\n'   "       Then retry the push." >&2
+    printf '%s\n'   "       Bypass (rare): git push --no-verify" >&2
+    exit 1
+  fi
+done

@@ -2,6 +2,18 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "packageRules": [
     {
+      // workaround: https://github.com/aplaceforallmystuff/mcp-arr/pull/22
+      // arr-mcp is pinned to a v1.6.5-deadlockfix build (PR #22 patch applied at
+      // build time) because stock v1.6.5 deadlocks behind the mcp-gateway. Keep
+      // Renovate off it so it can't downgrade to the broken stock tag (a
+      // `-deadlockfix1` prerelease sorts below v1.6.5). REMOVE this rule when the
+      // upstream PR merges + a fixed mcp-arr is released and pinned.
+      "description": "WORKAROUND: pin arr-mcp during the mcp-arr#22 deadlock patch",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["ghcr.io/rwlove/arr-mcp"],
+      "enabled": false
+    },
+    {
       "description": "Major updates: always open a PR, never auto-merge — manual review",
       "matchUpdateTypes": ["major"],
       "dependencyDashboardApproval": false,
@@ -58,6 +70,46 @@
       matchDatasources: ["docker"],
       versioning: "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)(-(?<compatibility>rc|beta)(?<build>\\d+))?$",
       matchPackageNames: ["ghcr.io/blakeblackshear/frigate"]
+    },
+    {
+      // Hold at 8.1.x: v8.2.0 bundles helm 4, which drops plain-HTTP
+      // OCI fallback and breaks `helm template` against our plain-HTTP
+      // zot pull-through cache (zot.kube-system.svc.cluster.local:5000),
+      // failing the Flux Local CI gate cluster-wide. Tracked upstream at
+      // allenporter/flux-local#1102. Re-allow when that lands.
+      description: "Hold flux-local at 8.1.x until allenporter/flux-local#1102 (helm 4 breaks plain-HTTP OCI against zot) is fixed upstream.",
+      matchDatasources: ["docker"],
+      matchPackageNames: ["ghcr.io/allenporter/flux-local"],
+      allowedVersions: "<8.2.0",
+    },
+    {
+      // Suppresses the built-in flux manager's failing lookup for
+      // OCIRepositories pointing at `oci://zot.kube-system...:5000/*`.
+      // The companion customManager in customManagers.json5 captures
+      // the upstream path as depName and queries the real registry
+      // for tags — keep that path enabled, disable only the
+      // ZOT-prefixed duplicate.
+      description: "Suppress flux-manager lookups for ZOT-prefixed OCIRepositories — customManager handles upstream resolution.",
+      matchPackageNames: [
+        "/^zot\\.kube-system\\.svc\\.cluster\\.local:5000\\//",
+      ],
+      enabled: false
+    },
+    {
+      // The ollama image serves the fleet's qwen3-next:80b-a3b reasoning
+      // model (ollama-spark) which cold-loads in ~9min off ceph — novel
+      // hybrid-attention arch + ~50GB weights. Any image bump restarts
+      // the pod and stalls the WHOLE reasoning tier (the 13 local-spark
+      // agents + HolmesGPT + Open WebUI default chat) for that load. Gate
+      // the (auto-merged, non-major) bump to the overnight routine window
+      // so the stall lands at 02:00-05:00 ET, not mid-day. Both ollama
+      // HelmReleases (spark + P40) share this image; overnight is fine for
+      // the P40 one too. Window interpreted in the repo timezone
+      // (America/New_York). See memory reference_qwen3_next_reasoning_model.
+      description: "Schedule ollama image bumps to the overnight maintenance window — ollama-spark qwen3-next cold-load stalls the reasoning tier ~9min on restart.",
+      matchDatasources: ["docker"],
+      matchPackageNames: ["docker.io/ollama/ollama"],
+      schedule: ["after 2am and before 5am"],
     }
   ]
 }

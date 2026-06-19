@@ -1,0 +1,118 @@
+---
+# yaml-language-server: $schema=https://json.schemastore.org/pre-commit-config.json
+
+# Pre-commit hooks for home-ops.
+#
+# Author-time defense matching CI's lint workflow. Per HOMELAB-SPEC
+# Inv 6 ("The PR is the artifact of a passing local run") and the
+# `.agents/skills/pre-submit.md` checklist.
+#
+# Install: `pre-commit install`
+# Run on all files once: `pre-commit run --all-files`
+
+repos:
+  # File hygiene
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+        # mkdocs.yml uses PyYAML !!python/name: tags for Material's
+        # emoji extension config — safe-load rejects them.
+        # frigate snapshots are Frigate-emitted, not hand-authored.
+        exclude: ^(.*\.sops\..*|.*/resources/.*|docs/mkdocs\.yml|kubernetes/apps/home/frigate/snapshots/.*)$
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-symlinks
+      - id: end-of-file-fixer
+        exclude: ^(.*\.sops\..*|.*/resources/.*|kubernetes/apps/home/frigate/snapshots/.*)$
+      - id: trailing-whitespace
+        exclude: ^(.*\.sops\..*|.*/resources/.*|kubernetes/apps/home/frigate/snapshots/.*)$
+      - id: detect-private-key
+
+  # Secret scan — mirrors `.github/workflows/gitleaks.yaml`
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  # YAML lint — mirrors `.github/workflows/lint.yaml` yamllint job;
+  # uses `.yamllint.yaml` in repo root.
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.38.0
+    hooks:
+      - id: yamllint
+        args: [--strict, --config-file, .yamllint.yaml]
+
+  # Markdown lint — mirrors `.github/workflows/lint.yaml` markdownlint
+  # job; uses `.markdownlint.yaml` in repo root. The cli2 variant
+  # matches the bjw-s action used in CI.
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.22.1
+    hooks:
+      - id: markdownlint-cli2
+        args: [--config, .markdownlint.yaml]
+
+  # GitHub Actions lint — mirrors `.github/workflows/lint.yaml`
+  # actionlint job; uses `.github/actionlint.yaml`.
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
+        args: [-config-file, .github/actionlint.yaml]
+
+  # Repo-local lints — mirror `.github/workflows/lint.yaml`
+  # `readme-drift` and `cnp-empty-rules` jobs.
+  #
+  # readme-drift counts app dirs / HelmReleases / Postgres clusters /
+  # ExternalSecrets / hardware rows and compares to the README badges.
+  # Without this hook a PR that adds an app slips through commit-time
+  # and breaks CI on push. Quick to run (~200ms) so always_run is fine.
+  #
+  # cnp-empty-rules catches CiliumNetworkPolicies with an
+  # `endpointSelector` but no `ingress:` / `egress:` rules — Cilium
+  # 1.19 silently rejects them at apply time.
+  #
+  # readme-drift-vs-main is the push-time companion: the commit-time
+  # check sees only the local tree, so it can't catch "main moved past
+  # my branch" drift (another PR added an app and bumped the badges
+  # while this branch sat). The push-stage hook fetches origin/main,
+  # simulates the merge, and runs the linter on the merged tree —
+  # mirroring what CI does.
+  - repo: local
+    hooks:
+      - id: readme-drift
+        name: README badges match repo reality
+        entry: tools/lint-readme-drift.py
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: cnp-empty-rules
+        name: CiliumNetworkPolicy has rules
+        entry: tools/lint-cnp-empty-rules.py kubernetes
+        language: system
+        pass_filenames: false
+        files: \.yaml$
+      - id: readme-drift-vs-main
+        name: README drift vs origin/main merge
+        entry: tools/check-readme-drift-vs-main.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+      - id: literal-credentials
+        # Wraps `tools/git-hooks/pre-commit` — scans for URL-embedded
+        # creds, common query-string secret patterns, plain-text YAML
+        # secret fields, and streaming-URL credential patterns. See
+        # the script itself for the exact regex set.
+        #
+        # Without this entry, `pre-commit install` would overwrite the
+        # standalone .git/hooks/pre-commit symlink and silently drop
+        # credential scanning. Surfacing it here lets `pre-commit
+        # install` be the canonical hook install, with the symlink
+        # still working for clones that haven't installed pre-commit.
+        name: No literal credentials in staged YAML
+        entry: tools/git-hooks/pre-commit
+        language: system
+        pass_filenames: false
+        files: \.ya?ml$

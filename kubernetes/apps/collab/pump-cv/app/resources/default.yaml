@@ -7,11 +7,19 @@ cameras:
   # and any path is missing — the wall page wizard captures pairs and
   # writes the .npz files. Files persist on the cache PVC so a pod
   # restart skips the wizard.
+  # Address the cameras by their reserved VLAN IPs rather than DNS names.
+  # Neither the bare hostname nor the FQDN resolves from inside this pod —
+  # the cluster's resolver doesn't return the gym-front/gym-back records,
+  # so RTSP open failed instantly with "cannot open source". The IPs are
+  # DHCP-reserved (gym-front 10.10.40.26, gym-back 10.10.40.27) and the
+  # CiliumNetworkPolicy already allows egress to 10.10.40.0/24:554, so this
+  # removes the DNS dependency entirely. Verified reachable + streaming via
+  # ffprobe from a LAN host.
   - name: gym-front
-    rtsp_url: rtsp://${REOLINK_USER}:${REOLINK_PASSWORD}@gym-front:554/h264Preview_01_sub
+    rtsp_url: rtsp://${REOLINK_USER}:${REOLINK_PASSWORD}@10.10.40.26:554/h264Preview_01_sub
     calibration_path: /cache/calibration/gym-front.npz
   - name: gym-back
-    rtsp_url: rtsp://${REOLINK_USER}:${REOLINK_PASSWORD}@gym-back:554/h264Preview_01_sub
+    rtsp_url: rtsp://${REOLINK_USER}:${REOLINK_PASSWORD}@10.10.40.27:554/h264Preview_01_sub
     calibration_path: /cache/calibration/gym-back.npz
 
 pose:

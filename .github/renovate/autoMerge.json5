@@ -9,29 +9,33 @@
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
   packageRules: [
     {
-      description: "Auto merge container digests",
+      // Auto-merge all container digest re-tags (same version, rebuilt
+      // content). flux-local can't meaningfully validate a re-tag, so
+      // minimumReleaseAge is the real safety belt — a bad rebuild gets
+      // 3 days to be caught upstream before it can land. ignoreTests
+      // stays false so a red CI for any other reason still blocks.
+      description: "Auto-merge container digests",
       matchDatasources: ["docker"],
       automerge: true,
       automergeType: "pr",
       matchUpdateTypes: ["digest"],
-      matchPackageNames: [
-        "ghcr.io/home-operations/**",
-        "ghcr.io/onedr0p/**",
-        "ghcr.io/bjw-s/**",
-        "ghcr.io/bjw-s-labs/**",
-      ],
+      minimumReleaseAge: "3 days",
       ignoreTests: false,
     },
     {
-      description: "Auto merge minors and patches",
-      matchDatasources: ["docker"],
+      // Blanket non-major auto-merge for containers + helm charts.
+      // patch/minor are non-breaking by the semver contract; majors
+      // are firewalled to manual review in packageRules.json5. The
+      // flux-local CI gate (ignoreTests=false) still must pass, and
+      // minimumReleaseAge gives a bad release 3 days to get yanked
+      // upstream before it can land. Digests stay on the trusted-org
+      // allowlist above — CI can't meaningfully validate a re-tag.
+      description: "Auto-merge all non-major container + helm updates once CI passes",
+      matchDatasources: ["docker", "helm"],
       automerge: true,
       automergeType: "pr",
       matchUpdateTypes: ["minor", "patch"],
-      matchPackageNames: [
-        "/kube-prometheus-stack/",
-        "/mogenius\\/helm-charts\\/renovate-operator/",
-      ],
+      minimumReleaseAge: "3 days",
       ignoreTests: false,
     },
     {
@@ -42,17 +46,6 @@
       matchUpdateTypes: ["minor", "patch", "digest"],
       minimumReleaseAge: "3 days",
       ignoreTests: true,
-    },
-    {
-      description: "Auto-merge high-cadence packages weekly",
-      matchDatasources: ["docker"],
-      automerge: true,
-      automergeType: "pr",
-      matchUpdateTypes: ["minor", "patch"],
-      matchPackageNames: [
-        "ghcr.io/renovatebot/renovate",
-      ],
-      ignoreTests: false,
     },
     {
       description: "Auto-merge trusted GitHub Actions",
@@ -70,13 +63,18 @@
       ignoreTests: true,
     },
     {
-      description: "Auto-merge GitHub Releases",
+      // Blanket non-major auto-merge for github-releases (CRD/version
+      // pins, etc). Semver-safe like the container+helm rule; majors
+      // are firewalled in packageRules.json5. Now CI-gated
+      // (ignoreTests=false, was true for the old trusted allowlist)
+      // plus a 3-day soak.
+      description: "Auto-merge github-releases minor + patch",
       matchDatasources: ["github-releases"],
       automerge: true,
       automergeType: "pr",
       matchUpdateTypes: ["minor", "patch"],
-      matchPackageNames: ["/external-dns/", "/gateway-api/", "/prometheus-operator/"],
-      ignoreTests: true,
+      minimumReleaseAge: "3 days",
+      ignoreTests: false,
     },
     {
       description: "Auto-merge rwlove personal container images",

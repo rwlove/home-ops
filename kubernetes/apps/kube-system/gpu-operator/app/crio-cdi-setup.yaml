@@ -1,0 +1,100 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/daemonset-apps-v1.json
+# workaround: https://github.com/NVIDIA/gpu-operator/issues/1528 — remove when gpu-operator toolkit DS supports CRI-O natively OR when all GPU nodes migrate to containerd
+# Tracking: home-ops#11852
+#
+# On CRI-O GPU nodes (worker8), the nvidia-container-toolkit-daemonset is
+# disabled by the NodeFeatureRule in gpu-operator-runtime-override.yaml
+# (label nvidia.com/gpu.deploy.container-toolkit=false). Starting with
+# gpu-operator v25+, the toolkit DS generates the management.nvidia.com/gpu
+# CDI spec and signals toolkit-ready. On CRI-O nodes where the toolkit DS
+# is suppressed, both are absent, causing the gpu-operator validator and
+# device-plugin init containers to crashloop (unresolvable CDI device
+# management.nvidia.com/gpu=all → GPU unadvertised → all GPU pods Pending).
+#
+# This DaemonSet fills the gap on CRI-O GPU nodes only:
+#   1. Uses nsenter into the host mount namespace (hostPID=true, privileged)
+#      to run the host-installed nvidia-ctk binary with its native glibc
+#      environment.
+#   2. Generates /var/run/cdi/management.nvidia.com-gpu.yaml
+#   3. Creates /run/nvidia/validations/toolkit-ready to unblock the
+#      device-plugin's toolkit-validation init container.
+#   4. Re-runs every hour so the spec stays fresh after driver updates.
+#
+# Scoped exclusively to CRI-O GPU nodes via:
+#   nvidia.com/gpu.present=true (has a GPU)
+#   nvidia.com/gpu.deploy.container-toolkit=false (CRI-O, toolkit DS suppressed)
+#
+# nsenter is used because nvidia-ctk on the host is glibc-linked; the
+# container image uses musl (Alpine). Running in the host mount namespace
+# via nsenter avoids glibc/musl ABI incompatibility.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nvidia-crio-cdi-setup
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: nvidia-crio-cdi-setup
+    app.kubernetes.io/part-of: gpu-operator
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nvidia-crio-cdi-setup
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nvidia-crio-cdi-setup
+        app.kubernetes.io/part-of: gpu-operator
+    spec:
+      hostPID: true
+      priorityClassName: system-node-critical
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+        nvidia.com/gpu.deploy.container-toolkit: "false"
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: cdi-setup
+          # Alpine provides a shell + nsenter (via util-linux).
+          # hostPID=true exposes host /proc/1 so nsenter can enter the
+          # host mount namespace where the glibc-linked nvidia-ctk lives.
+          image: docker.io/alpine:3.24
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              apk add --no-cache util-linux >/dev/null 2>&1
+
+              generate() {
+                nsenter --mount=/proc/1/ns/mnt -- sh -c '
+                  mkdir -p /var/run/cdi /run/nvidia/validations
+                  nvidia-ctk cdi generate \
+                    --mode=management \
+                    --vendor=management.nvidia.com \
+                    --output=/var/run/cdi/management.nvidia.com-gpu.yaml
+                  touch /run/nvidia/validations/toolkit-ready
+                '
+                echo "$(date -u): management CDI spec generated / toolkit-ready signaled"
+              }
+
+              generate
+
+              # Refresh every hour so the spec survives driver-version changes.
+              while true; do
+                sleep 3600
+                generate
+              done
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          resources:
+            requests:
+              cpu: 5m
+              memory: 32Mi
+            limits:
+              memory: 64Mi

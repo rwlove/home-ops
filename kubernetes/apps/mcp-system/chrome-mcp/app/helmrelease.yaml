@@ -29,7 +29,7 @@ spec:
           app:
             image:
               repository: mcr.microsoft.com/playwright/mcp
-              tag: v0.0.75@sha256:d238ec7bc98cc4e22df0696d6031dad5b8a4b46781f4f0abaa3bfadeedb43b9a
+              tag: v0.0.76@sha256:3108dac789720d5236ee1869ad65c8f32fbbfe9d7eea8a5eb89920ab35a665d6
             # Image entrypoint is:
             #   node /app/cli.js --headless --browser chromium --no-sandbox
             # We append HTTP transport flags. --no-sandbox is acceptable
@@ -96,6 +96,21 @@ spec:
               - path:
                   type: PathPrefix
                   value: /mcp
+            filters:
+              # Strip inbound Authorization before forwarding to the
+              # backend MCP server. The Kuadrant mcp-gateway forwards
+              # all client headers; the broker-side Bearer (used to
+              # authentication can take
+              # precedence over the backend's own credential env in
+              # any upstream MCP client that honors `Authorization`,
+              # causing 401s against the real target service. Backend
+              # MCP servers each carry their own env-loaded creds —
+              # stripping the broker Bearer at this hop lets those
+              # take effect uniformly across the fleet.
+              - type: RequestHeaderModifier
+                requestHeaderModifier:
+                  remove:
+                    - Authorization
             backendRefs:
               - identifier: app
                 port: 8931

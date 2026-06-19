@@ -59,10 +59,12 @@ Do not start until all of these are true:
    - On each surviving control-plane node, the etcd container should
      show no recent `apply request took too long` or `waiting for
      ReadIndex response took too long` warnings:
+
      ```sh
      kubectl -n kube-system logs etcd-<node> --since=1h \
        | grep -E 'took too long|ReadIndex'
      ```
+
      A handful per hour is normal; sustained streams mean the voter is
      limping and you should not start the procedure.
    - On each surviving control-plane node, check disk latency on the
@@ -149,25 +151,33 @@ Skip this phase if you're adding a 4th control plane and removing the
 old one later.
 
 1. Drain the outgoing master:
+
    ```sh
    kubectl drain master2.${SECRET_DOMAIN} --ignore-daemonsets --delete-emptydir-data
    ```
+
 2. Reset kubeadm state on the host:
+
    ```sh
    ssh master2 'kubeadm reset --force && systemctl stop kubelet'
    ```
+
    Do **not** wipe `/var/lib/etcd` yet — it's your in-place rollback
    if the new control plane fails to join.
 3. Remove the etcd member (run from a remaining control plane):
+
    ```sh
    etcdctl ... member list                    # find master2's member ID
    etcdctl ... member remove <member-id>
    ```
+
 4. Update kubeadm bookkeeping:
+
    ```sh
    kubectl -n kube-system edit cm kubeadm-config   # drop master2 endpoint
    kubectl delete node master2.${SECRET_DOMAIN}
    ```
+
 5. Power down the VM. Keep the VM image around for 24h as rollback.
 
 You're now on 2 control planes. Etcd quorum is 2/2 — any further loss
@@ -177,11 +187,14 @@ fails writes. Don't dawdle.
 
 1. Optionally suspend Flux for noisy releases that you don't want
    re-reconciling mid-drain:
+
    ```sh
    flux suspend kustomization <name>
    ```
+
 2. Cordon: `kubectl cordon worker2.${SECRET_DOMAIN}`
 3. Out the OSD and wait for Ceph to rebalance:
+
    ```sh
    kubectl -n rook-ceph patch deploy rook-ceph-osd-N --replicas=0 \
      --type=merge -p '{"spec":{"replicas":0}}'
@@ -189,21 +202,29 @@ fails writes. Don't dawdle.
    ceph osd out N
    ceph -w   # wait for HEALTH_OK and PGs active+clean
    ```
+
 4. Move CNPG primaries off the worker:
+
    ```sh
    kubectl cnpg promote <cluster> <healthy-replica-instance>
    ```
+
    Or accept the brief failover window during drain.
 5. Drain:
+
    ```sh
    kubectl drain worker2.${SECRET_DOMAIN} \
      --ignore-daemonsets --delete-emptydir-data --force
    ```
+
 6. Remove from the cluster:
+
    ```sh
    kubectl delete node worker2.${SECRET_DOMAIN}
    ```
+
 7. On the host, reset kubeadm state but **preserve Longhorn data**:
+
    ```sh
    kubeadm reset --force
    rm -rf /etc/kubernetes /var/lib/etcd /var/lib/kubelet
@@ -213,21 +234,27 @@ fails writes. Don't dawdle.
 ## Phase 3 — Rejoin as a control plane
 
 1. From an existing control plane, generate fresh join material:
+
    ```sh
    CERT_KEY=$(kubeadm init phase upload-certs --upload-certs \
      --config /path/to/init/clusterconfiguration.yaml | tail -1)
    JOIN=$(kubeadm token create --print-join-command)
    echo "$JOIN --control-plane --certificate-key $CERT_KEY"
    ```
+
 2. On the worker (still its original hostname), preflight the kernel:
+
    ```sh
    modprobe br_netfilter
    echo 1 > /proc/sys/net/ipv4/ip_forward
    ```
+
 3. Run the printed join command. After it completes:
+
    ```sh
    mkdir -p /etc/kubernetes/manifests
    ```
+
 4. **Drop a kube-vip static pod manifest** into
    `/etc/kubernetes/manifests/kube-vip.yaml`. Mirror what
    `init/kube-vip.sh` produces — but verify the `INTERFACE` env var
@@ -237,6 +264,7 @@ fails writes. Don't dawdle.
    new node from leader election.
 5. Approve any pending CSRs (kubelet-csr-approver should auto-approve;
    check anyway):
+
    ```sh
    kubectl get csr | grep Pending
    ./init/approve-csrs.sh   # if needed
@@ -245,20 +273,24 @@ fails writes. Don't dawdle.
 ## Phase 4 — Make it schedulable + restore roles
 
 1. Remove the control-plane NoSchedule taint:
+
    ```sh
    kubectl taint nodes worker2.${SECRET_DOMAIN} \
      node-role.kubernetes.io/control-plane:NoSchedule-
    ```
+
 2. Re-apply node labels you captured in
    [Audit](#audit-what-the-worker-is-carrying). NFD will re-publish
    hardware feature labels on its own; you only need to re-apply the
    manual ones:
+
    ```sh
    kubectl label nodes worker2.${SECRET_DOMAIN} \
      node.longhorn.io/create-default-disk=true \
      node.network/vlan-iot=true \
      node.network/vlan-security=true
    ```
+
 3. Recreate Ceph OSD. With `useAllNodes`/`useAllDevices` enabled, Rook
    picks the disk back up automatically. Otherwise add the host to the
    `CephCluster` `nodes` list.
@@ -271,15 +303,19 @@ fails writes. Don't dawdle.
 - `flux get all -A | grep -v True` is empty (or only known-suspended
   entries).
 - Etcd shows three members:
+
   ```sh
   etcdctl ... member list
   etcdctl ... endpoint status --cluster -w table
   ```
+
 - Ceph: `ceph -s` HEALTH_OK, all OSDs in/up, all PGs `active+clean`.
 - VIP serving from the new node too:
+
   ```sh
   curl -k https://192.168.6.1:6443/healthz
   ```
+
 - Hardware-pinned pods returned (e.g. `zwave-js-ui-0`, GPU
   transcoders).
 

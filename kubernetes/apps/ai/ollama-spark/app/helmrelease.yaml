@@ -46,21 +46,44 @@ spec:
           main:
             image:
               repository: docker.io/ollama/ollama
-              tag: 0.24.0@sha256:a6149234667efc71d37766d61c1a16f24c33e4cd7a0bf4125c44a7e47e2419c4
+              tag: 0.30.8@sha256:05b6fe5143ed006d6d4abd39bdd575f962a5822bdf81e6fbb5e6894eb984ab9c
 
             env:
               OLLAMA_HOST: 0.0.0.0
               OLLAMA_ORIGINS: "*"
               OLLAMA_LOG_LEVEL: info
               OLLAMA_MODELS: &pvc /models
-              OLLAMA_LOAD_TIMEOUT: 10m
+              # qwen3-next:80b-a3b-instruct is a ~50 GB model whose cold-load
+              # off the ceph PVC + novel-arch init exceeds the old 10m bound
+              # (it hit OLLAMA_LOAD_TIMEOUT and aborted mid-load). 20m gives
+              # it room. KNOWN DOWNSIDE: a cold-load (pod restart / eviction)
+              # stalls the reasoning tier for >10m — the MAX_LOADED keep-warm
+              # below makes cold-loads rare, but can't make them fast.
+              OLLAMA_LOAD_TIMEOUT: 20m
               OLLAMA_KV_CACHE_TYPE: q8_0
               OLLAMA_FLASH_ATTENTION: 1
               OLLAMA_CONTEXT_LENGTH: 16384
               OLLAMA_NUM_PARALLEL: 4
-              # Spark's 128 GB unified memory comfortably runs 30b-class
-              # models concurrently. P40-era cap of 1 lifted.
-              OLLAMA_MAX_LOADED_MODELS: 2
+              # Never idle-unload. MAX_LOADED lets the working set co-reside,
+              # but the default 5m keep-alive would unload qwen3-next between
+              # bursts on this low-traffic fleet — and its cold-load is ~8.6m.
+              # -1 pins the loaded set (qwen3-next + coder + embedders) warm so
+              # cold-loads happen only on an actual pod restart, not every idle.
+              OLLAMA_KEEP_ALIVE: "-1"
+              # Working set after the qwen2.5:32b -> qwen3-next swap:
+              #   qwen3-next:80b-a3b-instruct  -- fleet reasoning + HolmesGPT
+              #                                   + Open WebUI (one shared model)
+              #   qwen2.5-coder:32b            -- coder / reviewer agents
+              #   bge-m3 + nomic-embed-text    -- RAG + wedge probe (always-warm)
+              # = 4 distinct models steady-state; 5 lets the old qwen2.5:32b
+              # stay resident through the swap transition without eviction
+              # churn. q8 KV + qwen3-next's hybrid attention keep KV modest;
+              # worst-case unified-memory residence ~qwen3-next(50) + coder(20)
+              # + embedders(1.3) + KV ~ 90-105 GB of 128 GB. CUDA-mapped
+              # weights on Grace-Blackwell unified memory don't bill against
+              # the kubelet's pod RSS (~14 GB observed), so the 80Gi pod limit
+              # (runtime + KV headroom) still holds.
+              OLLAMA_MAX_LOADED_MODELS: 5
 
             resources:
               requests:
@@ -68,7 +91,7 @@ spec:
                 cpu: 2000m
                 nvidia.com/gpu: 1
               limits:
-                memory: 64Gi
+                memory: 80Gi
                 nvidia.com/gpu: 1
 
             securityContext:

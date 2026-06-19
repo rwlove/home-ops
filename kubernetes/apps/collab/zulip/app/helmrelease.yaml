@@ -87,17 +87,17 @@ spec:
       name: zulip-secret
       valuesKey: ZULIP_ORG_KEY
       targetPath: zulip.environment.SECRETS_zulip_org_key
-    # RabbitMQ password + erlang cookie come from `zulip-secret` via the
-    # Bitnami `existingPasswordSecret` / `existingErlangSecret` features
-    # (configured in spec.values.rabbitmq.auth below). The chart's
-    # _helpers.tpl renders SECRETS_rabbitmq_password as a valueFrom
-    # secretKeyRef when those values are set — so the env wiring is
-    # native, no manual STS patches needed.
-    #
-    # We can't use Flux valuesFrom with `targetPath: rabbitmq.auth.password`
-    # because the substitution silently drops to "" on Bitnami subchart
-    # paths at install AND on subsequent upgrades (configDigest sticks
-    # in-sync). See project_flux_valuesfrom_subchart_drop in memory.
+      # RabbitMQ password + erlang cookie come from `zulip-secret` via the
+      # Bitnami `existingPasswordSecret` / `existingErlangSecret` features
+      # (configured in spec.values.rabbitmq.auth below). The chart's
+      # _helpers.tpl renders SECRETS_rabbitmq_password as a valueFrom
+      # secretKeyRef when those values are set — so the env wiring is
+      # native, no manual STS patches needed.
+      #
+      # We can't use Flux valuesFrom with `targetPath: rabbitmq.auth.password`
+      # because the substitution silently drops to "" on Bitnami subchart
+      # paths at install AND on subsequent upgrades (configDigest sticks
+      # in-sync). See project_flux_valuesfrom_subchart_drop in memory.
 
   values:
     image:
@@ -132,6 +132,23 @@ spec:
     zulip:
       environment:
         SETTING_EXTERNAL_HOST: chat.${SECRET_DOMAIN}
+        # Route in-cluster traffic (Windmill workflows, langgraph-
+        # agents pods) hitting http://zulip.collab.svc.cluster.local
+        # to the Lovenet realm. Without this, Django's ALLOWED_HOSTS
+        # rejects those requests with a generic 400.
+        #
+        # The dict format is REALM_HOSTS={subdomain: hostname}, NOT
+        # the other way around — confirmed against the Zulip 11.x
+        # `zproject/computed_settings.py` line:
+        #     ALLOWED_HOSTS += REALM_HOSTS.values()
+        # so the VALUES go into ALLOWED_HOSTS, not the keys. PR #11963
+        # had this inverted and the 400s continued.
+        #
+        # Empty subdomain "" is the Lovenet realm (zerver_realm.id=2,
+        # string_id=''); mapping it to the in-cluster Service hostname
+        # adds that hostname to ALLOWED_HOSTS without creating a new
+        # realm.
+        SETTING_REALM_HOSTS: "{\"\": \"zulip.collab.svc.cluster.local\"}"
         # SETTING_ZULIP_ADMINISTRATOR + SECRETS_secret_key are populated by
         # spec.valuesFrom from the zulip-secret. Do NOT add inline placeholders
         # here — empirically they pinned SETTING_ZULIP_ADMINISTRATOR to the
@@ -170,7 +187,8 @@ spec:
         SETTING_ZULIP_SERVICE_PUSH_NOTIFICATIONS: true
       persistence:
         enabled: true
-        accessMode: ReadWriteOnce
+        accessModes:
+          - ReadWriteOnce
         size: 40Gi
         storageClass: ceph-block
 
@@ -221,8 +239,18 @@ spec:
 
     # Bundled Memcached (Bitnami subchart). Ephemeral cache — no
     # persistence needed. NOTE: same bitnamilegacy concern as rabbitmq.
+    #
+    # Chart 2.0 changed the default to auth.enabled: true, which causes
+    # Bitnami memcached to enforce SASL with a randomly-generated password
+    # that Zulip has no way to retrieve. Explicitly disable auth here —
+    # memcached is cluster-internal with no external exposure, SASL adds
+    # no value. Setting auth.username: "" also blanks SETTING_MEMCACHED_USERNAME
+    # in Zulip's env so bmemcached doesn't attempt SASL at all.
     memcached:
       enabled: true
+      auth:
+        enabled: false
+        username: ""
 
     # Required by chart when bundled postgres is disabled (otherwise the
     # global.security.allowInsecureImages flag gates the bundled-postgres

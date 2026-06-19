@@ -3,10 +3,10 @@
 // Forwards the inbox payload to langgraph-agents /inbox. If the agent
 // pauses (status=paused), runs the approval-post logic inline (ntfy
 // push with tap-actions + Zulip audit card) so there's no second
-// webhook hop, unlike n8n where the flow POSTed back to its own
+// webhook hop, unlike where the flow POSTed back to its own
 // /webhook/ URL.
 //
-// Replaces the n8n flow "LangGraph → Inbox webhook".
+// Replaces the flow "LangGraph → Inbox webhook".
 
 import { crypto } from "https://deno.land/std@0.224.0/crypto/mod.ts";
 
@@ -72,10 +72,10 @@ async function postApproval(task_id: string, r: ApprovalRequest) {
             `Undo: ${r.undo_path ?? "(none)"}`,
             `Cost: $${r.cost_estimate_usd ?? 0}`,
         ].join("\n"),
-        priority: 5,
+        priority: 3,
         tags: ["warning"],
         actions: buildApprovalActions(task_id, approveTok, rejectTok, deferTok),
-        click: `https://chat.thesteamedcrab.com/#narrow/stream/approvals/topic/${encodeURIComponent(topic)}`,
+        click: `https://chat.${Deno.env.get("SECRET_DOMAIN") ?? ""}/#narrow/stream/approvals/topic/${encodeURIComponent(topic)}`,
     });
 
     const zulipResp = await postZulipApprovalCard(task_id, r);
@@ -100,7 +100,7 @@ function buildApprovalActions(
     rejectTok: string,
     deferTok: string,
 ): NtfyAction[] {
-    const approvalUrl = `https://langgraph.${Deno.env.get("SECRET_DOMAIN") ?? "thesteamedcrab.com"}/approval`;
+    const approvalUrl = `https://langgraph.${Deno.env.get("SECRET_DOMAIN") ?? ""}/approval`;
     const make = (label: string, reaction: string, token: string): NtfyAction => ({
         action: "http",
         label,
@@ -126,7 +126,7 @@ async function publishNtfy(args: {
     actions?: NtfyAction[];
     click?: string;
 }) {
-    const url = Deno.env.get("NTFY_URL") ?? "https://ntfy.thesteamedcrab.com";
+    const url = Deno.env.get("NTFY_URL") ?? "";
     const token = Deno.env.get("NTFY_WRITE_TOKEN");
     if (!token) throw new Error("NTFY_WRITE_TOKEN env not set");
     const body = {
@@ -204,9 +204,9 @@ async function postZulipApprovalCard(task_id: string, r: ApprovalRequest) {
     const apiKey = Deno.env.get("ZULIP_BOT_API_KEY");
     if (!email || !apiKey) throw new Error("ZULIP_BOT_* env not set");
     const auth = "Basic " + btoa(`${email}:${apiKey}`);
-    const zulipHost = Deno.env.get("ZULIP_HOST") ?? "chat.thesteamedcrab.com";
+    const zulipApiUrl = Deno.env.get("ZULIP_API_URL") ?? "http://zulip.collab.svc.cluster.local";
     const form = new URLSearchParams({ type: "stream", to: "approvals", topic, content });
-    const zr = await fetch(`https://${zulipHost}/api/v1/messages`, {
+    const zr = await fetch(`${zulipApiUrl}/api/v1/messages`, {
         method: "POST",
         headers: { Authorization: auth, "Content-Type": "application/x-www-form-urlencoded" },
         body: form,

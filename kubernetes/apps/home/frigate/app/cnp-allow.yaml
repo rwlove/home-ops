@@ -34,14 +34,14 @@ spec:
               protocol: TCP
             - port: "8971"
               protocol: TCP
-    # NOTE: most cameras live on the SECURITY VLAN and are reached via
-    # the multus-attached secondary NIC (frigate-security-static).
-    # Those pulls bypass Cilium entirely.
-    #
-    # birdcam is the exception — it sits on the main LAN at
-    # 192.168.1.31, so its RTSP + HTTP pulls go via eth0 and ARE
-    # governed by Cilium. Explicit toCIDR egress required after the
-    # home-namespace default-deny rollout (PR #11592, 2026-05-18).
+  # NOTE: most cameras live on the SECURITY VLAN and are reached via
+  # the multus-attached secondary NIC (frigate-security-static).
+  # Those pulls bypass Cilium entirely.
+  #
+  # birdcam is the exception — it sits on the main LAN at
+  # 192.168.1.31, so its RTSP + HTTP pulls go via eth0 and ARE
+  # governed by Cilium. Explicit toCIDR egress required after the
+  # home-namespace default-deny rollout (PR #11592, 2026-05-18).
   egress:
     - toCIDR:
         - 192.168.1.31/32
@@ -50,4 +50,72 @@ spec:
             - port: "554"
               protocol: TCP
             - port: "80"
+              protocol: TCP
+    # Frigate+ cloud API. Used for model submission, license verification,
+    # and pulling custom-trained models (model_path `plus://<id>` in the
+    # Frigate config). Three hostnames in active use:
+    #   * api.frigate.video  — REST API (AWS us-east-2 ELB)
+    #   * plus.frigate.video — portal UI (CloudFront)
+    #   * frigate.video      — apex (AWS us-east-2)
+    # matchPattern only matches one DNS label (see
+    # [[project_cilium_matchpattern_fqdn_limits]]), so the apex needs an
+    # explicit matchName. DNS resolution is via the Cilium DNS proxy
+    # provisioned by the baseline allow-dns component.
+    - toFQDNs:
+        - matchName: frigate.video
+        - matchPattern: "*.frigate.video"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    # Frigate+ serves model blobs and snapshot uploads from an S3 bucket in
+    # us-east-2 (api.frigate.video hands back a presigned S3 URL). That host
+    # isn't covered by *.frigate.video, so the fetch was POLICY_DENIED and
+    # fired FrigateUnauthorizedEgressAttempt. matchPattern only matches one
+    # DNS label (see [[project_cilium_matchpattern_fqdn_limits]]), so the
+    # path-style host needs an explicit matchName while the virtual-hosted
+    # bucket form (<bucket>.s3.us-east-2.amazonaws.com) needs the pattern.
+    # NOTE: Frigate caches DNS, so a fresh resolution (pod restart) is
+    # required for the cached S3 IPs to bind to this rule — same caveat as
+    # the YouTube RTMP path above.
+    - toFQDNs:
+        - matchName: s3.us-east-2.amazonaws.com
+        - matchPattern: "*.s3.us-east-2.amazonaws.com"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    # go2rtc birdcam publish destination — RTMP to YouTube Live
+    # (rtmp://a.rtmp.youtube.com/live2/{BIRDCAM_YOUTUBE_KEY} in
+    # snapshots/config.yml). YouTube ingest IPs are AWS-fronted Google
+    # load balancers (142.x).
+    #
+    # NOTE: A toFQDNs(matchPattern "*.rtmp.youtube.com") rule was tried
+    # first (PR #11786) but didn't take effect — frigate's long-lived
+    # DNS cache predates the Cilium DNS proxy interception, so the
+    # cached IPs are never bound to the FQDN policy. Falling back to
+    # toEntities:world+1935 is broader (any 1935 destination), but
+    # since 1935 is RTMP-specific and frigate doesn't have other RTMP
+    # destinations, the actual exposure is unchanged.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "1935"
+              protocol: TCP
+    # Frigate genai integration — Ollama VLM descriptions for detection
+    # events (genai.provider=ollama, model=llama3.2-vision:11b,
+    # base_url=ollama-spark.ai.svc.cluster.local). Routed to the Spark
+    # Ollama, NOT the P40 (`ollama`): the P40 is already full (immich-ml +
+    # pet-tagger + comfyui ≈ 16Gi resident) and an 11b VLM would thrash
+    # against the qwen2.5:7b that six local-p40 langgraph agents depend on.
+    # Spark (GB10, 480Gi unified) has the headroom and is the routing-doc
+    # home for larger inference.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: ollama-spark
+      toPorts:
+        - ports:
+            - port: "11434"
               protocol: TCP

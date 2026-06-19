@@ -17,9 +17,12 @@ spec:
     # HTTPRoute on internal gateway → langgraph-agents:8765
     # (agents.${SECRET_DOMAIN}). Windmill workers + app (in home ns)
     # POST here directly for the inbox / approval / awaiting-user /
-    # cost-cap-watcher / daily-digest flows (replacing n8n's role).
+    # cost-cap-watcher / daily-digest flows.
     # collab/open-webui hits the in-cluster Service directly via
     # OPENAI_API_BASE_URLS (each agent id registered as a model).
+    # home/home-assistant POSTs the /inbox task contract directly via a
+    # rest_command when Rob speaks a "create a task" intent to Assist
+    # (HOMELAB-SPEC Layer 0 phone/voice ingress).
     - fromEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: network
@@ -27,6 +30,9 @@ spec:
         - matchLabels:
             io.kubernetes.pod.namespace: collab
             app.kubernetes.io/name: open-webui
+        - matchLabels:
+            io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: home-assistant
         - matchExpressions:
             - key: io.kubernetes.pod.namespace
               operator: In
@@ -88,6 +94,45 @@ spec:
       toPorts:
         - ports:
             - port: "80"
+              protocol: TCP
+    # Dragonfly in databases ns — idempotency-key dedup store backing
+    # the /inbox handler. Phase 3.G; see
+    # langgraph-agents `src/agents/idempotency.py`. Dragonfly pods carry
+    # `app.kubernetes.io/part-of: dragonfly` (set by the operator from
+    # the Dragonfly CR's topology selector).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            app.kubernetes.io/part-of: dragonfly
+      toPorts:
+        - ports:
+            - port: "6379"
+              protocol: TCP
+    # OpenTelemetry collector (observability ns) — Phase 3.K trace
+    # propagation. agents.observability.init_otel() ships spans via
+    # the OTLP gRPC exporter to :4317. The collector's CNP already
+    # allows `fromEntities: cluster` so no change needed there.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: opentelemetry-collector
+      toPorts:
+        - ports:
+            - port: "4317"
+              protocol: TCP
+    # Windmill (home ns) — Phase 4.M2 follow-on (langgraph-agents
+    # PR #58 / #59). When the queue worker detects a paused-for-
+    # approval interrupt, it POSTs the ApprovalRequest to
+    # `f/lovenet/langgraph-approval-post` via
+    # `/api/w/lovenet/jobs/run/p/...` on windmill-app:8000. Windmill's
+    # CNP already allows ingress from langgraph-agents.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: windmill-app
+      toPorts:
+        - ports:
+            - port: "8000"
               protocol: TCP
     # External APIs: api.pushover.net for Tier-1 alert escalations,
     # api.anthropic.com for the Claude API gated on ENABLE_CLAUDE_API.

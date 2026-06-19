@@ -23,6 +23,7 @@ Canonical recent reference: PR #11148 — flux-webhook on `external`.
   Phase 3 waves.
 
 **Don't use this skill for**:
+
 - Adding the cert-manager annotations to a Gateway (that's Phase 0,
   done once per Gateway).
 - istio Gateway routes — they're deferred to Phase 4.0 of the
@@ -116,15 +117,19 @@ app-template `helmrelease.yaml`):
 One PR per app during the canary. Batches of 5 during Phase 3 waves.
 
 Commit message form:
-```
+
+```text
 feat(network): cert migration canary — <app> on per-app listener
 ```
+
 or for waves:
-```
+
+```text
 feat(network): per-app TLS migration wave N (X/Y)
 ```
 
 The PR body should call out:
+
 - which Gateway is being touched
 - the specific app(s)
 - a rollback note: revert the PR, the route falls back to whatever

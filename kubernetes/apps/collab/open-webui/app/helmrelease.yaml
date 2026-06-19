@@ -29,10 +29,16 @@ spec:
           app:
             image:
               repository: ghcr.io/open-webui/open-webui
-              tag: v0.9.5
+              tag: v0.9.6
 
             env:
-              OLLAMA_BASE_URL: http://ollama.ai.svc.cluster.local:11434
+              # Multi-endpoint: Spark (qwen3-next:80b-a3b-instruct-q4_K_M) is the new default,
+              # P40 (qwen2.5:7b) remains user-selectable per
+              # conversation. Open WebUI parses this as `;`-separated
+              # endpoints and exposes each model under its own provider
+              # label in the model picker. First entry is the default
+              # for new chats.
+              OLLAMA_BASE_URLS: http://ollama-spark.ai.svc.cluster.local:11434;http://ollama.ai.svc.cluster.local:11434
               # langgraph-agents exposes an OpenAI-compatible surface; each
               # agent id is registered as a model. The key is a placeholder —
               # the langgraph-agents Service has no auth (cluster-internal only).
@@ -40,14 +46,36 @@ spec:
               OPENAI_API_KEYS: sk-langgraph-agents-cluster-internal
               ENABLE_RAG_WEB_SEARCH: true
               RAG_EMBEDDING_ENGINE: ollama
-              RAG_EMBEDDING_MODEL: nomic-embed-text
-              # Cross-encoder reranker — runs in-process via sentence-transformers
-              # on CPU. Adds ~2.5GiB to the pod's resident set (model weights);
-              # latency is ~hundreds of ms per batch which is fine for homelab
-              # RAG volume. v0.9.5 also supports external rerank (TEI etc.) via
-              # RAG_RERANKING_ENGINE=external + RAG_EXTERNAL_RERANKER_URL — but
-              # the P40 is Pascal (sm_61) so no prebuilt TEI image fits without
-              # a custom Pascal build. Revisit if Spark lands.
+              # Pin RAG embedding traffic to Spark. Without this,
+              # open-webui v0.9.5 falls back to OLLAMA_BASE_URL
+              # (default '/ollama' → first persisted endpoint in
+              # webui.db), which currently resolves to the P40. That
+              # puts bge-m3 on the P40 chat hot path, where Immich
+              # CLIP and whisper bursts evict it and trigger cold-load
+              # latency on every RAG call. Spark already serves
+              # embedders for memory-mcp, paperless RAG (Windmill),
+              # and langgraph-agents — this aligns Open WebUI with
+              # that fleet. bge-m3 is kept steady-resident on Spark
+              # by the blackbox synthetic embed probe (5-min cadence,
+              # doubles as wedge detector — see ollama-spark
+              # prometheusrule.yaml).
+              RAG_OLLAMA_BASE_URL: http://ollama-spark.ai.svc.cluster.local:11434
+              # Phase A benchmark (2026-05-20, 50-doc Paperless eval)
+              # showed bge-m3 (1024-dim) beats nomic-embed-text (768) by
+              # +23 MRR@10 pts. The cluster moves to bge-m3 for new
+              # embedding work; both models live on ollama-spark.
+              # Note: this is destructive to any existing Open WebUI
+              # Knowledge Base collection embedded with nomic — those
+              # need a re-embed from the UI. The first such collection
+              # (Paperless) doesn't exist yet, so this PR has no
+              # in-flight re-index cost.
+              RAG_EMBEDDING_MODEL: bge-m3
+              # Cross-encoder reranker — external mode via TEI on Spark
+              # (PR-3 of Stream 2). RAG_RERANKING_MODEL is informational;
+              # TEI loads the model server-side. In-process sentence-transformers
+              # no longer runs in this pod — memory limit dropped 6Gi → 2Gi.
+              RAG_RERANKING_ENGINE: external
+              RAG_EXTERNAL_RERANKER_URL: http://tei-spark.ai.svc.cluster.local:3000/rerank
               RAG_RERANKING_MODEL: BAAI/bge-reranker-v2-m3
               RAG_TOP_K_RERANKER: "5"
               RAG_WEB_SEARCH_ENGINE: searxng
@@ -104,7 +132,7 @@ spec:
                 cpu: 15m
                 memory: 1Gi
               limits:
-                memory: 6Gi
+                memory: 2Gi
 
     service:
       app:

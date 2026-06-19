@@ -1,0 +1,29 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: codegraph-mcp-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: codegraph-mcp
+  # Additive — default-deny is what triggers the lockdown. Broker → server
+  # (intra-ns) and the istio gateway path are covered by the baseline
+  # allow-intra-namespace + mcp-gateway-istio-allow, so no ingress rule
+  # is needed here (matches the other MCP backends).
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # git-sync clones the repo to index from GitHub over HTTPS.
+    # github.com / codeload.github.com are canonical A-only FQDNs where
+    # Cilium toFQDNs.matchPattern silently fails (see
+    # project_cilium_matchpattern_fqdn_limits.md), so use world:443 —
+    # same rationale as the github-mcp CNP.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

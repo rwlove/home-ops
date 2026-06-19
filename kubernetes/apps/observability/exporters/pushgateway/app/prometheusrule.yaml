@@ -1,0 +1,127 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: claude-cost-rules
+spec:
+  groups:
+    - name: claude-cost.rules
+      rules:
+        # ── Recording rules — rolling spend windows ──────────────────
+        # Source: langgraph_cost_usd_total{group="claude"} — populated by
+        # LangGraphMetricsCallback.on_llm_end in langgraph-agents v0.2.58+.
+        # Claude Code CLI usage is NOT included (MAX subscription, no API key).
+        - record: claude:cost_usd:increase24h
+          expr: >-
+            sum(increase(langgraph_cost_usd_total{group="claude"}[24h]))
+
+        - record: claude:cost_usd:increase7d
+          expr: >-
+            sum(increase(langgraph_cost_usd_total{group="claude"}[168h]))
+
+        - record: claude:cost_usd:increase30d
+          expr: >-
+            sum(increase(langgraph_cost_usd_total{group="claude"}[720h]))
+
+        # ── Daily ─────────────────────────────────────────────────────
+        - alert: ClaudeApiDailySoft
+          expr: claude:cost_usd:increase24h > 10
+          for: 5m
+          labels:
+            severity: warning
+            group: claude-cost
+          annotations:
+            summary: "Claude API 24h spend at $${{ $value | printf \"%.2f\" }}"
+            description: >-
+              langgraph-agents Anthropic API cost over the last 24h is
+              $${{ $value | printf "%.2f" }} (soft limit $10).
+              Consider switching to a lower-cost model tier.
+
+        - alert: ClaudeApiDailyHard
+          expr: claude:cost_usd:increase24h > 20
+          for: 5m
+          labels:
+            severity: critical
+            group: claude-cost
+          annotations:
+            summary: "Claude API daily gate: $${{ $value | printf \"%.2f\" }}"
+            description: >-
+              langgraph-agents Anthropic API cost over the last 24h is
+              $${{ $value | printf "%.2f" }} (hard limit $20). This alert
+              pages but does not block: in-process caps ($5/task,
+              $10/agent/day, $30/global/day) remain the live ceiling. To
+              hard-pin the fleet local, set ENABLE_CLAUDE_API=false in the
+              langgraph-agents HelmRelease env (or remove ANTHROPIC_API_KEY).
+
+        # ── Weekly ────────────────────────────────────────────────────
+        - alert: ClaudeApiWeeklySoft
+          expr: claude:cost_usd:increase7d > 20
+          for: 5m
+          labels:
+            severity: warning
+            group: claude-cost
+          annotations:
+            summary: "Claude API 7d spend at $${{ $value | printf \"%.2f\" }}"
+            description: >-
+              langgraph-agents Anthropic API cost over the last 7 days is
+              $${{ $value | printf "%.2f" }} (soft limit $20).
+
+        - alert: ClaudeApiWeeklyHard
+          expr: claude:cost_usd:increase7d > 30
+          for: 5m
+          labels:
+            severity: critical
+            group: claude-cost
+          annotations:
+            summary: "Claude API weekly gate: $${{ $value | printf \"%.2f\" }}"
+            description: >-
+              langgraph-agents Anthropic API cost over the last 7 days is
+              $${{ $value | printf "%.2f" }} (hard limit $30). This alert
+              pages but does not block: in-process caps ($5/task,
+              $10/agent/day, $30/global/day) remain the live ceiling. To
+              hard-pin the fleet local, set ENABLE_CLAUDE_API=false in the
+              langgraph-agents HelmRelease env (or remove ANTHROPIC_API_KEY).
+
+        # ── Monthly ───────────────────────────────────────────────────
+        - alert: ClaudeApiMonthlyHard
+          expr: claude:cost_usd:increase30d > 60
+          for: 5m
+          labels:
+            severity: critical
+            group: claude-cost
+          annotations:
+            summary: "Claude API monthly gate: $${{ $value | printf \"%.2f\" }}"
+            description: >-
+              langgraph-agents Anthropic API cost over the last 30 days is
+              $${{ $value | printf "%.2f" }} (hard limit $60). This alert
+              pages but does not block: in-process caps ($5/task,
+              $10/agent/day, $30/global/day) remain the live ceiling. To
+              hard-pin the fleet local, set ENABLE_CLAUDE_API=false in the
+              langgraph-agents HelmRelease env (or remove ANTHROPIC_API_KEY).
+              The Anthropic Console billing limit is the account-side backstop.
+
+        # ── Metric dark alert ─────────────────────────────────────────
+        # Fires only when Claude calls ARE happening but their cost is not
+        # being recorded — the genuine "gates blind while spending" case.
+        # A bare absent() can't be used here: langgraph_cost_usd_total is a
+        # lazily-created counter that only exists after the first Claude
+        # on_llm_end, so it is legitimately absent whenever the fleet routes
+        # 100% local (the Layer 6 MAX-to-local steady state) and would
+        # false-fire. The `unless` guard mirrors the `or vector(0)` pattern
+        # in the sibling LangGraphClaudeEscalationFailing alert.
+        - alert: ClaudeApiCostMetricMissing
+          expr: >-
+            (sum(increase(langgraph_calls_total{group="claude"}[1h])) > 0)
+            unless
+            (sum(increase(langgraph_cost_usd_total{group="claude"}[1h])) > 0)
+          for: 1h
+          labels:
+            severity: warning
+            group: claude-cost
+          annotations:
+            summary: "Claude API cost metric absent"
+            description: >-
+              Claude API calls happened in the last hour but
+              langgraph_cost_usd_total{group="claude"} recorded no spend.
+              Cost gates are blind. Check langgraph-agents pod and ServiceMonitor.

@@ -11,13 +11,14 @@ sidecar `MCPServerRegistration` CR. Use this skill instead of `add-app`
 when adding to `mcp-system/`.
 
 Canonical references in the repo:
+
 - `kubernetes/apps/mcp-system/mealie-mcp/`
 - `kubernetes/apps/mcp-system/paperless-mcp/`
 - `kubernetes/apps/mcp-system/grafana-mcp/`
 
 ## Layout
 
-```
+```text
 kubernetes/apps/mcp-system/<app>/
 ├── ks.yaml                       # 2 Kustomizations: app + mcpserverregistration
 ├── app/
@@ -48,6 +49,7 @@ kubernetes/apps/mcp-system/<app>/
 ---
 
 **`ks.yaml`** (two Kustomizations: app + registration)
+
 ```yaml
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/kustomization-kustomize-v1.json
@@ -102,6 +104,7 @@ spec:
 ---
 
 **`app/kustomization.yaml`**
+
 ```yaml
 ---
 # yaml-language-server: $schema=https://json.schemastore.org/kustomization
@@ -117,6 +120,7 @@ resources:
 ---
 
 **`app/helmrelease.yaml`**
+
 ```yaml
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
@@ -162,6 +166,8 @@ spec:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: true
               capabilities: {drop: ["ALL"]}
+              seccompProfile:
+                type: RuntimeDefault
     service:
       app:
         controller: <app>
@@ -187,6 +193,7 @@ spec:
 ```
 
 Watch out for these gotchas (all from real outages in this repo):
+
 - **UID mismatch**: if the upstream image's nonroot user is UID 999 but
   you set `runAsUser: 1000`, writes into the image's WORKDIR will fail
   with EACCES. Match the image, or move writable paths to a `tmp`
@@ -202,6 +209,7 @@ Watch out for these gotchas (all from real outages in this repo):
 ---
 
 **`app/externalsecret.yaml`** (only if upstream needs credentials)
+
 ```yaml
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/external-secrets.io/externalsecret_v1.json
@@ -225,6 +233,7 @@ spec:
 ---
 
 **`mcp/kustomization.yaml`**
+
 ```yaml
 ---
 # yaml-language-server: $schema=https://json.schemastore.org/kustomization
@@ -237,6 +246,7 @@ resources:
 ---
 
 **`mcp/mcpserverregistration.yaml`**
+
 ```yaml
 ---
 # TODO: apply schema   (mcp.kuadrant.io has no upstream JSON schema yet)

@@ -26,7 +26,7 @@ spec:
           app:
             image:
               repository: ghcr.io/rwlove/time-mcp
-              tag: v0.1.0@sha256:e14f8a504632b2b47cab13f6ff79a1898699cf7376f4c31984f9ca3a2b33a794
+              tag: v0.1.1@sha256:7e639c169104da809376a91fa6143504b0dacc7a40c53446494cad3b03fe6f04
             env:
               PORT: "8060"
               HOST: "0.0.0.0"
@@ -72,6 +72,21 @@ spec:
               - path:
                   type: PathPrefix
                   value: /mcp
+            filters:
+              # Strip inbound Authorization before forwarding to the
+              # backend MCP server. The Kuadrant mcp-gateway forwards
+              # all client headers; the broker-side Bearer (used to
+              # authentication can take
+              # precedence over the backend's own credential env in
+              # any upstream MCP client that honors `Authorization`,
+              # causing 401s against the real target service. Backend
+              # MCP servers each carry their own env-loaded creds —
+              # stripping the broker Bearer at this hop lets those
+              # take effect uniformly across the fleet.
+              - type: RequestHeaderModifier
+                requestHeaderModifier:
+                  remove:
+                    - Authorization
             backendRefs:
               - identifier: app
                 port: 8060

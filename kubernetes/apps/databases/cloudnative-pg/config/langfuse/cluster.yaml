@@ -1,0 +1,77 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/postgresql.cnpg.io/cluster_v1.json
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres-langfuse
+spec:
+  instances: 3
+
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.7
+
+  primaryUpdateStrategy: unsupervised
+
+  failoverDelay: 30
+
+  replicationSlots:
+    highAvailability:
+      enabled: true
+
+  postgresql:
+    parameters:
+      timezone: "America/New_York"
+
+  storage:
+    size: 8Gi
+    storageClass: ceph-block
+
+  walStorage:
+    size: 4Gi
+    storageClass: ceph-block
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+  enableSuperuserAccess: true
+  superuserSecret:
+    name: cloudnative-pg
+
+  bootstrap:
+    initdb:
+      database: langfuse
+      owner: langfuse
+
+  # Langfuse runs in the ai namespace; CNPG generates
+  # `postgres-langfuse-app` in databases ns. Mirror cross-namespace via
+  # emberstack reflector. Sibling of postgres-langgraph-memory pattern.
+  inheritedMetadata:
+    annotations:
+      reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: ai
+      reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+      reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: ai
+
+  monitoring:
+    enablePodMonitor: true
+
+  plugins:
+    - enabled: true
+      isWALArchiver: true
+      name: barman-cloud.cloudnative-pg.io
+      parameters:
+        barmanObjectName: garage-langfuse
+        serverName: postgres-langfuse-backup
+
+  externalClusters:
+    - name: postgres-langfuse-backup
+      plugin:
+        enabled: true
+        isWALArchiver: false
+        name: barman-cloud.cloudnative-pg.io
+        parameters:
+          barmanObjectName: garage-langfuse
+          serverName: postgres-langfuse-backup

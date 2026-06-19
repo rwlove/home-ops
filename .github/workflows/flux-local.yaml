@@ -24,7 +24,10 @@ permissions:
 jobs:
   filter-changes:
     name: Filter changes
-    runs-on: ubuntu-latest
+    # Self-hosted: keep the whole flux-local pipeline off GitHub-hosted
+    # quota. This is a JS action (bundled node), so it runs directly on
+    # the ARC runner pod — no container: needed.
+    runs-on: arc-runner-set-home-ops
     outputs:
       changed-files: ${{ steps.changed-files.outputs.changed_files }}
     steps:
@@ -34,6 +37,7 @@ jobs:
         with:
           patterns: |-
             kubernetes/**/*
+            .github/workflows/flux-local.yaml
 
   test:
     if: ${{ needs.filter-changes.outputs.changed-files != '[]' }}
@@ -49,7 +53,7 @@ jobs:
       - filter-changes
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
@@ -61,9 +65,83 @@ jobs:
     # Diff-against-default-branch only makes sense on PRs.
     if: ${{ github.event_name == 'pull_request' && needs.filter-changes.outputs.changed-files != '[]' }}
     name: Flux Local Diff
-    runs-on: ubuntu-latest
+    # Self-hosted + container: spec because `diff helmrelease` invokes
+    # `helm template` for changed HelmReleases. ZOT-routed chart URLs
+    # only resolve in-cluster. The `uses: docker://` pattern (sibling
+    # pod via ARC's k8s hooks) caused `helm repo update` to time out
+    # consistently against HelmRepository sources — switching to
+    # container: at job level avoids that. Node-based comment posting
+    # moved to a sibling `diff-comment` job (this image lacks node).
+    runs-on: arc-runner-set-home-ops
+    container:
+      image: ghcr.io/allenporter/flux-local:v8.1.0
     needs:
       - filter-changes
+    strategy:
+      matrix:
+        resources:
+          - helmrelease
+          - kustomization
+      max-parallel: 4
+      fail-fast: false
+    steps:
+      - name: Checkout Pull Request Branch
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          path: pull
+          persist-credentials: false
+
+      - name: Checkout Default Branch
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: "${{ github.event.repository.default_branch }}"
+          path: default
+          persist-credentials: false
+
+      - name: Run flux-local diff
+        shell: sh
+        run: |
+          flux-local diff ${{ matrix.resources }} \
+            --unified 6 \
+            --path "$GITHUB_WORKSPACE/pull/kubernetes/flux" \
+            --path-orig "$GITHUB_WORKSPACE/default/kubernetes/flux" \
+            --strip-attrs "helm.sh/chart,checksum/config,app.kubernetes.io/version,chart" \
+            --limit-bytes 10000 \
+            --all-namespaces \
+            --output-file diff.patch
+
+      - name: Upload diff artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: flux-local-diff-${{ matrix.resources }}
+          path: diff.patch
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Render diff in step summary
+        shell: sh
+        run: |
+          {
+            echo "## Flux ${{ matrix.resources }} diff"
+            echo '```diff'
+            cat diff.patch
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  diff-comment:
+    # Posts the diff as a sticky PR comment. Runs on ubuntu-latest
+    # because the flux-local image (used by the diff job) doesn't ship
+    # Node, which create-github-app-token + sticky-pull-request-comment
+    # both need.
+    if: ${{ github.event_name == 'pull_request' && needs.filter-changes.outputs.changed-files != '[]' }}
+    name: Flux Local Comment
+    # Self-hosted: download-artifact + create-github-app-token +
+    # sticky-pull-request-comment are all JS actions (bundled node), so
+    # they run directly on the ARC runner pod — no container: needed.
+    runs-on: arc-runner-set-home-ops
+    needs:
+      - filter-changes
+      - diff
     permissions:
       contents: read
       pull-requests: write
@@ -75,46 +153,19 @@ jobs:
       max-parallel: 4
       fail-fast: false
     steps:
-      - name: Checkout Pull Request Branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Download diff artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          path: pull
-          persist-credentials: false
+          name: flux-local-diff-${{ matrix.resources }}
 
-      - name: Checkout Default Branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: "${{ github.event.repository.default_branch }}"
-          path: default
-          persist-credentials: false
-
-      - name: Run flux-local diff
-        uses: docker://ghcr.io/allenporter/flux-local:v8.1.0
-        with:
-          args: >-
-            diff ${{ matrix.resources }}
-            --unified 6
-            --path /github/workspace/pull/kubernetes/flux
-            --path-orig /github/workspace/default/kubernetes/flux
-            --strip-attrs "helm.sh/chart,checksum/config,app.kubernetes.io/version,chart"
-            --limit-bytes 10000
-            --all-namespaces
-            --output-file diff.patch
-
-      - name: Generate Diff
+      - name: Load diff into output
         id: diff
         run: |
           {
-              echo 'diff<<EOF'
-              cat diff.patch
-              echo EOF
-          } >> "${GITHUB_OUTPUT}";
-          {
-              echo "## Flux ${{ matrix.resources }} diff"
-              echo '```diff'
-              cat diff.patch
-              echo '```'
-          } >> "${GITHUB_STEP_SUMMARY}"
+            echo 'diff<<EOF'
+            cat diff.patch
+            echo EOF
+          } >> "${GITHUB_OUTPUT}"
 
       - name: Generate Token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -139,9 +190,10 @@ jobs:
     needs:
       - test
       - diff
+      - diff-comment
     if: ${{ !cancelled() }}
     name: Flux Local successful
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-set-home-ops
     steps:
       - name: Check job status
         if: ${{ contains(needs.*.result, 'failure') }}

@@ -20,18 +20,52 @@ spec:
           app:
             image:
               repository: ghcr.io/rwlove/langgraph-agents
-              tag: 0.2.9  # versioned release; Renovate tracks subsequent bumps
+              tag: 0.2.71@sha256:ef1d30450e9ca93bc48ad81faa9da970e111be49280ab9bf2853027f54a02cfe
 
             env:
               # --- vault ---
               VAULT_ROOT: /vault
 
               # --- model providers ---
-              OLLAMA_BASE_URL: http://ollama.ai.svc.cluster.local:11434/v1
-              ENABLE_CLAUDE_API: "false"  # flip to true once Claude key is in 1Password
+              # Routing happens in code via AGENT_GROUP in
+              # src/agents/llm.py — settings.ollama_p40_url and
+              # settings.ollama_spark_url default to the right cluster
+              # Services so no overrides are needed here. The legacy
+              # OLLAMA_BASE_URL setting was deprecated in v0.2.x and
+              # removed in this PR.
+              # Hot path enabled 2026-05-21 (#11923 single-sourced the key
+              # from the `claude-runner` 1P item; the resulting Secret
+              # carries the live 108-byte sk-ant-… value).
+              #
+              # Cost ceilings enforced in-cluster (see COST_CAP_* below):
+              # $5/task, $10/agent/day, $30/global/day. To revert, flip
+              # this to "false" and reapply — escalation will fall back
+              # to local models within the next request.
+              ENABLE_CLAUDE_API: "true"
+
+              # --- memory embedder ---
+              # MCPMemoryStore writes via direct SQL to
+              # kg.observations (langgraph_memory DB). Column type is
+              # vector(1024) per the Phase A bge-m3 cutover
+              # (home-ops #11792). MEMORY_OLLAMA_URL was added in
+              # langgraph-agents v0.2.20 (PR #32) so memory embeds
+              # can target ollama-spark — avoids the P40
+              # MAX_LOADED=1 swap churn between bge-m3 and
+              # qwen2.5:7b on every memory write.
+              MEMORY_EMBED_MODEL: bge-m3
+              MEMORY_OLLAMA_URL: http://ollama-spark.ai.svc.cluster.local:11434
 
               # --- MCP gateway ---
               MCP_GATEWAY_URL: http://mcp-gateway-istio.mcp-system.svc.cluster.local:8080
+
+              # --- OpenTelemetry (Phase 3.K) ---
+              # Spans land on opentelemetry-collector in observability ns.
+              # CNP egress for :4317 is in cnp-allow.yaml. The default
+              # in agents/observability.py matches this URL; setting
+              # explicitly makes the dependency greppable from
+              # home-ops.
+              OTEL_EXPORTER_OTLP_ENDPOINT: http://opentelemetry-collector.observability.svc.cluster.local:4317
+              OTEL_SERVICE_NAME: langgraph-agents
 
               # --- cost caps (per security review cat 7) ---
               COST_CAP_PER_TASK_USD: "5.0"

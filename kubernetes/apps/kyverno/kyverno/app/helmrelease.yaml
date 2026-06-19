@@ -1,0 +1,107 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kyverno
+spec:
+  chart:
+    spec:
+      # renovate: registryUrl=https://kyverno.github.io/kyverno
+      chart: kyverno
+      sourceRef:
+        kind: HelmRepository
+        name: kyverno-charts
+        namespace: kyverno
+      version: 3.3.7
+  interval: 30m
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+  uninstall:
+    keepHistory: false
+  values:
+    # Per HOMELAB-SPEC Layer 5 (blast-radius enforcement) and the
+    # rollout plan's [5.O1] item. This PR ships the controller; the
+    # rules ride along separately in [5.O2] in audit mode. Promotion
+    # to enforce mode (5.O3) is a separate destructive PR per the
+    # 2026-05-20 decision (D-A).
+
+    # Single-replica admission controller — homelab scale. The chart
+    # supports HA (3+ replicas with leader election) but it's overkill
+    # here and adds restart-time complexity during upgrades.
+    admissionController:
+      replicas: 1
+      container:
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            memory: 512Mi
+      serviceMonitor:
+        enabled: true
+
+    backgroundController:
+      replicas: 1
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          memory: 256Mi
+
+    cleanupController:
+      replicas: 1
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          memory: 256Mi
+
+    reportsController:
+      replicas: 1
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          memory: 256Mi
+
+    # CRDs install with the chart. Subsequent chart upgrades update
+    # them per the upstream releaseclass.
+    crds:
+      install: true
+
+    # Fail-open at the webhook level: if the admission controller
+    # itself is unhealthy, requests pass rather than fail. This is
+    # the safer default for an initial deploy where Kyverno owning
+    # admission is new territory. Per-policy `failurePolicy` can be
+    # tightened later for specific rules.
+    #
+    # `config.webhooks` matches the chart 3.3.7 default map shape
+    # (the chart's _helpers.tpl reads `matchExpressions` off
+    # `namespaceSelector` to merge in the kyverno-namespace
+    # exclusion). The list shape previously used here broke
+    # `helm template` because each list entry was expected to carry
+    # its own `namespaceSelector`.
+    config:
+      webhooks:
+        namespaceSelector:
+          matchExpressions:
+            - key: kubernetes.io/metadata.name
+              operator: NotIn
+              values:
+                - kube-system
+        failurePolicy: Ignore
+
+    # Policy reports — Kyverno generates `PolicyReport` CRs that
+    # ServiceMonitor + Grafana can scrape. Audit-mode rules in 5.O2
+    # write to these.
+    reports-server:
+      enabled: false  # using built-in reports controller

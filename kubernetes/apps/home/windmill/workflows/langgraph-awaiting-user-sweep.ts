@@ -5,7 +5,7 @@
 //   4 hr    → POST /admin/tasks/<id>/timeout-tier {tier: "4h"} (mark cold)
 //   7 day   → POST /admin/tasks/<id>/cancel (auto-cancel)
 //
-// Replaces the n8n flow "LangGraph → Awaiting-user sweep".
+// Replaces the flow "LangGraph → Awaiting-user sweep".
 
 type Task = {
     task_id: string;
@@ -18,10 +18,20 @@ const MIN_30 = 30 * 60 * 1000;
 const HR_4 = 4 * 60 * 60 * 1000;
 const DAY_7 = 7 * 24 * 60 * 60 * 1000;
 
+// HAI_CLI_TOKEN gates /admin/* + /inbox on langgraph-agents since 0.2.38
+// (PR-C bearer-auth middleware). Inject the token into every call to the
+// in-cluster langgraph-agents Service URL. Returns an empty header dict
+// when the env is unset (dev / pre-deployment) — server-side falls back
+// to allow-all in that mode, so the workflow stays functional.
+function lgaHeaders(): Record<string, string> {
+    const tok = Deno.env.get("HAI_CLI_TOKEN");
+    return tok ? { Authorization: `Bearer ${tok}` } : {};
+}
+
 export async function main() {
     const r = await fetch(
         "http://langgraph-agents.ai.svc.cluster.local:8765/admin/tasks",
-        { signal: AbortSignal.timeout(30_000) },
+        { signal: AbortSignal.timeout(30_000), headers: lgaHeaders() },
     );
     if (!r.ok) {
         return { skip: true, reason: `GET /admin/tasks → ${r.status}` };
@@ -56,7 +66,7 @@ async function handle(t: Task, tier: "30min" | "4h" | "7d", age: number) {
             message: `Agent ${t.target_agent ?? "unknown"} is paused, age ${
                 Math.round(age / 60000)
             }m. Tap an action in the original approval push, or react in Zulip #approvals.`,
-            priority: 5,
+            priority: 3,
             tags: ["alarm_clock"],
         });
         return { action: "ntfy", ok: resp.ok };
@@ -68,7 +78,7 @@ async function handle(t: Task, tier: "30min" | "4h" | "7d", age: number) {
             }/timeout-tier`,
             {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { ...lgaHeaders(), "Content-Type": "application/json" },
                 body: JSON.stringify({ tier: "4h" }),
                 signal: AbortSignal.timeout(30_000),
             },
@@ -82,7 +92,7 @@ async function handle(t: Task, tier: "30min" | "4h" | "7d", age: number) {
         }/cancel`,
         {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { ...lgaHeaders(), "Content-Type": "application/json" },
             body: JSON.stringify({ reason: "7-day timeout; auto-cancelled by awaiting-user sweep" }),
             signal: AbortSignal.timeout(30_000),
         },
@@ -97,7 +107,7 @@ async function publishNtfy(args: {
     priority?: number;
     tags?: string[];
 }) {
-    const url = Deno.env.get("NTFY_URL") ?? "https://ntfy.thesteamedcrab.com";
+    const url = Deno.env.get("NTFY_URL") ?? "";
     const token = Deno.env.get("NTFY_WRITE_TOKEN");
     if (!token) throw new Error("NTFY_WRITE_TOKEN env not set");
     const r = await fetch(url, {

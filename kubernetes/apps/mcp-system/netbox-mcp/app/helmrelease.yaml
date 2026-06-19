@@ -26,7 +26,7 @@ spec:
           app:
             image:
               repository: ghcr.io/rwlove/netbox-mcp
-              tag: v0.1.1@sha256:13be693c3dbd9b623e975a9e2b00879b10967dba449e54d46b8d8fd0073c00e8
+              tag: v1.1.0@sha256:1cdfef3f51036ec888d83e059cf29be8931e35e1a4c31d565d3a9cb12c84e678
             env:
               NETBOX_URL: https://netbox.${SECRET_DOMAIN}
               TRANSPORT: http
@@ -64,6 +64,21 @@ spec:
               - path:
                   type: PathPrefix
                   value: /mcp
+            filters:
+              # Strip inbound Authorization before forwarding to the
+              # backend MCP server. The Kuadrant mcp-gateway forwards
+              # all client headers; the broker-side Bearer (used to
+              # authentication can take
+              # precedence over the backend's own credential env in
+              # any upstream MCP client that honors `Authorization`,
+              # causing 401s against the real target service. Backend
+              # MCP servers each carry their own env-loaded creds —
+              # stripping the broker Bearer at this hop lets those
+              # take effect uniformly across the fleet.
+              - type: RequestHeaderModifier
+                requestHeaderModifier:
+                  remove:
+                    - Authorization
             backendRefs:
               - identifier: app
                 port: 8000

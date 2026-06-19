@@ -1,0 +1,193 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: ceph-csi-drivers
+spec:
+  # Release name MUST be `ceph-csi-drivers` in namespace `rook-ceph` so Helm
+  # adopts the existing, orphaned `Driver` CRs (rook-ceph.{rbd,cephfs}.csi.ceph.com)
+  # — they already carry meta.helm.sh/release-name=ceph-csi-drivers,
+  # release-namespace=rook-ceph + app.kubernetes.io/managed-by=Helm. rook 1.20
+  # relinquished CSI Driver/OperatorConfig CR management (release notes:
+  # "CSI settings are removed from the Rook operator configmap and the rook-ceph
+  # Helm chart … for helm users, configured by the ceph-csi-drivers chart"), so
+  # nothing in the rook-ceph chart fights this release for those CRs anymore.
+  #
+  # This release supplies the driver ServiceAccounts + RBAC that rook 1.20 stopped
+  # shipping (the gap behind rook/rook#17644). PR 1 of 2: additive — keep the
+  # vendored ../operator/csi-driver-rbac.yaml + the operator's
+  # csiServiceAccountPrefix override in place as a fallback until this release is
+  # verified adopting the CRs and the new SAs are in use. PR 2 removes the vendored
+  # RBAC, the now-inert csi.pluginTolerations, the prefix override, and the
+  # renovate <1.20.0 pin. Tracking: home-ops#12266.
+  releaseName: ceph-csi-drivers
+  chart:
+    spec:
+      chart: ceph-csi-drivers
+      sourceRef:
+        kind: HelmRepository
+        name: ceph-csi-operator
+      version: 1.0.1
+  interval: 1h
+  install:
+    # retries: 0 on purpose. This release ADOPTS the existing, live Driver CRs.
+    # Flux remediation uninstalls before retrying a failed install — which would
+    # delete the now-Helm-owned Driver CRs and hard-break ceph-block + cephfs
+    # attach/detach cluster-wide. On a failed first install, leave it failed and
+    # fix forward by hand; do not let Flux nuke the CSI control plane.
+    remediation:
+      retries: 0
+  upgrade:
+    # Don't delete partially-applied resources (e.g. the driver SAs) on a failed
+    # upgrade of the critical CSI path; prefer rollback to the prior good revision.
+    cleanupOnFail: false
+    remediation:
+      retries: 3
+      strategy: rollback
+  values:
+    # The OperatorConfig (ceph-csi-operator-config) is left to the rook operator,
+    # which still writes its imageSet (rook-csi-operator-image-set-configmap) and
+    # clusterName. Managing it here would clobber those rook-owned values.
+    operatorConfig:
+      create: false
+    # Driver specs are mirrored field-for-field from the live (rook-1.19-written,
+    # now-frozen) Driver CRs so adoption changes only `serviceAccountName`. Verified
+    # via `helm template` diff against the live `.spec`: the only functional delta is
+    # the SA name; all other deltas are explicit forms of inherited operator defaults
+    # (hostNetwork, attachRequired, grpcTimeout, snapshotPolicy) or empty/null
+    # equivalences. Re-run that diff before merge if the chart version changes.
+    drivers:
+      rbd:
+        enabled: true
+        # Keep the existing CSI driver/provisioner name (namespace-prefixed) — it is
+        # the provisioner referenced by every ceph-block PV/StorageClass. Changing it
+        # would orphan all RBD volumes.
+        name: "rook-ceph.rbd.csi.ceph.com"
+        log: null
+        clusterName: "rook-ceph"
+        enableMetadata: false
+        fsGroupPolicy: "File"
+        imageSet:
+          name: "rook-csi-operator-image-set-configmap"
+        controllerPlugin:
+          hostNetwork: true
+          replicas: 2
+          priorityClassName: "system-cluster-critical"
+          imagePullPolicy: ""
+          resources:
+            attacher:
+              requests: {cpu: 100m, memory: 128Mi}
+              limits: {memory: 256Mi}
+            provisioner:
+              requests: {cpu: 100m, memory: 128Mi}
+              limits: {memory: 256Mi}
+            resizer:
+              requests: {cpu: 100m, memory: 128Mi}
+              limits: {memory: 256Mi}
+            snapshotter:
+              requests: {cpu: 100m, memory: 128Mi}
+              limits: {memory: 256Mi}
+            omapGenerator:
+              requests: {cpu: 250m, memory: 512Mi}
+              limits: {memory: 1Gi}
+            plugin:
+              requests: {memory: 512Mi}
+              limits: {memory: 1Gi}
+            # workaround: https://github.com/ceph/ceph-csi-operator/issues/490 — remove when
+            # the ceph-csi-drivers chart guards unset sidecar resources keys instead of
+            # emitting `null`. The chart force-emits EVERY sidecar key under resources; the
+            # ones we don't size render as `null`, which the live Driver CRD rejects on
+            # server-side apply ("must be of type object"). Pad them with {} until fixed.
+            # Tracking: home-ops#12302. (addons only runs with deployCsiAddons.)
+            liveness: {}
+            addons: {}
+            logRotator: {}
+        nodePlugin:
+          priorityClassName: "system-node-critical"
+          kubeletDirPath: "/var/lib/kubelet"
+          enableSeLinuxHostMount: false
+          imagePullPolicy: ""
+          updateStrategy:
+            type: RollingUpdate
+          # ollama-spark-0 uses ceph-block PVCs, so the RBD nodeplugin must run on
+          # Spark's arm64 dedication taint. Under rook 1.20 the operator's
+          # csi.pluginTolerations value is dead — this is now the live home for it.
+          tolerations:
+            - key: kubernetes.io/arch
+              operator: Equal
+              value: arm64
+              effect: NoSchedule
+          resources:
+            plugin:
+              requests: {cpu: 250m, memory: 512Mi}
+              limits: {memory: 1Gi}
+            registrar:
+              requests: {cpu: 50m, memory: 128Mi}
+              limits: {memory: 256Mi}
+            liveness: {}
+            addons: {}
+            logRotator: {}
+      cephfs:
+        enabled: true
+        name: "rook-ceph.cephfs.csi.ceph.com"
+        log: null
+        clusterName: "rook-ceph"
+        enableMetadata: false
+        # Live cephfs runs fsGroupPolicy File (the chart's cephfs default is None).
+        fsGroupPolicy: "File"
+        imageSet:
+          name: "rook-csi-operator-image-set-configmap"
+        controllerPlugin:
+          hostNetwork: true
+          replicas: 2
+          priorityClassName: "system-cluster-critical"
+          imagePullPolicy: ""
+          resources:
+            attacher:
+              requests: {cpu: 100m, memory: 128Mi}
+              limits: {memory: 256Mi}
+            provisioner:
+              requests: {cpu: 100m, memory: 128Mi}
+              limits: {memory: 256Mi}
+            resizer:
+              requests: {cpu: 100m, memory: 128Mi}
+              limits: {memory: 256Mi}
+            snapshotter:
+              requests: {cpu: 100m, memory: 128Mi}
+              limits: {memory: 256Mi}
+            plugin:
+              requests: {cpu: 250m, memory: 512Mi}
+              limits: {memory: 1Gi}
+            omapGenerator: {}
+            liveness: {}
+            addons: {}
+            logRotator: {}
+        nodePlugin:
+          priorityClassName: "system-node-critical"
+          kubeletDirPath: "/var/lib/kubelet"
+          enableSeLinuxHostMount: false
+          imagePullPolicy: ""
+          updateStrategy:
+            type: RollingUpdate
+          tolerations:
+            - key: kubernetes.io/arch
+              operator: Equal
+              value: arm64
+              effect: NoSchedule
+          resources:
+            plugin:
+              requests: {cpu: 250m, memory: 512Mi}
+              limits: {memory: 1Gi}
+            registrar:
+              requests: {cpu: 50m, memory: 128Mi}
+              limits: {memory: 256Mi}
+            liveness: {}
+            addons: {}
+            logRotator: {}
+      # Not used in this cluster — keep them off to match the current footprint
+      # (the vendored RBAC only ever covered rbd + cephfs).
+      nvmeof:
+        enabled: false
+      nfs:
+        enabled: false

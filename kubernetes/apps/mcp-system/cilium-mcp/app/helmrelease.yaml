@@ -1,0 +1,122 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cilium-mcp
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  values:
+    defaultPodOptions:
+      automountServiceAccountToken: true
+    controllers:
+      cilium-mcp:
+        pod:
+          annotations:
+            reloader.stakater.com/auto: "true"
+            sidecar.istio.io/inject: "true"
+          securityContext:
+            runAsGroup: 1000
+            runAsNonRoot: true
+            runAsUser: 1000
+        annotations:
+          reloader.stakater.com/auto: "true"
+        containers:
+          app:
+            image:
+              repository: ghcr.io/azure/mcp-kubernetes
+              tag: v0.0.14@sha256:c81da4f47fc06de7b691dbd65f28b60b0799ce820c710e52daccfb2360038b26
+            args:
+              - --transport=streamable-http
+              - --additional-tools=cilium,hubble
+              - --access-level=readonly
+              - --host=0.0.0.0
+              - --port=8000
+            resources:
+              requests:
+                cpu: 50m
+                memory: 128Mi
+              limits:
+                memory: 512Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities: {drop: ["ALL"]}
+              readOnlyRootFilesystem: true
+              seccompProfile:
+                type: RuntimeDefault
+    service:
+      app:
+        controller: cilium-mcp
+        ports:
+          http:
+            port: 8000
+    route:
+      app:
+        hostnames:
+          - "cilium-mcp.mcp.local"
+        parentRefs:
+          - name: mcp-gateway
+            namespace: mcp-system
+            sectionName: mcps
+        rules:
+          - matches:
+              - path:
+                  type: PathPrefix
+                  value: /mcp
+            filters:
+              # Strip inbound Authorization before forwarding to the
+              # backend MCP server. The Kuadrant mcp-gateway forwards
+              # all client headers; the broker-side Bearer (used to
+              # authentication can take
+              # precedence over the backend's own credential env in
+              # any upstream MCP client that honors `Authorization`,
+              # causing 401s against the real target service. Backend
+              # MCP servers each carry their own env-loaded creds —
+              # stripping the broker Bearer at this hop lets those
+              # take effect uniformly across the fleet.
+              - type: RequestHeaderModifier
+                requestHeaderModifier:
+                  remove:
+                    - Authorization
+            backendRefs:
+              - identifier: app
+                port: 8000
+    rbac:
+      bindings:
+        cilium-mcp-read:
+          type: ClusterRoleBinding
+          roleRef:
+            identifier: cilium-mcp-read
+          subjects:
+            - identifier: cilium-mcp
+              serviceAccount: cilium-mcp
+      roles:
+        cilium-mcp-read:
+          type: ClusterRole
+          rules:
+            - apiGroups: ["cilium.io"]
+              resources:
+                - ciliumnetworkpolicies
+                - ciliumclusterwidenetworkpolicies
+                - ciliumendpoints
+                - ciliumidentities
+                - ciliumnodes
+                - ciliumloadbalancerippools
+                - ciliumbgpclusterconfigs
+                - ciliumbgppeerconfigs
+                - ciliumbgpadvertisements
+              verbs: ["get", "list", "watch"]
+            - apiGroups: [""]
+              resources: ["pods", "services", "namespaces", "nodes", "endpoints", "configmaps"]
+              verbs: ["get", "list", "watch"]
+            - apiGroups: [""]
+              resources: ["pods/log"]
+              verbs: ["get", "list"]
+            - apiGroups: ["apps"]
+              resources: ["daemonsets", "deployments"]
+              verbs: ["get", "list", "watch"]
+    serviceAccount:
+      cilium-mcp: {}

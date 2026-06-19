@@ -26,7 +26,15 @@ spec:
           app:
             image:
               repository: ghcr.io/rwlove/arr-mcp
-              tag: v0.1.3@sha256:7a275ff8aab5dc4d857f80b076dc5614b3daefa0325d6110321248eb3e4d1056
+              # workaround: https://github.com/aplaceforallmystuff/mcp-arr/pull/22 — remove when merged + a fixed mcp-arr (> v1.6.5) is released and pinned
+              # Stock v1.6.5 deadlocks its http transport behind the mcp-gateway
+              # (serialized queue blocked by the broker's long-lived GET stream),
+              # so arr never federates. This `-deadlockfix1` image is v1.6.5 with
+              # the PR #22 patch applied at build time (see rwlove/containers
+              # arr-mcp/patches). Renovate is pinned off this image in
+              # .github/renovate/packageRules.json5 so it can't downgrade back to
+              # the broken stock tag.
+              tag: v1.6.5-deadlockfix1@sha256:841c0fd73c89ccb37573db9d376aed95e2f8bf90c338309e12d70e3334c7b43e
             env:
               SONARR_URL: http://sonarr.media.svc.cluster.local:8989
               RADARR_URL: http://radarr.media.svc.cluster.local:7878
@@ -64,6 +72,21 @@ spec:
               - path:
                   type: PathPrefix
                   value: /mcp
+            filters:
+              # Strip inbound Authorization before forwarding to the
+              # backend MCP server. The Kuadrant mcp-gateway forwards
+              # all client headers; the broker-side Bearer (used to
+              # authentication can take
+              # precedence over the backend's own credential env in
+              # any upstream MCP client that honors `Authorization`,
+              # causing 401s against the real target service. Backend
+              # MCP servers each carry their own env-loaded creds —
+              # stripping the broker Bearer at this hop lets those
+              # take effect uniformly across the fleet.
+              - type: RequestHeaderModifier
+                requestHeaderModifier:
+                  remove:
+                    - Authorization
             backendRefs:
               - identifier: app
                 port: 3000

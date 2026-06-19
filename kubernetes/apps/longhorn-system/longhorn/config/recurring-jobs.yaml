@@ -7,8 +7,17 @@ metadata:
 spec:
   cron: "0 0 * * 6"
   task: "backup"
+  # `default` is auto-applied by Longhorn to any volume with no
+  # recurring-job labels, and is what actually protects the cluster's
+  # volumes today. `weekly-backup` is the named group the repo's PV
+  # convention labels with (see storage-class.instructions.md); listing
+  # it here makes that label functional instead of a silent no-op — a
+  # volume whose CR carries `weekly-backup` (e.g. after a manual restore
+  # that copies PV labels onto the Volume CR) is backed up rather than
+  # dropped out of `default`. See the 2026-06-19 paperless-ai incident.
   groups:
     - default
+    - weekly-backup
   retain: 4
   concurrency: 4
 
@@ -20,8 +29,14 @@ metadata:
 spec:
   cron: "0 0 * * *"
   task: "snapshot"
+  # Both named snapshot-cadence groups alias onto this job. Snapshots
+  # are local COW (no NFS cost), so giving a `weekly-snapshot`-labelled
+  # volume daily snapshots is strictly-more protection at no storage
+  # penalty — it just keeps the named label from being a no-op.
   groups:
     - default
+    - daily-snapshot
+    - weekly-snapshot
   retain: 7
   concurrency: 4
 
@@ -33,8 +48,13 @@ metadata:
 spec:
   cron: "0 0 1 * *"
   task: "backup"
+  # `monthly-backup` is the lighter backup cadence the big regenerable
+  # model volumes (comfyui, ollama) are labelled with — kept distinct
+  # from weekly-backup so those large volumes don't get weekly NFS
+  # backups they don't need.
   groups:
     - default
+    - monthly-backup
   retain: 6
   concurrency: 4
 

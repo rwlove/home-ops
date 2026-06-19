@@ -11,6 +11,11 @@ on:
       - README.md
       - .github/workflows/docs.yaml
       - kubernetes/**
+  pull_request:
+    paths:
+      - docs/**
+      - README.md
+      - .github/workflows/docs.yaml
 
 permissions:
   actions: write
@@ -20,11 +25,18 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    # Self-hosted to stay off GitHub-hosted quota. Runs on the bare ARC
+    # runner (not a container:) so the runner-provided node satisfies the
+    # JS actions (setup-python, gh-pages deploy); a python container would
+    # lack node — same gotcha documented in flux-local.yaml's diff/comment
+    # split. setup-python self-downloads CPython; pip reaches PyPI via the
+    # runner CNP's wildcard 443 egress.
+    runs-on: arc-runner-set-home-ops
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}
     steps:
       - name: Generate Token
+        if: ${{ github.event_name != 'pull_request' }}
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         id: app-token
         with:
@@ -32,20 +44,30 @@ jobs:
           private-key: "${{ secrets.LOVENET_RENOVATE_OPERATOR_PRIVATE_KEY }}"
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          token: "${{ steps.app-token.outputs.token }}"
+          token: "${{ steps.app-token.outputs.token || github.token }}"
 
-      - name: Build docs
-        uses: docker://ghcr.io/bjw-s-labs/mdbook:0.4.49@sha256:ee4b71f559c7286dfd110a962f0b7660e82bf3e5bbe659a8eef0ba975789f9c9
+      - name: Setup Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
-          args: bash -c "cd docs && mdbook build"
+          python-version: 3.14.x
+
+      - name: Install mkdocs-material
+        shell: bash
+        working-directory: docs
+        run: pip install -r requirements.txt
+
+      - name: Build with mkdocs
+        shell: bash
+        working-directory: docs
+        run: mkdocs build --strict
 
       - name: Deploy
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4.1.0
-        if: ${{ github.ref == 'refs/heads/main' }}
         with:
           github_token: "${{ steps.app-token.outputs.token }}"
-          publish_dir: ./docs/book/html
+          publish_dir: ./docs/site
           user_name: "rosey-the-renovator-bot[bot]"
           user_email: "rosey-the-renovator-bot <98764075+rosey-the-renovator-bot[bot]@users.noreply.github.com>"

@@ -38,6 +38,17 @@ spec:
         - ports:
             - port: "8123"
               protocol: TCP
+    # home-assistant-config-sync CronJob (same ns) calls
+    # /api/services/homeassistant/reload_all after a successful `git
+    # pull`. Sync pod's egress to HA is the matching half of this hole.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: home-assistant-config-sync
+      toPorts:
+        - ports:
+            - port: "8123"
+              protocol: TCP
   egress:
     # Postgres recorder backend (Pattern B — CNPG cluster in databases).
     - toEndpoints:
@@ -108,8 +119,123 @@ spec:
               protocol: TCP # external MQTT-TLS brokers
             - port: "1883"
               protocol: TCP # external MQTT plain (Mosquitto.org test broker, etc)
-    # NOTE: Home Assistant has multus-attached secondary NICs on the
-    # IoT and SECURITY VLANs (hass-iot-static, hass-security-static).
-    # Discovery (mDNS, broadcasts, device polling) over those NICs
-    # bypasses Cilium entirely; only eth0 (apiserver, DNS, cross-ns,
-    # external) is governed here.
+    # LAN device polling — these reach physical hosts on the main home
+    # subnet via eth0 (Cilium-governed), not via the multus secondary
+    # NICs. The IoT/security-VLAN NICs handle discovery/polling on
+    # 10.10.20.x / 10.10.40.x and bypass Cilium.
+    #
+    # TCP 9090 — Kodi JSON-RPC. Five `kodi` integrations are configured
+    # in HA (kodi-bedroom .5, kodi-? .6, kodi-? .7, kodi-familyroom .11,
+    # kodi-? .14), all polling Kodi's EventServer/JSON-RPC on 9090.
+    - toCIDR:
+        - 192.168.1.0/24
+      toPorts:
+        - ports:
+            - port: "9090"
+              protocol: TCP
+    # SNMP polling — UPSes on the management subnet (.5.36 = UPS-3000,
+    # .5.65 = UPS-1500, SmartConnect cards) and the Dell R730xd iDRAC
+    # on the main LAN. Both via SNMP v2c, community `public`.
+    # See [[reference_rack_ups_topology]] + [[reference_beast_idrac_power_probes]].
+    - toCIDR:
+        - 192.168.1.22/32
+        - 192.168.5.0/24
+      toPorts:
+        - ports:
+            - port: "161"
+              protocol: UDP
+    # IPP printer (Brother MFC-J895DW) on the management subnet. The
+    # `ipp` integration is currently in setup_retry without this rule.
+    - toCIDR:
+        - 192.168.5.29/32
+      toPorts:
+        - ports:
+            - port: "631"
+              protocol: TCP
+    # LAN integrations that poll over various TCP ports on the main
+    # home subnet (192.168.1.0/24):
+    #   * 23    — Denon AVR Telnet control protocol (.1.12)
+    #   * 8080  — Denon AVR HTTP (denon.${SECRET_DOMAIN} / .1.12)
+    #   * 60006 — Denon HEOS protocol (same host as 8080)
+    #   * 8043  — Omada Controller HTTPS UI on brain (.1.1)
+    #   * 19444 — Hyperion JSON-RPC on kodi-familyroom (.1.11)
+    #   * 61208 — Glances on brain (.1.1) + beast (.1.27)
+    - toCIDR:
+        - 192.168.1.0/24
+      toPorts:
+        - ports:
+            - port: "23"
+              protocol: TCP
+            - port: "8080"
+              protocol: TCP
+            - port: "60006"
+              protocol: TCP
+            - port: "8043"
+              protocol: TCP
+            - port: "19444"
+              protocol: TCP
+            - port: "61208"
+              protocol: TCP
+    # LG webOS TVs on the management subnet expose the WebSocket API
+    # on TCP 3000. lg-familyroom (.5.44) + lg-bedroom (.5.26).
+    - toCIDR:
+        - 192.168.5.0/24
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+    # In-cluster Ollama (ai/ollama-0:11434). HA's `ollama` custom
+    # integration / template REST sensor calls the API for LLM-driven
+    # automations and sensor enrichment.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: ollama
+      toPorts:
+        - ports:
+            - port: "11434"
+              protocol: TCP
+    # In-cluster langgraph-agents (ai/langgraph-agents:8765). HA POSTs the
+    # /inbox task contract here via a rest_command when Rob speaks a
+    # "create a task" intent to Assist (HOMELAB-SPEC Layer 0 phone/voice
+    # ingress). The matching ingress half lives in langgraph-agents' CNP.
+    # HA's toEntities:world (443/80) does NOT cover the in-cluster
+    # ClusterIP on 8765, so this explicit toEndpoints rule is required.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: langgraph-agents
+      toPorts:
+        - ports:
+            - port: "8765"
+              protocol: TCP
+    # LAN discovery multicast/broadcast from HA's eth0 interface. HA's
+    # `zeroconf` and `ssdp` integrations bind to all interfaces by
+    # default and emit periodic discovery on the cilium-governed pod
+    # network alongside the multus IoT/SECURITY VLAN NICs. Cilium
+    # classifies multicast/broadcast destinations as `world`.
+    #
+    #   * UDP 5353 — mDNS, dest 224.0.0.251 (zeroconf integration)
+    #   * UDP 1900 — SSDP/UPnP, dest 239.255.255.250 (multicast)
+    #                + 255.255.255.255 (broadcast) — used by the ssdp
+    #                integration to discover Sonos, Roku, smart-TVs,
+    #                DLNA renderers, etc.
+    #
+    # The multus macvlan NICs (hass-iot-static on VLAN 20,
+    # hass-security-static on VLAN 40) handle the bulk of real LAN
+    # discovery and bypass Cilium entirely. eth0 discovery is allowed
+    # here so HA's defaults work without policy noise — without these
+    # rules, boot-time scans generate >1000 POLICY_DENIED drops in 2m
+    # and trip CiliumPolicyDropBurst.
+    #
+    # (Background: IGMP membership reports HA sends on eth0 still drop
+    # at CT_UNKNOWN_L4_PROTOCOL — cilium conntrack doesn't track IGMP.
+    # Below alert thresholds; not fixable via CNP.)
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "5353"
+              protocol: UDP
+            - port: "1900"
+              protocol: UDP

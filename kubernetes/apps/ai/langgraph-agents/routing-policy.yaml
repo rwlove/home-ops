@@ -1,0 +1,345 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/configmap-v1.json
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: langgraph-routing-policy
+  namespace: ai
+data:
+  routing-policy.yaml: |
+    # HomeAIOps routing policy — local vs Claude escalation
+    # Version-controlled. Changing this file changes routing behavior.
+    # Stage 3 — initial explicit rules (no learned router yet).
+    #
+    # Rule evaluation order: first match wins.
+    # If no rule matches, `default` applies.
+    #
+    # Supported match keys (all optional, combined with AND):
+    #   task_class    — summarization | classification | code-edit | code-review |
+    #                   architecture | tool-use | note-taking | log-triage |
+    #                   doc-drift | alert-triage | image-generation | research
+    #   agent_id      — exact agent name from AGENT_GROUP in llm.py
+    #   data_tier     — public | internal | restricted
+    #   context_tokens — {gt: N} threshold check
+    #   escalate_flag — true | false (explicit escalate=True from caller)
+    #   spark_healthy — true | false (resolved at runtime by health check)
+    #   p40_healthy   — true | false (resolved at runtime by health check)
+    #
+    # Supported route values:
+    #   local-p40          — Ollama on P40, qwen2.5:7b
+    #   local-spark        — Ollama on Spark, qwen3-next:80b-a3b-instruct-q4_K_M
+    #   local-spark-coder  — Ollama on Spark, qwen2.5-coder:32b
+    #   claude             — Anthropic API (model selected by `model` field)
+    #   local-only         — never escalates; raises if both local paths down
+    #
+    # `reason` is free-text, logged with every routing decision.
+
+    version: "1"
+    default: local-spark
+
+    rules:
+
+      # -----------------------------------------------------------------------
+      # HARD PINS — never touch Claude regardless of any other signal
+      # -----------------------------------------------------------------------
+
+      # Health data is covered by the privacy constraint in IDENTITY.md:
+      # health information never leaves the cluster. No escalation path exists.
+      - match:
+          agent_id: health-tracker
+        route: local-only
+        model: qwen2.5:7b
+        reason: "Privacy hard-pin — health data never sent to remote models"
+
+      # Restricted-tier tasks are blocked from remote model emission by
+      # redaction.py at runtime, but also declared here so the router's
+      # own log shows the intent clearly and so a future code-driven
+      # router can enforce this without re-reading the redaction layer.
+      - match:
+          data_tier: restricted
+        route: local-only
+        model: qwen3-next:80b-a3b-instruct-q4_K_M
+        reason: "Restricted data tier — HOMELAB-SPEC Layer 2 #1 + Layer 5 classification"
+
+      # -----------------------------------------------------------------------
+      # EXPLICIT ESCALATION — caller sets escalate=True
+      # -----------------------------------------------------------------------
+
+      # When a node explicitly requests escalation AND the data tier permits it,
+      # route to Claude. The cost caps in settings.py still apply; this rule
+      # does not bypass them.
+      - match:
+          escalate_flag: true
+          data_tier: public
+        route: claude
+        model: claude-sonnet-4-6
+        reason: "Explicit escalation requested; public-tier data safe for remote model"
+
+      - match:
+          escalate_flag: true
+          data_tier: internal
+        route: claude
+        model: claude-sonnet-4-6
+        reason: "Explicit escalation requested; internal-tier data acceptable for remote model"
+
+      # -----------------------------------------------------------------------
+      # TASK CLASS — always local (well within local model capability)
+      # -----------------------------------------------------------------------
+
+      - match:
+          task_class: summarization
+        route: local-spark
+        model: qwen3-next:80b-a3b-instruct-q4_K_M
+        reason: "Summarization is well within 32b capability; no escalation needed"
+
+      - match:
+          task_class: classification
+        route: local-p40
+        model: qwen2.5:7b
+        reason: "Binary/short-label classification is Haiku-equivalent work; 7b sufficient"
+
+      - match:
+          task_class: log-triage
+        route: local-spark
+        model: qwen3-next:80b-a3b-instruct-q4_K_M
+        reason: "Log error-pattern extraction; local model handles well"
+
+      - match:
+          task_class: doc-drift
+        route: local-p40
+        model: qwen2.5:7b
+        reason: "Structural conformance check against a list; 7b sufficient"
+
+      - match:
+          task_class: note-taking
+        route: local-p40
+        model: qwen2.5:7b
+        reason: "Simple note drafting; 7b produces acceptable quality"
+
+      - match:
+          task_class: alert-triage
+        route: local-spark
+        model: qwen3-next:80b-a3b-instruct-q4_K_M
+        reason: "Alert analysis needs reasoning depth; Spark 32b preferred over 7b"
+
+      # -----------------------------------------------------------------------
+      # TASK CLASS — prefer local, escalate only when needed
+      # -----------------------------------------------------------------------
+
+      - match:
+          task_class: code-edit
+        route: local-spark-coder
+        model: qwen2.5-coder:32b
+        reason: "Code edits go to the coder model on Spark; escalate only via explicit flag"
+
+      - match:
+          task_class: code-review
+        route: local-spark-coder
+        model: qwen2.5-coder:32b
+        reason: "Code review goes to coder model; escalate only via explicit flag"
+
+      - match:
+          task_class: image-generation
+        route: local-spark
+        model: qwen3-next:80b-a3b-instruct-q4_K_M
+        reason: "Prompt composition for ComfyUI; stays local"
+
+      # -----------------------------------------------------------------------
+      # TASK CLASS — escalate to Claude (complex / novel / multi-file)
+      # -----------------------------------------------------------------------
+
+      - match:
+          task_class: architecture
+        route: claude
+        model: claude-sonnet-4-6
+        reason: "Architecture decisions need Claude-level reasoning; local models insufficient"
+
+      - match:
+          task_class: research
+        route: claude
+        model: claude-sonnet-4-6
+        reason: "Open-ended research benefits from Claude's broad knowledge and tool use"
+
+      # -----------------------------------------------------------------------
+      # CONTEXT SIZE — escalate when context exceeds local model windows
+      # -----------------------------------------------------------------------
+
+      # qwen2.5:7b context window is 128k tokens, but quality degrades
+      # significantly above ~32k. Spark 32b handles up to ~64k reliably.
+      # Above 50k tokens, escalate to Claude (200k+ context window).
+      - match:
+          context_tokens:
+            gt: 50000
+        route: claude
+        model: claude-sonnet-4-6
+        reason: "Context exceeds reliable local model window (50k token threshold)"
+
+      # -----------------------------------------------------------------------
+      # DEGRADED MODE — both local paths down, escalation allowed
+      # -----------------------------------------------------------------------
+
+      # When both Ollama endpoints are unhealthy AND escalation is not forbidden
+      # by the data tier, allow Claude to take over. This mirrors the
+      # degraded_mode_escalation_enabled setting in llm.py and makes the
+      # policy explicit rather than a buried env-var behavior.
+      - match:
+          spark_healthy: false
+          p40_healthy: false
+          data_tier: public
+        route: claude
+        model: claude-sonnet-4-6
+        reason: "Both local inference paths down; degraded-mode escalation to Claude"
+
+      - match:
+          spark_healthy: false
+          p40_healthy: false
+          data_tier: internal
+        route: claude
+        model: claude-sonnet-4-6
+        reason: "Both local inference paths down; degraded-mode escalation to Claude"
+
+      # Degraded mode with restricted data: surface error, do not escalate.
+      - match:
+          spark_healthy: false
+          p40_healthy: false
+          data_tier: restricted
+        route: local-only
+        model: qwen2.5:7b
+        reason: "Local paths down but data tier is restricted — reject rather than escalate"
+
+      # -----------------------------------------------------------------------
+      # AGENT-SPECIFIC OVERRIDES — matches AGENT_GROUP in llm.py
+      # -----------------------------------------------------------------------
+
+      - match:
+          agent_id: triager
+        route: local-p40
+        model: qwen2.5:7b
+        reason: "Triager is a mechanical routing step; 7b sufficient"
+
+      - match:
+          agent_id: note-maker
+        route: local-p40
+        model: qwen2.5:7b
+        reason: "Note-maker produces short structured output; 7b sufficient"
+
+      - match:
+          agent_id: errand-runner
+        route: local-p40
+        model: qwen2.5:7b
+        reason: "Errand-runner executes approved actions; mechanical work suits 7b"
+
+      - match:
+          agent_id: property-coordinator
+        route: local-p40
+        model: qwen2.5:7b
+        reason: "Property coordination tasks are structured; 7b sufficient"
+
+      - match:
+          agent_id: doc-writer
+        route: local-p40
+        model: qwen2.5:7b
+        reason: "Doc-writer (aspirational); 7b placeholder until capacity is known"
+
+      - match:
+          agent_id: historian
+        route: local-spark
+        model: qwen3-next:80b-a3b-instruct-q4_K_M
+        reason: "Historian produces vault summaries; 32b for quality prose"
+
+      - match:
+          agent_id: researcher
+        route: local-spark
+        model: qwen3-next:80b-a3b-instruct-q4_K_M
+        reason: "Researcher needs structured-output reasoning depth"
+
+      - match:
+          agent_id: supervisor
+        route: local-spark
+        model: qwen3-next:80b-a3b-instruct-q4_K_M
+        reason: "Supervisor orchestrates sub-agents; needs 32b reasoning"
+
+      - match:
+          agent_id: reporter
+        route: local-spark
+        model: qwen3-next:80b-a3b-instruct-q4_K_M
+        reason: "Reporter formats rich-text DMs; 32b for link-formatting precision"
+
+      - match:
+          agent_id: homelab-engineer
+        route: local-spark
+        model: qwen3-next:80b-a3b-instruct-q4_K_M
+        reason: "Homelab-engineer handles complex cluster analysis"
+
+      - match:
+          agent_id: network-operator
+        route: local-spark
+        model: qwen3-next:80b-a3b-instruct-q4_K_M
+        reason: "Network analysis needs structured reasoning depth"
+
+      - match:
+          agent_id: storage-operator
+        route: local-spark
+        model: qwen3-next:80b-a3b-instruct-q4_K_M
+        reason: "Storage analysis needs structured reasoning depth"
+
+      - match:
+          agent_id: smart-home-operator
+        route: local-spark
+        model: qwen3-next:80b-a3b-instruct-q4_K_M
+        reason: "HA/Frigate operations need reasoning depth"
+
+      - match:
+          agent_id: ml-operator
+        route: local-spark
+        model: qwen3-next:80b-a3b-instruct-q4_K_M
+        reason: "ML tuning decisions need 32b reasoning"
+
+      - match:
+          agent_id: observability-operator
+        route: local-spark
+        model: qwen3-next:80b-a3b-instruct-q4_K_M
+        reason: "Observability analysis needs structured reasoning"
+
+      - match:
+          agent_id: security
+        route: local-spark
+        model: qwen3-next:80b-a3b-instruct-q4_K_M
+        reason: "Security analysis needs nuance in observation vs inference"
+
+      - match:
+          agent_id: auditor
+        route: local-spark
+        model: qwen3-next:80b-a3b-instruct-q4_K_M
+        reason: "Auditor needs precision citing CVEs and scoring exposure"
+
+      - match:
+          agent_id: artist
+        route: local-spark
+        model: qwen3-next:80b-a3b-instruct-q4_K_M
+        reason: "Prompt composition benefits from Spark's prompt-engineering perf"
+
+      - match:
+          agent_id: coder
+        route: local-spark-coder
+        model: qwen2.5-coder:32b
+        reason: "Coder uses dedicated coder model on Spark"
+
+      - match:
+          agent_id: reviewer
+        route: local-spark-coder
+        model: qwen2.5-coder:32b
+        reason: "Reviewer uses dedicated coder model on Spark"
+
+    # -----------------------------------------------------------------------
+    # COST / SPEND GUARDRAILS
+    # These are declared here for documentation; enforcement is in settings.py.
+    # Changing these values here does NOT change runtime behavior until the
+    # router code reads them from this ConfigMap (Stage 3 execution work).
+    # -----------------------------------------------------------------------
+    guardrails:
+      cost_cap_per_task_usd: 5.0
+      cost_cap_per_agent_daily_usd: 10.0
+      cost_cap_global_daily_usd: 30.0
+      escalation_rate_warn_pct: 20
+      escalation_spend_warn_usd_per_day: 10.0

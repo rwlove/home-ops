@@ -63,10 +63,10 @@ every `*-oauth2-proxy/app/helmrelease.yaml`. Affected:
 ai/khoj-oauth2-proxy
 collab/{glance,glance-user,pump,startpunkt}-oauth2-proxy
 collab/garage-webui-oauth2-proxy (under storage/)
-downloads/{prowlarr,jdownloader2,qbittorrent,sabnzbd,slskd}-oauth2-proxy
+downloads/<media-pull-stack apps>-oauth2-proxy
 home/frigate-oauth2-proxy
-media/{av1corrector,lidarr,medialyze,music-assistant,radarr,sonarr,soularr,
-       suggestarr,batocera-webdashboard-pro}-oauth2-proxy
+media/{av1corrector,medialyze,music-assistant,batocera-webdashboard-pro}-oauth2-proxy
+media/<media-pull-stack apps>-oauth2-proxy
 observability/{goldilocks,kube-ops-view,holmesgpt}-oauth2-proxy
 storage/garage-webui-oauth2-proxy
 ```
@@ -74,7 +74,7 @@ storage/garage-webui-oauth2-proxy
 Single PR per app to keep blast radius bounded, or one PR scoping the
 entire family — the latter is cheaper and the risk is uniform.
 
-### A2. `*arr` and similar app-template charts missing baseline
+### A2. media-pull-stack and similar app-template charts missing baseline
 
 Apps where the bjw-s `defaultPodOptions` aren't being inherited at the
 container level. Likely candidates for one-PR-each remediation:
@@ -82,7 +82,7 @@ container level. Likely candidates for one-PR-each remediation:
 - `collab/{it-tools,nametag,paperless,pump,pump-cv,swiparr,kitchenowl}`
 - `media/{flaresolverr,immich-power-tools,videodupfinder,theme-park,immichkiosk}`
 - `home/wyoming-services-{kokoro,openwakeword,whisper}`
-- `ai/{kubeclaw-qmd,kubeclaw-qmd-update,paperless-ai,sync-receiver}`
+- `ai/{paperless-ai,sync-receiver}`
 
 Each is a stateless or near-stateless app reading from a configMap or
 PVC; readOnlyRootFilesystem should land with at most a `tmpfs`
@@ -93,15 +93,15 @@ PVC; readOnlyRootFilesystem should land with at most a `tmpfs`
 24 HelmRelease-owned workloads set `fsGroup` but not
 `fsGroupChangePolicy: OnRootMismatch`. Cosmetic for already-chowned
 PVCs, but adds startup latency on large volumes (Immich, paperless,
-n8n). One-line fix per app:
+similar Node-style apps). One-line fix per app:
 
 ```text
-ai/{kubeclaw-chromium,kubeclaw-gateway,kubeclaw-qmd,langgraph-agents}
+ai/{langgraph-agents}
 auth/authelia
 collab/{paperless-offsite-backup,zulip-memcached,zulip-rabbitmq}
 home/{emqx,netbox}
 mcp-system/mcp-gateway-jwt-rotator
-media/{immich-offsite-backup,stash}
+media/{immich-offsite-backup,<media-library-app>}
 network/externaldns-cloudflare
 observability/{alertmanager,grafana,kube-prometheus-stack-operator,
               kube-state-metrics,prometheus-kube-prometheus-stack}
@@ -124,7 +124,7 @@ test cycle:
 - `media/beets` (config + library import)
 - `media/romm` (scan state)
 - `home/home-assistant` (Python venvs, writes `__pycache__`)
-- `home/n8n`, `home/node-red` (Node-style app dirs)
+- `home/node-red` (Node-style app dirs)
 - `home/emqx` (Erlang VM cache)
 - `home/esphome-code`, `home/home-assistant-code` (code-server: writes
   to `/home/coder` — already PVC-backed, ROOTFS itself should be

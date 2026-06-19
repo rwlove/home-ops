@@ -1,0 +1,67 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: policy-reporter
+spec:
+  chart:
+    spec:
+      # renovate: registryUrl=https://kyverno.github.io/policy-reporter
+      chart: policy-reporter
+      sourceRef:
+        kind: HelmRepository
+        name: policy-reporter-charts
+        namespace: kyverno
+      version: 3.7.4
+  interval: 30m
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+  uninstall:
+    keepHistory: false
+  values:
+    # Core API reads PolicyReport CRs from the cluster and exposes
+    # them on http://policy-reporter:8080.
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        memory: 256Mi
+
+    # In-memory storage — fine at homelab scale (single replica, no
+    # need for SQLite/Postgres). Trades historical data on pod
+    # restart for one less stateful component.
+
+    # UI subchart — the dashboard at policy-reporter.${SECRET_DOMAIN}.
+    # Cluster target points at the core API service. Adding a second
+    # cluster would let one UI serve PolicyReports from multiple
+    # clusters, but homelab is single-cluster.
+    ui:
+      enabled: true
+      replicaCount: 1
+      resources:
+        requests:
+          cpu: 10m
+          memory: 64Mi
+        limits:
+          memory: 128Mi
+
+    # Kyverno plugin — adds the "Kyverno" tab to the UI showing
+    # ClusterPolicy / Policy CRs alongside the report data.
+    plugin:
+      kyverno:
+        enabled: true
+        replicaCount: 1
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            memory: 128Mi

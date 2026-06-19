@@ -32,14 +32,14 @@ spec:
           app:
             image:
               repository: ghcr.io/music-assistant/server
-              tag: 2.9.0b11
+              tag: 2.9.0b16
 
             resources:
               requests:
                 cpu: 15m
-                memory: 2Gi
+                memory: 1536Mi
               limits:
-                memory: 2Gi
+                memory: 3Gi
 
     service:
       app:
@@ -53,17 +53,18 @@ spec:
             port: &httpPort 8095
           http2:
             port: 1780
-          snapserver:
-            port: 1704
+          slimproto:
+            port: 3483
+          # Streamserver — serves the audio flow to SlimProto/squeezelite
+          # players. Exposed on the ClusterIP so in-cluster players can fetch
+          # the stream URL (publish_ip=ClusterIP:8097); intra-namespace only,
+          # not in the world ingress allow-list.
+          streamserver:
+            port: 8097
 
     route:
       app:
         annotations:
-          startpunkt.ullberg.us/enable: "true"
-          startpunkt.ullberg.us/name: "Music Assistant"
-          startpunkt.ullberg.us/icon: "mdi:headphones"
-          startpunkt.ullberg.us/group: "media"
-          startpunkt.ullberg.us/instance: "user"
           glance/name: "Music Assistant"
           glance/show: "true"
           glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/music-assistant.png"
@@ -77,9 +78,14 @@ spec:
             sectionName: https
         rules:
           - backendRefs:
-              - kind: Service
-                name: music-assistant-oauth2-proxy
-                port: 4180
+              # Route straight to MA: the frontend builds its API WebSocket
+              # same-origin (wss://<host>/ws), so the gateway must proxy the
+              # /ws upgrade directly. oauth2-proxy removed 2026-06-06 — it
+              # broke the wss upgrade and forced the "Server Address"
+              # discover screen. MA is already LAN-reachable unauthenticated
+              # via the LB VIP :8095; this route is internal-gateway only.
+              - identifier: app
+                port: *httpPort
     persistence:
       data:
         existingClaim: music-assistant-data-pvc

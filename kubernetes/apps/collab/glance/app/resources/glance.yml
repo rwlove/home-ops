@@ -36,6 +36,13 @@ pages:
                 annotations["glance/id"] == "AI" and
                 ("glance/hide" in annotations || annotations["glance/show"] == "true")
           - <<: *apps-by-id
+            title: Automation
+            parameters:
+              show-if: |
+                namespace != "kube-system" and
+                annotations["glance/id"] == "Automation" and
+                ("glance/hide" in annotations || annotations["glance/show"] == "true")
+          - <<: *apps-by-id
             title: Collaboration
             parameters:
               show-if: |
@@ -55,13 +62,6 @@ pages:
               show-if: |
                 namespace != "kube-system" and
                 annotations["glance/id"] == "Downloads" and
-                ("glance/hide" in annotations || annotations["glance/show"] == "true")
-          - <<: *apps-by-id
-            title: Fitness
-            parameters:
-              show-if: |
-                namespace != "kube-system" and
-                annotations["glance/id"] == "Fitness" and
                 ("glance/hide" in annotations || annotations["glance/show"] == "true")
           - <<: *apps-by-id
             title: Home Automation
@@ -112,27 +112,25 @@ pages:
                 namespace != "kube-system" and
                 annotations["glance/id"] == "Security" and
                 ("glance/hide" in annotations || annotations["glance/show"] == "true")
+          # Storage block carries a name-based carve-out for Rook's HA
+          # mgr pair: rook-ceph-mgr-{a,b} both have `mgr_role=active` on
+          # their deployment template labels (only the pod's mgr_role
+          # flips dynamically). The dashboard Service selects on that
+          # label, and glance-k8s v0.5.0's workload matcher uses
+          # deployment-template labels, so both mgr deployments match
+          # the same HTTPRoute → the same `glance/name: Rook` annotation
+          # gets merged in → two cards. Until upstream fixes the matcher,
+          # we exclude one mgr by its stable instance name. Doesn't matter
+          # which active pod backs the dashboard at any given moment —
+          # the Service handles that.
           - <<: *apps-by-id
             title: Storage
             parameters:
               show-if: |
                 namespace != "kube-system" and
                 annotations["glance/id"] == "Storage" and
-                ("glance/hide" in annotations || annotations["glance/show"] == "true")
-          - <<: *apps-by-id
-            title: System
-            parameters:
-              show-if: |
-                namespace != "kube-system" and
-                annotations["glance/id"] == "System" and
-                ("glance/hide" in annotations || annotations["glance/show"] == "true")
-          - <<: *apps-by-id
-            title: Uncategorized
-            parameters:
-              show-if: |
-                namespace != "kube-system" and
-                !("glance/id" in annotations) and
-                ("glance/hide" in annotations || annotations["glance/show"] == "true")
+                ("glance/hide" in annotations || annotations["glance/show"] == "true") and
+                name != "rook-ceph-mgr-b"
 
           - type: extension
             url: http://glance-k8s-extension:8080/extension/nodes
@@ -149,14 +147,8 @@ pages:
                   - title: Pi-Hole (Unbound)
                     url: https://pihole.${SECRET_DOMAIN}/admin/
                     icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/pi-hole-unbound.png
-                  # - title: News page
-                  #   url: https://glance.juno.moe/news
                   - title: Home-Ops Repo
                     url: https://github.com/rwlove/home-ops
-              # - title: Git Cleaner
-              #   url: https://gitcleaner.com
-              # - title: GitHub Folder Download
-              #   url: https://download-directory.github.io
 
               - title: Kubernetes
                 color: 115 60 30
@@ -174,32 +166,9 @@ pages:
                   - title: BGP View
                     url: https://bgp.he.net
 
-              # - title: Security Intelligence
-              #   color: 347 70 35
-              #   links:
-              #     - title: Shodan
-              #       url: https://shodan.io
-              #     - title: GreyNoise
-              #       url: https://greynoise.io
-              #     - title: Intel X
-              #       url: https://intelx.io
-              #     - title: GrayHatWarfare
-              #       url: https://grayhatwarfare.com
-
-              # - title: Personal
-              #   color: 160 50 50
-              #   links:
-              #     - title: Music (Squid)
-              #       url: https://tidal.squid.wtf/
-              #     - title: Diving Sites
-              #       url: https://divesites.com
-              #     - title: Selfhosted blog
-              #       url: https://selfh.st
               - title: Utilities
                 color: 270 50 50
                 links:
-                  # - title: Download book
-                  #   url: https://z-lib.gd/
                   - title: Dashboard Icons
                     url: https://dashboardicons.com/
 
@@ -224,10 +193,6 @@ pages:
         widgets:
           - type: group
             widgets:
-              # - type: hacker-news
-              #   sort-by: best
-              #   limit: 18
-              #   collapse-after: 10
               - type: lobsters
                 sort-by: hot
                 limit: 18
@@ -246,27 +211,6 @@ pages:
                 limit: 15
                 collapse-after: 10
                 comments-url-template: "https://redlib.lol/{POST-PATH}"
-              # - type: reddit
-              #   subreddit: europe
-              #   show-thumbnails: true
-              #   sort-by: "top"
-              #   limit: 15
-              #   collapse-after: 10
-              #   comments-url-template: "https://redlib.lol/{POST-PATH}"
-              # - type: reddit
-              #   subreddit: plex
-              #   show-thumbnails: true
-              #   sort-by: "top"
-              #   limit: 15
-              #   collapse-after: 10
-              #   comments-url-template: "https://redlib.lol/{POST-PATH}"
-              # - type: reddit
-              #   subreddit: chatgpt
-              #   show-thumbnails: true
-              #   sort-by: "top"
-              #   limit: 15
-              #   collapse-after: 10
-              #   comments-url-template: "https://redlib.lol/{POST-PATH}"
               - type: reddit
                 subreddit: NonCredibleDefense
                 show-thumbnails: true

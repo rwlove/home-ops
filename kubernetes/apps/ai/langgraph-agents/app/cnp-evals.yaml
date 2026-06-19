@@ -1,0 +1,67 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+# Egress for the langgraph-evals sweep pod. Deliberately NOT reusing the
+# langgraph-agents-allow policy: the eval pod carries a distinct
+# `app.kubernetes.io/name: langgraph-evals` label so it can't match the
+# langgraph-agents Service selector and become a phantom backend endpoint.
+# This mirrors the egress subset the eval path actually exercises.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: langgraph-evals-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: langgraph-evals
+  # Additive — baseline default-deny is what locks the pod down; these
+  # punch the holes. Ingress stays open (nothing connects to the job).
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # Ollama in the ai ns — local synthesis backend (ollama-spark for the
+    # reasoning operators; ollama/P40 for completeness). baseline
+    # allow-intra-namespace already covers ai->ai; explicit for grep.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: ollama-spark
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: ollama
+      toPorts:
+        - ports:
+            - port: "11434"
+              protocol: TCP
+    # MCP gateway (mcp-system) — operator nodes pre-fetch evidence via the
+    # istio Service's internal :8080 (no JWT on that path; same tokenless
+    # route the deployed fleet uses).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # Both CNPG clusters in databases ns — checkpoints + memory, so the
+    # agents settings/memory store resolve identically to the deployment.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            cnpg.io/cluster: postgres-langgraph-checkpoints
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            cnpg.io/cluster: postgres-langgraph-memory
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    # External :443 — api.anthropic.com (forced-Claude synthesis + Opus
+    # judge) and github.com/codeload (initContainer fetches the harness
+    # tarball). toEntities world+443 per the canonical-FQDN matchPattern
+    # limitation documented in cnp-allow.yaml.
+    - toEntities: [world]
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

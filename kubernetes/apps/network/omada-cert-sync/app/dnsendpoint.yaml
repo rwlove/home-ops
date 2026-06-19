@@ -1,0 +1,37 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/externaldns.k8s.io/dnsendpoint_v1alpha1.json
+apiVersion: externaldns.k8s.io/v1alpha1
+kind: DNSEndpoint
+metadata:
+  name: guest-portal
+  labels:
+    # Internal-only records (private-IP A records served by brain's bind
+    # via RFC2136). The cloudflare external-dns instance excludes this
+    # label (--label-filter=dns-provider!=bind) so it doesn't try to
+    # publish private IPs as proxied records to Cloudflare (error 9003).
+    dns-provider: bind
+spec:
+  endpoints:
+    # Captive-portal hostname for "Lovenet Guest". Points at brain's
+    # guest-VLAN gateway interface (enp6s0f0.30); the Omada controller
+    # binds *:8843 so it answers there directly — no cross-VLAN ACL.
+    # Resolved by brain's bind (named) on 10.10.30.1:53, written here
+    # via external-dns RFC2136. Matches the LE wildcard *.thesteamedcrab.com
+    # so the portal serves a publicly-trusted cert by name.
+    - dnsName: guest-portal.${SECRET_DOMAIN}
+      recordType: A
+      recordTTL: 300
+      targets:
+        - 10.10.30.1
+    # Management-UI hostname for the Omada controller. Points at brain
+    # (192.168.1.1, what `brain` already resolves to); the controller
+    # binds *:8043 so it answers there. Matches the LE wildcard, so the
+    # admin UI loads at https://omada.${SECRET_DOMAIN}:8043/<controllerId>/
+    # with a publicly-trusted cert instead of the bare IP + self-signed
+    # warning. Independent of the controller `hostName` field — this only
+    # affects how a browser reaches the UI, not device inform/adoption.
+    - dnsName: omada.${SECRET_DOMAIN}
+      recordType: A
+      recordTTL: 300
+      targets:
+        - 192.168.1.1

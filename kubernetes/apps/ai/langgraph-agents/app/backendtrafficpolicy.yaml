@@ -1,0 +1,24 @@
+---
+# yaml-language-server: $schema=https://k8s-schemas.bjw-s.dev/gateway.envoyproxy.io/backendtrafficpolicy_v1alpha1.json
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: langgraph-agents-approval
+spec:
+  # Public /approval is HMAC-only auth — anyone with a leaked token can
+  # still only issue a single verdict on a single paused task — but
+  # there's no rate ceiling on an attacker grinding the endpoint with
+  # bogus tokens, each of which costs us an HMAC verification + a
+  # Postgres checkpoint read. 5 RPS is well above any human ntfy
+  # tapping pattern and well below an abuse load.
+  rateLimit:
+    local:
+      rules:
+        - limit:
+            requests: 5
+            unit: Second
+    type: Local
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: langgraph-agents-approval

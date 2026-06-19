@@ -25,5 +25,19 @@ spec:
         - ports:
             - port: "5432"
               protocol: TCP
-    # Intra-ns pump-cv:8080 (PUMP_CV_URL admin/preview proxy) is
-    # covered by baseline allow-intra-namespace.
+  # Intra-ns pump-cv:8080 (PUMP_CV_URL admin/preview proxy) is
+  # covered by baseline allow-intra-namespace.
+  ingress:
+    # Internal Gateway → pump pod for the route.ingest path
+    # (pump-ingest.${SECRET_DOMAIN}/api/weight). The Gateway terminates
+    # TLS and forwards to pump-api Service which targets pod :8080;
+    # source IP at the pod is the Gateway pod, not the original client.
+    # Identity gating happens at the app layer via WEIGHT_INGEST_KEY.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP

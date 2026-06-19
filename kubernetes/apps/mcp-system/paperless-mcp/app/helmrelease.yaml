@@ -26,7 +26,11 @@ spec:
           app:
             image:
               repository: ghcr.io/baruchiro/paperless-mcp
-              tag: latest
+              # Upstream uses sha-prefixed tags + floating `latest`. No
+              # semver. Pin the digest currently running (verified via
+              # `kubectl describe pod` on 2026-05-20); the `latest` tag
+              # portion is decorative — the @sha256 enforces.
+              tag: latest@sha256:d7f7f95865a31dd05ca92bc51367fbfd19baa8ec542707a0b73aecac14e38d93
             env:
               PAPERLESS_URL: https://paperless.${SECRET_DOMAIN}
             envFrom:
@@ -61,6 +65,21 @@ spec:
               - path:
                   type: PathPrefix
                   value: /mcp
+            filters:
+              # Strip inbound Authorization before forwarding to the
+              # backend MCP server. The Kuadrant mcp-gateway forwards
+              # all client headers; the broker-side Bearer (used to
+              # authentication can take
+              # precedence over the backend's own credential env in
+              # any upstream MCP client that honors `Authorization`,
+              # causing 401s against the real target service. Backend
+              # MCP servers each carry their own env-loaded creds —
+              # stripping the broker Bearer at this hop lets those
+              # take effect uniformly across the fleet.
+              - type: RequestHeaderModifier
+                requestHeaderModifier:
+                  remove:
+                    - Authorization
             backendRefs:
               - identifier: app
                 port: 3000

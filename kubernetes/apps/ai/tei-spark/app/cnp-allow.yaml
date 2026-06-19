@@ -1,0 +1,40 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: tei-spark-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: tei-spark
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # API + metrics share port 3000 — TEI's HTTP variant serves
+    # /metrics on the main HTTP port; --prometheus-port does NOT open
+    # a separate listener (verified live against 121-sha-5bc4d88).
+    # Stream 2d cutover lands the corresponding egress rule on the
+    # open-webui CNP for the rerank path.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: collab
+            app.kubernetes.io/name: open-webui
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: prometheus
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+  egress:
+    # HuggingFace Hub model download — bge-reranker-v2-m3 weights pulled
+    # to the model cache PVC on first start. Reuses the same world:443
+    # pattern as ollama-spark for the same reason (HF / CDN IPs are not
+    # FQDN-stable enough for toFQDNs).
+    - toEntities: [world]
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

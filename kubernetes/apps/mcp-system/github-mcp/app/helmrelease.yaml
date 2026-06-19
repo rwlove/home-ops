@@ -12,9 +12,11 @@ spec:
   values:
     defaultPodOptions:
       securityContext:
-        runAsGroup: 1000
+        fsGroup: 101
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 101
         runAsNonRoot: true
-        runAsUser: 1000
+        runAsUser: 101
     controllers:
       github-mcp:
         annotations:
@@ -23,16 +25,52 @@ spec:
           annotations:
             sidecar.istio.io/inject: "true"
         containers:
+          # nginx-unprivileged front: receives broker traffic on 8080,
+          # injects the Authorization: Bearer <PAT> header that the
+          # github-mcp-server http transport requires, and forwards to
+          # the sidecar on 127.0.0.1:8082. Runs as UID 101.
           app:
             image:
+              repository: docker.io/nginxinc/nginx-unprivileged
+              tag: 1.31.1-alpine
+            env:
+              # envsubst replaces ${GITHUB_PERSONAL_ACCESS_TOKEN} in the
+              # template; the secret is materialized by the github-mcp
+              # ExternalSecret.
+              GITHUB_PERSONAL_ACCESS_TOKEN:
+                valueFrom:
+                  secretKeyRef:
+                    name: github-mcp-secret
+                    key: GITHUB_PERSONAL_ACCESS_TOKEN
+            resources:
+              requests:
+                cpu: 10m
+                memory: 32Mi
+              limits:
+                memory: 128Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+              seccompProfile:
+                type: RuntimeDefault
+          # github-mcp-server in http mode, bound to 8082. The token is
+          # supplied per-request by the nginx front, not from env (the
+          # env PAT is only honored by the stdio transport), but envFrom
+          # is retained harmlessly. --trust-proxy-headers: we sit behind
+          # the nginx front.
+          github:
+            image:
               repository: ghcr.io/github/github-mcp-server
-              tag: v1.0.4
-            # github-mcp-server's HTTP transport was added in v0.31.0.
-            # --base-path /mcp matches the kuadrant gateway's default prefix.
+              tag: v1.3.0
             args:
               - http
+              - --port
+              - "8082"
               - --base-path
               - /mcp
+              - --trust-proxy-headers
             envFrom:
               - secretRef:
                   name: github-mcp-secret
@@ -44,10 +82,10 @@ spec:
                 memory: 256Mi
             securityContext:
               allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
               capabilities:
                 drop:
                   - ALL
-              readOnlyRootFilesystem: true
               seccompProfile:
                 type: RuntimeDefault
     service:
@@ -55,7 +93,7 @@ spec:
         controller: github-mcp
         ports:
           http:
-            port: 8082
+            port: 8080
     route:
       app:
         hostnames:
@@ -69,6 +107,61 @@ spec:
               - path:
                   type: PathPrefix
                   value: /mcp
+            filters:
+              # Strip inbound Authorization before forwarding to the
+              # backend. The Kuadrant mcp-gateway forwards the broker
+              # Bearer (an Authelia JWT), which would shadow the GitHub
+              # PAT the nginx front injects. Removing it here lets the
+              # injected Bearer take effect.
+              - type: RequestHeaderModifier
+                requestHeaderModifier:
+                  remove:
+                    - Authorization
             backendRefs:
               - identifier: app
-                port: 8082
+                port: 8080
+    persistence:
+      # Source nginx template — envsubst rewrites this into conf.d at
+      # container start. Mounted read-only.
+      nginx-templates:
+        type: configMap
+        name: github-mcp-nginx-config
+        advancedMounts:
+          github-mcp:
+            app:
+              - path: /etc/nginx/templates/default.conf.template
+                subPath: default.conf.template
+                readOnly: true
+      # nginx writes the rendered config + pid + cache here. With
+      # readOnlyRootFilesystem: true these must be emptyDirs.
+      nginx-conf-d:
+        type: emptyDir
+        advancedMounts:
+          github-mcp:
+            app:
+              - path: /etc/nginx/conf.d
+      nginx-cache:
+        type: emptyDir
+        advancedMounts:
+          github-mcp:
+            app:
+              - path: /var/cache/nginx
+      nginx-tmp:
+        type: emptyDir
+        advancedMounts:
+          github-mcp:
+            app:
+              - path: /tmp
+      nginx-run:
+        type: emptyDir
+        advancedMounts:
+          github-mcp:
+            app:
+              - path: /var/run
+      # github-mcp-server scratch under read-only rootfs.
+      github-tmp:
+        type: emptyDir
+        advancedMounts:
+          github-mcp:
+            github:
+              - path: /tmp

@@ -23,6 +23,7 @@ Whenever asked to sort these files, follow these instructions:
 This section gives instructions specifically for HelmReleases that are based on the `app-template` chart. These can be identified by the presence of a sidecar `ocirepository.yaml` file that references `oci://ghcr.io/bjw-s-labs/helm/app-template` in the `url` field.
 
 ### Sorting rules
+
 Whenever asked to sort these files, follow these instructions:
 
 - Whenever there is an `enabled` field, it should be the first field within its section.

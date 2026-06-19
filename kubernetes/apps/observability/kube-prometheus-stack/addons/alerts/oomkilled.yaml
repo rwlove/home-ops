@@ -8,11 +8,27 @@ spec:
   groups:
     - name: oom
       rules:
+        # kube_pod_container_status_last_terminated_reason latches at 1 from
+        # the OOM until the pod is *recreated* — so a single one-off OOM
+        # would otherwise fire a permanent critical that never self-clears
+        # while the pod lives. Gate on a restart in the last 15m
+        # (changes(...restarts_total[15m]) > 0) so the alert tracks
+        # "recently OOMing" rather than "ever OOMed". A crash-loop keeps
+        # incrementing restarts, so it stays firing; a stable-after-OOM
+        # container clears once 15m passes without a new restart.
+        # keep_firing_for: 10m holds across the metric flapping to 0 mid
+        # restart cycle so tight crash-loops don't go silent. ignoring(reason)
+        # matches the gating series (no reason label) against the OOM series.
         - alert: OOMKilled
           annotations:
             summary: Container {{ $labels.container }} of pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is out of memory
             message: Container {{ $labels.container }} of pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is out of memory
             description: Container {{ $labels.container }} of pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is out of memory
-          expr: kube_pod_container_status_last_terminated_reason{reason="OOMKilled"}==1
+          expr: |
+            (kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} == 1)
+            and ignoring(reason)
+            (changes(kube_pod_container_status_restarts_total[15m]) > 0)
+          for: 0m
+          keep_firing_for: 10m
           labels:
             severity: critical

@@ -48,7 +48,7 @@ spec:
           app:
             image:
               repository: ghcr.io/linuxserver/beets
-              tag: 2.11.0@sha256:845de90ba2e3033c9e0aaa94cfc5542f8497f8a424331ea4389b6c4f0b44e5ca
+              tag: 2.11.0@sha256:bb73b8be1142a7b22e13d6f76f986bec99e60761a967714b098f8d766f88ca37
             command:
               - /bin/bash
               - -c
@@ -63,6 +63,12 @@ spec:
                 while :; do
                   if beet -c /tmp/config.yaml import -q /media; then
                     echo "[$(date)] Beets import complete."
+                    # as-is imports preserve bad Discogs MBIDs in the file tags,
+                    # which break Music Assistant's OpenSubsonic track-sync.
+                    # Blank any non-UUID mb_* (DB + file). Non-fatal.
+                    echo "[$(date)] Scrubbing non-UUID MusicBrainz IDs..."
+                    python3 /scripts/mbid-scrub.py /media \
+                      || echo "[$(date)] WARN: mbid-scrub failed (non-fatal)"
                     exit 0
                   fi
                   attempts=$((attempts+1))
@@ -120,6 +126,14 @@ spec:
         globalMounts:
           - path: /tmptmp/config.yaml
             subPath: config.yaml
+            readOnly: true
+
+      scripts:
+        type: configMap
+        name: beets-scripts
+        globalMounts:
+          - path: /scripts/mbid-scrub.py
+            subPath: mbid-scrub.py
             readOnly: true
 
       media:

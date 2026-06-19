@@ -32,7 +32,9 @@ data:
     snapshot_attempt() {
       set -e
 
-      apk add --no-cache --quiet git openssh-client > /dev/null
+      # git + openssh-client are pre-baked into the alpine/git image;
+      # no runtime apk add needed (which would fail under default-deny
+      # since dl-cdn.alpinelinux.org egress isn't allowed from this pod).
 
       if [ "$WAIT_BEFORE" -gt 0 ]; then
         echo "Waiting ${WAIT_BEFORE}s for Frigate to finish startup migrations..."
@@ -99,7 +101,19 @@ data:
 
       DEST="$WORK/repo/$SNAPSHOT_PATH"
       mkdir -p "$(dirname "$DEST")"
-      cp "$CONFIG_FILE" "$DEST"
+      # Prepend yamllint-disable header. The snapshot is Frigate-emitted and
+      # doesn't conform to repo-wide yamllint rules; without this header,
+      # every regenerated snapshot trips ~30 lint errors. Kept inside the
+      # script (not patched onto the file post-hoc) so it survives every
+      # snapshot regeneration.
+      {
+        echo "# yamllint disable"
+        echo "# This file is a snapshot of Frigate's live /config/config.yml,"
+        echo "# written by Frigate itself via the UI / API config setter."
+        echo "# Not hand-authored YAML; not Flux-reconciled. Lint rules around"
+        echo "# quoted-strings / comment-spacing don't apply."
+        cat "$CONFIG_FILE"
+      } > "$DEST"
 
       if git diff --quiet; then
         echo "No diff; nothing to commit."

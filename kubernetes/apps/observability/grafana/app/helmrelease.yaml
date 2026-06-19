@@ -14,6 +14,12 @@ spec:
 
       version: 10.5.15
   interval: 30m
+  # A values-only upgrade (e.g. #11989) blocks on re-resolving the 12
+  # unsigned plugins + pulling the image-renderer image, which can
+  # exceed Flux's default 5m Helm action timeout and trip an
+  # auto-rollback even though the running pod stays healthy. 10m gives
+  # the upgrade room to complete.
+  timeout: 10m
   values:
     affinity:
       podAntiAffinity:
@@ -118,11 +124,33 @@ spec:
               path: /var/lib/grafana/dashboards/ai
             orgId: 1
             type: file
+          - disableDeletion: false
+            editable: true
+            folder: mcp
+            name: mcp
+            options:
+              path: /var/lib/grafana/dashboards/mcp
+            orgId: 1
+            type: file
     dashboards:
       ai:
+        aihomeops-state:
+          # Single-pane "what is HomeAIOps doing right now" view. Mixes
+          # Prometheus (cost cap, paused-thread gauges, per-agent activity),
+          # Loki (Holmes loop + DM fan-out), and Postgres (recent
+          # completions from `task_queue`). Companion — not replacement —
+          # to the langgraph-agents (LLM mechanics) and task-queue
+          # (lifecycle) dashboards.
+          datasource: Prometheus
+          url: https://raw.githubusercontent.com/rwlove/home-ops/main/kubernetes/apps/observability/grafana/dashboards/aihomeops-state.json
         langgraph-agents:
           datasource: Prometheus
           url: https://raw.githubusercontent.com/rwlove/home-ops/main/kubernetes/apps/observability/grafana/dashboards/langgraph-agents.json
+        task-queue:
+          # Phase 4.M3 — queue lifecycle + DLQ rollup. Loki-sourced;
+          # event labels emitted by `agents.queue.{store,worker}`.
+          datasource: Loki
+          url: https://raw.githubusercontent.com/rwlove/home-ops/main/kubernetes/apps/observability/grafana/dashboards/task-queue.json
       cert-manager:
         overview:
           url: https://raw.githubusercontent.com/monitoring-mixins/website/refs/heads/master/assets/cert-manager/dashboards/cert-manager-overview.json
@@ -196,6 +224,10 @@ spec:
           datasource: Prometheus
           gnetId: 11454
           revision: 14
+      mcp:
+        mcp-system:
+          datasource: Prometheus
+          url: https://raw.githubusercontent.com/rwlove/home-ops/main/kubernetes/apps/observability/grafana/dashboards/mcp-system.json
       network:
         cloudflared:
           # renovate: depName="Cloudflare Tunnels (cloudflared)"
@@ -237,7 +269,7 @@ spec:
               maxLines: 1000
             name: Loki
             type: loki
-            url: http://loki-gateway.observability.svc.cluster.local:80
+            url: http://loki.observability.svc.cluster.local:3100
           - access: proxy
             jsonData:
               implementation: prometheus
@@ -260,11 +292,33 @@ spec:
             version: 1
 
             withCredentials: false
+          # Read-only Postgres datasource for the langgraph-agents
+          # checkpointer + task_queue. Backs the "Recent completions"
+          # panel on the HomeAIOps State dashboard. Uses the CNPG
+          # superuser cred already in grafana-secret; only SELECT
+          # queries from dashboards reach this datasource (Grafana is
+          # anonymous-Admin internally; readonly enforcement is the
+          # role's job upstream — see note below).
+          - access: proxy
+            basicAuth: false
+            database: langgraph_checkpoints
+            jsonData:
+              postgresVersion: 1700
+              sslmode: disable
+            name: langgraph_checkpoints
+            secureJsonData:
+              password: $__env{POSTGRES_PASS}
+            type: postgres
+            url: postgres-langgraph-checkpoints-ro.databases.svc.cluster.local:5432
+            user: $__env{POSTGRES_USER}
+            version: 1
+            withCredentials: false
         deleteDatasources:
           - {name: Alertmanager, orgId: 1}
           - {name: Loki, orgId: 1}
           - {name: Prometheus, orgId: 1}
           - {name: home_assistant, orgId: 1}
+          - {name: langgraph_checkpoints, orgId: 1}
     env:
       GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: false
       GF_ANALYTICS_CHECK_FOR_UPDATES: false
@@ -299,6 +353,12 @@ spec:
       enabled: true
       env:
         RENDERING_MODE: clustered
+      image:
+        # Pinned off the chart-default `:latest` so each Helm upgrade
+        # pulls a deterministic digest instead of whatever `latest`
+        # drifted to. Bump deliberately; no Renovate manager tracks
+        # helm-values image tags in this repo yet.
+        tag: "v5.8.8"
     persistence:
       enabled: false
 
@@ -320,6 +380,13 @@ spec:
 
       secret.reloader.stakater.com/reload: *secret
     replicas: 1
+
+    resources:
+      requests:
+        cpu: 50m
+        memory: 512Mi
+      limits:
+        memory: 768Mi
 
     route:
       main:

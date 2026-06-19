@@ -1,0 +1,164 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: tei-spark
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 30m
+  install:
+    disableWait: true
+  upgrade:
+    disableWait: true
+  values:
+    controllers:
+      tei:
+        pod:
+          nodeSelector:
+            node-role.kubernetes.io/gpu: blackwell
+
+          # Spark taints: arm64 (keeps amd64-only workloads off — kubelet
+          # only catches arch mismatch at pull time, too late) and the
+          # nvidia.com/gpu reservation. Mirrors ollama-spark.
+          tolerations:
+            - key: kubernetes.io/arch
+              operator: Equal
+              value: arm64
+              effect: NoSchedule
+            - key: nvidia.com/gpu
+              operator: Equal
+              value: "true"
+              effect: NoSchedule
+
+          priorityClassName: ai-gpu-critical
+
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            fsGroupChangePolicy: OnRootMismatch
+            seccompProfile:
+              type: RuntimeDefault
+
+        type: deployment
+
+        containers:
+          app:
+            image:
+              # workaround: https://github.com/huggingface/text-embeddings-inference/pull/852
+              #   — remove when TEI cuts a release tag > v1.9.3 containing
+              #   PRs #840 (sm_121 arm64) + #852 (12.1 arm64-restricted),
+              #   both merged 2026-03-31 but still main-only (latest
+              #   release v1.9.3 predates them).
+              # Tracking: home-ops#12477
+              # Pinned to the multi-arch index digest; arm64 is the only
+              # platform inside this index (TEI #852 restricted 12.1
+              # builds to linux/arm64).
+              repository: ghcr.io/huggingface/text-embeddings-inference
+              tag: 121-sha-5bc4d88@sha256:f5c419e98b9178184e83bf96856f60e70d515f663493b235f61edf1c5f2de8dc
+
+            env:
+              MODEL_ID: BAAI/bge-reranker-v2-m3
+              HOSTNAME: 0.0.0.0
+              # TEI's HTTP variant serves /metrics on the main API port;
+              # --prometheus-port / PROMETHEUS_PORT does NOT open a
+              # separate listener (verified live against 121-sha-5bc4d88
+              # — port 9000 connect-refused while /metrics on 3000 works).
+              # Single port keeps the Service + CNP + ServiceMonitor
+              # surface coherent.
+              PORT: &httpPort 3000
+              HUGGINGFACE_HUB_CACHE: &cachePath /data
+              # FP16 — bge-reranker-v2-m3 is XLM-RoBERTa (568M params);
+              # FP16 halves VRAM use and is the default for CUDA backends.
+              DTYPE: float16
+              # Truncate over-long inputs rather than 413 the client.
+              # Default-true upstream; pinned here for clarity.
+              AUTO_TRUNCATE: "true"
+              JSON_OUTPUT: "true"
+
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /health
+                    port: *httpPort
+                  initialDelaySeconds: 30
+                  periodSeconds: 30
+                  timeoutSeconds: 5
+                  failureThreshold: 5
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /health
+                    port: *httpPort
+                  initialDelaySeconds: 10
+                  periodSeconds: 10
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              # Generous startup budget: bge-reranker-v2-m3 cold start
+              # is HF Hub download (~570 MB) + safetensors load to GPU.
+              # 60 * 5s = 5 min, refined in PR-2 once we have wall-clock
+              # numbers from Spark.
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /health
+                    port: *httpPort
+                  initialDelaySeconds: 5
+                  periodSeconds: 5
+                  timeoutSeconds: 5
+                  failureThreshold: 60
+
+            resources:
+              requests:
+                cpu: 500m
+                memory: 4Gi
+                nvidia.com/gpu: 1
+              limits:
+                memory: 12Gi
+                nvidia.com/gpu: 1
+
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 1000
+              runAsGroup: 1000
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+
+    service:
+      app:
+        controller: tei
+        ports:
+          http:
+            port: *httpPort
+
+    persistence:
+      cache:
+        existingClaim: tei-spark-cache-pvc
+        advancedMounts:
+          tei:
+            app:
+              - path: *cachePath
+
+      # TEI extracts safetensors / tokenizers and uses /tmp for the
+      # internal gRPC UDS socket. Read-only rootfs requires a writable
+      # /tmp; emptyDir is the established pattern (langgraph-agents,
+      # see helmrelease.security.md).
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          tei:
+            app:
+              - path: /tmp

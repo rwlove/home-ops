@@ -1,7 +1,7 @@
 # Windmill workflow source
 
-These TypeScript scripts are the source-of-truth for the 7 Windmill
-flows that replaced n8n in the `lovenet` workspace.
+These TypeScript scripts are the source-of-truth for the Windmill
+flows that replaced in the `lovenet` workspace.
 
 Runtime lives in the Windmill DB; this directory is the *checked-in
 canonical text*. Push to Windmill via the API (see `tools/wmill-sync.sh`
@@ -26,9 +26,11 @@ or the inline curl in the README two levels up).
 | `LANGGRAPH_APPROVAL_SIGNING_KEY` | `langgraph-agents.LANGGRAPH_APPROVAL_SIGNING_KEY` |
 | `NTFY_URL` | literal template (`https://ntfy.${SECRET_DOMAIN}`) |
 | `NTFY_WRITE_TOKEN` | `ntfy.NTFY_WRITE_TOKEN` |
-| `ZULIP_BOT_EMAIL` | `zulip-n8n-bot.ZULIP_BOT_EMAIL` |
-| `ZULIP_BOT_API_KEY` | `zulip-n8n-bot.ZULIP_BOT_API_KEY` |
-| `ROB_ZULIP_USER_ID` | `zulip-n8n-bot.ROB_ZULIP_USER_ID` |
+| `ZULIP_BOT_EMAIL` | `zulip-windmill-bot.ZULIP_BOT_EMAIL` |
+| `ZULIP_BOT_API_KEY` | `zulip-windmill-bot.ZULIP_BOT_API_KEY` |
+| `ROB_ZULIP_USER_ID` | `zulip-windmill-bot.ROB_ZULIP_USER_ID` |
+| `PAPERLESS_TOKEN` | `paperless.mcp_token` (shared with paperless-mcp) |
+| `LIGHTRAG_API_KEY` | `lightrag.api_key` (shared with the ai-ns lightrag ExternalSecret) |
 
 ## Approval-token signing (pre-sign at post-time)
 

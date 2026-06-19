@@ -239,7 +239,7 @@ performs mTLS, policy enforcement, L7 telemetry.
   92% allocated and P40-era workers are P40-era.
 - **Pod-startup latency.** Sidecar must be ready before the app
   can serve. Adds 5-15s to cold starts (already a known pain point
-  for prowlarr, immich-ml, and others — see
+  for media-pull-stack apps, immich-ml, and others — see
   [HelmReleases needing disableWait](https://github.com/rwlove/home-ops) memory note).
 - **Init container ordering.** Some apps' init containers need
   network before the sidecar is ready. Workarounds exist

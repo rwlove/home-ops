@@ -3,26 +3,61 @@
 // Receives a critical alert, asks HolmesGPT to investigate (≤2 tool
 // calls, <500 chars), then forwards the summary via ntfy → #alerts.
 //
-// Replaces the n8n flow "AlertManager → HolmesGPT → Pushover".
+// Replaces the flow "AlertManager → HolmesGPT → Pushover".
 
-type AlertmanagerPayload = {
-    alerts: Array<{
-        labels: { alertname: string; severity?: string; namespace?: string; pod?: string };
-        annotations: { summary?: string; description?: string };
-    }>;
+type AlertmanagerAlert = {
+    labels: { alertname: string; severity?: string; namespace?: string; pod?: string };
+    annotations: { summary?: string; description?: string };
 };
 
-export async function main(body: AlertmanagerPayload) {
-    const a = body.alerts?.[0];
+// Windmill maps top-level JSON keys of the webhook body to function
+// args by name — it does NOT wrap the whole body into a single
+// parameter. Alertmanager POSTs `{"alerts": [...], "version": "4",
+// "groupKey": "...", ...}`; Windmill invokes
+// `main(alerts=[...], version="4", ...)`. Take `alerts` directly.
+// See memory `project_windmill_migration_done.md`.
+export async function main(alerts?: AlertmanagerAlert[]) {
+    const a = alerts?.[0];
     if (!a) {
         return { skip: true, reason: "no alerts in payload" };
     }
 
+    // Constrained prompt — the earlier shape ("answer in <500 chars
+    // total") wasn't enough to keep qwen2.5:32b from emitting a
+    // raw tool-call JSON as its "answer," which the workflow detects
+    // as `MCP error -32602`-style output and surfaces as "model
+    // returned a tool-call instead of a summary." Tightening:
+    //
+    //  - Explicit budget on tool calls (at most 6, raised from 2
+    //    2026-05-23 — 2 was too tight for multi-step investigations
+    //    like SnmpExporterApcUpsAbsent that need `get pods` then
+    //    `describe pod` then `get events` to converge).
+    //  - Explicit ban on additional tool calls after the budget.
+    //  - Format pinned to a 2-line prose answer (root cause +
+    //    remediation), forbidding JSON / structured output / further
+    //    tool invocations in the final response.
+    //
+    // Keep it short; long prompts are themselves a budget problem
+    // (Holmes' system prompt + tool descriptions are already ~16K
+    // input tokens before this `ask` — see OVERRIDE_MAX_CONTENT_SIZE
+    // in the HelmRelease, raised to 32K 2026-05-23 to give bigger
+    // tool-result payloads room to land).
     const ask = [
-        "IMPORTANT: Be concise. Investigate this alert in <=2 tool calls",
-        "(kubectl_get_events on the namespace plus one other). Then answer",
-        "in <500 chars total: 1 sentence root cause + 1 sentence remediation.",
-        "Do not iterate further.",
+        "Investigate this alert. Use AT MOST 6 tool calls.",
+        "Reach for `kubectl_get_events`, `kubectl_get`, `kubectl_describe`,",
+        "and `kubectl_logs` as needed. Stop early when you have enough",
+        "evidence — converge as fast as the alert allows.",
+        "",
+        "After your investigation completes, you MUST produce your",
+        "final answer as plain text — NOT another tool call, NOT JSON,",
+        "NOT structured output. Stop calling tools and write prose.",
+        "",
+        "Final answer format (<500 characters total, two sentences max):",
+        "  1) one sentence on the most likely root cause",
+        "  2) one sentence on the remediation",
+        "",
+        "Do not output any JSON. Do not output any tool_call objects.",
+        "Do not iterate further. Respond in prose only.",
         "",
         `Alert: ${a.labels.alertname}`,
         `Severity: ${a.labels.severity ?? "unknown"}`,
@@ -33,6 +68,193 @@ export async function main(body: AlertmanagerPayload) {
     ].join("\n");
 
     // HolmesGPT REST: POST /api/chat
+    const raw = await askHolmes(ask);
+
+    let message: string;
+    if (!raw) {
+        message = "⚠️ HolmesGPT returned no analysis. Check the Windmill execution.";
+    } else if (isToolCallShape(raw)) {
+        // qwen2.5:32b at the tool-loop's max_steps sometimes returns a
+        // raw tool_call JSON instead of synthesizing prose. PR #11973
+        // tried to fix this from the prompt side; didn't take. Now:
+        // (1) surface WHAT Holmes wanted to call so the operator gets
+        //     an actionable hint instead of a useless warning, and
+        // (2) re-call Holmes with a no-tools follow-up asking only
+        //     for a prose best-guess from the alert metadata.
+        const hint = describeToolCall(raw);
+        const fallback = await askHolmes(noToolsPrompt(a));
+        if (fallback && !isToolCallShape(fallback)) {
+            message = `${fallback}\n\n_(Holmes' tool-loop wanted to: ${hint})_`;
+        } else {
+            // Both passes failed (empty `{}` or another tool_call shape).
+            // Don't let Rob receive an actionless card — include the
+            // alert metadata + what Holmes would have done next, so
+            // there's something to act on even when AI synthesis flopped.
+            // Tighter than the previous "Investigate manually." stub.
+            const summary = a.annotations.summary ?? a.annotations.description ?? "(no summary)";
+            message = [
+                `⚠️ Holmes couldn't synthesize a root cause. Alert details below — operator triage required.`,
+                ``,
+                `**Alert**: ${a.labels.alertname}`,
+                `**Severity**: ${a.labels.severity ?? "unknown"}`,
+                `**Namespace**: ${a.labels.namespace ?? "(global)"}`,
+                `**Pod**: ${a.labels.pod ?? "n/a"}`,
+                `**Summary**: ${summary}`,
+                ``,
+                `_(Holmes' tool-loop wanted to: ${hint} — try running it manually.)_`,
+            ].join("\n");
+        }
+    } else if (raw.length <= 1000) {
+        message = raw;
+    } else {
+        const cut = raw.slice(0, 997);
+        const m = cut.match(/^[\s\S]*[.!?\n](?=[^.!?\n]*$)/);
+        message = ((m && m[0].length > 600) ? m[0] : cut).trimEnd() + "…";
+    }
+
+    // ntfy priority pinned to 3 (default/simple buzz) — Rob doesn't want
+    // the insistent max/urgent vibration pattern on alert relays.
+    const priority = 3;
+
+    const notifyResp = await publishNtfy({
+        topic: "alerts",
+        title: `🔍 ${a.labels.alertname}`,
+        message,
+        priority,
+        tags: ["mag"],
+    });
+
+    // Loop closure (HOMELAB-SPEC Layer 0 Mission: "Build a self-
+    // healing home-ops cluster driven by agents that work when Rob
+    // is not at a keyboard"). After Holmes triages, hand the alert
+    // + triage to the langgraph fleet so a specialist agent can
+    // propose remediation. Fire-and-forget — we don't block this
+    // workflow on the specialist; Class A/B actions auto-execute,
+    // Class C/D actions go through the existing approval flow which
+    // DMs Rob via langgraph-approval-post. Specialist completion
+    // produces a separate Zulip card via langgraph-completion-post.
+    //
+    // Routed by alert namespace label so the triager picks the
+    // right specialist. Best-effort — exceptions don't reach Rob
+    // (he already got the Holmes ntfy + Zulip).
+    const specialistResp = await routeToSpecialist(a, message);
+
+    return {
+        alertname: a.labels.alertname,
+        holmes_chars: raw.length,
+        ntfy: notifyResp,
+        specialist: specialistResp,
+    };
+}
+
+// ---------- Specialist routing ----------
+
+// Map alert namespace → suggested specialist agent. The triager
+// inside langgraph makes the final routing call; this hint just
+// short-circuits guessing.
+const NAMESPACE_SPECIALIST: Record<string, string> = {
+    "observability": "observability-operator",
+    "rook-ceph": "storage-operator",
+    "databases": "storage-operator",
+    "home": "smart-home-operator",
+    "collab": "smart-home-operator",
+    "ai": "ml-operator",
+    "mcp-system": "ml-operator",
+    "network": "network-operator",
+    "kube-system": "homelab-engineer",
+    "automation": "homelab-engineer",
+};
+
+type SpecialistDispatch = {
+    dispatched: boolean;
+    task_id?: string;
+    suggested_agent?: string;
+    reason?: string;
+};
+
+async function routeToSpecialist(
+    a: AlertmanagerAlert,
+    holmesAnalysis: string,
+): Promise<SpecialistDispatch> {
+    const lgBase = "http://langgraph-agents.ai.svc.cluster.local:8765";
+    const haiToken = Deno.env.get("HAI_CLI_TOKEN");
+    if (!haiToken) {
+        return { dispatched: false, reason: "HAI_CLI_TOKEN not set" };
+    }
+
+    const ns = a.labels.namespace ?? "";
+    const suggested = NAMESPACE_SPECIALIST[ns] ?? "homelab-engineer";
+
+    // task_id includes the alert fingerprint + Holmes-analysis hash so
+    // re-firing the same alert doesn't spam the specialist. langgraph's
+    // idempotency dedup is 1h TTL.
+    const fingerprint = `${a.labels.alertname}-${ns}-${a.labels.pod ?? a.labels.instance ?? "global"}`;
+    const taskId = `alert-${fingerprint}-${new Date().toISOString().slice(0, 13)}`;
+
+    const content = [
+        `An alert just fired. Holmes already triaged. Read the triage,`,
+        `verify it against current cluster state, and propose a SINGLE`,
+        `concrete remediation action.`,
+        ``,
+        `Use the approval interrupt for any destructive change (Class C/D).`,
+        `Class A/B may execute directly. If no action is needed, say so`,
+        `in one sentence.`,
+        ``,
+        `=== Alert ===`,
+        `Name: ${a.labels.alertname}`,
+        `Severity: ${a.labels.severity ?? "unknown"}`,
+        `Namespace: ${ns || "(global)"}`,
+        `Pod: ${a.labels.pod ?? "n/a"}`,
+        `Instance: ${a.labels.instance ?? "n/a"}`,
+        `Summary: ${a.annotations.summary ?? "(none)"}`,
+        `Description: ${a.annotations.description ?? "(none)"}`,
+        ``,
+        `=== Holmes triage ===`,
+        holmesAnalysis,
+    ].join("\n");
+
+    try {
+        const r = await fetch(`${lgBase}/inbox`, {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${haiToken}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                task_id: taskId,
+                source: "holmesgpt",
+                user: "rob",
+                content,
+                // Pin routing by namespace — see NAMESPACE_SPECIALIST
+                // map above. Requires lga 0.2.40+. Bypasses the
+                // qwen2.5:7b triager's known mis-routing of
+                // alert-investigation prompts.
+                target_agent: suggested,
+                idempotency_key: taskId,
+                priority: a.labels.severity === "critical" ? "high" : "normal",
+            }),
+            signal: AbortSignal.timeout(15_000),
+        });
+        if (!r.ok) {
+            return {
+                dispatched: false,
+                suggested_agent: suggested,
+                reason: `/inbox returned ${r.status}`,
+            };
+        }
+        return { dispatched: true, task_id: taskId, suggested_agent: suggested };
+    } catch (e) {
+        return {
+            dispatched: false,
+            suggested_agent: suggested,
+            reason: (e as Error).message,
+        };
+    }
+}
+
+// ---------- Holmes helpers ----------
+
+async function askHolmes(ask: string): Promise<string> {
     const hg = await fetch(
         "http://holmesgpt.observability.svc.cluster.local:8080/api/chat",
         {
@@ -43,36 +265,53 @@ export async function main(body: AlertmanagerPayload) {
         },
     );
     const data = await hg.json().catch(() => ({}));
-    const raw = String(data.analysis ?? data.response ?? "").trim();
+    return String(data.analysis ?? data.response ?? "").trim();
+}
 
-    let message: string;
-    if (!raw) {
-        message = "⚠️ HolmesGPT returned no analysis. Check the Windmill execution.";
-    } else if (
-        /^[:\s]*\{/.test(raw) &&
-        /"(suggested_prefixes|tool_call_id|function)"\s*:/.test(raw.slice(0, 200))
-    ) {
-        message = `⚠️ HolmesGPT model returned a tool-call instead of a summary.`;
-    } else if (raw.length <= 1000) {
-        message = raw;
-    } else {
-        const cut = raw.slice(0, 997);
-        const m = cut.match(/^[\s\S]*[.!?\n](?=[^.!?\n]*$)/);
-        message = ((m && m[0].length > 600) ? m[0] : cut).trimEnd() + "…";
-    }
+function isToolCallShape(raw: string): boolean {
+    return /^[:\s]*\{/.test(raw) &&
+        /"(suggested_prefixes|tool_call_id|function)"\s*:/.test(raw.slice(0, 200));
+}
 
-    const sev = (a.labels.severity ?? "").toLowerCase();
-    const priority = sev === "critical" ? 5 : sev === "warning" ? 4 : 3;
+// Parse the tool_call JSON Holmes returned and produce a human-readable
+// one-liner describing what tool it wanted to invoke. The shape varies
+// by model — qwen2.5 OpenAI-compat returns
+//   `{"function": {"name": "foo", "arguments": "{...}"}}`
+// or the wrapped streaming form
+//   `{"tool_calls":[{"function":{"name":"foo","arguments":"{...}"}}]}`
+// — fall back to the bare alertname when nothing parses.
+function describeToolCall(raw: string): string {
+    try {
+        const j = JSON.parse(raw);
+        const fn = j?.function ?? j?.tool_calls?.[0]?.function ?? j?.suggested_prefixes;
+        if (typeof fn === "string") return fn; // suggested_prefixes shape
+        if (fn?.name) {
+            const args = typeof fn.arguments === "string" ? fn.arguments : JSON.stringify(fn.arguments ?? {});
+            return `\`${fn.name}(${args.slice(0, 120)})\``;
+        }
+    } catch (_) { /* ignore JSON errors — fall through */ }
+    return "another tool (couldn't parse)";
+}
 
-    const notifyResp = await publishNtfy({
-        topic: "alerts",
-        title: `🔍 ${a.labels.alertname}`,
-        message,
-        priority,
-        tags: ["mag"],
-    });
-
-    return { alertname: a.labels.alertname, holmes_chars: raw.length, ntfy: notifyResp };
+// No-tools follow-up prompt — used when the first call returns a
+// tool_call shape. We can't continue the prior investigation (Holmes
+// /api/chat is stateless across calls), so this asks for a prose
+// best-guess from the alert metadata only.
+function noToolsPrompt(a: AlertmanagerAlert): string {
+    return [
+        "Earlier my investigation didn't synthesize a prose summary.",
+        "DO NOT call any tools. Respond ONLY in plain English prose.",
+        "Based ONLY on the alert metadata below, give 1 sentence on the",
+        "most likely root cause and 1 sentence on the remediation.",
+        "<300 characters total. No JSON. No tool calls.",
+        "",
+        `Alert: ${a.labels.alertname}`,
+        `Severity: ${a.labels.severity ?? "unknown"}`,
+        `Namespace: ${a.labels.namespace ?? "unknown"}`,
+        `Pod: ${a.labels.pod ?? "n/a"}`,
+        `Summary: ${a.annotations.summary ?? "(none)"}`,
+        `Description: ${a.annotations.description ?? "(none)"}`,
+    ].join("\n");
 }
 
 async function publishNtfy(args: {
@@ -82,7 +321,7 @@ async function publishNtfy(args: {
     priority?: number;
     tags?: string[];
 }) {
-    const url = Deno.env.get("NTFY_URL") ?? "https://ntfy.thesteamedcrab.com";
+    const url = Deno.env.get("NTFY_URL") ?? "";
     const token = Deno.env.get("NTFY_WRITE_TOKEN");
     if (!token) throw new Error("NTFY_WRITE_TOKEN env not set");
     const r = await fetch(url, {

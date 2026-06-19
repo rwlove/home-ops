@@ -8,19 +8,39 @@ spec:
   groups:
     - name: external-dns.rules
       rules:
+        # external-dns runs with --interval=1m --policy=sync, so the
+        # sync timestamp updates every minute on a healthy controller
+        # regardless of whether there are zone changes. A 10-minute
+        # stale window catches "controller hung" reliably; the
+        # previous 1-hour threshold delayed paging by ~55 min.
+        # Crashes manifest as `up == 0` / metric absent and are
+        # covered by ExternalDNSDown below.
         - alert: ExternalDNSStale
           expr: |
-            time() - external_dns_controller_last_sync_timestamp_seconds > 3600
+            time() - external_dns_controller_last_sync_timestamp_seconds > 600
           for: 5m
           annotations:
             summary: >-
-              ExternalDNS ({{ $labels.job }}) has not synced successfully in the last hour
+              ExternalDNS ({{ $labels.job }}) sync timestamp hasn't advanced in 10+ minutes
+          labels:
+            severity: critical
+        - alert: ExternalDNSDown
+          expr: |
+            absent(up{job=~".*external-dns.*"} == 1)
+          for: 5m
+          annotations:
+            summary: >-
+              ExternalDNS scrape target absent for 5+ minutes (pod likely crashed or evicted)
           labels:
             severity: critical
 
+        # Raw cumulative *_errors_total > 0 latches forever after the
+        # first error until the pod restarts (counter only resets on
+        # restart). Use increase() so the alert fires only while errors
+        # are actively occurring.
         - alert: ExternalDNSSourceError
           expr: |
-            external_dns_source_errors_total > 0
+            increase(external_dns_source_errors_total[15m]) > 0
           for: 5m
           annotations:
             summary: >-
@@ -30,7 +50,7 @@ spec:
 
         - alert: ExternalDNSApplyChangesError
           expr: |
-            external_dns_webhook_provider_applychanges_errors_total > 0
+            increase(external_dns_webhook_provider_applychanges_errors_total[15m]) > 0
           for: 5m
           annotations:
             summary: >-
@@ -40,7 +60,7 @@ spec:
 
         - alert: ExternalDNSRecordsError
           expr: |
-            external_dns_webhook_provider_records_errors_total > 0
+            increase(external_dns_webhook_provider_records_errors_total[15m]) > 0
           for: 5m
           annotations:
             summary: >-

@@ -1,0 +1,153 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app comfyui-spark
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 30m
+  # First run git-clones ComfyUI and builds a Python venv (minutes);
+  # don't let Flux block the Kustomization waiting on readiness.
+  install:
+    disableWait: true
+  upgrade:
+    disableWait: true
+  values:
+    controllers:
+      comfyui-spark:
+        pod:
+          nodeSelector:
+            node-role.kubernetes.io/gpu: blackwell
+
+          tolerations:
+            # Spark is tainted kubernetes.io/arch=arm64:NoSchedule to keep
+            # amd64-only workloads off it, plus nvidia.com/gpu=true:NoSchedule.
+            # This image is arm64-native (mmartial DGX build), so tolerate both.
+            - key: kubernetes.io/arch
+              operator: Equal
+              value: arm64
+              effect: NoSchedule
+            - key: nvidia.com/gpu
+              operator: Equal
+              value: "true"
+              effect: NoSchedule
+
+        # Deliberately no priorityClassName: comfyui-spark runs at the
+        # global default (0), far below ollama-spark's ai-gpu-critical
+        # (100040). On the shared time-sliced GB10 the kubelet evicts
+        # this pod first under node memory pressure — the inference path
+        # (ollama-spark) is never starved by image generation.
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        type: statefulset
+
+        initContainers:
+          # mmartial refuses to chown a volume mount root and expects it
+          # pre-owned by WANTED_UID:WANTED_GID (the Docker model: mkdir the
+          # dirs as your user before run). Fresh ceph-block volumes mount as
+          # 0:0, and fsGroup only fixes the group — so chown both mounts to
+          # 1000:1000 here. Reuses the already-cached app image (no 2nd pull).
+          init-perms:
+            image:
+              repository: docker.io/mmartial/comfyui-nvidia-docker
+              tag: ubuntu24_cuda13.2-dgx-20260509@sha256:b1821811c57fab76a906e0eecbd7d66d96069d68e90579d06f001a9211c64468
+            command:
+              - sh
+              - -c
+              - chown -R 1000:1000 /comfy/mnt /basedir
+            securityContext:
+              runAsUser: 0
+              runAsNonRoot: false
+
+        containers:
+          app:
+            image:
+              # Docker Hub is mmartial's only registry (no ghcr); allowlisted.
+              # arm64 + CUDA 13.2 + PyTorch built native for sm_121 (GB10).
+              repository: docker.io/mmartial/comfyui-nvidia-docker
+              tag: ubuntu24_cuda13.2-dgx-20260509@sha256:b1821811c57fab76a906e0eecbd7d66d96069d68e90579d06f001a9211c64468
+
+            env:
+              BASE_DIRECTORY: /basedir
+              SECURITY_LEVEL: normal
+              USE_UV: "true"
+              # Re-map the in-image `comfy` user to 1000/1000 and chown the
+              # fresh ceph-block volumes on first start.
+              WANTED_UID: "1000"
+              WANTED_GID: "1000"
+              FORCE_CHOWN: "yes"
+              # Shared GB10: --lowvram makes ComfyUI release VRAM between
+              # ops so it can't camp on the unified pool ollama-spark needs.
+              # Raise to --normalvram once contention headroom is measured.
+              COMFY_CMDLINE_EXTRA: --lowvram
+
+            resources:
+              requests:
+                cpu: 500m
+                memory: 2Gi
+                nvidia.com/gpu: 1
+              limits:
+                # NOTE: on GB10 unified memory, CUDA-mapped model weights do
+                # NOT bill against the kubelet cgroup (see ollama-spark), so
+                # this limit bounds container RSS, not VRAM. The real VRAM
+                # lever is COMFY_CMDLINE_EXTRA above.
+                memory: 24Gi
+                nvidia.com/gpu: 1
+
+            securityContext:
+              # mmartial's init starts as the in-image user and uses sudo to
+              # usermod/chown to WANTED_UID/GID; matches ollama-spark + the
+              # existing comfyui (both privileged). Deviates from
+              # helmrelease.security.md by design — documented here.
+              privileged: true
+
+    service:
+      app:
+        controller: comfyui-spark
+        ports:
+          http:
+            port: &httpPort 8188
+
+    route:
+      main:
+        annotations:
+          glance/name: "Comfy UI (Spark)"
+          glance/show: "true"
+          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/comfy-ui.png"
+          glance/id: "AI"
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: *httpPort
+
+    persistence:
+      # Regenerable model data (re-downloaded fresh) + outputs/custom_nodes.
+      # ceph-block: RWO, attaches on the Spark (rook RBD nodeplugin present),
+      # rule-2 tier for reconstructable data.
+      basedir:
+        existingClaim: comfyui-spark-basedir-pvc
+        advancedMounts:
+          comfyui-spark:
+            init-perms:
+              - path: /basedir
+            app:
+              - path: /basedir
+      # ComfyUI source checkout + Python venv + pip/uv caches (regenerable).
+      run:
+        existingClaim: comfyui-spark-run-pvc
+        advancedMounts:
+          comfyui-spark:
+            init-perms:
+              - path: /comfy/mnt
+            app:
+              - path: /comfy/mnt

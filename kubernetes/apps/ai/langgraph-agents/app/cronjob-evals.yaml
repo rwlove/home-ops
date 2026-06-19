@@ -1,0 +1,173 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/cronjob-batch-v1.json
+# Manually-triggered Spark-vs-Claude eval sweep.
+#
+# Runs the `evals/` harness from rwlove/langgraph-agents against the
+# deployed fleet code, IN-CLUSTER so the operator nodes can reach the
+# MCP gateway (evidence pre-fetch) + ollama-spark (local synthesis). A
+# laptop run gets empty evidence — the gateway's internal :8080 path is
+# only reachable in-cluster and the local synthesis needs the Spark GPU.
+#
+# SUSPENDED: never fires on its own. Trigger a run with:
+#
+#   kubectl -n ai create job --from=cronjob/langgraph-evals \
+#     eval-$(date +%Y%m%d-%H%M)
+#
+# The score table + per-agent labels (offload-safe / route-to-api /
+# keep-local-fix) print to the pod log (queryable in Loki); the full
+# JSON report is catted at the end of the run.
+#
+# Why a suspended CronJob and not a bare Job:
+#   - $0 until explicitly triggered. The sweep spends metered tokens
+#     (~22 golden tasks x forced-Claude synthesis + Opus judge), so it
+#     must NOT auto-run on merge.
+#   - Repeatable without YAML churn — `create job --from=cronjob` gives
+#     a fresh run each time (a bare Job's spec is immutable; re-running
+#     means a delete-or-bump dance).
+#   Trigger inside the routine maintenance window (any night
+#   02:00-05:00 ET) — the sweep contends with the reasoning fleet for
+#   the shared Spark GPU.
+#
+# Why fetch-at-runtime: `evals/` is repo-root dev tooling, NOT in the
+# baked image (the Dockerfile COPYs only src/ + agents/). The
+# initContainer pulls the harness tarball at the SAME tag the image is
+# built from, and the main container runs it on the image's pre-built
+# venv — so `agents` (venv, installed) and `evals` (fetched, cwd) are
+# the same commit (v0.2.71). No `uv sync` at runtime, no version skew.
+#
+# Pin the image digest + the fetch tag together on every fleet bump:
+# both must track the deployed langgraph-agents version (helmrelease.yaml).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: langgraph-evals
+  labels:
+    app.kubernetes.io/name: langgraph-evals
+spec:
+  # Feb 31 never occurs — belt to the `suspend` suspenders. This job is
+  # only ever started by hand via `create job --from=cronjob`.
+  schedule: "0 3 31 2 *"
+  suspend: true
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0  # never silently retry an expensive metered sweep
+      activeDeadlineSeconds: 5400  # 90m ceiling (22 tasks x 3 sequential LLM calls)
+      ttlSecondsAfterFinished: 172800  # keep finished pods 2d for log review
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: langgraph-evals
+        spec:
+          restartPolicy: Never
+          # Same SA as the deployment for parity; token not mounted (the
+          # nodes reach the cluster via the MCP gateway, not the in-pod SA).
+          serviceAccountName: langgraph-agents
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            # Fetch the evals/ harness at the deployed tag into the shared
+            # emptyDir. Uses the image's own venv httpx (certifi CA bundle)
+            # so TLS to github works without a ca-certificates package.
+            - name: fetch-evals
+              image: ghcr.io/rwlove/langgraph-agents:0.2.71@sha256:ef1d30450e9ca93bc48ad81faa9da970e111be49280ab9bf2853027f54a02cfe
+              command:
+                - python
+                - -c
+                - |
+                  import io, tarfile, httpx
+                  url = "https://github.com/rwlove/langgraph-agents/archive/refs/tags/v0.2.71.tar.gz"
+                  data = httpx.get(url, follow_redirects=True, timeout=60).raise_for_status().content
+                  tarfile.open(fileobj=io.BytesIO(data)).extractall("/workspace")
+                  print(f"fetched evals harness ({len(data)} bytes) to /workspace")
+              volumeMounts:
+                - name: workspace
+                  mountPath: /workspace
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+          containers:
+            - name: evals
+              image: ghcr.io/rwlove/langgraph-agents:0.2.71@sha256:ef1d30450e9ca93bc48ad81faa9da970e111be49280ab9bf2853027f54a02cfe
+              workingDir: /workspace/langgraph-agents-0.2.71
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  mkdir -p /tmp/vault
+                  echo "[evals] starting Spark-vs-Claude sweep (--all) on $(pwd)"
+                  python -m evals --all --out /workspace/results.json
+                  echo "[evals] ===== results.json ====="
+                  cat /workspace/results.json
+              env:
+                # Mirrors the deployment env that the agents settings +
+                # operator nodes read; only the bits the eval path touches.
+                - name: VAULT_ROOT
+                  value: /tmp/vault  # personas are baked into the image; this is just a writable scratch root
+                - name: ENABLE_CLAUDE_API
+                  value: "true"
+                - name: MCP_GATEWAY_URL
+                  value: http://mcp-gateway-istio.mcp-system.svc.cluster.local:8080
+                - name: MEMORY_EMBED_MODEL
+                  value: bge-m3
+                - name: MEMORY_OLLAMA_URL
+                  value: http://ollama-spark.ai.svc.cluster.local:11434
+                # Cost ceilings — same as the deployment. A 4-operator
+                # sweep stays well under these; they're the runaway guard.
+                - name: COST_CAP_PER_TASK_USD
+                  value: "5.0"
+                - name: COST_CAP_PER_AGENT_DAILY_USD
+                  value: "10.0"
+                - name: COST_CAP_GLOBAL_DAILY_USD
+                  value: "30.0"
+                - name: LOG_LEVEL
+                  value: INFO
+                - name: USER_TIMEZONE
+                  value: America/New_York
+                - name: POSTGRES_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgres-langgraph-checkpoints-app
+                      key: uri
+                - name: MEMORY_POSTGRES_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgres-langgraph-memory-app
+                      key: uri
+              envFrom:
+                # ANTHROPIC_API_KEY (the funded key) + the rest of the
+                # fleet secret surface.
+                - secretRef:
+                    name: langgraph-agents-secret
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 512Mi
+                limits:
+                  memory: 1Gi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: workspace
+                  mountPath: /workspace
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: workspace
+              emptyDir: {}
+            - name: tmp
+              emptyDir: {}

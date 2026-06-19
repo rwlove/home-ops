@@ -12,7 +12,18 @@ spec:
     - name: node-exporter.rules
       rules:
         - alert: HostOutOfMemory
-          expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes * 100 < 10
+          # security-storage excluded: it's a RAM-starved Core 2 box (7.4 GiB)
+          # whose steady state is <10% MemAvailable because the Frigate write
+          # path keeps page cache pegged. Expected, not an incident — the real
+          # fix is the NAS rebuild (project_todo_security_storage_new_build).
+          #
+          # spark excluded: GB10/Grace-Blackwell uses unified memory, so models
+          # warm-pinned in ollama-spark/comfyui (e.g. qwen2.5-coder:32b) live in
+          # system RAM (what would be VRAM on a discrete GPU) and read as <10%
+          # MemAvailable by design. kubectl top undercounts because the weights
+          # are GPU-mapped outside cgroups. Real inference failure is caught by
+          # SparkOllamaWedged + the ollama-spark-embed probe, not this rule.
+          expr: node_memory_MemAvailable_bytes{instance!~"security-storage.*|spark.*"} / node_memory_MemTotal_bytes{instance!~"security-storage.*|spark.*"} * 100 < 10
           for: 2m
           labels:
             severity: warning
@@ -134,6 +145,24 @@ spec:
             summary: Host high CPU load (instance {{ $labels.instance }})
             description: "CPU load is > 90%\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
 
+        - alert: HostCpuSteal
+          # Only the 6 beast-hosted VMs (master2/3 + worker5-8) can register steal:
+          # beast runs 46 guest vCPUs on 16c/32t with no pinning, while every other
+          # node is bare metal (steal == 0 always), so a global rule self-scopes to
+          # the overcommitted guests. Baseline is ~0.07% avg / 1.8% 24h-peak
+          # (measured 2026-06-19) — harmless headroom today. Fires only if the
+          # overcommit crosses into real starvation: >5% steal sustained 30m (clears
+          # backup-window bursts). The fix when it fires is right-sizing worker
+          # vCPUs / NUMA pinning, not this alert — see
+          # reference_beast_compute_topology_and_cp_quorum_spof.
+          expr: 100 * avg by (instance) (rate(node_cpu_seconds_total{mode="steal"}[15m])) > 5
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: Host CPU steal high (instance {{ $labels.instance }})
+            description: "vCPU steal > 5% — the hypervisor (beast) is overcommitted and starving this guest of CPU\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+
         # You may want to increase the alert manager 'repeat_interval' for this type of alert to daily or weekly
         # - alert: HostCpuIsUnderUtilized
         #   expr: 100 - (rate(node_cpu_seconds_total{mode="idle"}[30m]) * 100) < 20
@@ -175,23 +204,27 @@ spec:
         #     description: "Context switching is growing on node (> 8000 / s)\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
 
         - alert: HostSwapIsFillingUp
-          expr: (1 - (node_memory_SwapFree_bytes / node_memory_SwapTotal_bytes)) * 100 > 80
-          for: 2m
+          # beast is the only swap-enabled host (4 GiB swap / 188 GiB RAM) and
+          # parks flat at ~86% — a static >80% threshold cries wolf forever.
+          # Require swap to be both high AND trending toward exhaustion so the
+          # rule only fires on a real fill event, not steady-state parked swap.
+          expr: |
+            (1 - (node_memory_SwapFree_bytes / node_memory_SwapTotal_bytes)) * 100 > 80
+            and
+            predict_linear(node_memory_SwapFree_bytes[1h], 3600) < 0
+          for: 10m
           labels:
             severity: warning
           annotations:
             summary: Host swap is filling up (instance {{ $labels.instance }})
-            description: "Swap is filling up (>80%)\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+            description: "Swap is filling up (>80%) and still growing\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
 
-        - alert: HostSystemdServiceCrashed
-          expr: node_systemd_unit_state{state="failed"} == 1
-          for: 0m
-          labels:
-            severity: warning
-          annotations:
-            summary: Host systemd service crashed (instance {{ $labels.instance }})
-            description: "systemd service crashed\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
-
+        # HostSystemdServiceCrashed removed: the kube-prometheus-stack built-in
+        # NodeSystemdServiceFailed covers the identical condition with a 5m
+        # debounce, and the static-scrape hosts (brain/beast/security-storage)
+        # are relabeled to job=node-exporter, so the built-in's job scope
+        # reaches them too. This custom rule (for: 0m, no job filter) only
+        # duplicated alerts and flapped on transient unit restarts.
         - alert: HostPhysicalComponentTooHot
           expr: node_hwmon_temp_celsius * ignoring(label) group_left(instance, job, node, sensor) node_hwmon_sensor_label{label!="tctl"} > 98
           for: 5m
@@ -212,7 +245,9 @@ spec:
 
         - alert: HostOomKillDetected
           expr: increase(node_vmstat_oom_kill[1m]) > 0
-          for: 0m
+          # Avoid firing on a single kernel OOM during a rolling-restart
+          # wave; the pod-level OOMKilled rule covers the real case.
+          for: 2m
           labels:
             severity: warning
           annotations:

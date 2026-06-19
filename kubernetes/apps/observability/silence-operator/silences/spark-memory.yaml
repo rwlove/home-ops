@@ -1,0 +1,28 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/observability.giantswarm.io/silence_v1alpha2.json
+#
+# spark is the GB10 / Grace-Blackwell inference node. Its memory is unified:
+# models warm-pinned in ollama-spark / comfyui (e.g. qwen2.5-coder:32b, ~38 GB,
+# kept resident to avoid cold loads) occupy what would be VRAM on a discrete
+# GPU but is system RAM here. node_exporter correctly reports MemAvailable
+# <10%, while kubectl top sees only a few GiB because the weights are GPU-mapped
+# outside any cgroup. High memory is the designed steady state, not an incident.
+#
+# NodeMemoryHighUtilization is a kube-prometheus-stack chart built-in (can't take
+# a per-instance exclusion inline like our own rules can), so it's silenced here
+# scoped to this one instance only — every other host still alerts normally.
+#
+# Companion change: spark is also excluded from our own HostOutOfMemory rule
+# (kube-prometheus-stack/addons/alerts/node-exporter.yaml). A genuine inference
+# failure is still caught by SparkOllamaWedged + the ollama-spark-embed probe.
+apiVersion: observability.giantswarm.io/v1alpha2
+kind: Silence
+metadata:
+  name: nodememoryhighutilization-spark
+spec:
+  matchers:
+    - name: alertname
+      value: NodeMemoryHighUtilization
+    - matchType: "=~"
+      name: instance
+      value: spark.*

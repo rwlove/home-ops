@@ -21,24 +21,50 @@ spec:
           reloader.stakater.com/auto: "true"
 
         pod:
-          # The yolo backend uses cuda:0; only worker8 has the
-          # nvidia.com/gpu resource via the gpu-operator. nodeSelector
-          # is belt-and-suspenders alongside the resource request below.
+          # Pinned to Spark/GB10 (Blackwell, arm64) after the multi-arch
+          # rebase (pump-cv v0.5.0 / pump-cv-base on nvcr.io/nvidia/pytorch).
+          # Previously bound to worker8 (Pascal P40, amd64); the cu121
+          # Pascal pin was dropped along with the base swap. One-way
+          # cutover — the new image won't run on P40 (sm_61 isn't in
+          # TORCH_CUDA_ARCH_LIST for the nvcr.io stack).
           nodeSelector:
-            nvidia.com/gpu.present: "true"
+            node-role.kubernetes.io/gpu: blackwell
+
+          tolerations:
+            # Spark is tainted kubernetes.io/arch=arm64:NoSchedule to
+            # keep amd64-only workloads off it. pump-cv v0.5.0 is
+            # multi-arch (linux/arm64 + linux/amd64) so tolerate
+            # explicitly.
+            - key: kubernetes.io/arch
+              operator: Equal
+              value: arm64
+              effect: NoSchedule
+            - key: nvidia.com/gpu
+              operator: Equal
+              value: "true"
+              effect: NoSchedule
 
         initContainers:
           # pump-cv config.py does not interpolate env vars in YAML, so
           # the configmap stores ${REOLINK_*} placeholders and we render
           # them once at pod start into the shared emptyDir.
+          #
+          # Image notes: prior `ghcr.io/dmfrey/bash:5.2.26-alpine3.20`
+          # is amd64-only, which exec-format-errors on Spark/arm64.
+          # Use the multi-arch official alpine image and `apk add
+          # gettext` to get envsubst at init time. Adds ~3-5s on
+          # first init for the apk fetch; not worth keeping a separate
+          # baked image just for envsubst.
           config-render:
             image:
-              repository: ghcr.io/dmfrey/bash
-              tag: 5.2.26-alpine3.20
+              repository: docker.io/library/alpine
+              tag: "3.24"
             command:
-              - "/usr/local/bin/bash"
+              - sh
               - -c
               - |
+                set -eu
+                apk add --no-cache gettext
                 envsubst < /config-template/default.yaml > /config/default.yaml
                 # Ensure ultralytics' settings dir exists; it doesn't
                 # auto-create parents so on a fresh PVC the first run
@@ -49,7 +75,6 @@ spec:
                 # to enter needs_calibration state. Pre-create so the
                 # first capture doesn't race the parent dir into existence.
                 mkdir -p /cache/calibration/captures
-                exit 0
             envFrom:
               - secretRef:
                   name: pump-cv-secret
@@ -58,7 +83,7 @@ spec:
           pump-cv:
             image:
               repository: ghcr.io/rwlove/pump-cv
-              tag: v0.4.2@sha256:96f91875639e3d909bddf71711b267790ee775ce743e51e4e94c12c474ffad04
+              tag: v0.5.1@sha256:5d71555e4f62dd131a337ee911aff1c97e301ec3ebc0ca510c60a90c2c511f22
 
             # Image's default ENTRYPOINT calls bare `python`, which doesn't
             # exist in PATH (only python3 is installed). Use the console-script

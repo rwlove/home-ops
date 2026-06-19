@@ -1,0 +1,115 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: tempo
+spec:
+  chart:
+    spec:
+      # renovate: registryUrl=https://grafana.github.io/helm-charts
+      chart: tempo
+      sourceRef:
+        kind: HelmRepository
+        name: grafana-charts
+        namespace: observability
+      version: 1.18.3
+  interval: 30m
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+  uninstall:
+    keepHistory: false
+  values:
+    # Single-binary mode — distributed mode is unnecessary at home-ops
+    # scale. The chart deploys a single StatefulSet pod with embedded
+    # ingester, querier, compactor.
+
+    tempo:
+      # 14-day retention — long enough to investigate weekly patterns,
+      # short enough that the PVC stays sized at 50Gi.
+      retention: 336h
+
+      # OTLP receivers — Phase 3.K propagates `trace_id` from
+      # langgraph-agents (and any other OTel-instrumented workload)
+      # via the OTel collector deployed alongside (2.J2). Tempo accepts
+      # OTLP directly so a single-app pipeline (skip-collector) also
+      # works for early debugging.
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:4317
+            http:
+              endpoint: 0.0.0.0:4318
+        jaeger:
+          protocols: {}
+
+      # Metrics-generator OFF — adds Prom remote-write of trace-derived
+      # metrics. Useful long-term; not needed for the initial deploy.
+      # Enable when there's a concrete dashboard that needs it.
+      metricsGenerator:
+        enabled: false
+
+      # `local` backend writes blocks + WAL to the mounted PVC. The
+      # alternative is Garage-S3; using ceph-block keeps Tempo
+      # independent of Garage (which would otherwise be in the trace
+      # pipeline for its own observability — circular).
+      storage:
+        trace:
+          backend: local
+          local:
+            path: /var/tempo/traces
+          wal:
+            path: /var/tempo/wal
+
+      # Disable upstream Grafana telemetry / usage reporting.
+      reportingEnabled: false
+
+      # Per `.agents/instructions/helmrelease.security.md` defaults.
+      # Container-level securityContext; the chart's `tempo:` block
+      # wraps both runtime config and container security.
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop:
+            - ALL
+        seccompProfile:
+          type: RuntimeDefault
+
+      resources:
+        requests:
+          cpu: 100m
+          memory: 512Mi
+        limits:
+          memory: 2Gi
+
+    persistence:
+      enabled: true
+      storageClassName: ceph-block
+      size: 50Gi
+      accessModes:
+        - ReadWriteOnce
+
+    # ServiceMonitor for Prometheus scrape.
+    serviceMonitor:
+      enabled: true
+      interval: 30s
+
+    # Tempo is internal-only — no HTTPRoute. Grafana queries via the
+    # in-cluster Service.
+    tempoQuery:
+      enabled: false
+
+    # Pod-level security context.
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+      fsGroup: 1000
+      fsGroupChangePolicy: OnRootMismatch

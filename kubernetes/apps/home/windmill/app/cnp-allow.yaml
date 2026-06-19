@@ -21,13 +21,15 @@ spec:
     egress: false
     ingress: false
   ingress:
-    # Internal Envoy gateway → windmill-app:8000.
+    # windmill-oauth2-proxy → windmill-app:8000 (browser traffic).
     # Cluster-local Service consumers (langgraph-agents, alertmanager
-    # → /webhook/*) also hit port 8000.
+    # → /webhook/*) also hit port 8000 directly, bypassing oauth2-proxy.
+    # The envoy gateway is no longer a direct source — it now flows
+    # through windmill-oauth2-proxy.
     - fromEndpoints:
         - matchLabels:
-            io.kubernetes.pod.namespace: network
-            app.kubernetes.io/name: envoy
+            io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: windmill-oauth2-proxy
         - matchLabels:
             io.kubernetes.pod.namespace: ai
             app.kubernetes.io/name: langgraph-agents
@@ -40,6 +42,11 @@ spec:
         - matchLabels:
             io.kubernetes.pod.namespace: collab
             app.kubernetes.io/name: zulip
+        # windmill-mcp (mcp-system) reverse-proxies /api/mcp/w/lovenet/mcp
+        # with a Bearer token injected from windmill-mcp-secret.
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+            app.kubernetes.io/name: windmill-mcp
       toPorts:
         - ports:
             - port: "8000"
@@ -104,8 +111,8 @@ spec:
             - port: "3001"
               protocol: TCP
     # In-cluster Services Windmill workflows POST to:
-    # langgraph-agents (replaces n8n's role in the LangGraph flows)
-    # HolmesGPT (replaces n8n's role for the AlertManager flow)
+    # langgraph-agents (the fleet's /inbox + /approval surface)
+    # HolmesGPT (AlertManager → HolmesGPT path)
     # Zulip (chat notifications + approval reactions)
     # MCP gateway (future flows may call MCP backends)
     - toEndpoints:
@@ -124,6 +131,21 @@ spec:
         - ports:
             - port: "8080"
               protocol: TCP
+    # Prometheus query API — used by operator weekly drift crons
+    # (storage-weekly, ml-weekly, observability-weekly) to pre-fetch
+    # cluster state and pass it as content to the agent. This is
+    # "Path 2" of the tool-binding gap workaround
+    # ([[reference_agent_fleet_tool_binding_gap]] in memory) — the
+    # cron does the data gathering; the agent reasons over real data
+    # instead of empty fields from a contentless prompt.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: prometheus
+      toPorts:
+        - ports:
+            - port: "9090"
+              protocol: TCP
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: collab
@@ -132,12 +154,66 @@ spec:
         - ports:
             - port: "80"
               protocol: TCP
+    # ntfy (in-cluster Service) — Windmill workflows publish pushes
+    # here. External URL https://ntfy.${SECRET_DOMAIN} doesn't work
+    # from inside the cluster (Cilium FQDN egress doesn't match the
+    # split-horizon internal LB IP), so we use the cluster-internal
+    # Service URL set in the windmill-workflows-secret NTFY_URL.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: ntfy
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: mcp-system
       toPorts:
         - ports:
             - port: "8080"
+              protocol: TCP
+    # Paperless RAG ingest workflows
+    # (paperless-rag-ingest, paperless-rag-tombstone):
+    # - paperless (collab ns) for doc list + content
+    # - ollama-spark (ai ns) for bge-m3 embeddings
+    # - qdrant (databases ns) for point upsert + scroll
+    # Each scoped to its specific Service rather than ns-wide.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: collab
+            app.kubernetes.io/name: paperless
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: ollama-spark
+      toPorts:
+        - ports:
+            - port: "11434"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            app.kubernetes.io/name: qdrant
+      toPorts:
+        - ports:
+            - port: "6333"
+              protocol: TCP
+    # LightRAG graph-RAG ingest (lightrag-rag-ingest / -tombstone) →
+    # lightrag (ai ns) REST API. The lightrag CNP already allows the
+    # symmetric ingress from windmill-workers.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: lightrag
+      toPorts:
+        - ports:
+            - port: "9621"
               protocol: TCP
     # External APIs Windmill workflows hit: Pushover + Anthropic + GitHub.
     # Canonical FQDNs via toEntities:world+443 per memory

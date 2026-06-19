@@ -33,7 +33,7 @@ spec:
           app:
             image:
               repository: quay.io/oauth2-proxy/oauth2-proxy
-              tag: v7.15.2
+              tag: v7.15.3
             args:
               - --provider=oidc
               - --oidc-issuer-url=https://auth.${SECRET_DOMAIN}
@@ -57,6 +57,11 @@ spec:
               # while the web UI stays gated. Same pattern as immich's
               # mobile-app exception.
               - --skip-auth-route=^/api/
+              # LLM-backed: chat handler can block khoj's single uvicorn
+              # event loop long enough for sibling REST requests to exceed
+              # oauth2-proxy's default 30s upstream timeout. 300s matches
+              # khoj's own ws_ping_timeout. Multi-worker fix is in PR B.
+              - --upstream-timeout=300s
             envFrom:
               - secretRef:
                   name: khoj-oauth2-proxy-secret
@@ -82,6 +87,10 @@ spec:
             port: 4180
     route:
       app:
+        annotations:
+          glance/name: "Khoj"
+          glance/show: "true"
+          glance/id: "AI"
         hostnames:
           - khoj.${SECRET_DOMAIN}
         parentRefs:

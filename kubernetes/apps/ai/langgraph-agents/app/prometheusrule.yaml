@@ -1,0 +1,69 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: langgraph-agents-rules
+spec:
+  groups:
+    # The `langgraph_paused_threads{is_stale}` gauge is updated on
+    # every paused-thread sweep — the lifecycle startup hook and the
+    # /admin/paused-threads endpoint both trigger it via
+    # `agents.paused_threads.sweep_paused_threads`. See PR #37 in
+    # rwlove/langgraph-agents for the emission path.
+    #
+    # A thread is "stale" when paused at interrupt() longer than
+    # DEFAULT_STALE_AFTER_SECONDS (300s) without an /approval verdict.
+    # The startup hook logs each stale thread once per pod lifetime;
+    # this rule turns that into a continuous, paging signal.
+    - name: langgraph-agents.paused-threads
+      rules:
+        - alert: LangGraphAgentsStalePausedThreads
+          annotations:
+            description: |
+              {{ $value }} LangGraph thread(s) have been paused at
+              interrupt() for longer than 5 minutes without an
+              operator /approval verdict. Inspect with:
+
+                kubectl -n ai exec deploy/langgraph-agents -c app -- \
+                  curl -s http://localhost:8765/admin/paused-threads
+
+              For trace inspection, see
+              https://langfuse.${SECRET_DOMAIN}.
+            summary: "{{ $value }} LangGraph thread(s) stale at interrupt"
+          expr: |-
+            langgraph_paused_threads{is_stale="true"} > 0
+          for: 5m
+          labels:
+            severity: warning
+    # Escalate-to-Claude (Path 1) health. When the fleet escalates a task to
+    # the Anthropic API and the call errors — dead API credit, a rejected/
+    # deprecated request param, an outage — the task silently degrades and no
+    # one notices. This guards two real silent failures we hit: a $0 credit
+    # balance, and a deprecated `temperature` 400. Fires only when escalations
+    # are *attempted and uniformly failing* (errors present AND zero successes
+    # over the hour), so it doesn't flap on a single transient hiccup nor stay
+    # green-but-meaningless when nothing escalates (the fleet routes ~100%
+    # local today, so claude-group volume is naturally low).
+    - name: langgraph-agents.escalation
+      rules:
+        - alert: LangGraphClaudeEscalationFailing
+          annotations:
+            summary: LangGraph Claude escalation failing (all attempts erroring)
+            description: |
+              Every escalate-to-Claude call in the last hour errored
+              ({{ $value }} failures, zero successes). The fleet's Path-1
+              escalation is broken — likely dead Anthropic API credit, a
+              rejected request parameter, or an API outage — so hard tasks
+              that route to Claude are silently degrading.
+
+              Check the ANTHROPIC_API_KEY balance (console.anthropic.com →
+              Billing) and recent pod logs:
+                kubectl -n ai logs deploy/langgraph-agents -c app | grep -i claude
+          expr: |-
+            (sum(increase(langgraph_calls_total{group="claude",outcome="error"}[1h])) > 0)
+            and
+            ((sum(increase(langgraph_calls_total{group="claude",outcome="success"}[1h])) or vector(0)) == 0)
+          for: 15m
+          labels:
+            severity: warning

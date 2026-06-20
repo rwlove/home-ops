@@ -96,6 +96,25 @@ spec:
                 # the one add the restricted PodSecurity standard permits.
                 add: ["NET_BIND_SERVICE"]
 
+          # Lenient local broker that AquapureD talks to (its old Mongoose
+          # CONNECT is rejected by EMQX 5); bridges aquapured/# to EMQX.
+          mosquitto:
+            image:
+              repository: public.ecr.aws/docker/library/eclipse-mosquitto
+              tag: "2.0.20"
+            command: ["/usr/sbin/mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: false
+              capabilities:
+                drop: ["ALL"]
+            resources:
+              requests:
+                cpu: 10m
+                memory: 16Mi
+              limits:
+                memory: 48Mi
+
     service:
       app:
         controller: aquapured
@@ -115,3 +134,12 @@ spec:
         type: emptyDir
         globalMounts:
           - path: /run/aquapured
+      mosquitto-config:
+        type: configMap
+        name: aquapured-mosquitto
+        advancedMounts:
+          aquapured:
+            mosquitto:
+              - path: /mosquitto/config/mosquitto.conf
+                subPath: mosquitto.conf
+                readOnly: true

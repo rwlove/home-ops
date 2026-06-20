@@ -25,10 +25,11 @@ data:
     # pty created by socat; see container entrypoint.
     SERIAL_PORT = /dev/aquapure
 
-    # Short in-namespace name — AquapureD truncates the server address to
-    # ~19 chars, so the full FQDN (emqx.home.svc.cluster.local) gets cut and
-    # fails to resolve. "emqx.home.svc" resolves to the same ClusterIP.
-    MQTT_ADDRESS = emqx.home.svc:1883
+    # Connect to the local mosquitto bridge sidecar (127.0.0.1:1883), NOT EMQX
+    # directly: AquapureD's vendored Mongoose sends a CONNECT that EMQX 5's
+    # parser silently drops. Mosquitto is lenient, accepts it, and bridges
+    # aquapured/# to EMQX. (Address still kept short for the [20] buffer.)
+    MQTT_ADDRESS = 127.0.0.1:1883
     # $$ escapes Flux post-build substitution so the literal ${MQTT_USER}
     # placeholder survives into the cluster for the container's envsubst to fill.
     MQTT_USER = $${MQTT_USER}
@@ -46,3 +47,31 @@ data:
     [ONEWIREDEVICES]
 
     [GPIOS]
+---
+# Mosquitto bridge sidecar config. AquapureD's old Mongoose MQTT client is
+# rejected by EMQX 5.8.9; mosquitto (lenient) fronts it locally and bridges
+# the aquapured/# tree to EMQX. EMQX 5 has no enforced authn, so the bridge
+# connects anonymously. Local listener is bound to loopback so it is never
+# exposed on the IoT VLAN (net1).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aquapured-mosquitto
+data:
+  mosquitto.conf: |
+    listener 1883 127.0.0.1
+    allow_anonymous true
+    persistence false
+    log_dest stdout
+    log_type error
+    log_type warning
+    log_type notice
+
+    connection emqx
+    address emqx.home.svc.cluster.local:1883
+    bridge_protocol_version mqttv311
+    try_private false
+    cleansession true
+    notifications false
+    restart_timeout 5
+    topic aquapured/# both 0

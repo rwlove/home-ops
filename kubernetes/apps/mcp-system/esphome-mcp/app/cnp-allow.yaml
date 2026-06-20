@@ -1,0 +1,39 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: esphome-mcp-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: esphome-mcp
+  # Additive — default-deny is what triggers the lockdown. Broker → server
+  # (intra-ns) and the istio gateway path are covered by the baseline
+  # allow-intra-namespace + mcp-gateway-istio-allow, so no ingress rule is
+  # needed here (matches the other MCP backends).
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # The ESPHome dashboard (home ns) — list/edit/validate over HTTP and
+    # compile/flash/logs over WebSocket, all on 6052. A matching ingress hole
+    # is punched on the dashboard side (home/esphome esphome-allow).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: esphome
+      toPorts:
+        - ports:
+            - port: "6052"
+              protocol: TCP
+    # get_esphome_schema downloads the component schema zip from GitHub
+    # releases (github.com → codeload / objects.githubusercontent.com), which
+    # are A-only FQDNs where Cilium toFQDNs.matchPattern silently fails — use
+    # world:443, same rationale as the codegraph-mcp / github-mcp CNPs.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

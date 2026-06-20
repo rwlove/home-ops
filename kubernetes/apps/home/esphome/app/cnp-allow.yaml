@@ -23,7 +23,20 @@ spec:
         - ports:
             - port: "6052"
               protocol: TCP
+    # esphome-mcp (mcp-system) drives the dashboard API — list/edit/validate
+    # over HTTP and compile/flash/logs over WebSocket, all on 6052.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+            app.kubernetes.io/name: esphome-mcp
+      toPorts:
+        - ports:
+            - port: "6052"
+              protocol: TCP
   egress:
+    # NOTE: ESPHome devices on the IoT VLAN are reached via the multus-
+    # attached secondary NIC (esphome-iot-static). That traffic bypasses
+    # Cilium entirely — these CNPs only govern eth0 (Pod CIDR) traffic.
     # ESPHome compiles firmware on-demand and reaches out to the public
     # internet during compile: PlatformIO package index, GitHub for
     # libraries / boards, ESPHome release server, PyPI, etc. The set is
@@ -37,6 +50,3 @@ spec:
               protocol: TCP
             - port: "80"
               protocol: TCP
-    # NOTE: ESPHome devices on the IoT VLAN are reached via the multus-
-    # attached secondary NIC (esphome-iot-static). That traffic bypasses
-    # Cilium entirely — these CNPs only govern eth0 (Pod CIDR) traffic.

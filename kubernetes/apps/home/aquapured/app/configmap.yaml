@@ -1,0 +1,43 @@
+---
+# ConfigMap holds the aquapured.conf template. The entrypoint script
+# in the container image (see containers/aquapured/entrypoint.sh)
+# uses envsubst to write the final conf to /run/aquapured/aquapured.conf
+# before launching the daemon, substituting ${MQTT_USER} and
+# ${MQTT_PASSWD} from the aquapured Secret.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aquapured-config
+data:
+  aquapured.conf.tmpl: |
+    [AQUACONTROLD]
+
+    # Jandy AquaPure standalone salt cell.
+    # 0x50 = Jandy AquaPure; 0xB0 = Zodiac Tri SWG with Chem (Ph/ORP).
+    SWG_DEVICE_ID = 0x50
+
+    # Use DEBUG_SERIAL for first bring-up; INFO for steady-state.
+    log_level = INFO
+
+    WEB_DIRECTORY = /usr/share/aquapured/web/
+    WEB_PORT = 80
+
+    # pty created by socat; see container entrypoint.
+    SERIAL_PORT = /dev/aquapure
+
+    MQTT_ADDRESS = emqx.home.svc.cluster.local:1883
+    MQTT_USER = ${MQTT_USER}
+    MQTT_PASSWD = ${MQTT_PASSWD}
+    MQTT_TOPIC = aquapured
+
+    # Disable Domoticz integration (no DZIDX_SWG_STATUS_ALERT_SENSOR needed).
+
+    [RS485_DEVICES]
+    [RS485_DEVICE:1]
+    # AquapureD emulates the bus master; RS485_ID is the address it presents.
+    RS485_TYPE = SWG
+    RS485_ID = 0x60
+
+    [ONEWIREDEVICES]
+
+    [GPIOS]

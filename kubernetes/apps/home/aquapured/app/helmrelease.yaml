@@ -1,0 +1,120 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app aquapured
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+
+  interval: 30m
+  values:
+    controllers:
+      aquapured:
+        pod:
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: node.network/vlan-iot
+                        operator: In
+                        values:
+                          - "true"
+
+          annotations:
+            k8s.v1.cni.cncf.io/networks: aquapured-iot-static
+
+        # IOT VLAN (20) — socat on net1 reaches Elfin EW11 at 10.10.20.21:8899.
+        # MQTT egress to emqx.home.svc.cluster.local is intra-namespace and
+        # covered by the existing home-ns baseline CNP.
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        type: deployment
+        replicas: 1
+
+        containers:
+          app:
+            image:
+              # Custom image: AquapureD built from source + socat + entrypoint.
+              # Source: github.com/rwlove/containers → aquapured/
+              # Tag format: aquapured-v<date>
+              # workaround: no upstream prebuilt image with socat available;
+              #   upstream: https://github.com/sfeakes/AquapureD (no Dockerfile)
+              repository: ghcr.io/rwlove/aquapured
+              tag: v0.1.0@sha256:0000000000000000000000000000000000000000000000000000000000000000
+
+            # Entrypoint:
+            #   1. envsubst MQTT_USER/MQTT_PASSWD into /run/aquapured/aquapured.conf
+            #   2. Start socat: TCP→pty bridging Elfin EW11 at 10.10.20.21:8899
+            #      to /dev/aquapure. Elfin is serial 9600/8N1, Protocol None.
+            #   3. exec aquapured pointing at the generated conf file.
+            # The command/args are defined in the image ENTRYPOINT; nothing to
+            # override here unless log level needs to be toggled for bring-up.
+
+            env:
+              # SERIAL_PORT is baked into the conf template at /dev/aquapure.
+              # ELFIN_HOST/PORT passed so the entrypoint can wire socat without
+              # embedding the IP in the image.
+              ELFIN_HOST: "10.10.20.21"
+              ELFIN_PORT: "8899"
+
+            envFrom:
+              - secretRef:
+                  name: aquapured
+
+            probes:
+              liveness:
+                enabled: false
+              readiness:
+                enabled: false
+              startup:
+                enabled: false
+
+            resources:
+              requests:
+                cpu: 10m
+                memory: 32Mi
+              limits:
+                memory: 64Mi
+
+            securityContext:
+              # socat needs to create /dev/aquapure pty; running as non-root
+              # with a devpts mount is cleaner but requires capabilities.
+              # For initial bring-up, keep privileged=false and add SYS_ADMIN +
+              # SETUID as needed. Start with minimal caps; widen if pty creation
+              # fails. See bring-up notes in the PR description.
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: false
+              capabilities:
+                drop: ["ALL"]
+                # socat pty,link= needs to open /dev/ptmx (world-writable on
+                # most Linux distros) — no extra caps required in practice.
+
+    service:
+      app:
+        controller: aquapured
+        ports:
+          http:
+            port: 80
+
+    persistence:
+      config-template:
+        type: configMap
+        name: aquapured-config
+        globalMounts:
+          - path: /etc/aquapured/aquapured.conf.tmpl
+            subPath: aquapured.conf.tmpl
+            readOnly: true
+      run:
+        type: emptyDir
+        globalMounts:
+          - path: /run/aquapured
+      dev:
+        type: emptyDir
+        medium: Memory
+        globalMounts:
+          - path: /dev/pts

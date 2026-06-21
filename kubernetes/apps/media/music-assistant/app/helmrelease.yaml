@@ -14,6 +14,25 @@ spec:
     controllers:
       music-assistant:
         pod:
+          # Pin to a VLAN-20-capable node — the macvlan master enp1s0.20
+          # only exists on nodes labeled node.network/vlan-iot=true.
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: node.network/vlan-iot
+                        operator: In
+                        values:
+                          - "true"
+
+          # IoT VLAN (20) secondary NIC — gives MA an L2 presence on the IoT
+          # VLAN so its AirPlay/zeroconf provider can discover and push audio
+          # to the LAN WiiM ("Deck", 10.10.20.26). macvlan net1 bypasses
+          # Cilium; AirPlay is push-based so no publish_ip change is needed.
+          annotations:
+            k8s.v1.cni.cncf.io/networks: music-assistant-iot-static
+
           securityContext:
             # Tier 2 reader — reads media via the world-readable bit on
             # 2775 dirs / 664 files. NOT a member of the media group; runs

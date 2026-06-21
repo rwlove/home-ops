@@ -94,6 +94,15 @@ spec:
           subjects:
             - identifier: kubectl-mcp
               serviceAccount: kubectl-mcp
+        # TEMPORARY — revert with its role after the zigbee2mqtt
+        # config-volume rename is verified. See kubectl-mcp-write-migration.
+        kubectl-mcp-write-migration:
+          type: ClusterRoleBinding
+          roleRef:
+            identifier: kubectl-mcp-write-migration
+          subjects:
+            - identifier: kubectl-mcp
+              serviceAccount: kubectl-mcp
       roles:
         kubectl-mcp-read-all:
           type: ClusterRole
@@ -158,5 +167,26 @@ spec:
             - apiGroups: ["apps"]
               resources: ["deployments"]
               verbs: ["patch", "update"]
+        # TEMPORARY — time-boxed grant for the zigbee2mqtt config-volume
+        # rename (drops the "-new" suffix a December restore left on the
+        # Longhorn volume). REVERT this ClusterRole and its binding above
+        # once the migration is verified — leaving cluster-wide PV delete on
+        # this gateway-reachable, LLM-driven SA is not an acceptable standing
+        # posture. Cluster-scoped (not a namespaced Role) on purpose: PVs are
+        # cluster-scoped, and this Kustomization's targetNamespace
+        # (mcp-system) would rewrite any namespaced Role away from home /
+        # longhorn-system.
+        kubectl-mcp-write-migration:
+          type: ClusterRole
+          rules:
+            - apiGroups: ["apps"]
+              resources: ["statefulsets", "statefulsets/scale"]
+              verbs: ["get", "patch", "update"]
+            - apiGroups: [""]
+              resources: ["persistentvolumeclaims", "persistentvolumes"]
+              verbs: ["delete"]
+            - apiGroups: ["longhorn.io"]
+              resources: ["snapshots", "backups", "volumes"]
+              verbs: ["create", "get", "list", "delete"]
     serviceAccount:
       kubectl-mcp: {}

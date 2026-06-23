@@ -1,0 +1,29 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: node-disk-io-rules
+spec:
+  groups:
+    # Replacement for the upstream node-exporter NodeDiskIOSaturation
+    # alert (disabled in helmrelease.yaml via defaultRules.disabled).
+    # Identical to upstream except security-storage is excluded: that
+    # box's dm-6 (NVMe) steady state is bursty IO-queue saturation from
+    # the Frigate recording write path (measured 2026-06-22: max 21.4
+    # aqu-sq, avg 3.65, 57/286 samples over the threshold of 10), which
+    # is expected for a surveillance recorder, not disk distress. Every
+    # other host/device keeps the upstream rule unchanged.
+    - name: node-exporter.node-disk-io
+      rules:
+        - alert: NodeDiskIOSaturation
+          annotations:
+            description: |
+              Disk IO queue (aqu-sq) is high on {{ $labels.device }} at {{ $labels.instance }}, has been above 10 for the last 30 minutes, is currently at {{ printf "%.2f" $value }}.
+              This symptom might indicate disk saturation.
+            runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodediskiosaturation
+            summary: Disk IO queue is high.
+          expr: rate(node_disk_io_time_weighted_seconds_total{device=~"(/dev/)?(mmcblk.p.+|nvme.+|rbd.+|sd.+|vd.+|xvd.+|dm-.+|md.+|dasd.+)",job="node-exporter",instance!~"security-storage.*"}[5m]) > 10
+          for: 30m
+          labels:
+            severity: warning

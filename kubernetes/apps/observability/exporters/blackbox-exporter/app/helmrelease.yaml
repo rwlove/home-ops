@@ -86,14 +86,40 @@ spec:
           for: 5m
           labels:
             severity: critical
+        # Infrastructure reachability — storage NFS path (brain/beast/
+        # security-storage:2049) and the two ollama embed heartbeats.
+        # These are genuinely page-worthy: a sustained failure means a
+        # storage or inference-path outage. The ollama embed probes are
+        # intentionally covered here at critical (the OllamaWedged /
+        # SparkOllamaWedged rules in kubernetes/apps/ai/ollama* add
+        # runbook context on top of this one).
         - alert: BlackboxProbeFailed
           annotations:
             description: |-
               The host {{ $labels.instance }} is currently unreachable
-          expr: probe_success == 0
+          expr: probe_success{job=~"probe/observability/(nfs|ollama-embed|ollama-spark-embed)"} == 0
           for: 5m
           labels:
             severity: critical
+        # IoT / device reachability (the ICMP `devices` probe + the HTTP
+        # `http` probe — WLED, Hue, Kodi, presence sensors, ratgdo, frame
+        # displays, UPS/iDRAC ICMP, cameras). These targets legitimately
+        # sleep or power-cycle, so a critical/5m page floods the surface
+        # (14 distinct devices fired criticals in one day, each waking
+        # HolmesGPT). warning + for:15m absorbs the transient blips and
+        # routes to Pushover only — windmill-investigate (HolmesGPT)
+        # matches severity=critical, so warning bypasses it. Storage
+        # reachability stays critical via the nfs TCP probe above, and
+        # node-down is covered by the Kube*NodeNotReady rules, so nothing
+        # genuinely page-worthy is lost by demoting these.
+        - alert: BlackboxIoTDeviceUnreachable
+          annotations:
+            description: |-
+              IoT/device {{ $labels.instance }} has been unreachable for 15m
+          expr: probe_success{job=~"probe/observability/(devices|http)"} == 0
+          for: 15m
+          labels:
+            severity: warning
     securityContext:
       allowPrivilegeEscalation: false
       capabilities:

@@ -24,10 +24,11 @@ permissions:
 jobs:
   filter-changes:
     name: Filter changes
-    # Self-hosted: keep the whole flux-local pipeline off GitHub-hosted
-    # quota. This is a JS action (bundled node), so it runs directly on
-    # the ARC runner pod — no container: needed.
-    runs-on: arc-runner-set-home-ops
+    # GitHub-hosted: chart OCIRepositories pull direct from public
+    # registries now (no in-cluster ZOT), so flux-local needs no cluster
+    # access — GitHub-hosted is free for this public repo and avoids the
+    # self-hosted ARC runner backlog.
+    runs-on: ubuntu-latest
     outputs:
       changed-files: ${{ steps.changed-files.outputs.changed_files }}
     steps:
@@ -42,11 +43,9 @@ jobs:
   test:
     if: ${{ needs.filter-changes.outputs.changed-files != '[]' }}
     name: Flux Local Test
-    # Self-hosted runner so flux-local can resolve oci://zot.kube-system.svc.cluster.local
-    # (Phase 1 routed 30+ HelmReleases through the in-cluster ZOT). Off-cluster GHA
-    # runners can't resolve the in-cluster DNS name. Job runs in the flux-local image
-    # directly so we don't need docker daemon access (ARC is k8s-mode, no DinD).
-    runs-on: arc-runner-set-home-ops
+    # Runs the flux-local image directly (no docker daemon needed). Charts
+    # resolve from public registries, so no in-cluster access is required.
+    runs-on: ubuntu-latest
     container:
       image: ghcr.io/allenporter/flux-local:v8.1.0
     needs:
@@ -65,14 +64,11 @@ jobs:
     # Diff-against-default-branch only makes sense on PRs.
     if: ${{ github.event_name == 'pull_request' && needs.filter-changes.outputs.changed-files != '[]' }}
     name: Flux Local Diff
-    # Self-hosted + container: spec because `diff helmrelease` invokes
-    # `helm template` for changed HelmReleases. ZOT-routed chart URLs
-    # only resolve in-cluster. The `uses: docker://` pattern (sibling
-    # pod via ARC's k8s hooks) caused `helm repo update` to time out
-    # consistently against HelmRepository sources — switching to
-    # container: at job level avoids that. Node-based comment posting
-    # moved to a sibling `diff-comment` job (this image lacks node).
-    runs-on: arc-runner-set-home-ops
+    # container: spec runs flux-local directly — `diff helmrelease` invokes
+    # `helm template`, and charts resolve from public registries. Node-based
+    # comment posting lives in the sibling `diff-comment` job (the flux-local
+    # image lacks node).
+    runs-on: ubuntu-latest
     container:
       image: ghcr.io/allenporter/flux-local:v8.1.0
     needs:
@@ -135,10 +131,9 @@ jobs:
     # both need.
     if: ${{ github.event_name == 'pull_request' && needs.filter-changes.outputs.changed-files != '[]' }}
     name: Flux Local Comment
-    # Self-hosted: download-artifact + create-github-app-token +
-    # sticky-pull-request-comment are all JS actions (bundled node), so
-    # they run directly on the ARC runner pod — no container: needed.
-    runs-on: arc-runner-set-home-ops
+    # download-artifact + create-github-app-token +
+    # sticky-pull-request-comment are JS actions — no container: needed.
+    runs-on: ubuntu-latest
     needs:
       - filter-changes
       - diff
@@ -193,7 +188,7 @@ jobs:
       - diff-comment
     if: ${{ !cancelled() }}
     name: Flux Local successful
-    runs-on: arc-runner-set-home-ops
+    runs-on: ubuntu-latest
     steps:
       - name: Check job status
         if: ${{ contains(needs.*.result, 'failure') }}

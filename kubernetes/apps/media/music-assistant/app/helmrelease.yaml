@@ -154,3 +154,24 @@ spec:
         globalMounts:
           - path: /.audio
             subPath: .audio
+
+      # workaround: the WiiM provider binds its UPnP event-notify server to
+      # streams.publish_ip (the LB IP ${SVC_MUSIC_ASSISTANT_ADDR}), which is not
+      # a pod-bindable interface address in our macvlan/LB-IPAM topology, so the
+      # notify server fails to bind, WiiM players can't (re)subscribe, and they
+      # go unavailable. Overlay a patched provider.py (resolves the callback bind
+      # via a per-device routing lookup, falls back to publish_ip) onto the
+      # deployed image via a single-file subPath mount.
+      # PINNED to the image tag above: re-sync files/wiim-provider.py from the
+      # new image on every music-assistant bump (the venv python path may also
+      # change), and DROP this overlay once the upstream fix ships.
+      # Upstream: https://github.com/music-assistant/server/pull/4434
+      wiim-provider-patch:
+        type: configMap
+        name: music-assistant-wiim-provider-patch
+        advancedMounts:
+          music-assistant:
+            app:
+              - path: /app/venv/lib/python3.14/site-packages/music_assistant/providers/wiim/provider.py
+                subPath: provider.py
+                readOnly: true

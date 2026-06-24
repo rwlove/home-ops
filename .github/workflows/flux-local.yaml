@@ -64,7 +64,14 @@ jobs:
       # `test all` reconciles every Kustomization + HelmRelease (Helm rendering
       # is on by default) starting from the Flux entrypoint and following each
       # KS spec.path through the tree. Replaces `flux-local test --enable-helm`.
+      # FLATE_BASE="" overrides the setup action's FLATE_BASE=main so `test`
+      # runs full-tree (validate everything) rather than changed-only. This
+      # restores the old flux-local coverage (incl. direct-to-main pushes) and
+      # avoids needing `main` in the shallow checkout. Per `flate --help`:
+      # "On build/get/test, omitting --base keeps the default full-tree behavior."
       - name: Run flate test
+        env:
+          FLATE_BASE: ""
         run: flate test all --path "${GITHUB_WORKSPACE}/kubernetes/flux/cluster"
 
   diff:
@@ -94,11 +101,15 @@ jobs:
       - name: Setup flate
         uses: home-operations/flate/action@a13598d5cb2faa79c2638e7bfe61711b1a1c1a5f # v0.4.9
 
-      # flate's changed-only mode (--path-orig baseline) reconciles just the
-      # subtree the PR touches. `|| true` tolerates a non-zero exit on diff
-      # presence — render errors are caught by the `test` job, which is the gate.
+      # flate's changed-only mode (--path-orig baseline = the default-branch
+      # checkout) reconciles just the subtree the PR touches. FLATE_BASE="" so
+      # the setup action's base can't collide with --path-orig (mutually
+      # exclusive). `|| true` tolerates a non-zero exit on diff presence —
+      # render errors are caught by the `test` job, which is the gate.
       - name: Run flate diff
         id: diff
+        env:
+          FLATE_BASE: ""
         run: |
           flate diff all \
             --path "${GITHUB_WORKSPACE}/pull/kubernetes/flux/cluster" \

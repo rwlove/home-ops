@@ -16,27 +16,12 @@ spec:
   # (allow-intra-namespace for oauth2-proxy → :8080, allow-monitoring-scrape
   # for Prometheus → :8081), so only egress rules are needed here.
   egress:
-    # In-cluster ZOT pull-through cache (kube-system/zot:5000). konflate
-    # renders each PR by fetching the chart/OCI sources our HelmReleases
-    # declare, which point at oci://zot.kube-system.svc:5000/... ZOT's
-    # Service DNS isn't matched by toFQDNs, so it needs an explicit
-    # toEndpoints rule (mirrors renovate-jobs-allow). ZOT svc port ==
-    # targetPort 5000, so no socket-lb targetPort rewrite to worry about.
-    - toEndpoints:
-        - matchLabels:
-            io.kubernetes.pod.namespace: kube-system
-            app.kubernetes.io/name: zot
-      toPorts:
-        - ports:
-            - port: "5000"
-              protocol: TCP
     # konflate lists PRs via api.github.com, clones the repo, and renders
     # by fetching every helm/OCI/git source a PR's manifests reference
     # (arbitrary upstream hosts over HTTPS). Like renovate, the upstream
     # set grows with the repo, so an allow-list would silently break
     # renders. SSRF to private ranges is bounded by konflate's own egress
     # guard while fork rendering stays off.
-    # TODO: tighten once all chart sources are ZOT-mediated.
     - toFQDNs:
         - matchPattern: "*"
       toPorts:

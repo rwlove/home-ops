@@ -21,7 +21,11 @@ spec:
     # the docs publish job now also land here, so one busy PR can demand
     # ~7 concurrent runner pods (filter + test + diff×2 + comment×2 +
     # success). 6 would queue and stall PR feedback.
-    maxRunners: 10
+    # Raised 10→16: a full Renovate batch (~35+ PRs) saturates 10 slots and
+    # serializes the heavy flux-local Test/Diff jobs (~15–30min compute each)
+    # through too few runners. Pairs with the resources + topologySpread
+    # below — bumping the cap without real requests just dogpiles one node.
+    maxRunners: 16
 
     containerMode:
       type: kubernetes
@@ -39,6 +43,18 @@ spec:
 
     template:
       spec:
+        # Spread runners across worker hostnames. ACTIONS_RUNNER_REQUIRE_JOB_CONTAINER
+        # is false, so flux-local's Test/Diff jobs run inside these pods — with no
+        # requests the scheduler dogpiled 6 of 10 onto one node (97% CPU) while
+        # peers sat at 20%, starving the heavy jobs. Soft (ScheduleAnyway) so a
+        # backlog larger than the node count still schedules.
+        topologySpreadConstraints:
+          - maxSkew: 1
+            topologyKey: kubernetes.io/hostname
+            whenUnsatisfiable: ScheduleAnyway
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/component: runner
         containers:
           - name: runner
             image: ghcr.io/home-operations/actions-runner:2.335.1@sha256:3d544e5eed58722c0b6a97212a31eada0f9f2e99f189c41911a5573a23d7386a
@@ -50,6 +66,16 @@ spec:
                     fieldPath: status.hostIP
               - name: ACTIONS_RUNNER_REQUIRE_JOB_CONTAINER
                 value: "false"
+            # flux-local Test/Diff are bursty CPU-heavy kustomize builds that run
+            # in-pod. Request 1 core so the scheduler costs/spreads them honestly;
+            # allow bursting to 4 so a build isn't throttled when the node is free.
+            resources:
+              requests:
+                cpu: "1"
+                memory: 2Gi
+              limits:
+                cpu: "4"
+                memory: 6Gi
 
   valuesFrom:
     - kind: Secret

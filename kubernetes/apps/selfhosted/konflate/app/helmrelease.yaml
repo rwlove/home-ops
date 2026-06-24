@@ -1,0 +1,62 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app konflate
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: *app
+  interval: 1h
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+      strategy: rollback
+  values:
+    config:
+      # Forge URI of the repo konflate reviews.
+      repo: github://rwlove/home-ops
+      # clusterPath empty = repo root, which is correct here: our Flux
+      # Kustomizations use root-relative spec.path (./kubernetes/...),
+      # and flate follows each KS path from the repo root.
+      clusterPath: ""
+      logFormat: json
+      logLevel: info
+      # Periodic re-render backstop (no inbound webhook wired yet).
+      refreshInterval: 30m
+      # Read-only toward GitHub: no PR comments, no commit-status
+      # write-back (Rob's choice — flate already posts the CI diff).
+      prComments: false
+      statusChecks: false
+      # Fork PRs run untrusted code through flate; keep off. With forks
+      # off, konflate's SSRF egress guard also stays off so it can reach
+      # the in-cluster ZOT (a private address) to render.
+      renderForkPrs: false
+    # Token supplied by the konflate ExternalSecret (key KONFLATE_TOKEN).
+    secret:
+      existingSecret: konflate-secret
+    service:
+      port: 8080
+    # State (flate caches + git mirror + rendered diffs) is regenerable
+    # from git/upstream → ceph-block per the storage-class decision tree
+    # (rule 2). Single-instance RWO; chart enforces strategy: Recreate.
+    persistence:
+      enabled: true
+      storageClass: ceph-block
+      accessModes:
+        - ReadWriteOnce
+      size: 5Gi
+    monitoring:
+      serviceMonitor:
+        enabled: true
+    # Exposure is via our konflate-oauth2-proxy + httproute.yaml; network
+    # policy is governed by the selfhosted baseline + cnp-allow.yaml.
+    httpRoute:
+      enabled: false
+    networkPolicy:
+      enabled: false

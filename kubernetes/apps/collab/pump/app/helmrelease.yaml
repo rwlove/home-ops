@@ -32,7 +32,7 @@ spec:
           pump:
             image:
               repository: ghcr.io/rwlove/pump
-              tag: v0.0.99@sha256:93365c9343a5c205cee25e0a67f62288a664ce24be1cb5db5459cb04c7455e93
+              tag: v0.0.100@sha256:c49f2c905fa623d508e147c586804ebd664d602ce3f30c19b6c898d6277c2a2f
 
             env:
               # Activates the /api/cv/* proxy in pump (see internal/web/exercise.go).
@@ -42,6 +42,18 @@ spec:
               # Static-serve the per-set clip mp4s pump-cv writes here. Shared
               # RWX volume (pump-clips-pvc, declared in pump-cv/app/clips-pvc.yaml).
               PUMP_CLIPS_DIR: /clips
+              # Treadmill cardio auto-capture. PUMP subscribes to the gym
+              # treadmill's Z-Wave metering smart plug — its wattage is
+              # published to EMQX by zwave-js-ui (no Home Assistant in the
+              # path) — detects each workout, and logs it as a cardio session.
+              # Credentials TREADMILL_MQTT_USERNAME/PASSWORD come from
+              # pump-secret (1Password "emqx" item). Threshold matches HA's
+              # binary_sensor.treadmill helper (threshold upper=100 W,
+              # hysteresis 0 on sensor.treadmill_electric_w_value).
+              TREADMILL_MQTT_ENABLED: "true"
+              TREADMILL_MQTT_BROKER: tcp://emqx-headless.home.svc.cluster.local:1883
+              TREADMILL_MQTT_TOPIC: zwave/Gym/Treadmill/50/0/value/66049
+              TREADMILL_WATTS_THRESHOLD: "100"
 
             envFrom:
               - secretRef:

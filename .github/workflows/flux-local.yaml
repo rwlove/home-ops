@@ -69,10 +69,16 @@ jobs:
       # restores the old flux-local coverage (incl. direct-to-main pushes) and
       # avoids needing `main` in the shallow checkout. Per `flate --help`:
       # "On build/get/test, omitting --base keeps the default full-tree behavior."
+      #
+      # Entrypoint is kubernetes/apps (not kubernetes/flux): the cluster-config
+      # ConfigMap that drives postBuild substitutions lives under apps
+      # (flux-system/flux-instance/app/cluster-config.yaml), and flate resolves
+      # substitutions by discovering that ConfigMap in the rendered tree. From
+      # kubernetes/flux it isn't found and every Kustomization blocks.
       - name: Run flate test
         env:
           FLATE_BASE: ""
-        run: flate test all --path "${GITHUB_WORKSPACE}/kubernetes/flux/cluster"
+        run: flate test all --path "${GITHUB_WORKSPACE}/kubernetes/apps"
 
   diff:
     # Diff-against-default-branch only makes sense on PRs.
@@ -112,8 +118,8 @@ jobs:
           FLATE_BASE: ""
         run: |
           flate diff all \
-            --path "${GITHUB_WORKSPACE}/pull/kubernetes/flux/cluster" \
-            --path-orig "${GITHUB_WORKSPACE}/default/kubernetes/flux/cluster" \
+            --path "${GITHUB_WORKSPACE}/pull/kubernetes/apps" \
+            --path-orig "${GITHUB_WORKSPACE}/default/kubernetes/apps" \
             -o diff > diff-full.patch || true
           cp diff-full.patch diff.patch
           # GitHub comment hard limit is 65536 chars; cap with a notice.

@@ -32,6 +32,16 @@ timeouts:
   upgradeManifests: 5m0s
 ---
 apiVersion: kubeadm.k8s.io/v1beta4
+apiServer:
+  # Cap the kube-apiserver Go heap so its working set stops growing to ~2x the
+  # live heap before GC. Without this the apiserver balloons to 5-6Gi on the
+  # memory-tight control-plane VMs (master2 12Gi / master3 9.6Gi). Cluster-wide
+  # value: master2's ~3.3Gi live heap sets the floor. Applied live via the
+  # kubeadm-config ConfigMap + `kubeadm init phase control-plane apiserver`
+  # per node; this file is bootstrap-only (not Flux-reconciled).
+  extraEnvs:
+  - name: GOMEMLIMIT
+    value: 4GiB
 caCertificateValidityPeriod: 87600h0m0s
 certificateValidityPeriod: 8760h0m0s
 certificatesDir: /etc/kubernetes/pki

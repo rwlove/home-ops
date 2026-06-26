@@ -93,15 +93,15 @@ Storage tiers are picked deliberately per workload — see [`storage-class.instr
 | Role | Hostname  | Device              | CPU | RAM   | OS         | Storage / Accelerators       | Notes                                 |
 |------|-----------|---------------------|-----|-------|------------|------------------------------|---------------------------------------|
 | 🧠   | master1   | bare-metal          | 4   | 32 GB | CentOS 10  | NVMe (Longhorn)              | Intel iGPU · RTL-SDR · control plane  |
-| 🧠   | master2   | VM on **beast**     | 3   | 12 GB | CentOS 9   |                              | virtualized control plane             |
-| 🧠   | master3   | VM on **beast**     | 3   | 10 GB | CentOS 9   |                              | virtualized control plane             |
+| 🧠   | master2   | VM on **beast**     | 3   | 10.5 GB | CentOS 9   |                              | virtualized control plane             |
+| 🧠   | master3   | VM on **beast**     | 3   | 10.5 GB | CentOS 9   |                              | virtualized control plane             |
 | 💪   | worker2   | ThinkCentre M910x   | 8   | 32 GB | CentOS 9   | NVMe (Longhorn + Ceph OSD)   | ZWA-2 Z-Wave dongle                   |
 | 💪   | worker3   | ThinkCentre M910x   | 8   | 64 GB | CentOS 9   | NVMe (Longhorn + Ceph OSD)   | Sonoff Zigbee dongle                  |
 | 💪   | worker4   | ThinkCentre M910x   | 8   | 32 GB | CentOS 9   | NVMe (Longhorn + Ceph OSD)   | Coral USB TPU                         |
-| 💪   | worker5   | VM on **beast**     | 10  | 24 GB | CentOS 9   | NVMe (Longhorn + Ceph OSD)   |                                       |
-| 💪   | worker6   | VM on **beast**     | 10  | 30 GB | CentOS 9   | NVMe (Longhorn + Ceph OSD)   |                                       |
-| 💪   | worker7   | VM on **beast**     | 10  | 30 GB | CentOS 9   | NVMe (Longhorn + Ceph OSD)   |                                       |
-| 🎮   | worker8   | VM on **beast**     | 10  | 55 GB | CentOS 9   | NVMe (Longhorn + Ceph OSD)   | NVIDIA **P40** (24 GB VRAM)           |
+| 💪   | worker5   | VM on **beast**     | 10  | 21.5 GB | CentOS 9   | NVMe (Longhorn + Ceph OSD)   |                                       |
+| 💪   | worker6   | VM on **beast**     | 10  | 26.5 GB | CentOS 9   | NVMe (Longhorn + Ceph OSD)   |                                       |
+| 💪   | worker7   | VM on **beast**     | 10  | 26.5 GB | CentOS 9   | NVMe (Longhorn + Ceph OSD)   |                                       |
+| 🎮   | worker8   | VM on **beast**     | 10  | 51.5 GB | CentOS 9   | NVMe (Longhorn + Ceph OSD)   | NVIDIA **P40** (24 GB VRAM)           |
 | 🚀   | spark     | NVIDIA DGX Spark    | 20  | 128 GB| Ubuntu 24.04 | NVMe + 8 GPU slots         | NVIDIA **GB10** (Grace-Blackwell, 128 GB unified); arm64 · containerd outlier |
 
 ### Off-cluster infrastructure

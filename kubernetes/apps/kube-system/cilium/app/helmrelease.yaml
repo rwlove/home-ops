@@ -44,6 +44,25 @@ spec:
         rollOutPods: true
 
     operator:
+      # Prefer workers, still allow masters as a cold-boot fallback — keeps the
+      # operator's (memory-heavy) leader replica off the tight control-plane VMs
+      # (master2/master3). Setting affinity replaces the chart-default operator
+      # affinity wholesale, so the default podAntiAffinity (replica spread across
+      # hosts) is restated here.
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  io.cilium/app: operator
+              topologyKey: kubernetes.io/hostname
       dashboards:
         annotations:
           grafana_folder: Cilium

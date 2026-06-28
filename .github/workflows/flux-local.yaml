@@ -2,12 +2,23 @@
 # yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
 name: Flux Local
 
+# Engine: flate (https://github.com/home-operations/flate), a Go
+# reimplementation of flux-local. The workflow + job names are intentionally
+# unchanged — "Flux Local successful" is a required status check in the
+# "Require CI on main" ruleset, so renaming would silently block merges.
+#
+# flate ships as a static binary installed by its setup action and runs
+# directly on a GitHub-hosted runner. Charts are pulled direct from public
+# registries (ghcr.io / quay.io / docker.io — no in-cluster ZOT in the Flux
+# source path), so flate needs no cluster access and renders in seconds
+# instead of the minutes the flux-local image took.
+
 on:
   pull_request:
     branches:
       - main
   # Run on direct-to-main pushes too, so commits that bypass PR review
-  # (e.g. quick fixes pushed directly) still get flux-local validated.
+  # (e.g. quick fixes pushed directly) still get validated.
   push:
     branches:
       - main
@@ -24,10 +35,6 @@ permissions:
 jobs:
   filter-changes:
     name: Filter changes
-    # GitHub-hosted: chart OCIRepositories pull direct from public
-    # registries now (no in-cluster ZOT), so flux-local needs no cluster
-    # access — GitHub-hosted is free for this public repo and avoids the
-    # self-hosted ARC runner backlog.
     runs-on: ubuntu-latest
     outputs:
       changed-files: ${{ steps.changed-files.outputs.changed_files }}
@@ -43,11 +50,7 @@ jobs:
   test:
     if: ${{ needs.filter-changes.outputs.changed-files != '[]' }}
     name: Flux Local Test
-    # Runs the flux-local image directly (no docker daemon needed). Charts
-    # resolve from public registries, so no in-cluster access is required.
     runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/allenporter/flux-local:v8.3.0
     needs:
       - filter-changes
     steps:
@@ -56,30 +59,39 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Run flux-local test
-        shell: sh
-        run: flux-local test --enable-helm --all-namespaces --path "$GITHUB_WORKSPACE/kubernetes/flux" -v
+      - name: Setup flate
+        uses: home-operations/flate/action@0fc37fae10cf3c265294f6adebc6d6c100c74ea5 # v0.4.10
+
+      # `test all` reconciles every Kustomization + HelmRelease (Helm rendering
+      # is on by default) starting from the Flux entrypoint and following each
+      # KS spec.path through the tree. Replaces `flux-local test --enable-helm`.
+      # FLATE_BASE="" overrides the setup action's FLATE_BASE=main so `test`
+      # runs full-tree (validate everything) rather than changed-only. This
+      # restores the old flux-local coverage (incl. direct-to-main pushes) and
+      # avoids needing `main` in the shallow checkout. Per `flate --help`:
+      # "On build/get/test, omitting --base keeps the default full-tree behavior."
+      #
+      # Entrypoint is kubernetes/flux (the Flux sync path). The cluster-config
+      # ConfigMap that drives postBuild substitutions is produced by its own
+      # sync-layer Kustomization (kubernetes/flux/meta) — outside the cluster-apps
+      # tree — so flate discovers it before anything substitutes from it. (When
+      # cluster-config lived nested under an app that also substituted from it,
+      # flate deadlocked and every Kustomization blocked; see PR #12734.)
+      - name: Run flate test
+        env:
+          FLATE_BASE: ""
+        run: flate test all --path "${GITHUB_WORKSPACE}/kubernetes/flux"
 
   diff:
     # Diff-against-default-branch only makes sense on PRs.
     if: ${{ github.event_name == 'pull_request' && needs.filter-changes.outputs.changed-files != '[]' }}
     name: Flux Local Diff
-    # container: spec runs flux-local directly — `diff helmrelease` invokes
-    # `helm template`, and charts resolve from public registries. Node-based
-    # comment posting lives in the sibling `diff-comment` job (the flux-local
-    # image lacks node).
     runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/allenporter/flux-local:v8.3.0
     needs:
       - filter-changes
-    strategy:
-      matrix:
-        resources:
-          - helmrelease
-          - kustomization
-      max-parallel: 4
-      fail-fast: false
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - name: Checkout Pull Request Branch
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -94,98 +106,75 @@ jobs:
           path: default
           persist-credentials: false
 
-      - name: Run flux-local diff
-        shell: sh
+      - name: Setup flate
+        uses: home-operations/flate/action@0fc37fae10cf3c265294f6adebc6d6c100c74ea5 # v0.4.10
+
+      # flate's changed-only mode (--path-orig baseline = the default-branch
+      # checkout) reconciles just the subtree the PR touches. FLATE_BASE="" so
+      # the setup action's base can't collide with --path-orig (mutually
+      # exclusive). `|| true` tolerates a non-zero exit on diff presence —
+      # render errors are caught by the `test` job, which is the gate.
+      - name: Run flate diff
+        id: diff
+        env:
+          FLATE_BASE: ""
         run: |
-          flux-local diff ${{ matrix.resources }} \
-            --unified 6 \
-            --path "$GITHUB_WORKSPACE/pull/kubernetes/flux" \
-            --path-orig "$GITHUB_WORKSPACE/default/kubernetes/flux" \
-            --strip-attrs "helm.sh/chart,checksum/config,app.kubernetes.io/version,chart" \
-            --limit-bytes 10000 \
-            --all-namespaces \
-            --output-file diff.patch
+          flate diff all \
+            --path "${GITHUB_WORKSPACE}/pull/kubernetes/flux" \
+            --path-orig "${GITHUB_WORKSPACE}/default/kubernetes/flux" \
+            -o diff > diff-full.patch || true
+          cp diff-full.patch diff.patch
+          # GitHub comment hard limit is 65536 chars; cap with a notice.
+          if [ "$(wc -c < diff-full.patch)" -gt 60000 ]; then
+            head -c 60000 diff-full.patch > diff.patch
+            printf '\n\n... truncated at 60000 bytes (full render in the uploaded artifact).\n' >> diff.patch
+          fi
+          {
+            echo 'content<<DIFF_EOF'
+            cat diff.patch
+            echo DIFF_EOF
+          } >> "${GITHUB_OUTPUT}"
 
       - name: Upload diff artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: flux-local-diff-${{ matrix.resources }}
-          path: diff.patch
+          name: flux-local-diff
+          path: diff-full.patch
           retention-days: 1
-          if-no-files-found: error
+          if-no-files-found: ignore
 
       - name: Render diff in step summary
-        shell: sh
         run: |
           {
-            echo "## Flux ${{ matrix.resources }} diff"
+            echo '## Flux diff (flate)'
             echo '```diff'
             cat diff.patch
             echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-  diff-comment:
-    # Posts the diff as a sticky PR comment. Runs on ubuntu-latest
-    # because the flux-local image (used by the diff job) doesn't ship
-    # Node, which create-github-app-token + sticky-pull-request-comment
-    # both need.
-    if: ${{ github.event_name == 'pull_request' && needs.filter-changes.outputs.changed-files != '[]' }}
-    name: Flux Local Comment
-    # download-artifact + create-github-app-token +
-    # sticky-pull-request-comment are JS actions — no container: needed.
-    runs-on: ubuntu-latest
-    needs:
-      - filter-changes
-      - diff
-    permissions:
-      contents: read
-      pull-requests: write
-    strategy:
-      matrix:
-        resources:
-          - helmrelease
-          - kustomization
-      max-parallel: 4
-      fail-fast: false
-    steps:
-      - name: Download diff artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: flux-local-diff-${{ matrix.resources }}
-
-      - name: Load diff into output
-        id: diff
-        run: |
-          {
-            echo 'diff<<EOF'
-            cat diff.patch
-            echo EOF
-          } >> "${GITHUB_OUTPUT}"
+          } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Generate Token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        if: ${{ github.event.pull_request.head.repo.full_name == github.repository && steps.diff.outputs.diff != '' }}
+        if: ${{ github.event.pull_request.head.repo.full_name == github.repository && steps.diff.outputs.content != '' }}
         id: app-token
         with:
           client-id: ${{ secrets.LOVENET_RENOVATE_OPERATOR_CLIENT_ID }}
           private-key: ${{ secrets.LOVENET_RENOVATE_OPERATOR_PRIVATE_KEY }}
 
-      - if: ${{ steps.diff.outputs.diff != '' }}
-        name: Add Comment
+      - name: Add Comment
+        if: ${{ github.event.pull_request.head.repo.full_name == github.repository && steps.diff.outputs.content != '' }}
         uses: marocchino/sticky-pull-request-comment@0ea0beb66eb9baf113663a64ec522f60e49231c0 # v3.0.4
         with:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-          header: ${{ github.event.pull_request.number }}/kubernetes/${{ matrix.resources }}
+          header: ${{ github.event.pull_request.number }}/kubernetes/flate
           message: |
             ```diff
-            ${{ steps.diff.outputs.diff }}
+            ${{ steps.diff.outputs.content }}
             ```
 
   flux-local-success:
     needs:
       - test
       - diff
-      - diff-comment
     if: ${{ !cancelled() }}
     name: Flux Local successful
     runs-on: ubuntu-latest

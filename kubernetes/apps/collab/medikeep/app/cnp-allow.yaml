@@ -34,3 +34,18 @@ spec:
         - ports:
             - port: "5432"
               protocol: TCP
+    # Paperless-ngx integration: medikeep dials the external paperless
+    # FQDN, which split-horizon DNS resolves to the envoy LB IP. Cilium's
+    # socket-lb rewrites the connect() to the envoy pod on its container
+    # port 10443 BEFORE policy evaluation (per memory
+    # project_cilium_l4_port_targetport.md), so the policy must allow the
+    # envoy pod on its container port, NOT world:443 (which doesn't match
+    # cluster LB IPs). Mirrors paperless's own OIDC egress rule.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "10443"
+              protocol: TCP

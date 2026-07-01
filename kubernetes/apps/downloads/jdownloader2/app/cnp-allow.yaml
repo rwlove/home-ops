@@ -9,12 +9,22 @@ spec:
     matchLabels:
       app.kubernetes.io/name: jdownloader2
   # Additive — default-deny is what triggers the lockdown; these rules
-  # punch holes through it. Ingress on :5800 from
-  # jdownloader2-oauth2-proxy (same ns) is covered by baseline
-  # allow-intra-namespace.
+  # punch holes through it.
   enableDefaultDeny:
     egress: false
     ingress: false
+  ingress:
+    # Internal gateway (envoy) → jdownloader2:5800. Auth is enforced at the
+    # gateway by the extAuth SecurityPolicy (#12767); the oauth2-proxy
+    # hop is retired.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "5800"
+              protocol: TCP
   egress:
     # VPN egress. The pod-gateway webhook injected `setGateway=true`
     # routing into this pod's iptables, so ALL non-cluster traffic

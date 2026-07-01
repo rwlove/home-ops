@@ -13,11 +13,20 @@ spec:
   enableDefaultDeny:
     egress: false
     ingress: false
-  # No ingress rule — inbound to glance always rides through
-  # glance-oauth2-proxy → glance:8081 (same-ns; baseline
-  # allow-intra-namespace covers it). The k8s-extension sidecar on
-  # container port 8080 is glance-local only (glance scrapes it via
-  # localhost).
+  # The k8s-extension sidecar on container port 8080 is glance-local
+  # only (glance scrapes it via localhost).
+  ingress:
+    # Internal gateway (envoy) → glance:8081. Auth is enforced at the
+    # gateway by the extAuth SecurityPolicy (#12767); the oauth2-proxy
+    # hop is retired.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "8081"
+              protocol: TCP
   egress:
     # Widgets pull from arbitrary upstreams configured in glance.yml
     # (RSS feeds, Reddit, Hacker News, weather, GitHub, Docker Hub,

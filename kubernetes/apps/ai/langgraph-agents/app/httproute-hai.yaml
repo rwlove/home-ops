@@ -1,0 +1,99 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/gateway.networking.k8s.io/httproute_v1.json
+#
+# hai CLI + web routes, moved here from the retired hai-cli-oauth2-proxy
+# and hai-web-oauth2-proxy (#12767). The main routes carry extAuth
+# SecurityPolicies (securitypolicy-hai.yaml); the -public routes
+# reproduce the old --skip-auth-route exemptions exactly — those paths
+# are machine endpoints with their own auth (HMAC / signed tokens) or
+# probe/metrics endpoints.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: hai
+  annotations:
+    glance/name: "hai CLI"
+    glance/show: "true"
+    glance/id: "AI"
+spec:
+  hostnames:
+    - hai.${SECRET_DOMAIN}
+  parentRefs:
+    - name: internal
+      namespace: network
+      sectionName: https
+  rules:
+    - backendRefs:
+        - name: langgraph-agents
+          port: 8765
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/gateway.networking.k8s.io/httproute_v1.json
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: hai-public
+spec:
+  hostnames:
+    - hai.${SECRET_DOMAIN}
+  parentRefs:
+    - name: internal
+      namespace: network
+      sectionName: https
+  rules:
+    # was: --skip-auth-route on hai-cli-oauth2-proxy
+    - matches:
+        - path: {type: Exact, value: /inbox}
+        - path: {type: PathPrefix, value: /admin}
+        - path: {type: Exact, value: /health}
+        - path: {type: Exact, value: /healthz}
+        - path: {type: Exact, value: /ready}
+        - path: {type: Exact, value: /readyz}
+        - path: {type: Exact, value: /metrics}
+      backendRefs:
+        - name: langgraph-agents
+          port: 8765
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/gateway.networking.k8s.io/httproute_v1.json
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: hai-web
+  annotations:
+    glance/name: "hai web"
+    glance/show: "true"
+    glance/id: "AI"
+spec:
+  hostnames:
+    - hai-web.${SECRET_DOMAIN}
+  parentRefs:
+    - name: internal
+      namespace: network
+      sectionName: https
+  rules:
+    - backendRefs:
+        - name: langgraph-agents
+          port: 8765
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/gateway.networking.k8s.io/httproute_v1.json
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: hai-web-public
+spec:
+  hostnames:
+    - hai-web.${SECRET_DOMAIN}
+  parentRefs:
+    - name: internal
+      namespace: network
+      sectionName: https
+  rules:
+    # was: --skip-auth-route on hai-web-oauth2-proxy
+    - matches:
+        - path: {type: Exact, value: /health}
+        - path: {type: Exact, value: /healthz}
+        - path: {type: Exact, value: /ready}
+        - path: {type: Exact, value: /readyz}
+        - path: {type: Exact, value: /metrics}
+      backendRefs:
+        - name: langgraph-agents
+          port: 8765

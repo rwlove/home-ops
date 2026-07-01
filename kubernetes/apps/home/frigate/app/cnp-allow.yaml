@@ -9,13 +9,22 @@ spec:
     matchLabels:
       app.kubernetes.io/name: frigate
   # Additive — default-deny is what triggers the lockdown; these rules
-  # punch holes through it. Ingress from frigate-oauth2-proxy in the
-  # same ns (4180 → frigate:5000) is covered by baseline
-  # allow-intra-namespace.
+  # punch holes through it.
   enableDefaultDeny:
     egress: false
     ingress: false
   ingress:
+    # Internal gateway (envoy) → frigate:5000. Auth is enforced at the
+    # gateway by the extAuth SecurityPolicy (#12767); the oauth2-proxy
+    # hop is retired.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "5000"
+              protocol: TCP
     # home-assistant native Frigate integration polls the Frigate API
     # (port 5000) and pulls go2rtc streams (1984 TCP/UDP, 8554 RTSP).
     - fromEndpoints:

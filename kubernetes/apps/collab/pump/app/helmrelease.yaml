@@ -91,15 +91,16 @@ spec:
             namespace: network
             sectionName: https
         rules:
-          # Inbound auth lives on oauth2-proxy (Authelia OIDC). pump itself
-          # ships with no inbound APIKeyMiddleware as of v0.0.83+; never
-          # point this route at pump-frontend directly.
+          # Inbound auth is enforced at the gateway by the extAuth
+          # SecurityPolicy (securitypolicy.yaml, admin-only via Authelia).
+          # pump itself ships with no inbound APIKeyMiddleware as of
+          # v0.0.83+ — this route must never lose its SecurityPolicy.
           - backendRefs:
               - kind: Service
-                name: pump-oauth2-proxy
-                port: 4180
+                name: pump-frontend
+                port: 8080
 
-      # Off-cluster ingest path. Bypasses oauth2-proxy and goes straight
+      # Off-cluster ingest path. Bypasses gateway extAuth and goes straight
       # to pump-api:8851. Scoped by path match to /api/weight and POST
       # /api/health — all other /api/* endpoints on this hostname 404.
       # App-side auth is WEIGHT_INGEST_KEY / HEALTH_INGEST_KEY (env from

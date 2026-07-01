@@ -9,10 +9,11 @@ data:
     server:
       address: 'tcp://0.0.0.0:9091/'
       buffers:
-        # Each oauth2-proxy app sets cookies on `.${SECRET_DOMAIN}`, so every
-        # `_oauth2_proxy_<app>_csrf` (~600B) + session cookie is sent here on
-        # /api/oidc/authorization. Default 4096 gets exceeded ("431 Request
-        # Header Fields Too Large") once a few oauth2-proxy clients exist.
+        # Historically each oauth2-proxy set `_oauth2_proxy_<app>_csrf`
+        # cookies (~600B each) on `.${SECRET_DOMAIN}`, overflowing the 4096
+        # default ("431 Request Header Fields Too Large"). The fleet is
+        # retired (#12767) but ext-authz checks still forward the full
+        # Cookie header, and native-OIDC clients remain — keep the headroom.
         read: 32768
         write: 32768
 
@@ -58,14 +59,50 @@ data:
         require_special: false
 
     access_control:
-      # Two gating mechanisms coexist during the #12767 migration:
-      # - oauth2-proxy apps: per-client authorization_policy under
-      #   identity_providers.oidc (this block unused for those).
-      # - extAuth apps (Envoy Gateway SecurityPolicy → /api/authz/ext-authz):
-      #   THIS policy is the gate. one_factor = any authenticated user,
-      #   matching the oauth2-proxy fleet's --email-domain=*. Add per-domain
-      #   rules here when an extAuth app needs tighter access.
-      default_policy: 'one_factor'
+      # THIS block is the gate for every extAuth-fronted app (Envoy
+      # Gateway SecurityPolicy → /api/authz/ext-authz, #12767). The
+      # rules replicate the per-client authorization_policy the retired
+      # oauth2-proxy fleet carried in the 1P clients.yml: admin-tier
+      # domains require group lldap_admin; household-tier domains need
+      # any authenticated user. OIDC clients (native-OIDC apps) are NOT
+      # governed here — they keep authorization_policy per client.
+      # default deny: a new extAuth route stays closed until its domain
+      # is added to a rule.
+      default_policy: 'deny'
+      rules:
+        # Admin-tier (was authorization_policy: admin_only)
+        - domain:
+            - 'hai.${SECRET_DOMAIN}'
+            - 'hai-web.${SECRET_DOMAIN}'
+            - 'khoj.${SECRET_DOMAIN}'
+            - 'glance.${SECRET_DOMAIN}'
+            - 'prowlarr.${SECRET_DOMAIN}'
+            - 'bt.${SECRET_DOMAIN}'
+            - 'downloader.${SECRET_DOMAIN}'
+            - 'sabnzbd.${SECRET_DOMAIN}'
+            - 'soulseek.${SECRET_DOMAIN}'
+            - 'kube-ops-view.${SECRET_DOMAIN}'
+            - 'goldilocks.${SECRET_DOMAIN}'
+            - 'garage.${SECRET_DOMAIN}'
+            - 'holmesgpt.${SECRET_DOMAIN}'
+            - 'pump.${SECRET_DOMAIN}'
+            - 'konflate.${SECRET_DOMAIN}'
+          policy: 'one_factor'
+          subject: 'group:lldap_admin'
+        # Household-tier (was authorization_policy: one_factor)
+        - domain:
+            - 'start.${SECRET_DOMAIN}'
+            - 'frigate.${SECRET_DOMAIN}'
+            - 'windmill.${SECRET_DOMAIN}'
+            - 'av1corrector.${SECRET_DOMAIN}'
+            - 'batocera.${SECRET_DOMAIN}'
+            - 'lidarr.${SECRET_DOMAIN}'
+            - 'medialyze.${SECRET_DOMAIN}'
+            - 'radarr.${SECRET_DOMAIN}'
+            - 'sonarr.${SECRET_DOMAIN}'
+            - 'soularr.${SECRET_DOMAIN}'
+            - 'suggestarr.${SECRET_DOMAIN}'
+          policy: 'one_factor'
 
     session:
       cookies:

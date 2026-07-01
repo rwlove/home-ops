@@ -1,0 +1,39 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/gateway.envoyproxy.io/securitypolicy_v1alpha1.json
+#
+# extAuth pilot (#12767): gate this route at the gateway via Authelia's
+# ext-authz endpoint instead of a dedicated oauth2-proxy deployment.
+# Header sets per Authelia's Envoy Gateway integration guide
+# (https://www.authelia.com/integration/kubernetes/envoy/gateway/).
+# Cross-namespace backendRef is permitted by the ReferenceGrant in
+# kubernetes/apps/auth/authelia/app/referencegrant.yaml.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: kube-ops-view-extauth
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: kube-ops-view
+  extAuth:
+    # Deny when Authelia is unreachable rather than exposing the
+    # dashboard unauthenticated.
+    failOpen: false
+    headersToExtAuth:
+      - accept
+      - cookie
+      - authorization
+      - proxy-authorization
+      - x-forwarded-proto
+    http:
+      backendRefs:
+        - name: authelia
+          namespace: auth
+          port: 9091
+      path: /api/authz/ext-authz/
+      headersToBackend:
+        - Remote-User
+        - Remote-Groups
+        - Remote-Name
+        - Remote-Email

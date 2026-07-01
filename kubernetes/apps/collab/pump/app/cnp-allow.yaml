@@ -9,9 +9,9 @@ spec:
     matchLabels:
       app.kubernetes.io/name: pump
   # Additive — default-deny is what triggers the lockdown; these rules
-  # punch holes through it. Inbound only ever rides via
-  # pump-oauth2-proxy → pump-frontend:8080 (same-ns; baseline
-  # allow-intra-namespace). pump-cv → pump-api:8851 is same-ns too.
+  # punch holes through it. Inbound rides via the internal gateway
+  # (extAuth SecurityPolicy, #12767). pump-cv → pump-api:8851 is
+  # same-ns (baseline allow-intra-namespace).
   enableDefaultDeny:
     egress: false
     ingress: false
@@ -38,11 +38,13 @@ spec:
   # Intra-ns pump-cv:8080 (PUMP_CV_URL admin/preview proxy) is
   # covered by baseline allow-intra-namespace.
   ingress:
-    # Internal Gateway → pump pod for the route.ingest path
-    # (pump-ingest.${SECRET_DOMAIN}/api/weight). The Gateway terminates
-    # TLS and forwards to pump-api Service which targets pod :8080;
-    # source IP at the pod is the Gateway pod, not the original client.
-    # Identity gating happens at the app layer via WEIGHT_INGEST_KEY.
+    # Internal Gateway → pump pod :8080, two paths:
+    # - route.ingest (pump-ingest.${SECRET_DOMAIN}/api/weight): identity
+    #   gating at the app layer via WEIGHT_INGEST_KEY.
+    # - frontend UI (pump.${SECRET_DOMAIN}): admin-only extAuth
+    #   SecurityPolicy at the gateway (#12767, oauth2-proxy retired).
+    # The Gateway terminates TLS; source IP at the pod is the Gateway
+    # pod, not the original client.
     - fromEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: network

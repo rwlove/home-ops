@@ -14,11 +14,12 @@ spec:
     egress: false
     ingress: false
   ingress:
-    # HTTPRoute on external gateway → authelia:9091. ~24 oauth2-proxy
-    # instances cluster-wide (plus the mcp-gateway rotator and Envoy's
-    # SecurityPolicy JWKS fetcher) all hit https://auth.${SECRET_DOMAIN}
-    # which is routed through the external Envoy. Both `external` and
-    # `internal` envoy deployments share app.kubernetes.io/name: envoy.
+    # Envoy → authelia:9091, three flows: the auth-portal HTTPRoute on
+    # the external gateway, per-route ext_authz checks from the extAuth
+    # SecurityPolicies (#12767, replaced the oauth2-proxy fleet), and
+    # the mcp-gateway rotator / JWKS fetches via
+    # https://auth.${SECRET_DOMAIN}. Both `external` and `internal`
+    # envoy deployments share app.kubernetes.io/name: envoy.
     - fromEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: network
@@ -28,12 +29,12 @@ spec:
             - port: "9091"
               protocol: TCP
     # Inclusive belt-and-suspenders: allow any in-cluster pod to reach
-    # authelia:9091. Nothing in the current cluster talks to the
-    # authelia Service IP directly (every flow rides envoy via
-    # auth.${SECRET_DOMAIN}), but Authelia is the auth choke point
-    # for ~24 oauth2-proxies — losing it locks the user out of every
-    # OIDC-protected app. Better to permit a flow that isn't used
-    # than to break one we missed.
+    # authelia:9091. The extAuth backendRefs dial the authelia Service
+    # directly from envoy (covered above), and native-OIDC apps ride
+    # envoy via auth.${SECRET_DOMAIN} — but Authelia is the auth choke
+    # point for every gated app; losing it locks the user out of all of
+    # them. Better to permit a flow that isn't used than to break one
+    # we missed.
     - fromEntities:
         - cluster
       toPorts:

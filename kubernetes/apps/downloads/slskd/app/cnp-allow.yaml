@@ -9,12 +9,22 @@ spec:
     matchLabels:
       app.kubernetes.io/name: slskd
   # Additive — default-deny is what triggers the lockdown; these rules
-  # punch holes through it. Ingress on :5030 from slskd-oauth2-proxy
-  # (same ns) is covered by baseline allow-intra-namespace.
+  # punch holes through it.
   enableDefaultDeny:
     egress: false
     ingress: false
   ingress:
+    # Internal gateway (envoy) → slskd:5030. Auth is enforced at the
+    # gateway by the extAuth SecurityPolicy (#12767); the oauth2-proxy
+    # hop is retired.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "5030"
+              protocol: TCP
     # Cross-ns: soularr in media ns polls the slskd API to orchestrate
     # Lidarr → Soulseek searches. Env in soularr config.ini:
     #   host_url = http://slskd.downloads.svc.cluster.local:5030

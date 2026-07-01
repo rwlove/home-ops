@@ -8,13 +8,22 @@ spec:
   endpointSelector:
     matchLabels:
       app.kubernetes.io/name: sonarr
-  # Additive — default-deny is what triggers the lockdown. Ingress on
-  # :8989 from sonarr-oauth2-proxy (same ns) is covered by baseline
-  # allow-intra-namespace.
+  # Additive — default-deny is what triggers the lockdown.
   enableDefaultDeny:
     egress: false
     ingress: false
   ingress:
+    # Internal gateway (envoy) → sonarr:8989. Auth is enforced at the
+    # gateway by the extAuth SecurityPolicy (#12767); the oauth2-proxy
+    # hop is retired.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "8989"
+              protocol: TCP
     # Cross-ns: prowlarr sync-app + janitorr + seerr/suggestarr push/poll.
     - fromEndpoints:
         - matchLabels:

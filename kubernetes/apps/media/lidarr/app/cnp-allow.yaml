@@ -9,12 +9,23 @@ spec:
     matchLabels:
       app.kubernetes.io/name: lidarr
   # Additive — default-deny is what triggers the lockdown. Ingress on
-  # :8686 from lidarr-oauth2-proxy and from lidarr-bridge / soularr
-  # (same ns) is covered by baseline allow-intra-namespace.
+  # :8686 from lidarr-bridge / soularr (same ns) is covered by
+  # baseline allow-intra-namespace.
   enableDefaultDeny:
     egress: false
     ingress: false
   ingress:
+    # Internal gateway (envoy) → lidarr:8686. Auth is enforced at the
+    # gateway by the extAuth SecurityPolicy (#12767); the oauth2-proxy
+    # hop is retired.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "8686"
+              protocol: TCP
     # Cross-ns: prowlarr sync-app pushes indexer config into lidarr.
     - fromEndpoints:
         - matchLabels:

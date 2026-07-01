@@ -1,0 +1,47 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/gateway.networking.k8s.io/httproute_v1.json
+#
+# Route moved here from the retired khoj-oauth2-proxy (#12767).
+# The UI route carries the extAuth SecurityPolicy; /api/ is exposed
+# without gateway auth because khoj clients authenticate with khoj's
+# own API tokens (was --skip-auth-route=^/api/ on oauth2-proxy).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: khoj
+  annotations:
+    glance/name: "Khoj"
+    glance/show: "true"
+    glance/id: "AI"
+spec:
+  hostnames:
+    - khoj.${SECRET_DOMAIN}
+  parentRefs:
+    - name: internal
+      namespace: network
+      sectionName: https
+  rules:
+    - backendRefs:
+        - name: khoj
+          port: 42110
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/gateway.networking.k8s.io/httproute_v1.json
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: khoj-public
+spec:
+  hostnames:
+    - khoj.${SECRET_DOMAIN}
+  parentRefs:
+    - name: internal
+      namespace: network
+      sectionName: https
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api
+      backendRefs:
+        - name: khoj
+          port: 42110

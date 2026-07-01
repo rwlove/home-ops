@@ -1,0 +1,65 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/gateway.envoyproxy.io/securitypolicy_v1alpha1.json
+#
+# extAuth via Authelia (#12767) for the hai CLI/web routes — pattern
+# from the kube-ops-view pilot (PR #12779). The hai-public /
+# hai-web-public routes deliberately carry no policy (machine
+# endpoints, see httproute-hai.yaml).
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: hai-extauth
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: hai
+  extAuth:
+    failOpen: false
+    headersToExtAuth:
+      - accept
+      - cookie
+      - authorization
+      - proxy-authorization
+      - x-forwarded-proto
+    http:
+      backendRefs:
+        - name: authelia
+          namespace: auth
+          port: 9091
+      path: /api/authz/ext-authz/
+      headersToBackend:
+        - Remote-User
+        - Remote-Groups
+        - Remote-Name
+        - Remote-Email
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/gateway.envoyproxy.io/securitypolicy_v1alpha1.json
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: hai-web-extauth
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: hai-web
+  extAuth:
+    failOpen: false
+    headersToExtAuth:
+      - accept
+      - cookie
+      - authorization
+      - proxy-authorization
+      - x-forwarded-proto
+    http:
+      backendRefs:
+        - name: authelia
+          namespace: auth
+          port: 9091
+      path: /api/authz/ext-authz/
+      headersToBackend:
+        - Remote-User
+        - Remote-Groups
+        - Remote-Name
+        - Remote-Email

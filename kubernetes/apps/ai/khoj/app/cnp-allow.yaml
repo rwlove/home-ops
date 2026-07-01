@@ -13,9 +13,18 @@ spec:
   enableDefaultDeny:
     egress: false
     ingress: false
-  # No ingress rules needed: khoj-oauth2-proxy is the only door, and the
-  # baseline allow-intra-namespace already permits oauth2-proxy → khoj.
-  # No external clients hit khoj directly.
+  ingress:
+    # Internal gateway (envoy) → khoj:42110. Auth is enforced at the
+    # gateway by the extAuth SecurityPolicy (#12767); the oauth2-proxy
+    # hop is retired.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "42110"
+              protocol: TCP
   egress:
     # CNPG cluster `postgres-khoj` in databases ns (Pattern B).
     - toEndpoints:

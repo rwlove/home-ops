@@ -13,6 +13,14 @@ spec:
     controllers:
       lldap:
         pod:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            # /data is an emptyDir (key material via env); fsGroup keeps
+            # it writable for the non-root UID.
+            fsGroup: 1000
+            fsGroupChangePolicy: OnRootMismatch
           topologySpreadConstraints:
             - maxSkew: 1
               topologyKey: kubernetes.io/hostname
@@ -35,6 +43,14 @@ spec:
             envFrom: &envFrom
               - secretRef:
                   name: *app
+            securityContext: &hardened
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
 
         containers:
           app:
@@ -61,6 +77,7 @@ spec:
                 memory: 64M
               limits:
                 memory: 64M
+            securityContext: *hardened
 
     service:
       app:

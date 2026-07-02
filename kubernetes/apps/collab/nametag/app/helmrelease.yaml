@@ -13,6 +13,13 @@ spec:
   values:
     controllers:
       nametag:
+        pod:
+          # image USER is 1001 — match it (baseline default 1000 would
+          # fight the image's chown'd /app files).
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
         annotations:
           reloader.stakater.com/auto: "true"
 
@@ -26,6 +33,14 @@ spec:
             envFrom: &envFrom
               - secretRef:
                   name: nametag-secret
+            securityContext: &hardened
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
 
         containers:
           app:
@@ -46,6 +61,7 @@ spec:
                 memory: 200Mi
               limits:
                 memory: 200Mi
+            securityContext: *hardened
 
     service:
       app:
@@ -71,3 +87,8 @@ spec:
           - backendRefs:
               - identifier: app
                 port: *httpPort
+    persistence:
+      tmpfs:
+        type: emptyDir
+        globalMounts:
+          - path: /tmp

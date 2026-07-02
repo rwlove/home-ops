@@ -2786,8 +2786,8 @@ _Production-grade Kubernetes for a household._
 </tr>
 <tr>
 <td><strong>AuthN/Z</strong></td>
-<td>Authelia + oauth2-proxy</td>
-<td>OIDC SSO; 24 oauth2-proxy instances gate apps</td>
+<td>Authelia + Envoy extAuth</td>
+<td>SSO; per-route <code>SecurityPolicy</code> ext-authz gates apps</td>
 </tr>
 <tr>
 <td><strong>Secrets</strong></td>
@@ -3077,7 +3077,7 @@ _Production-grade Kubernetes for a household._
 | **Ollama** (P40) | Local LLM serving on the Pascal P40 (≤8b-class models, embeddings) |
 | **Ollama Spark** | LLM serving on Spark/GB10 (qwen3-next:80b-a3b-instruct-q4_K_M for the agent fleet + HolmesGPT + Open WebUI, bge-m3 embeddings) |
 | **ComfyUI** | Image generation workflows |
-| **Khoj** + **khoj-oauth2-proxy** | Personal AI assistant over notes + docs (Authelia-gated) |
+| **Khoj** | Personal AI assistant over notes + docs (Authelia extAuth-gated) |
 | **LangGraph Agents** | Custom multi-agent runtime (`rwlove/langgraph-agents`, version pinned in `helmrelease.yaml`); Postgres-checkpointed with live `task_queue` + `task_dlq` substrate; MCP-gateway client. See **AI architecture** section below. |
 | **Langfuse** | LLM observability — OTLP trace sink for the langgraph-agents fleet (CNPG-backed; ClickHouse/Valkey/MinIO bundled) |
 | **Paperless-AI** | Auto-tagging for paperless-ngx |
@@ -3134,7 +3134,7 @@ _Production-grade Kubernetes for a household._
 | **cloudflared** | Public tunnel without exposed WAN |
 | **Authelia** | OIDC identity provider |
 | **LLDAP** | Lightweight LDAP directory backing Authelia |
-| **oauth2-proxy** | 24 instances gating per-app SSO |
+| **extAuth SecurityPolicies** | per-route Authelia ext-authz gating app SSO |
 | **wg-easy** | Primary OOB WireGuard access |
 | **External Secrets Operator** | 1Password-backed secret materialization |
 | **Flux2** | GitOps reconciler |
@@ -3546,7 +3546,7 @@ inference.</p>
 <h3 id="-secrets--zero-plain-text-in-git">🔐 Secrets — zero plain-text in Git<a class="headerlink" href="#-secrets--zero-plain-text-in-git" title="Permanent link">&para;</a></h3>
 <p>All 116 ExternalSecrets resolve through External Secrets Operator from 1Password. Application credentials are templated into <code>ExternalSecret</code> resources and never live in YAML. Cross-namespace mirrors use the reflector pattern when consumer charts hard-code secret names.</p>
 <h3 id="-authentication--single-sign-on-everywhere">🪪 Authentication — single sign-on everywhere<a class="headerlink" href="#-authentication--single-sign-on-everywhere" title="Permanent link">&para;</a></h3>
-<p>Authelia (with LLDAP) is the OIDC identity provider; per-app oauth2-proxy instances enforce auth at Envoy Gateway. 24 apps sit behind SSO today. The mcp-gateway validates Authelia-issued JWTs with a daily-rotated signing key for MCP tooling.</p>
+<p>Authelia (with LLDAP) is the identity provider; per-route Envoy Gateway <code>SecurityPolicy</code> extAuth (Authelia's ext-authz endpoint) enforces auth at the gateway — 26 apps sit behind SSO today, tiered admin vs household via <code>access_control</code> rules (the oauth2-proxy sidecar fleet was retired 2026-07-01, #12767). Native-OIDC apps (immich, paperless, open-webui, …) authenticate against Authelia directly. The mcp-gateway validates Authelia-issued JWTs with a daily-rotated signing key for MCP tooling.</p>
 <h3 id="-observability--metrics-logs-ai-triage">🔭 Observability — metrics, logs, AI triage<a class="headerlink" href="#-observability--metrics-logs-ai-triage" title="Permanent link">&para;</a></h3>
 <p>kube-prometheus-stack scrapes everything; Loki ingests pod logs (via Vector); Tempo ingests traces (via OpenTelemetry Collector); Grafana stitches the dashboards. AlertManager fans alerts to ntfy and to <strong>HolmesGPT</strong>, which runs LLM-driven root-cause investigation against the cluster and posts findings back via Windmill.</p>
 <h3 id="-gpu-workloads">🎮 GPU workloads<a class="headerlink" href="#-gpu-workloads" title="Permanent link">&para;</a></h3>

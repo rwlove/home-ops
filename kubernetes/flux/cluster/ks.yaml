@@ -42,6 +42,25 @@ spec:
         name: cluster-secrets
   deletionPolicy: WaitForTermination
   patches:
+    # Inject sourceRef and prune defaults into every child Kustomization.
+    # Strategic-merge sets these on KSes that omit them; for KSes that
+    # already carry the same values the patch is a no-op.  wait/interval/
+    # timeout are intentionally NOT included here — they vary per-KS
+    # (e.g. 79 KSes have wait:true, interval splits 30m/1h, timeout 3m/5m).
+    - patch: |-
+        apiVersion: kustomize.toolkit.fluxcd.io/v1
+        kind: Kustomization
+        metadata:
+          name: _
+        spec:
+          prune: true
+          sourceRef:
+            kind: GitRepository
+            name: home-ops-kubernetes
+            namespace: flux-system
+      target:
+        group: kustomize.toolkit.fluxcd.io
+        kind: Kustomization
     # Add Kustomization defaults for all child Kustomizations
     - patch: |-
         apiVersion: kustomize.toolkit.fluxcd.io/v1

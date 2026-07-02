@@ -51,6 +51,11 @@ count.
 
 ### A1. oauth2-proxy HelmReleases (24 instances, all violate everything)
 
+> **Resolved twice over:** the fleet was hardened with the full baseline
+> securityContext (PRs #11600/#11607), then retired entirely on
+> 2026-07-01 in favor of gateway extAuth SecurityPolicies (#12767) —
+> zero oauth2-proxy pods remain.
+
 `quay.io/oauth2-proxy/oauth2-proxy` containers across 24 HelmReleases
 have **zero** `securityContext` set. The binary is a stateless
 reverse proxy — runs fine as non-root, doesn't write to rootfs, doesn't

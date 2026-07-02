@@ -103,7 +103,7 @@ only fires once Langfuse keys are populated in 1Password).
 | HA voice ("inbox …") | Whisper STT → ollama_voice conversation → HA `rest_command` → Authelia-JWT POST | Windmill `langgraph-inbox.ts` (`kubernetes/apps/home/windmill/workflows/langgraph-inbox.ts:42`) |
 | Zulip DM to Triager bot | Outgoing-webhook (bot_type=3) | Windmill `zulip-triager-webhook.ts` → forwards to `langgraph-inbox.ts` |
 | Open WebUI chat | Browser → Authelia OIDC → Open WebUI backend | Routes to ollama-spark (default) or to a langgraph agent via OpenAI-compat API (`kubernetes/apps/collab/open-webui/app/helmrelease.yaml:41-46`) |
-| Khoj UI | Browser → khoj-oauth2-proxy → khoj | Khoj's own embedding pipeline; chat via ollama P40 |
+| Khoj UI | Browser → gateway extAuth (Authelia) → khoj | Khoj's own embedding pipeline; chat via ollama P40 |
 | AlertManager firing alert | Webhook receiver | Windmill `alertmanager-holmesgpt-notify.ts` → HolmesGPT `/investigate` |
 | Operator tap on ntfy | Action button → HMAC-signed URL | `langgraph-agents` `/approval` endpoint (`kubernetes/apps/ai/langgraph-agents/app/route-approval.yaml`) |
 | Cron — daily digest / DLQ / cost-cap / awaiting-user / workaround | Windmill scheduled trigger | Each `.ts` workflow under `kubernetes/apps/home/windmill/workflows/` |
@@ -340,7 +340,7 @@ secret is mirrored into the `ai` namespace by emberstack reflector
 ## File reference (quick index)
 
 - **Khoj** — `kubernetes/apps/ai/khoj/app/helmrelease.yaml`
-- **khoj-oauth2-proxy** — `kubernetes/apps/ai/khoj-oauth2-proxy/`
+- **khoj extAuth** — `SecurityPolicy` in `kubernetes/apps/ai/khoj/` (oauth2-proxy retired 2026-07-01, #12767)
 - **langfuse** — `kubernetes/apps/ai/langfuse/app/helmrelease.yaml`
 - **langgraph-agents** — `kubernetes/apps/ai/langgraph-agents/app/helmrelease.yaml`
 - **ollama** (P40) — `kubernetes/apps/ai/ollama/app/`

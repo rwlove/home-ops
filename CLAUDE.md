@@ -40,7 +40,7 @@ home-ops/
 | Service mesh  | Istio                        | mTLS + traffic mgmt for mcp-system               |
 | DNS           | external-dns                 | Cloudflare + bind9 split-horizon                 |
 | Tunnel        | cloudflared                  | Public ingress without exposing home WAN         |
-| AuthN/Z       | Authelia + oauth2-proxy      | OIDC SSO; ~24 oauth2-proxy instances             |
+| AuthN/Z       | Authelia + Envoy extAuth     | SSO via per-route SecurityPolicy ext-authz       |
 | Secrets       | external-secrets + 1Password | Secret management (109 ExternalSecrets)          |
 | Storage       | Rook/Ceph, Longhorn, Garage  | Tiered durable storage; see `storage-class` instr |
 | Databases     | CloudNative-PG               | 24+ Postgres clusters with Garage Barman backup  |

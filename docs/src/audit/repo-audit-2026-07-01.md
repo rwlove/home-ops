@@ -36,7 +36,7 @@ Ordered by priority. Each issue carries the full plan.
 
 | # | Item | Theme |
 |---|---|---|
-| [#12767](https://github.com/rwlove/home-ops/issues/12767) | Migrate the 26 oauth2-proxy sidecars to Envoy Gateway `SecurityPolicy` extAuth via Authelia — retires ~4,900 lines, 26 Deployments, 26 OIDC clients. Piloted on one app first. | simplification + security |
+| [#12767](https://github.com/rwlove/home-ops/issues/12767) | Migrate the 26 oauth2-proxy sidecars to Envoy Gateway `SecurityPolicy` extAuth via Authelia — retires ~4,900 lines, 26 Deployments, 26 OIDC clients. **Done 2026-07-01** (pilot #12779, fleet #12780, 1P cleanup same evening). | simplification + security |
 | [#12768](https://github.com/rwlove/home-ops/issues/12768) | Default `SecurityPolicy` on the external gateway with explicit public-route exemptions (defense-in-depth; depends on #12767). | security |
 | [#12769](https://github.com/rwlove/home-ops/issues/12769) | Audit `privileged: true` on the four AI GPU workloads — likely only need device-plugin requests. | security |
 | [#12770](https://github.com/rwlove/home-ops/issues/12770) | Backfill the securityContext baseline on the 23 app-template HelmReleases that have none (lldap and the mutating webhook first). | security |

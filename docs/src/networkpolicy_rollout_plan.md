@@ -4,6 +4,15 @@ Status: **19 of 21 in-scope namespaces locked down (default-deny enforced). `dow
 Owner: home-ops
 Last updated: 2026-05-18
 
+> **2026-07-01 update:** the oauth2-proxy fleet this plan references was
+> retired (#12767) — auth now rides per-route Envoy Gateway extAuth
+> SecurityPolicies against Authelia. Mentions of oauth2-proxy CNPs and
+> the proxy → authelia callback chain below are historical. For the
+> remaining default-deny flips (`downloads`, `collab`), validate the
+> gateway flow instead: unauthenticated request → 302 to the portal,
+> login → app loads (no in-namespace proxy hop; envoy-from-network is
+> the ingress source to allow).
+
 ## Decisions (locked)
 
 1. **`flux-system` and `kube-system` are out of scope.** Neither

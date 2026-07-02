@@ -346,7 +346,7 @@ Rob answered Q1-Q5:
 
 1. **Q1 = (a) sync poll.** CLI polls `GET /admin/tasks/<id>/result` until terminal status. Defer SSE to v2.
 2. **Q2 = (a) separate `todo` table.** Distinct lifecycle from `task_queue`.
-3. **Q3 = (a) cloudflared / Authelia.** Public surface from day one — `hai.${SECRET_DOMAIN}` behind Authelia + oauth2-proxy, same pattern as Open WebUI / Khoj / etc. This changes the build plan: a new HTTPRoute for `/admin/*`, new oauth2-proxy instance (or reuse Open WebUI's), DNS via external-dns. The CLI uses a long-lived API token stored at `~/.config/hai/token`; minting flow TBD (likely a one-time `hai auth login` device flow, or operator-issued static token to start).
+3. **Q3 = (a) cloudflared / Authelia.** *(2026-07-01: shipped as gateway extAuth SecurityPolicies on the `hai`/`hai-web` routes rather than an oauth2-proxy instance — the fleet was retired in #12767; `/admin/*` + `/inbox` ride a policy-less public route with app-level auth.)* Public surface from day one — `hai.${SECRET_DOMAIN}` behind Authelia + oauth2-proxy, same pattern as Open WebUI / Khoj / etc. This changes the build plan: a new HTTPRoute for `/admin/*`, new oauth2-proxy instance (or reuse Open WebUI's), DNS via external-dns. The CLI uses a long-lived API token stored at `~/.config/hai/token`; minting flow TBD (likely a one-time `hai auth login` device flow, or operator-issued static token to start).
 4. **Q4 = (a) live in `langgraph-agents` repo.** CLI ships as a console_script in `pyproject.toml`.
 5. **Q5 = (b) pragmatic dogfood.** Acceptance is Rob's credible end-of-day "I used `hai` for everything I'd have asked Claude Code." No instrumented metric.
 

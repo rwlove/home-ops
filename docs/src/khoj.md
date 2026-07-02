@@ -13,10 +13,10 @@
 
 ## Where it lives
 
-`kubernetes/apps/ai/khoj/` and `kubernetes/apps/ai/khoj-oauth2-proxy/`:
+`kubernetes/apps/ai/khoj/`:
 
 - **Pod**: `ghcr.io/khoj-ai/khoj:2.0.0-beta.28`, port 42110
-- **External hostname**: `khoj.${SECRET_DOMAIN}` behind Authelia (oauth2-proxy gate, household auth)
+- **External hostname**: `khoj.${SECRET_DOMAIN}` behind Authelia (gateway extAuth `SecurityPolicy`, admin tier; `/api/*` bypasses gateway auth for khoj API tokens)
 - **Internal mode**: `--anonymous-mode` (every request is the auto-bootstrapped "default" user — safe because oauth2 is the gate)
 - **Database**: `postgres-khoj` (CNPG 3-replica, pgvector embeddings)
 - **PVCs**: `khoj-config` (`/root/.khoj/`), `khoj-models` (`/root/.cache/` for sentence-transformer downloads)

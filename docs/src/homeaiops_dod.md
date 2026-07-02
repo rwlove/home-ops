@@ -550,7 +550,7 @@ The Stage 1 baseline, captured before stabilization work begins.
 
 - langgraph-agents (0.2.33, 0 restarts at audit time)
 - ollama, ollama-spark, tei-spark
-- khoj + khoj-oauth2-proxy
+- khoj (gateway extAuth-gated)
 - All 16 MCP servers reachable through `mcp-gateway`
 - HolmesGPT, claude-runner (cron-driven, no live pod required)
 - AlertManager (18d uptime)

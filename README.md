@@ -77,7 +77,7 @@ Storage tiers are picked deliberately per workload — see [`storage-class.instr
 | **DNS**          | external-dns                        | Cloudflare + bind9 split-horizon                      |
 | **TLS**          | cert-manager                        | Let's Encrypt + internal CA                           |
 | **Tunnel**       | cloudflared                         | Public ingress without exposing home WAN              |
-| **AuthN/Z**      | Authelia + oauth2-proxy             | OIDC SSO; 24 oauth2-proxy instances gate apps         |
+| **AuthN/Z**      | Authelia + Envoy extAuth            | SSO; per-route `SecurityPolicy` ext-authz gates apps  |
 | **Secrets**      | External Secrets Operator + 1Password | 116 ExternalSecrets, zero plain-text in Git         |
 | **VPN**          | wg-easy                             | Operator OOB WireGuard access                         |
 | **Storage**      | Rook-Ceph, Longhorn, Garage, direct NFS | Tiered by durability requirement                  |
@@ -184,7 +184,7 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 | **Ollama** (P40) | Local LLM serving on the Pascal P40 (≤8b-class models, embeddings) |
 | **Ollama Spark** | LLM serving on Spark/GB10 (qwen3-next:80b-a3b-instruct-q4_K_M for the agent fleet + HolmesGPT + Open WebUI, bge-m3 embeddings) |
 | **ComfyUI** | Image generation workflows |
-| **Khoj** + **khoj-oauth2-proxy** | Personal AI assistant over notes + docs (Authelia-gated) |
+| **Khoj** | Personal AI assistant over notes + docs (Authelia extAuth-gated) |
 | **LangGraph Agents** | Custom multi-agent runtime (`rwlove/langgraph-agents`, version pinned in `helmrelease.yaml`); Postgres-checkpointed with live `task_queue` + `task_dlq` substrate; MCP-gateway client. See **AI architecture** section below. |
 | **Langfuse** | LLM observability — OTLP trace sink for the langgraph-agents fleet (CNPG-backed; ClickHouse/Valkey/MinIO bundled) |
 | **Paperless-AI** | Auto-tagging for paperless-ngx |
@@ -241,7 +241,7 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 | **cloudflared** | Public tunnel without exposed WAN |
 | **Authelia** | OIDC identity provider |
 | **LLDAP** | Lightweight LDAP directory backing Authelia |
-| **oauth2-proxy** | 24 instances gating per-app SSO |
+| **extAuth SecurityPolicies** | per-route Authelia ext-authz gating app SSO |
 | **wg-easy** | Primary OOB WireGuard access |
 | **External Secrets Operator** | 1Password-backed secret materialization |
 | **Flux2** | GitOps reconciler |
@@ -524,7 +524,7 @@ All 116 ExternalSecrets resolve through External Secrets Operator from 1Password
 
 ### 🪪 Authentication — single sign-on everywhere
 
-Authelia (with LLDAP) is the OIDC identity provider; per-app oauth2-proxy instances enforce auth at Envoy Gateway. 24 apps sit behind SSO today. The mcp-gateway validates Authelia-issued JWTs with a daily-rotated signing key for MCP tooling.
+Authelia (with LLDAP) is the identity provider; per-route Envoy Gateway `SecurityPolicy` extAuth (Authelia's ext-authz endpoint) enforces auth at the gateway — 26 apps sit behind SSO today, tiered admin vs household via `access_control` rules (the oauth2-proxy sidecar fleet was retired 2026-07-01, #12767). Native-OIDC apps (immich, paperless, open-webui, …) authenticate against Authelia directly. The mcp-gateway validates Authelia-issued JWTs with a daily-rotated signing key for MCP tooling.
 
 ### 🔭 Observability — metrics, logs, AI triage
 

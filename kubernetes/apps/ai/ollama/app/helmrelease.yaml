@@ -76,8 +76,21 @@ spec:
                 memory: 6G
                 nvidia.com/gpu: 1
 
+            # GPU access is via the device plugin (nvidia.com/gpu: 1),
+            # not privileged mode — /dev/nvidia* devices are mode 666
+            # and injected by the kubelet. ollama does no chown/useradd
+            # at startup, unlike comfyui, so privileged is not needed.
+            # Baseline hardening applied minus runAsNonRoot (ollama's
+            # config paths under /root remain root-owned) and minus
+            # readOnlyRootFilesystem (models cached under /root/.ollama
+            # backed by the PVC; CUDA compiles under /root/.cache).
             securityContext:
-              privileged: true
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
 
     service:
       backend:

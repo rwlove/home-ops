@@ -9,7 +9,6 @@ flow — they're for ad-hoc operator work.
 | Script | Purpose |
 |---|---|
 | `run-on-all-nodes.sh` | Run a command via `ssh root@<node>` on every node (discovered via kubectl). |
-| `reconcile-cluster.sh` | Force-reconcile the `cluster-apps` Flux Kustomization. |
 | `events.sh` | Watch cluster events with the chatty Flux ones filtered out. Env vars: `NAMESPACE`, `WARNINGS_ONLY=1`, `SHOW_FILTERED=1` (audit), `EVENTS_FILTER_EXTRA`. |
 | `get_unfulfilled_deployments.sh` | List Deployments / ReplicaSets / StatefulSets whose ready < desired. |
 
@@ -20,14 +19,12 @@ flow — they're for ad-hoc operator work.
 | `check-postgres-dbs.sh` | Show Status / Instances / Ready instances for every CNPG cluster. |
 | `check-cnpg-soak.sh` | Post-rollout soak check (restarts, OOMs, memory headroom). |
 | `kill-postgres-pod.sh` | Wipe a CNPG replica's PV+PVC+pod so cnpg re-clones from primary. |
-| `onetime-cnpg-backup.sh` | Apply the one-time backup manifest. |
 
 ## Rook / Ceph
 
 | Script | Purpose |
 |---|---|
 | `destroy-rook-ceph-cluster.sh` | Catastrophic: tear down the entire Ceph cluster. |
-| `get-ceph-password.sh` | Print the Ceph dashboard admin password. |
 
 ## NFS
 
@@ -44,15 +41,12 @@ flow — they're for ad-hoc operator work.
 | `check_k8s-gateway.sh` | nslookup against the in-cluster gateway DNS. |
 | `check_smtp-relay.sh` | Send a test email through smtp-relay. |
 | `clear-stuck-cni-sandbox.sh` | Force-remove a cri-o sandbox stuck on a missing CNI plugin. |
-| `netshoot.sh` | Spawn a `netshoot` shell in the `downloads` namespace. |
 
 ## GPU / NVIDIA
 
 | Script | Purpose |
 |---|---|
-| `nvidia-runtime-run-nvidia-smi.sh` | Spawn a CUDA pod on a GPU node and run `nvidia-smi`. |
 | `list_pods_on_nvidia_runtimeclass.sh` | List pods using `runtimeClassName: nvidia`. |
-| `nvtop.sh` | ssh to worker8 and run `nvtop`. |
 
 ## Cilium / etcd
 
@@ -77,11 +71,22 @@ flow — they're for ad-hoc operator work.
 | `gen-oauth-client-secret.sh` | Generate an Authelia OAuth2 client secret + matching argon2 hash (paste both into `clients.yaml` / 1Password). |
 | `check-image-registry.sh` | Verify image registries used in the repo against the allowlist (renovate / PR-review aid). |
 
-## Lint
+## Lint + pre-commit hooks
 
 | Script | Purpose |
 |---|---|
-| `lint-cnp-empty-rules.py` | Reject CiliumNetworkPolicy manifests that select endpoints but define no ingress/egress rules — Cilium 1.19 silently fails to apply them. Also wired into the `Lint` GitHub Actions workflow. |
+| `lint-cnp-empty-rules.py` | Reject CiliumNetworkPolicy manifests that select endpoints but define no ingress/egress rules — Cilium 1.19 silently fails to apply them. Wired into `.pre-commit-config.yaml` and the `Lint` GitHub Actions workflow. |
+| `lint-readme-drift.py` | Verify that `README.md` badge values match live cluster data. Wired into `.pre-commit-config.yaml`. |
+| `check-readme-drift-vs-main.sh` | CI helper that compares README badge values against `origin/main`. Wired into `.pre-commit-config.yaml`. |
+
+## Claude Code operator
+
+> TODO: consider relocating these to `~/.claude-personal/scripts/` — they are Claude Code session helpers, not cluster ops tools, and don't belong alongside `destroy-rook-ceph-cluster.sh`.
+
+| Script | Purpose |
+|---|---|
+| `claude-worktree.sh` | Create a dated git worktree (`home-ops.worktrees/YYYY-MM-DD-<slug>`) on a new `claude/<…>` branch off `origin/main`. |
+| `claude-worktree-cleanup.sh` | Remove merged Claude worktrees and their branches. |
 
 ## App-specific
 
@@ -90,3 +95,16 @@ flow — they're for ad-hoc operator work.
 | `frigate_copy_speed.sh` | Tail Frigate logs and print recording copy throughput. |
 | `ollama-pull-models.sh` | Pull a predefined set of models into the Ollama instance. |
 | `romm-apply-tags.sh` | Apply per-ROM tags in the RomM database after a scan. |
+
+## One-liner operations (retired scripts)
+
+These were previously stand-alone scripts; recorded here as `kubectl`/`flux`/`ssh` one-liners so the history is grep-able without the file noise.
+
+| Operation | Command |
+|---|---|
+| Force-reconcile cluster-apps | `flux --namespace flux-system reconcile kustomization cluster-apps --with-source` |
+| Print Ceph dashboard password | `kubectl -n rook-ceph get secret rook-ceph-dashboard-password -o jsonpath="{['data']['password']}" \| base64 --decode && echo` |
+| Spawn netshoot in downloads ns | `kubectl -n downloads run tmp-shell --rm -i --tty --image nicolaka/netshoot` |
+| Run nvidia-smi on a GPU node | `kubectl -n default run nvidia-shell -i --tty --overrides='{"apiVersion":"v1","spec":{"nodeSelector":{"nvidia.com/gpu.present":"true"},"runtimeClassName":"nvidia"}}' --image nvidia/cuda:12.6.2-devel-ubuntu22.04 -- nvidia-smi` |
+| nvtop on worker8 | `ssh -t root@worker8 nvtop` |
+| Apply one-time CNPG backup | `kubectl apply -f kubernetes/apps/databases/cloudnative-pg/config/onetimebackup.yaml` |

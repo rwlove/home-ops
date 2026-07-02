@@ -1,0 +1,48 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/gateway.envoyproxy.io/securitypolicy_v1alpha1.json
+#
+# Default extAuth on the external gateway's https listener (#12768).
+# Any HTTPRoute that attaches WITHOUT its own SecurityPolicy is gated
+# by Authelia — closing the "every new external route must remember to
+# bring auth" gap found in the 2026-07 repo audit. Intentionally-public
+# routes each carry an explicit `<route>-public` SecurityPolicy
+# (authorization defaultAction Allow) that, with mergeType unset, fully
+# overrides this policy for that route (per the SecurityPolicy CRD:
+# "only the most specific configuration takes effect").
+#
+# sectionName pins this to the https listener so the http→https
+# redirect route keeps working unauthenticated.
+#
+# Note: Authelia's access_control has default_policy deny — a new
+# domain passing through this extAuth is still denied until a rule in
+# auth/authelia/app/configmap.yaml lists it. Defense in depth: new
+# route → 302 to portal → denied post-login until deliberately opened.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: external-default-extauth
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: external
+      sectionName: https
+  extAuth:
+    failOpen: false
+    headersToExtAuth:
+      - accept
+      - cookie
+      - authorization
+      - proxy-authorization
+      - x-forwarded-proto
+    http:
+      backendRefs:
+        - name: authelia
+          namespace: auth
+          port: 9091
+      path: /api/authz/ext-authz/
+      headersToBackend:
+        - Remote-User
+        - Remote-Groups
+        - Remote-Name
+        - Remote-Email

@@ -34,3 +34,23 @@ spec:
     - matchType: "=~"
       name: instance
       value: security-storage.*
+---
+# KubeNFSExportFillingUp fires the same false-positive on security-storage.
+# The 6h predict_linear window was intended to stay flat during a healthy
+# GC sawtooth, but in practice catches enough of a downslope during a fill
+# cycle to trip. Frigate GC keeps the export from ever hitting true zero, so
+# the alert is redundant noise rather than a real backstop for this host.
+# Once security-storage is rebuilt (project_todo_security_storage_new_build)
+# with more headroom, remove this silence and re-evaluate whether the
+# predict_linear can serve as a genuine backstop again.
+apiVersion: observability.giantswarm.io/v1alpha2
+kind: Silence
+metadata:
+  name: kubenfsexportfillingup-security-storage
+spec:
+  matchers:
+    - name: alertname
+      value: KubeNFSExportFillingUp
+    - matchType: "=~"
+      name: nfs_server
+      value: security-storage\..*

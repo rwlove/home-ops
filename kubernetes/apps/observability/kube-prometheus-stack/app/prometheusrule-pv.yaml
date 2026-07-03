@@ -137,11 +137,13 @@ spec:
         # Frigate recording export is *designed* to run pegged near-full
         # (Frigate fills to its retention cap, then GCs the oldest segments —
         # a sawtooth that lives at the top), so <3% free is its healthy steady
-        # state, not an incident. A genuine "GC actually broke and it's heading
-        # to true zero" event is still caught by the predict_linear variant
-        # below, whose 6h trend stays flat during a healthy sawtooth and goes
-        # negative only on a real monotonic decline. Permanent capacity fix is
-        # the NAS rebuild (project_todo_security_storage_new_build).
+        # state, not an incident. The predict_linear warning variant below was
+        # meant to be the real backstop, but in practice its 6h window catches
+        # enough of a fill downslope to trip on the healthy sawtooth too, so
+        # it's silenced for security-storage via silence-operator
+        # (silences/security-storage-diskspace.yaml). Permanent capacity fix
+        # is the NAS rebuild (project_todo_security_storage_new_build); revisit
+        # both exclusions when that box is replaced.
         - alert: KubeNFSExportFillingUp
           annotations:
             description: NFS export on {{ $labels.nfs_server }} is only {{ $value | humanizePercentage }} free. One or more PVCs backed by this server share the same underlying filesystem; check `df` on the server and identify the largest consumer.

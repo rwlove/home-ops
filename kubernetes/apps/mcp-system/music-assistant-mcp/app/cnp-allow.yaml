@@ -6,17 +6,16 @@ metadata:
   name: music-assistant-mcp-gateway-egress
 spec:
   endpointSelector:
-    # The istio data-plane pod is what actually opens the upstream
-    # connection to a registered backend Service (the broker reaches
-    # backends via privateHost = mcp-gateway-istio:8080, which then
-    # applies this HTTPRoute). Every other backend lives in mcp-system,
-    # so that hop is intra-namespace (baseline allow-intra-namespace).
-    # MA lives in `media`, so the gateway needs an explicit cross-ns
-    # egress hole. Paired with the ingress rule in music-assistant-allow
-    # (media) and the ReferenceGrant there.
+    # The broker (MCPRouter) pod dials the backend Service directly —
+    # confirmed from its logs: `POST http://music-assistant.media.svc:8095/mcp`
+    # to MA's ClusterIP. It does NOT proxy backend calls through the istio
+    # data-plane pod. Every other backend lives in mcp-system, so that hop
+    # is intra-namespace (baseline allow-intra-namespace). MA lives in
+    # `media`, so the broker needs an explicit cross-ns egress hole. Paired
+    # with the ingress rule in music-assistant-allow (media) and the
+    # ReferenceGrant there.
     matchLabels:
-      gateway.networking.k8s.io/gateway-name: mcp-gateway
-      gateway.istio.io/managed: istio.io-gateway-controller
+      app.kubernetes.io/name: mcp-gateway
   # Additive — default-deny is enabled by the namespace component.
   enableDefaultDeny:
     egress: false

@@ -43,11 +43,14 @@ test -f ~/.claude-personal/rules/persona-base.md \
 
 ```bash
 # Discover all CLAUDE.md files: workspace repos + user-global, exclude worktrees.
-# Use mapfile to avoid bash word-splitting on paths with spaces (e.g. "3532 Foxhall/CLAUDE.md").
-mapfile -t CLAUDE_MDs < <(
-  find ~/workspace/claude-workspace -maxdepth 2 -name 'CLAUDE.md' \
-      ! -path '*worktrees*' 2>/dev/null
-)
+# Use a read-loop (not `mapfile`, which is bash-only and absent in zsh — this
+# session's default shell) to avoid word-splitting on paths with spaces
+# (e.g. "3532 Foxhall/CLAUDE.md"). Portable across bash and zsh.
+CLAUDE_MDs=()
+while IFS= read -r line; do
+  CLAUDE_MDs+=("$line")
+done < <(find ~/workspace/claude-workspace -maxdepth 2 -name 'CLAUDE.md' \
+      ! -path '*worktrees*' 2>/dev/null)
 CLAUDE_MDs+=("$HOME/.claude-personal/CLAUDE.md")
 
 for claude_md in "${CLAUDE_MDs[@]}"; do

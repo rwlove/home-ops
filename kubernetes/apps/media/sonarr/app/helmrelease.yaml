@@ -24,6 +24,32 @@ spec:
           reloader.stakater.com/auto: "true"
 
         type: statefulset
+
+        # The config PVC was populated when this controller ran as uid 1000;
+        # runAsUser is now 1101 (per-app-UIDs commit 152c67ef3a) and
+        # fsGroupChangePolicy:OnRootMismatch skips the recursive fsGroup chown
+        # (the PVC root already matches gid 1001), so the stale uid-1000 files
+        # (/config/asp DataProtection keyring, MediaCover/**, logs) aren't
+        # readable/writable by 1101 — DataProtection keys regenerate every boot
+        # and cover-art/log writes throw "Permission denied". Reclaim /config
+        # ownership on startup; idempotent + self-heals. Scoped to /config only —
+        # the media/downloads NFS mounts are owned correctly and must not be
+        # touched. Mirrors the lidarr init-perms pattern.
+        initContainers:
+          init-perms:
+            image:
+              repository: ghcr.io/home-operations/sonarr
+              tag: rolling@sha256:2cd77fb3d81909a734d61bb8f71462044cb9d2f187e626a28a05a5c4e4be8fd2
+            command:
+              - chown
+              - -R
+              - 1101:1001
+              - /config
+            securityContext:
+              runAsUser: 0
+              runAsGroup: 0
+              runAsNonRoot: false
+
         containers:
           app:
             image:

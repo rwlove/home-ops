@@ -15,6 +15,9 @@ Canonical references in the repo:
 - `kubernetes/apps/mcp-system/mealie-mcp/`
 - `kubernetes/apps/mcp-system/paperless-mcp/`
 - `kubernetes/apps/mcp-system/grafana-mcp/`
+- `kubernetes/apps/mcp-system/music-assistant-mcp/` — the **cross-namespace**
+  case (backend serves its own MCP mount from another namespace). Read the
+  "Cross-namespace backend" section below before copying it.
 
 ## Layout
 
@@ -274,3 +277,69 @@ Add both ks.yaml entries (the app and the registration) to
 - `find kubernetes/apps/mcp-system/<app> -type f` — confirm files.
 - After Flux reconciles, the gateway pod should pick up the new
   registration; tools will appear under the configured prefix.
+- **Registration `Ready=True` is necessary but NOT sufficient.** It only
+  proves the broker's discovery/health path works. Always call one tool
+  end-to-end (the invocation path is separate — see below).
+
+## Cross-namespace backend (backend outside mcp-system)
+
+The default pattern above assumes a dedicated MCP-server Deployment **in
+mcp-system** whose bjw-s `route:` points at its own same-namespace
+Service. Some backends instead serve their MCP endpoint from another
+namespace — e.g. `music-assistant`, where the app's FastMCP plugin mounts
+`/mcp` straight onto MA's own webserver in `media`. There is no container
+in mcp-system; you register the existing Service.
+
+This is the **only** shape that needs the two things below. In-namespace
+backends get them for free from `allow-intra-namespace`.
+
+### 1. Raw HTTPRoute + ReferenceGrant
+
+Write a raw `HTTPRoute` in `<app>/app/httproute.yaml` (not a bjw-s
+`route:`), attached to `mcp-gateway` / `sectionName: mcps`, path `/mcp`,
+with a **cross-namespace** `backendRef` (`name` + `namespace` + `port`).
+Because it crosses namespaces, add a `ReferenceGrant` **in the backend's
+namespace** permitting `HTTPRoute` (from `mcp-system`) → the Service.
+Put that ReferenceGrant in the backend app's own kustomization (so it
+lands in the backend namespace via that app's `targetNamespace`), not in
+the mcp-system dir. Make the backend's MCP mount path `/mcp` to match the
+fleet — the gateway forwards `/mcp` unrewritten.
+
+### 2. CNP holes for BOTH gateway pods
+
+Two different gateway pods open connections to the backend Service, and a
+cross-namespace backend must allow **both** — this is the trap that cost
+three PRs on music-assistant:
+
+| Pod | Selector | Reaches backend for |
+|---|---|---|
+| broker | `app.kubernetes.io/name: mcp-gateway` | registration + the 60s health ping (dials the ClusterIP **directly**) |
+| istio data-plane | `gateway.networking.k8s.io/gateway-name: mcp-gateway` + `gateway.istio.io/managed: istio.io-gateway-controller` | **every tool invocation** (via the HTTPRoute) |
+
+Allowing only one is a silent half-failure: broker-only → registration
+`Ready` but every tool call fails `context canceled`; istio-only →
+registration never goes Ready. You need:
+
+- **Egress** (in `<app>/app/cnp-allow.yaml`, mcp-system): two additive
+  `CiliumNetworkPolicy` docs — one selecting the broker, one selecting the
+  istio pod — each allowing egress to `<backend-ns>`/`<backend>:<port>`.
+- **Ingress** (in the backend app's own CNP): one rule with **two**
+  `fromEndpoints` (broker + istio pod, both `io.kubernetes.pod.namespace:
+  mcp-system`) to `<port>`.
+
+If a tool call fails, confirm the drop with Hubble on the *istio pod's*
+node (the egress SYN drop shows there, not on the backend's node):
+
+```bash
+hubble observe --from-pod mcp-system/<istio-pod> --to-namespace <backend-ns> \
+  --port <port> --verdict DROPPED --last 100
+```
+
+### Auth
+
+The gateway forwards a broker Bearer and the fleet strips it at the
+HTTPRoute (`RequestHeaderModifier` remove `Authorization`). If the backend
+enforces its own auth, either disable it (rely on the CNP + the fact the
+mount is only reachable by the two gateway pods) or inject a real token —
+do **not** put a token literal in the HTTPRoute. music-assistant runs the
+FastMCP plugin with `require_auth: false`.

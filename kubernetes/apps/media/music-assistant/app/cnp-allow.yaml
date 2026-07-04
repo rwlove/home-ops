@@ -55,18 +55,23 @@ spec:
         - ports:
             - port: "8095"
               protocol: TCP
-    # In-cluster MCP gateway: the Kuadrant broker (MCPRouter) pod in
-    # mcp-system dials MA's FastMCP mount at :8095/mcp directly (not via
-    # the istio data-plane). MA is the first gateway backend that lives
-    # outside mcp-system, so this cross-namespace ingress hole is needed
-    # (the other backends run in mcp-system and are covered there by
-    # allow-intra-namespace). Paired with the egress allow in
-    # kubernetes/apps/mcp-system/music-assistant-mcp/app/cnp-allow.yaml
+    # In-cluster MCP gateway: BOTH Kuadrant gateway pods reach MA's FastMCP
+    # mount at :8095/mcp — the broker (app.kubernetes.io/name=mcp-gateway)
+    # dials directly for registration + the 60s health ping, and the istio
+    # data-plane pod (gateway.networking.k8s.io/gateway-name=mcp-gateway)
+    # reaches it via the music-assistant-mcp HTTPRoute on every tool
+    # invocation. MA is the first gateway backend outside mcp-system, so it
+    # needs this cross-namespace ingress hole for both (in-ns backends are
+    # covered there by allow-intra-namespace). Paired with the two egress
+    # allows in kubernetes/apps/mcp-system/music-assistant-mcp/app/cnp-allow.yaml
     # and the ReferenceGrant in this namespace.
     - fromEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: mcp-system
             app.kubernetes.io/name: mcp-gateway
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+            gateway.networking.k8s.io/gateway-name: mcp-gateway
       toPorts:
         - ports:
             - port: "8095"

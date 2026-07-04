@@ -16,7 +16,7 @@ _Production-grade Kubernetes for a household._
 
 <br/>
 
-![apps](https://img.shields.io/badge/apps-163-blue?style=for-the-badge)
+![apps](https://img.shields.io/badge/apps-164-blue?style=for-the-badge)
 ![helmreleases](https://img.shields.io/badge/HelmReleases-177-326CE5?style=for-the-badge&logo=helm&logoColor=white)
 ![nodes](https://img.shields.io/badge/k8s_nodes-11-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white)
 ![cnpg](https://img.shields.io/badge/Postgres_clusters-24-336791?style=for-the-badge&logo=postgresql&logoColor=white)
@@ -277,7 +277,7 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 </details>
 
 <details>
-<summary>🔌 <b>MCP Servers</b> — 19 Model Context Protocol servers behind an Authelia-gated gateway</summary>
+<summary>🔌 <b>MCP Servers</b> — 20 Model Context Protocol servers behind an Authelia-gated gateway</summary>
 
 | Server | Exposes |
 |--------|---------|

@@ -18,6 +18,15 @@ spec:
 
         type: statefulset
 
+        # runAsNonRoot deferred: image ships kokoro-v1.0.onnx and
+        # voices-v1.0.bin at mode 0600 root:root baked into the image
+        # layer (not a volume, so fsGroup can't fix it). Live-verified
+        # 2026-07-04: a UID 1000 process cannot open either file, so
+        # the wyoming TTS server fails at startup as non-root. Applying
+        # the capability/seccomp/RO hardening that doesn't require a
+        # UID change instead; readOnlyRootFilesystem verified OK with
+        # tmpfs /tmp (app writes per-request scratch dirs there;
+        # synthesis cache itself is in-memory only).
         containers:
           main:
             image:
@@ -28,6 +37,12 @@ spec:
               - tcp://0.0.0.0:10200
               - --voice
               - af_sky
+
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              seccompProfile:
+                type: RuntimeDefault
 
             resources:
               requests:
@@ -42,6 +57,12 @@ spec:
 
         type: statefulset
 
+        pod:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+
         containers:
           main:
             image:
@@ -52,6 +73,15 @@ spec:
               - "ok_nabu"
               - --custom-model-dir
               - /custom
+
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
 
             resources:
               requests:
@@ -80,6 +110,23 @@ spec:
 
         type: statefulset
 
+        # runAsNonRoot + capabilities.drop deferred: this is a
+        # linuxserver.io s6-overlay image. Live-verified 2026-07-04
+        # two failure modes: (1) plain non-root (runAsUser 1000, no
+        # LSIO_NON_ROOT_USER) fails preinit — "/run belongs to uid 0"
+        # — even with an explicit tmpfs /run + fsGroup, s6-overlay's
+        # privilege-drop step then hits
+        # "s6-applyuidgid: fatal: unable to set supplementary group
+        # list: Operation not permitted" once capabilities.drop: [ALL]
+        # is also applied (setgroups() needs CAP_SETGID, which every
+        # LSIO PUID/PGID-switching image needs regardless of pod-level
+        # runAsUser). (2) Root + capabilities.drop: [ALL] alone (no UID
+        # change) hits the same setgroups failure — this image cannot
+        # run under a dropped capability set at all. Confirmed the
+        # image DOES boot fine as root with just
+        # allowPrivilegeEscalation: false + seccompProfile:
+        # RuntimeDefault (no capability changes), which is what's
+        # applied below.
         containers:
           main:
             image:
@@ -92,6 +139,11 @@ spec:
               WHISPER_MODEL: large-v3-turbo
               WHISPER_BEAM: "1"
               WHISPER_LANG: en
+
+            securityContext:
+              allowPrivilegeEscalation: false
+              seccompProfile:
+                type: RuntimeDefault
 
             resources:
               requests:
@@ -142,3 +194,17 @@ spec:
             main:
               - path: /custom
                 readOnly: true
+
+      kokoro-tmp:
+        type: emptyDir
+        advancedMounts:
+          kokoro:
+            main:
+              - path: /tmp
+
+      openwakeword-tmp:
+        type: emptyDir
+        advancedMounts:
+          openwakeword:
+            main:
+              - path: /tmp

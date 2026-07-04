@@ -18,6 +18,29 @@ spec:
 
         type: statefulset
 
+        # runAsNonRoot: live-verified 2026-07-04 against the real
+        # image+tag (not just docs). paperless-ngx is s6-overlay based
+        # (same family as the wyoming-services whisper deferral above)
+        # but its entrypoint has first-class non-root support: it
+        # detects a non-zero start UID and logs "Running as non-root
+        # user (1000:1000), skipping UID/GID remapping" — no PUID/PGID
+        # dance needed. USERMAP_UID/GID below are a documented no-op in
+        # that mode (upstream logs a warning) but kept for clarity/
+        # back-compat if non-root is ever reverted. The PVC's actual
+        # document subdirs (consume/data/media) were ALREADY 1000:1000
+        # owned in prod before this change — only the /library mount
+        # root itself was 0:0, so fsGroup's OnRootMismatch does a one-
+        # time recursive chown (standard k8s mechanism, not a manual
+        # migration) rather than a bulk ownership flip on already-
+        # correct data.
+        pod:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            fsGroupChangePolicy: OnRootMismatch
+
         initContainers:
           init-db:
             image:
@@ -32,7 +55,22 @@ spec:
             image:
               repository: ghcr.io/paperless-ngx/paperless-ngx
               tag: 2.20.15
+
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+
             env:
+              # USERMAP_UID/GID are a no-op once the pod runs fully
+              # non-root (upstream skips remapping and warns) — kept
+              # for documentation/back-compat.
+              USERMAP_UID: "1000"
+              USERMAP_GID: "1000"
               # Configure application
               PAPERLESS_URL: "https://paperless.${SECRET_DOMAIN}"
               PAPERLESS_PORT: "8000"
@@ -98,3 +136,20 @@ spec:
     persistence:
       library:
         existingClaim: paperless-library-pvc
+
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          paperless:
+            app:
+              - path: /tmp
+
+      run:
+        # s6-overlay preinit wants to own /run; under readOnlyRootFilesystem
+        # this needs an explicit writable (tmpfs) mount or the container
+        # can't even get through its init stage. Live-verified 2026-07-04.
+        type: emptyDir
+        advancedMounts:
+          paperless:
+            app:
+              - path: /run

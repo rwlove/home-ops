@@ -25,13 +25,56 @@ spec:
 
         type: statefulset
 
+        # runAsNonRoot: live-verified 2026-07-04. Data PVC top level was
+        # 0:0 (subdirs/db already writable by any owner); fsGroup below
+        # handles the one-time kubelet chown on next mount (standard
+        # k8s mechanism, not a manual migration). Two real blockers
+        # found and fixed:
+        #   1. start.sh writes ./.webui_secret_key relative to the
+        #      image's /app/backend cwd (root-owned, unwritable as
+        #      1000) — WEBUI_SECRET_KEY_FILE below redirects it onto
+        #      the PVC. Bonus: this also fixes a pre-existing bug where
+        #      every pod restart silently regenerated the secret key
+        #      and force-logged-out all users (the file was never
+        #      persisted before).
+        #   2. Startup tries to overlay custom static assets onto
+        #      /app/backend/open_webui/static (image-baked, read-only
+        #      to 1000) — these raise caught "Permission denied"
+        #      errors in the log but are non-fatal; app boots and
+        #      serves normally past them.
+        pod:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            fsGroupChangePolicy: OnRootMismatch
+
         containers:
           app:
             image:
               repository: ghcr.io/open-webui/open-webui
               tag: v0.9.6
 
+            securityContext:
+              allowPrivilegeEscalation: false
+              # RO rootfs stays off: Python app writes to /tmp and may
+              # pip-install extras at runtime.
+              readOnlyRootFilesystem: false
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+
             env:
+              # HOME=/root is unwritable as UID 1000; several deps
+              # (huggingface/langchain caches, matplotlib config) fall
+              # back to $HOME for scratch/config dirs.
+              HOME: /tmp
+              # See pod-level comment above — persists the secret key
+              # on the PVC instead of the unwritable image cwd.
+              WEBUI_SECRET_KEY_FILE: /app/backend/data/.webui_secret_key
               # Multi-endpoint: Spark (qwen3-next:80b-a3b-instruct-q4_K_M) is the new default,
               # P40 (qwen2.5:7b) remains user-selectable per
               # conversation. Open WebUI parses this as `;`-separated

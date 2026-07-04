@@ -1,0 +1,32 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: music-assistant-mcp-gateway-egress
+spec:
+  endpointSelector:
+    # The istio data-plane pod is what actually opens the upstream
+    # connection to a registered backend Service (the broker reaches
+    # backends via privateHost = mcp-gateway-istio:8080, which then
+    # applies this HTTPRoute). Every other backend lives in mcp-system,
+    # so that hop is intra-namespace (baseline allow-intra-namespace).
+    # MA lives in `media`, so the gateway needs an explicit cross-ns
+    # egress hole. Paired with the ingress rule in music-assistant-allow
+    # (media) and the ReferenceGrant there.
+    matchLabels:
+      gateway.networking.k8s.io/gateway-name: mcp-gateway
+      gateway.istio.io/managed: istio.io-gateway-controller
+  # Additive — default-deny is enabled by the namespace component.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: media
+            app.kubernetes.io/name: music-assistant
+      toPorts:
+        - ports:
+            - port: "8095"
+              protocol: TCP

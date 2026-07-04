@@ -1,0 +1,40 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/gateway.networking.k8s.io/httproute_v1.json
+#
+# Registers Music Assistant's built-in FastMCP mount as a backend of the
+# in-cluster Kuadrant MCP gateway. Unlike every other backend, MA is not a
+# dedicated MCP-server Deployment in mcp-system — the FastMCP plugin mounts
+# straight onto MA's own webserver (media/music-assistant:8095/mcp). So this
+# route points cross-namespace into `media`, which requires the paired
+# ReferenceGrant (kubernetes/apps/media/music-assistant/app/referencegrant.yaml)
+# and the two CNP holes (cnp-allow.yaml here + the ingress rule in MA's own
+# music-assistant-allow policy). The FastMCP plugin runs with
+# require_auth=false and mount_path=/mcp to match the fleet path convention.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: music-assistant-mcp
+spec:
+  hostnames:
+    - music-assistant-mcp.mcp.local
+  parentRefs:
+    - name: mcp-gateway
+      namespace: mcp-system
+      sectionName: mcps
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /mcp
+      filters:
+        # Strip the broker-side Authorization before it reaches MA. With
+        # require_auth=false MA ignores it anyway, but stripping keeps this
+        # hop identical to the rest of the fleet (see paperless-mcp).
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            remove:
+              - Authorization
+      backendRefs:
+        - name: music-assistant
+          namespace: media
+          port: 8095

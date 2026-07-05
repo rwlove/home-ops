@@ -99,11 +99,25 @@ spec:
                 nvidia.com/gpu: 1
 
             securityContext:
-              # mmartial's init starts as the in-image user and uses sudo to
-              # usermod/chown to WANTED_UID/GID; matches ollama-spark + the
-              # existing comfyui (both privileged). Deviates from
-              # helmrelease.security.md by design — documented here.
-              privileged: true
+              # mmartial's init starts as the in-image user and uses sudo
+              # for groupmod/usermod/chown/su to remap to WANTED_UID/GID.
+              # Granular caps for that sudo chain; AUDIT_WRITE is needed
+              # because sudo logs to audit on each invocation. Privileged
+              # dropped. Verified live (2026-07-05): sudo chain succeeded
+              # (uid/gid matched WANTED_UID/GID, no error_exit), GPU
+              # detected, inference API responded normally.
+              privileged: false
+              allowPrivilegeEscalation: true # needed for setuid sudo/su
+              capabilities:
+                drop:
+                  - ALL
+                add:
+                  - CHOWN
+                  - SETUID
+                  - SETGID
+                  - DAC_OVERRIDE
+                  - FOWNER
+                  - AUDIT_WRITE
 
     service:
       app:

@@ -1,7 +1,7 @@
 ---
 name: claude-config-lint
 description: Audit Claude config health across all repos — verify @-import targets exist, check skill frontmatter completeness in every repo with .agents/skills/, verify MEMORY.md load budget across all non-worktree namespaces, and confirm shared persona base exists.
-last_verified: 2026-07-03
+last_verified: 2026-07-05
 ---
 
 # Claude config lint
@@ -103,17 +103,25 @@ done
 
 ### 5. MEMORY.md load budget — all non-worktree project namespaces
 
+Claude Code caps MEMORY.md auto-load on THREE axes — bytes, lines, and
+per-line length. The byte cap (~24 KB) is the one that actually bites: a
+file can be under 200 lines yet still partially load because its entries
+are too verbose (this is what PF-04b fixed for home-ops — 100 KB across
+164 lines). All three are checked below.
+
 ```bash
-echo "--- MEMORY.md line counts (budget: 200 lines each) ---"
+echo "--- MEMORY.md load budget (bytes ≤24KB, lines ≤200, per-line ≤150 chars) ---"
 find ~/.claude-personal/projects -name 'MEMORY.md' \
   | grep -v 'worktrees' \
   | sort \
   | while read -r mem; do
+    bytes=$(wc -c < "$mem")
     lines=$(wc -l < "$mem")
     maxlen=$(awk 'length > max {max = length} END {print max}' "$mem")
-    printf "%-80s %4d lines (max line: %d chars)\n" "$mem" "$lines" "$maxlen"
-    [ "$lines" -gt 200 ] && echo "  WARN: exceeds 200-line load budget → archive overflow"
-    [ "$maxlen" -gt 150 ] && echo "  WARN: line(s) > 150 chars → trim for scan-ability"
+    printf "%-72s %6d B  %4d lines  (max line: %d chars)\n" "$mem" "$bytes" "$lines" "$maxlen"
+    [ "$bytes" -gt 24000 ] && echo "  WARN: >24KB byte budget → auto-load truncates; consolidate/demote to topics/ (see PF-04b)"
+    [ "$lines" -gt 200 ]   && echo "  WARN: exceeds 200-line load budget → archive overflow"
+    [ "$maxlen" -gt 150 ]  && echo "  WARN: line(s) > 150 chars → trim for scan-ability"
   done
 ```
 
@@ -150,6 +158,7 @@ done
 | `FAIL: persona-base.md missing` | PF-05 not executed | Run PF-05 Change 1 |
 | `MISSING: <path>` | `@`-import target doesn't exist | Restore the file or remove the import |
 | `MISSING name: in <file>` | Skill frontmatter incomplete | Add the missing frontmatter field |
+| `WARN: >24KB byte budget` | MEMORY.md over the auto-load byte cap; part of it silently doesn't load even if under 200 lines | Consolidate same-family entries + demote resolved/older ones to `topics/<bucket>-index.md` (the PF-04b pass) |
 | `WARN: exceeds 200-line load budget` | MEMORY.md too long; older entries invisible | Archive overflow to `MEMORY-archive-*.md`; run PF-04 for home-ops |
 | `WARN: line(s) > 150 chars` | Entries too verbose for clean scanning | Trim to one-line hooks |
 | `WARN: no MCP loading reference` | Operator still has inline MCP prose | Replace with pointer to `_shared/mcp-tool-loading.md` |

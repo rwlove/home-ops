@@ -59,7 +59,22 @@ spec:
                 nvidia.com/gpu: 1 # requesting 1 GPU
 
             securityContext:
-              privileged: true
+              # ai-dock's init.sh calls chown/useradd/usermod on first
+              # start to remap the in-image user. Granular caps for
+              # that init phase; privileged dropped. Verified live
+              # (2026-07-05): no permission errors during init, GPU
+              # detected, inference API responds normally.
+              privileged: false
+              allowPrivilegeEscalation: true # needed for setuid useradd
+              capabilities:
+                drop:
+                  - ALL
+                add:
+                  - CHOWN
+                  - SETUID
+                  - SETGID
+                  - DAC_OVERRIDE
+                  - FOWNER
 
     service:
       app:

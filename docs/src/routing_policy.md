@@ -20,10 +20,11 @@ design that was drafted for HomeAIOps Stage 3. None of the `kubectl
 exec -n ai deploy/langgraph-agents` commands, file paths, or "current"
 framing below are still valid against the live cluster. For live
 model-routing policy (which model/GPU handles which class of work),
-see `langgraph-agents/.agents/instructions/hardware-routing.md` in the
-separate `rwlove/langgraph-agents` source repo — that repo itself is
-**not** decommissioned, only the in-cluster deployment is gone — and
-`.agents/instructions/gpu-routing.md` in this repo.
+see `.agents/instructions/gpu-routing.md` in this repo — it used to
+defer to `hardware-routing.md` in the separate `rwlove/langgraph-agents`
+source repo, but that doc described langgraph's own now-decommissioned
+per-agent routing factory, not cluster-wide policy, so `gpu-routing.md`
+was made self-sufficient instead.
 
 ## What this was
 

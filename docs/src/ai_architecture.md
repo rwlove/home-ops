@@ -126,9 +126,12 @@ fleet scripts plus `smoke-approval-flow.ts` and
 caps enforced in `langgraph-agents` code) — deleted along with the
 fleet. There is no automated in-cluster path to the Claude API today.
 
-Routing decisions belong in `langgraph-agents/.agents/instructions/hardware-routing.md`
-(canonical) and `.agents/instructions/gpu-routing.md` in this repo
-(local pointer + cluster-specific facts).
+Routing decisions belong in `.agents/instructions/gpu-routing.md` in
+this repo. It used to defer to a "canonical" doc in the
+`langgraph-agents` source repo, but that doc described langgraph's own
+now-decommissioned per-agent routing factory — nothing was actually
+cluster-wide there worth deferring to, so `gpu-routing.md` is now
+self-sufficient.
 
 ## RAG paths
 

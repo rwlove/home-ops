@@ -1,13 +1,12 @@
 # GPU routing
 
-This file is a pointer plus a small set of home-ops-local facts.
-Model-to-GPU routing decisions don't live here.
-
-## Canonical source
-
-The cross-repo authority lives in
-`~/workspace/claude-workspace/langgraph-agents/.agents/instructions/hardware-routing.md`.
-Read that before scheduling model work in this cluster.
+This file is the source of truth for model-to-GPU routing in this
+cluster. It used to defer to a canonical doc in the `langgraph-agents`
+repo (`hardware-routing.md`), but that doc described langgraph-agents'
+own internal per-agent routing factory — machinery that no longer
+exists (the fleet was decommissioned 2026-07-06, no value delivered).
+There was no cluster-wide routing content there beyond what's already
+below; nothing was migrated because there was nothing left to migrate.
 
 ## Local cluster GPU inventory
 
@@ -17,8 +16,7 @@ Read that before scheduling model work in this cluster.
 - **DGX Spark** (NVIDIA GB10, Grace-Blackwell) — on its own host
   running Ubuntu 24.04 / containerd (the lone non-CRI-O node — see
   `reference_cluster_runtime_inventory` in memory). Used for larger
-  inference; the Spark migration is in progress and specific model
-  assignments live in `hardware-routing.md` upstream.
+  inference; the Spark migration is in progress.
 
 ## Runtime split matters for gpu-operator
 
@@ -41,13 +39,10 @@ Read that before scheduling model work in this cluster.
 
 ## Routing decisions
 
-- Defer to `hardware-routing.md` in langgraph-agents — don't replicate
-  model-to-GPU mappings here.
-- Local rule of thumb: ≤8b → P40; larger → Spark (until the Spark
-  migration is documented as complete).
+- Rule of thumb: ≤8b → P40; larger → Spark (until the Spark migration
+  is documented as complete).
 
 ## What this is NOT
 
-- Not the canonical GPU routing doc — that's in langgraph-agents.
 - Not a snapshot of every node's hardware — `kubectl get nodes -o yaml
   | grep nvidia` is the source of truth.

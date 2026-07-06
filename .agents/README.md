@@ -15,7 +15,7 @@ context window space on every turn.
 | `configmap.resources.instructions.md` | ConfigMap source files live under `app/resources/`; file names match the in-container basename. |
 | `data-classification.md` | Public / Internal / Restricted tiers for narrative artifacts (PR text, docs, summaries, prompts to remote models). |
 | `flux.sorting.instructions.md` | Field ordering for Flux-managed YAML (Kustomization, dependsOn, sourceRef). |
-| `gpu-routing.md` | Pointer to langgraph-agents' canonical `hardware-routing.md` plus home-ops-local GPU facts (P40, GB10, runtime split). |
+| `gpu-routing.md` | GPU inventory + model-to-GPU routing rule of thumb (P40, GB10, runtime split). |
 | `helmfile.sorting.instructions.md` | Field ordering for HelmRelease YAML, especially app-template-based releases. |
 | `helmrelease.security.md` | Pod-securityContext defaults (runAsNonRoot, readOnlyRootFilesystem, etc.) for new HelmReleases. |
 | `kustomize.config.sorting.instructions.md` | Field ordering for kustomize `kustomization.yaml` files. |

@@ -269,8 +269,8 @@ checks on top.
 
 For components currently serving traffic: claude-runner,
 all live MCP servers, both ollama backends, Qdrant, all CNPG
-clusters, Langfuse, the Windmill bridges that are wired today.
-(HolmesGPT was in this class historically; removed 2026-07-06.)
+clusters, the Windmill bridges that are wired today.
+(HolmesGPT and Langfuse were in this class historically; both removed 2026-07-06.)
 
 A live component is **done** when:
 
@@ -364,19 +364,20 @@ relevant kustomizations without manual intervention."
 Scope is **every Kustomization that contributes to the AI pipeline**.
 That's at minimum:
 
-- `kubernetes/apps/ai/` — langfuse, ollama, ollama-spark, khoj,
+- `kubernetes/apps/ai/` — ollama, ollama-spark, khoj,
   tei-spark, paperless-ai, comfyui (where HomeAIOps-relevant)
-  (langgraph-agents and sync-receiver were in scope here; both
-  removed 2026-07-06)
+  (langgraph-agents, sync-receiver, and langfuse were in scope here;
+  all three removed 2026-07-06)
 - `kubernetes/apps/mcp-system/` — gateway + every MCP server
 - `kubernetes/apps/observability/` — Prometheus, AlertManager,
   Loki, Grafana (HolmesGPT was in scope here; removed 2026-07-06)
 - `kubernetes/apps/automation/claude-runner/` — pr-triage,
   cost-cap-commentary
 - `kubernetes/apps/home/windmill/` — server, worker, workflows
-- `kubernetes/apps/databases/cloudnative-pg/` — memory, langfuse
-  clusters (`checkpoints` cluster removed 2026-07-06 along with the
-  langgraph-agents fleet; `memory` now backs memory-mcp)
+- `kubernetes/apps/databases/cloudnative-pg/` — memory cluster
+  (`checkpoints` and `langfuse` clusters both removed by 2026-07-06 —
+  `checkpoints` alongside the langgraph-agents fleet, `langfuse`
+  alongside the Langfuse app itself; `memory` now backs memory-mcp)
 - `kubernetes/apps/storage/qdrant/` — vector DB
 
 Procedure per Kustomization: `flux suspend ks <name>`, wait 30 s,
@@ -531,7 +532,7 @@ blocking issue · ⏳ not yet audited · 🟥 aspirational (no audit).
 | Qdrant | A | 🟢 batch-audit pass (HR Ready in databases ns) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
 | Postgres CNPG `langgraph-checkpoints` (task_queue + task_dlq + checkpoints) | A | **Removed 2026-07-06** — historical: was 🟢 batch-audit pass (3/3 instances, phase=healthy); cluster deleted along with the fleet | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
 | Postgres CNPG `langgraph-memory` (pgvector KG) | A | 🟢 batch-audit pass (3/3 instances, phase=healthy). **Still live** — now serves as `memory-mcp`'s knowledge-graph backend rather than langgraph's; see `memory_mcp.md` | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
-| Postgres CNPG `langfuse` | A | 🟢 batch-audit pass (3/3 instances, phase=healthy) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| Postgres CNPG `langfuse` | A | **Removed 2026-07-06** — historical: was 🟢 batch-audit pass (3/3 instances, phase=healthy); cluster deleted along with the Langfuse app | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
 
 ### Outputs
 
@@ -540,7 +541,7 @@ blocking issue · ⏳ not yet audited · 🟥 aspirational (no audit).
 | Obsidian vault (via `langgraph-vault` PVC) | A | **Removed 2026-07-06** — historical: was 🚧 PVC bound (`langgraph-agents` pod mounts it), write-side exercise pending E2E smoke; both `langgraph-vault` and `langgraph-vault-rw` PVCs deleted along with the fleet | — |
 | Zulip threads (ops + per-agent) | A | 🚧 Zulip live (`collab/zulip` HR Ready) — write-side exercise pending E2E smoke | — |
 | Ntfy push (tap-to-approve) | A | ✅ hot — push + action buttons + webhook resume all proven (3/3 automatable links); only the literal finger-tap is unsimulable; guardian gate hot in prod (~13 parked tasks) | — |
-| Langfuse traces (OTLP sink) | A | **Producer removed 2026-07-06** — historical: was 🚧 frames flowing but worker spans **orphaned** (no ingress root span, parent ids absent), needing a trace-context propagation fix in langgraph-agents. That fix is now moot: langgraph-agents was Langfuse's only trace producer, so Langfuse currently receives zero traces. Langfuse itself is still deployed; keep-dormant vs remove is an open, unresolved question — not decided here. | — |
+| Langfuse traces (OTLP sink) | A | **Removed 2026-07-06** — historical: was 🚧 frames flowing but worker spans **orphaned** (no ingress root span, parent ids absent), needing a trace-context propagation fix in langgraph-agents. That fix is now moot: langgraph-agents was Langfuse's only trace producer, and with the producer gone, Langfuse itself was removed too — the keep-dormant-vs-remove question is resolved as remove. | — |
 
 > **Reconciliation note (2026-05-31).** Two output sinks have moved off
 > 🚧 in practice but the rows above are conservatively left as-is pending
@@ -567,6 +568,11 @@ blocking issue · ⏳ not yet audited · 🟥 aspirational (no audit).
 >   tasks parked awaiting approval), so the path is exercised, not cold.
 
 ### Langfuse storage substrate
+
+**Removed 2026-07-06** — this entire substrate (Langfuse app + bundled
+ClickHouse/Valkey/MinIO subcharts + its CNPG Postgres cluster) was
+deleted along with Langfuse itself. The table below is preserved as
+historical batch-audit record from the 2026-05-21ish pass.
 
 | Component | Class | Status | Verifying PR |
 |---|---|---|---|

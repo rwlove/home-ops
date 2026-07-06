@@ -147,7 +147,6 @@ Archive, restored independently.
 | `immich` | `cnpg-immich` | Also covered by offsite Glacier — see `offsite_recovery.md` |
 | `paperless` | `cnpg-paperless` | Also covered by offsite Glacier — see `offsite_recovery.md` |
 | `langgraph-memory` | `cnpg-langgraph-memory` | memory-mcp's knowledge-graph backend (langgraph-agents, its former co-consumer, was decommissioned 2026-07-06 — cluster now sole owner is memory-mcp) — 35+ entities; rebuildable but expensive |
-| `langfuse` | `cnpg-langfuse` | Trace history — accept loss, traces regenerate |
 | `windmill` | `cnpg-windmill` | Workflow definitions in Git; secrets in 1P — runtime state can be re-bootstrapped |
 | `zulip` | `cnpg-zulip` | Message history — important; verify backups before any ceph-block work |
 | Others (25 total) | `cnpg-<app>` | Follow the template above |

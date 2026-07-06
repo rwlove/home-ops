@@ -706,10 +706,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-seven-windmill-workflows" class="md-nav__link">
+  <a href="#the-windmill-workflows" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The seven Windmill workflows
+        The Windmill workflows
       
     </span>
   </a>
@@ -2253,10 +2253,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-seven-windmill-workflows" class="md-nav__link">
+  <a href="#the-windmill-workflows" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The seven Windmill workflows
+        The Windmill workflows
       
     </span>
   </a>
@@ -2319,7 +2319,7 @@ for anything important.</p>
     end
 
     subgraph "Workflow runtime"
-        Windmill[💨 Windmill&lt;br/&gt;7 TypeScript flows]
+        Windmill[💨 Windmill&lt;br/&gt;6 TypeScript flows]
     end
 
     subgraph "Agent fleet (ai ns)"
@@ -2336,20 +2336,20 @@ for anything important.</p>
 
     subgraph "Alert path"
         AM[🚨 AlertManager&lt;br/&gt;severity=critical]
-        Holmes[🔍 HolmesGPT&lt;br/&gt;investigates]
     end
 
     Voice &amp; ZulipApp &amp; HAApp --&gt; Windmill
-    AM --&gt; Windmill
+    AM --&gt; Push
     Windmill --&gt; LG
-    Windmill --&gt; Holmes
-    Holmes --&gt; LG
     LG --&gt; Ollama
     LG -. opt-in .-&gt; Claude
     Windmill --&gt; Push
     Windmill --&gt; ZulipStream
     LG --&gt; ZulipStream
     LG --&gt; Vault</code></pre>
+<p>Critical alerts page Pushover directly — no AI investigation step sits
+between AlertManager and the on-call notification (the <code>windmill-investigate</code>
+route/receiver was removed 2026-07-06).</p>
 <p>Each block in <strong>Workflow runtime</strong> is a single TypeScript file checked
 into <code>kubernetes/apps/home/windmill/workflows/</code>. They run in Deno
 sandboxes inside the Windmill worker pods, with secrets injected via
@@ -2514,8 +2514,9 @@ Windmill flow, running every 5 minutes.</p>
 <li><strong>Daily roll-up</strong> → <code>#digests</code> stream, one topic per day named
   <code>daily-YYYY-MM-DD</code>. Auto-posted at 22:00 ET by the <code>daily-digest</code>
   cron flow.</li>
-<li><strong>Alert investigations</strong> → push notification with HolmesGPT's
-  ≤500-char root-cause summary + Zulip ack of the original alert.</li>
+<li><strong>Critical alerts</strong> → push straight to Pushover with the raw
+  AlertManager payload + Zulip ack of the original alert. No AI
+  investigation step runs in between (removed 2026-07-06).</li>
 <li><strong>Cost / state alerts</strong> → push only (cost cap watcher, awaiting-
   user escalations).</li>
 </ul>
@@ -2528,7 +2529,7 @@ Windmill flow, running every 5 minutes.</p>
   gated) → <code>/admin/tasks</code> for task state, <code>/admin/tasks/&lt;id&gt;</code> for
   the full state machine of a specific task.</li>
 </ul>
-<h2 id="the-seven-windmill-workflows">The seven Windmill workflows<a class="headerlink" href="#the-seven-windmill-workflows" title="Permanent link">&para;</a></h2>
+<h2 id="the-windmill-workflows">The Windmill workflows<a class="headerlink" href="#the-windmill-workflows" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
@@ -2538,11 +2539,6 @@ Windmill flow, running every 5 minutes.</p>
 </tr>
 </thead>
 <tbody>
-<tr>
-<td><code>alertmanager-holmesgpt-pushover</code></td>
-<td>Webhook (AlertManager <code>severity=critical</code>)</td>
-<td>Calls HolmesGPT to investigate (≤2 tool calls, &lt;500 chars); pushes the summary</td>
-</tr>
 <tr>
 <td><code>langgraph-inbox</code></td>
 <td>Webhook (Zulip bot, voice, HA companion)</td>
@@ -2582,9 +2578,6 @@ holds the runtime copy; we sync from git when scripts change.</p>
 <p>The system is mostly self-tending, but a few things will eventually
 need attention:</p>
 <ul>
-<li><strong>HolmesGPT is slow</strong> — each alert investigation takes ~5–7 min on
-  P40-class Ollama hardware. If a burst of critical alerts fires,
-  the workflow queue backs up but every job still runs eventually.</li>
 <li><strong><code>/admin/tasks</code> hangs</strong> on langgraph-agents (pre-existing,
   unrelated to Windmill). The awaiting-user-sweep tolerates this
   with a <code>{skip: true}</code> return; no errors, just a 5-min retry

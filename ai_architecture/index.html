@@ -2409,7 +2409,6 @@ per HOMELAB-SPEC Layer 2 #5.</p>
     subgraph Bridges[Bridges — Windmill TS workflows]
         WInbox[langgraph-inbox.ts]
         WZulip[zulip-triager-webhook.ts]
-        WAlert[alertmanager-holmesgpt-notify.ts]
         WDigest[langgraph-daily-digest.ts]
         WCost[langgraph-cost-cap-watcher.ts]
         WSweep[langgraph-awaiting-user-sweep.ts]
@@ -2421,7 +2420,6 @@ per HOMELAB-SPEC Layer 2 #5.</p>
     end
 
     subgraph Agents[Agents]
-        Holmes[HolmesGPT&lt;br/&gt;✅ live]
         LG[langgraph-agents&lt;br/&gt;🟡 plumbed, cold]
         CR[claude-runner&lt;br/&gt;✅ live&lt;br/&gt;cron-only]
     end
@@ -2443,6 +2441,7 @@ per HOMELAB-SPEC Layer 2 #5.</p>
         Vault[(Obsidian vault&lt;br/&gt;via langgraph-vault PVC)]
         ZulipO[Zulip threads]
         Ntfy[ntfy push&lt;br/&gt;tap-to-approve]
+        Push[Pushover&lt;br/&gt;direct page]
         LF[Langfuse traces]
     end
 
@@ -2451,13 +2450,11 @@ per HOMELAB-SPEC Layer 2 #5.</p>
     OWUI --&gt;|chat| OllamaSpark
     OWUI --&gt;|agent-as-model| LG
     OWUI --&gt;|tool calls| Gw
-    OWUI --&gt;|tool calls| Holmes
     Khoj --&gt; OllamaP40
-    AM --&gt; WAlert --&gt; Holmes
+    AM --&gt; Push
     Cron --&gt; WDigest &amp; WCost &amp; WSweep &amp; WDLQ &amp; WWork &amp; WPaperless
 
     WInbox --&gt; LG
-    Holmes --&gt; OllamaSpark
     LG --&gt; OllamaSpark
     LG --&gt; OllamaP40
     LG -.-&gt; Claude
@@ -2471,7 +2468,6 @@ per HOMELAB-SPEC Layer 2 #5.</p>
     LG --&gt; WApprovePost --&gt; ZulipO &amp; Ntfy
     Ntfy --&gt; WApproveRecv --&gt; LG
     LG --&gt; Vault
-    Holmes --&gt; ZulipO
     CR --&gt; ZulipO
     WPaperless --&gt; Q
     OWUI --&gt; Q</code></pre>
@@ -2508,9 +2504,9 @@ only fires once Langfuse keys are populated in 1Password).</p>
 <td>Khoj's own embedding pipeline; chat via ollama P40</td>
 </tr>
 <tr>
-<td>AlertManager firing alert</td>
+<td>AlertManager firing alert (<code>severity=critical</code>)</td>
 <td>Webhook receiver</td>
-<td>Windmill <code>alertmanager-holmesgpt-notify.ts</code> → HolmesGPT <code>/investigate</code></td>
+<td>Pushover directly — no Windmill hop, no AI investigation step (the <code>windmill-investigate</code> route/receiver and <code>alertmanager-holmesgpt-notify.ts</code> were removed 2026-07-06)</td>
 </tr>
 <tr>
 <td>Operator tap on ntfy</td>
@@ -2557,7 +2553,7 @@ migration.</p>
 <td>GB10 (Grace-Blackwell, 128 GB unified)</td>
 <td><code>http://ollama-spark.ai.svc.cluster.local:11434</code></td>
 <td>qwen3-next:80b-a3b-instruct-q4_K_M (chat default), bge-m3 (1024-dim embeds)</td>
-<td>The post-Spark workhorse. Open WebUI default; HolmesGPT model; langgraph-agents default for memory embeds.</td>
+<td>The post-Spark workhorse. Open WebUI default; langgraph-agents default for memory embeds.</td>
 </tr>
 <tr>
 <td>Claude API</td>
@@ -2589,7 +2585,7 @@ plus web search.</p>
 <li><strong>Reranker</strong>: BGE reranker-v2-m3 in-process, sentence-transformers on CPU (line 66). Adds ~2.5 GiB to the pod's resident set.</li>
 <li><strong>Vector DB</strong>: Qdrant at <code>http://qdrant.databases.svc.cluster.local:6333</code> (line 69).</li>
 <li><strong>Web search</strong>: SearXNG (<code>collab.svc.cluster.local:8080</code>) via <code>RAG_WEB_SEARCH_ENGINE=searxng</code> (line 68).</li>
-<li><strong>Tool servers</strong> also wired in: HolmesGPT (<code>observability.svc.cluster.local:8080/openapi.json</code>) and MCP gateway (<code>mcp-system.svc.cluster.local:8080/mcp</code>) — both visible to chat as callable tools (lines 88-112).</li>
+<li><strong>Tool server</strong> also wired in: MCP gateway (<code>mcp-system.svc.cluster.local:8080/mcp</code>) — visible to chat as callable tools (lines 88-112). HolmesGPT's tool-server registration was removed 2026-07-06 along with the rest of the deployment.</li>
 </ul>
 <p>Phase A bge-m3 cutover (2026-05-20, PR #11792) showed bge-m3 (1024-dim)
 beat nomic-embed-text (768-dim) by +23 MRR@10 pts on a 50-doc Paperless
@@ -2651,9 +2647,9 @@ Windmill-ingested <code>paperless</code> collection. Operator-side access is via
 <tbody>
 <tr>
 <td>HolmesGPT</td>
-<td><code>holmesgpt.observability</code></td>
-<td>✅ live</td>
-<td>qwen3-next:80b-a3b-instruct-q4_K_M on ollama-spark; AlertManager-driven RCA; also a tool server for Open WebUI. Prompt + context budget tuned 2026-05-23 (32K context, 6 tool-call budget).</td>
+<td>—</td>
+<td>❌ removed 2026-07-06</td>
+<td>Deployment, RBAC, CNP, SecurityPolicy, and Open WebUI tool-server registration all deleted. No value delivered — see <code>kubernetes/apps/observability/holmesgpt/</code> in git history for the last-live manifests.</td>
 </tr>
 <tr>
 <td>triager</td>
@@ -2921,9 +2917,9 @@ endpoint only as a data source.</p>
 <td><code>kubernetes/apps/ai/langgraph-agents/app/servicemonitor.yaml</code> + <code>prometheusrule.yaml</code></td>
 </tr>
 <tr>
-<td>HolmesGPT investigations</td>
-<td>Pushover + Zulip</td>
-<td><code>alertmanager-holmesgpt-notify.ts</code> sanitizes the agent text before delivery</td>
+<td>Critical AlertManager alerts</td>
+<td>Pushover</td>
+<td>Direct <code>pushover</code> receiver — no AI investigation step (HolmesGPT + <code>alertmanager-holmesgpt-notify.ts</code> removed 2026-07-06)</td>
 </tr>
 <tr>
 <td>Ollama (both)</td>
@@ -2973,7 +2969,6 @@ secret is mirrored into the <code>ai</code> namespace by emberstack reflector
 <li><strong>sync-receiver</strong> — <code>kubernetes/apps/ai/sync-receiver/</code></li>
 <li><strong>tei-spark</strong> — <code>kubernetes/apps/ai/tei-spark/</code> (unsuspended 2026-05-21, PR #11893; PrometheusRule added in PR #11906)</li>
 <li><strong>open-webui</strong> — <code>kubernetes/apps/collab/open-webui/app/helmrelease.yaml</code></li>
-<li><strong>holmesgpt</strong> — <code>kubernetes/apps/observability/holmesgpt/app/helmrelease.yaml</code></li>
 <li><strong>windmill</strong> — <code>kubernetes/apps/home/windmill/app/helmrelease.yaml</code></li>
 <li><strong>windmill workflows</strong> — <code>kubernetes/apps/home/windmill/workflows/*.ts</code> (12 today)</li>
 <li><strong>claude-runner</strong> — <code>kubernetes/apps/automation/claude-runner/</code></li>

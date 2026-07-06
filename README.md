@@ -261,7 +261,7 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 | **Paperless-ngx** | Document scanning, OCR, tagging (CNPG-backed, offsite-backed) |
 | **Obsidian** + **obsidian-couchdb** | Notes sync (CouchDB w/ Cloudflare rate-limiting) |
 | **Zulip** | Self-hosted team chat (also wired into agent pipeline approvals) |
-| **Windmill** | Workflow automation; 24 checked-in TypeScript flows under `kubernetes/apps/home/windmill/workflows/` cover AlertManager → HolmesGPT, langgraph inbox/approval/digest/DLQ/cost-cap/awaiting-user/reviewer-weekly, weekly operator drift sweeps (storage / network / ml / observability), paperless RAG ingest+tombstone (Qdrant) and LightRAG graph-RAG ingest+tombstone, Zulip triager webhook, the workaround upstream-watcher, and the errand-runner approval-flow smoke driver |
+| **Windmill** | Workflow automation; 23 checked-in TypeScript flows under `kubernetes/apps/home/windmill/workflows/` cover langgraph inbox/approval/digest/DLQ/cost-cap/awaiting-user/reviewer-weekly, weekly operator drift sweeps (storage / network / ml / observability), paperless RAG ingest+tombstone (Qdrant) and LightRAG graph-RAG ingest+tombstone, Zulip triager webhook, the workaround upstream-watcher, and the errand-runner approval-flow smoke driver |
 | **ntfy** | Self-hosted push notifications (operator approvals via Android tap actions) |
 | **BentoPDF** | Self-hosted PDF toolkit |
 | **Kitchenowl** | Shopping lists + recipe / meal management |
@@ -322,12 +322,10 @@ flowchart TB
         Khoj[Khoj<br/>personal AI]
         Voice[HA voice 'inbox …']
         ZulipDM[Zulip DM<br/>Triager bot]
-        AM[AlertManager]
     end
 
-    subgraph Bridges[Windmill bridges<br/>24 TS workflows]
+    subgraph Bridges[Windmill bridges<br/>23 TS workflows]
         WInbox[langgraph-inbox.ts]
-        WAlert[alertmanager-holmesgpt-notify.ts]
         WApprove[langgraph-approval-post/receive.ts]
         WPaperless[paperless-rag-ingest.ts]
         WOther[…digest/DLQ/cost-cap/<br/>awaiting-user/workaround]
@@ -365,7 +363,6 @@ flowchart TB
     OWUI --> Holmes
     OWUI --> Q
     Khoj --> OllamaP40
-    AM --> WAlert --> Holmes
     Holmes --> OllamaSpark
     LG --> OllamaSpark
     LG --> OllamaP40
@@ -387,9 +384,9 @@ in 1Password.
 
 - **Open WebUI** (`collab/`) — primary chat UI. Defaults to qwen3-next:80b-a3b-instruct-q4_K_M on Ollama-Spark; users can switch to any langgraph agent via the OpenAI-compatible API. RAG runs over Qdrant with bge-m3 embeds + BGE reranker-v2-m3 in-process. Tool servers wired in: HolmesGPT + the MCP gateway.
 - **Khoj** (`ai/`) — parallel personal-AI surface for notes + docs. Self-contained: own embedding pipeline (default gte-small, optionally ollama nomic-embed-text), chat via Ollama-P40. Does **not** consume MCP gateway or langgraph-agents.
-- **HolmesGPT** (`observability/`) — live in production for alert triage. AlertManager firings reach it via Windmill's `alertmanager-holmesgpt-notify.ts`; it reasons over Prometheus + Loki + cluster state and posts a root-cause hypothesis to Zulip / ntfy. Open WebUI also surfaces it as a tool server. Prompt + context budget tuned for qwen3-next:80b-a3b-instruct-q4_K_M on Spark (32K context, 6 tool-call budget per investigation).
-- **langgraph-agents** (`ai/`) — the FastAPI multi-agent runtime (`rwlove/langgraph-agents`, version pinned in `helmrelease.yaml`). Plumbed end-to-end (Postgres checkpoints + memory, live task-queue substrate in `postgres-langgraph-checkpoints`, vault PVCs, Windmill approval loop, cost caps in env). Trigger surface live: alertmanager → 6 namespace-mapped operators, daily 22:00 ET historian digest, weekly Saturday operator drift crons (ml / observability / network / reviewer / storage), errand-runner approval-flow smoke. `ENABLE_CLAUDE_API: false` so Claude API escalation is still gated. Public ingress splits CLI traffic (`hai.${SECRET_DOMAIN}`, Bearer-only) from browser traffic (`hai-web.${SECRET_DOMAIN}`, Authelia).
-- **Windmill** (`home/`) — 24 checked-in TypeScript flows under `kubernetes/apps/home/windmill/workflows/` are the bridges that knit the surfaces above together. Every alert webhook, Zulip-triggered DM, approval round-trip, daily digest, weekly vault-hygiene sweep, weekly operator drift sweeps (storage / network / ml / observability), DLQ retry, cost-cap pause, Paperless RAG ingest (Qdrant + LightRAG graph-RAG), and the errand-runner approval-flow smoke driver is a `.ts` file there.
+- **HolmesGPT** (`observability/`) — deployed but no longer reachable from AlertManager: the `windmill-investigate` route/receiver and the `alertmanager-holmesgpt-notify.ts` bridge that fed it were removed 2026-07-06 (no value delivered; critical alerts now go straight to Pushover). Open WebUI still surfaces it as a tool server pending full removal. Prompt + context budget were tuned for qwen3-next:80b-a3b-instruct-q4_K_M on Spark (32K context, 6 tool-call budget per investigation).
+- **langgraph-agents** (`ai/`) — the FastAPI multi-agent runtime (`rwlove/langgraph-agents`, version pinned in `helmrelease.yaml`). Plumbed end-to-end (Postgres checkpoints + memory, live task-queue substrate in `postgres-langgraph-checkpoints`, vault PVCs, Windmill approval loop, cost caps in env). Trigger surface live: daily 22:00 ET historian digest, weekly Saturday operator drift crons (ml / observability / network / reviewer / storage), errand-runner approval-flow smoke; the alertmanager → namespace-mapped-operator trigger was severed 2026-07-06 along with the HolmesGPT bridge script. `ENABLE_CLAUDE_API: false` so Claude API escalation is still gated. Public ingress splits CLI traffic (`hai.${SECRET_DOMAIN}`, Bearer-only) from browser traffic (`hai-web.${SECRET_DOMAIN}`, Authelia).
+- **Windmill** (`home/`) — 23 checked-in TypeScript flows under `kubernetes/apps/home/windmill/workflows/` are the bridges that knit the surfaces above together. Zulip-triggered DM, approval round-trip, daily digest, weekly vault-hygiene sweep, weekly operator drift sweeps (storage / network / ml / observability), DLQ retry, cost-cap pause, Paperless RAG ingest (Qdrant + LightRAG graph-RAG), and the errand-runner approval-flow smoke driver is a `.ts` file there.
 - **Langfuse** (`ai/`) — OTLP trace sink for langgraph-agents. Chart deploys ClickHouse + Valkey + MinIO bundled; Postgres comes from CNPG `postgres-langfuse`.
 - **memory-mcp** (`mcp-system/`) — cross-agent knowledge graph on `postgres-langgraph-memory` with pgvector(1024). bge-m3 embeds via Ollama-Spark.
 
@@ -397,18 +394,18 @@ in 1Password.
 
 | Agent                  | Role                                                       | Status |
 |------------------------|------------------------------------------------------------|--------|
-| `HolmesGPT`            | AlertManager-driven root-cause investigation               | ✅ live |
+| `HolmesGPT`            | AlertManager-driven root-cause investigation               | ⚠️ deployed, unreachable — AlertManager routing removed 2026-07-06, deployment removal pending |
 | `triager`              | Classifies inbound items, assigns owner agent              | ✅ live · default route for every untargeted `/inbox` |
 | `supervisor`           | Routes work to specialist agents; opens approvals          | ✅ live · in-graph fallback |
 | `historian`            | Activity log curator + daily/weekly/monthly accomplishment digests | ✅ live · daily 22:00 ET cron |
 | `reporter`             | Universal final hop — composes user-facing DM from upstream agent output | ✅ live · in-graph terminus |
 | `reviewer`             | Vault hygiene: aging TODOs, drift findings, dead `[[wiki-links]]` | ✅ live · weekly Sat 06:00 ET cron |
-| `storage-operator`     | Ceph + Longhorn + Garage + CNPG + Barman + NFS planning    | ✅ live · alertmanager + weekly Sun 07:00 ET cron |
-| `network-operator`     | Lovenet L1–L7 ops (Omada SDN, Cilium BGP, VLANs, DNS, certs) | ✅ live · alertmanager + weekly Sat 04:00 ET cron |
-| `observability-operator` | Prometheus rules, AlertManager routing, Loki, Grafana, HolmesGPT prompt tuning | ✅ live · alertmanager + weekly Sat 03:00 ET cron |
-| `ml-operator`          | Frigate, Immich CLIP, model tuning, GPU placement          | ✅ live · alertmanager + weekly Sat 02:00 ET cron |
-| `smart-home-operator`  | Home Assistant entities, automations, ESPHome configs      | ✅ live · alertmanager + intent-drift cron |
-| `homelab-engineer`     | Cluster ops, HelmRelease drafting, PR-shaped output        | ✅ live · alertmanager default-route |
+| `storage-operator`     | Ceph + Longhorn + Garage + CNPG + Barman + NFS planning    | ✅ live · weekly Sun 07:00 ET cron (alertmanager trigger severed 2026-07-06) |
+| `network-operator`     | Lovenet L1–L7 ops (Omada SDN, Cilium BGP, VLANs, DNS, certs) | ✅ live · weekly Sat 04:00 ET cron (alertmanager trigger severed 2026-07-06) |
+| `observability-operator` | Prometheus rules, AlertManager routing, Loki, Grafana, HolmesGPT prompt tuning | ✅ live · weekly Sat 03:00 ET cron (alertmanager trigger severed 2026-07-06) |
+| `ml-operator`          | Frigate, Immich CLIP, model tuning, GPU placement          | ✅ live · weekly Sat 02:00 ET cron (alertmanager trigger severed 2026-07-06) |
+| `smart-home-operator`  | Home Assistant entities, automations, ESPHome configs      | ✅ live · intent-drift cron (alertmanager trigger severed 2026-07-06) |
+| `homelab-engineer`     | Cluster ops, HelmRelease drafting, PR-shaped output        | 🟡 no longer alertmanager-triggered (severed 2026-07-06); reachable via `/inbox` only |
 | `researcher`           | Web + repo + vault research                                | ✅ live · hourly renovate-triage cron |
 | `errand-runner`        | Class C+ MCP-write executor (the only agent that calls MCP write) | ✅ live · in-graph after approval · local-only |
 | `note-maker`           | Captures decisions + facts back into the vault             | 🟡 reachable via `/inbox` (HA voice "inbox …"); no recurring trigger |

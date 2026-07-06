@@ -57,11 +57,40 @@ spec:
               - secretRef:
                   name: *app
 
+          venv-reset:
+            image:
+              repository: ghcr.io/home-operations/home-assistant
+              tag: &hassImage 2026.7.1@sha256:77612bf97ff111c5517f708b7893e6d4400e0104db24cdd69e30105c95b7bfcc
+
+            args:
+              - |
+                set -eu
+                marker=/config/.hass-image-version
+                current="$(python3 -c 'from homeassistant.const import __version__; print(__version__)')"
+                previous="$(cat "$marker" 2>/dev/null || true)"
+                if [ "$current" != "$previous" ]; then
+                  echo "HA image changed ($previous -> $current); wiping /config/.venv"
+                  rm -rf /config/.venv/* /config/.venv/.[!.]* 2>/dev/null || true
+                  printf '%s' "$current" > "$marker"
+                else
+                  echo "HA image unchanged ($current); keeping /config/.venv cache"
+                fi
+            command: ["/bin/bash", "-c"]
+
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+              readOnlyRootFilesystem: true
+              seccompProfile:
+                type: RuntimeDefault
+
         containers:
           app:
             image:
               repository: ghcr.io/home-operations/home-assistant
-              tag: 2026.7.1@sha256:77612bf97ff111c5517f708b7893e6d4400e0104db24cdd69e30105c95b7bfcc
+              tag: *hassImage
 
             env:
               POSTGRES_HOST: postgres-home-assistant-rw.databases.svc.cluster.local
@@ -70,12 +99,29 @@ spec:
             envFrom: *envFrom
 
             probes:
-              liveness:
-                enabled: false
-              readiness:
-                enabled: false
+              liveness: &probes
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /
+                    port: 8123
+                  initialDelaySeconds: 0
+                  periodSeconds: 10
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              readiness: *probes
               startup:
-                enabled: false
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /
+                    port: 8123
+                  initialDelaySeconds: 0
+                  periodSeconds: 5
+                  timeoutSeconds: 5
+                  failureThreshold: 60
 
             resources:
               requests:
@@ -117,6 +163,10 @@ spec:
         existingClaim: home-assistant-config-pvc
         globalMounts:
           - path: /config
+        advancedMounts:
+          home-assistant:
+            venv-reset:
+              - path: /config
 
       config-cache:
         accessMode: ReadWriteOnce
@@ -125,6 +175,8 @@ spec:
         advancedMounts:
           home-assistant:
             app:
+              - path: /config/.venv
+            venv-reset:
               - path: /config/.venv
 
       media:

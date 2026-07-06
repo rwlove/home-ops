@@ -16,11 +16,11 @@ _Production-grade Kubernetes for a household._
 
 <br/>
 
-![apps](https://img.shields.io/badge/apps-162-blue?style=for-the-badge)
-![helmreleases](https://img.shields.io/badge/HelmReleases-175-326CE5?style=for-the-badge&logo=helm&logoColor=white)
+![apps](https://img.shields.io/badge/apps-161-blue?style=for-the-badge)
+![helmreleases](https://img.shields.io/badge/HelmReleases-174-326CE5?style=for-the-badge&logo=helm&logoColor=white)
 ![nodes](https://img.shields.io/badge/k8s_nodes-11-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white)
-![cnpg](https://img.shields.io/badge/Postgres_clusters-23-336791?style=for-the-badge&logo=postgresql&logoColor=white)
-![secrets](https://img.shields.io/badge/secrets-93-0572EC?style=for-the-badge&logo=1password&logoColor=white)
+![cnpg](https://img.shields.io/badge/Postgres_clusters-22-336791?style=for-the-badge&logo=postgresql&logoColor=white)
+![secrets](https://img.shields.io/badge/secrets-92-0572EC?style=for-the-badge&logo=1password&logoColor=white)
 ![age](https://img.shields.io/badge/cluster_age-5%2B_years-success?style=for-the-badge)
 
 </div>
@@ -185,7 +185,6 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 | **Ollama Spark** | LLM serving on Spark/GB10 (qwen3-next:80b-a3b-instruct-q4_K_M for Open WebUI, bge-m3 embeddings) |
 | **ComfyUI** | Image generation workflows |
 | **Khoj** | Personal AI assistant over notes + docs (Authelia extAuth-gated) |
-| **Langfuse** | LLM observability, CNPG-backed with ClickHouse/Valkey/MinIO bundled — deployed but currently has zero trace producers (its only consumer, the langgraph-agents fleet, was removed 2026-07-06) |
 | **Paperless-AI** | Auto-tagging for paperless-ngx |
 | **tei-spark** | Text-embedding-inference reranker (unsuspended 2026-05-21) |
 
@@ -341,7 +340,6 @@ flowchart TB
     subgraph Outputs[Outputs + observability]
         AM[AlertManager]
         Push[Pushover<br/>direct page]
-        LF[Langfuse<br/>🟡 no active producers]
     end
 
     OWUI -->|chat| OllamaSpark
@@ -364,7 +362,7 @@ plumbing, removed 2026-07-06 along with the fleet.
 - **HolmesGPT** — removed 2026-07-06 (no value delivered). The `windmill-investigate` route/receiver and the `alertmanager-holmesgpt-notify.ts` bridge were removed in Stage 1 (critical alerts now go straight to Pushover); the HolmesGPT deployment itself, its RBAC, its Open WebUI tool-server registration, and its Ollama/Authelia wiring were removed in Stage 2. HolmesGPT no longer exists anywhere in the cluster.
 - **langgraph-agents** — removed 2026-07-06. The FastAPI multi-agent runtime, its Postgres checkpoints (`postgres-langgraph-checkpoints`, deleted), vault PVCs (`langgraph-vault`/`langgraph-vault-rw`, deleted), and both public routes (`hai.${SECRET_DOMAIN}` and `hai-web.${SECRET_DOMAIN}`) are gone. `sync-receiver` — an sshd sidecar that existed solely to expose the langgraph-vault PVCs over rsync — was deleted alongside it. See [Agent fleet — status today](https://github.com/rwlove/home-ops/blob/main/docs/src/ai_architecture.md#agent-fleet--status-today) for the historical roster.
 - **Windmill** (`home/`) — 7 checked-in TypeScript flows remain under `kubernetes/apps/home/windmill/workflows/` (down from 23): Paperless RAG ingest+tombstone, LightRAG graph-RAG ingest+tombstone, HA smart-home intent drift, Windmill self-failure-watch, and the workaround upstream-watcher. The 16 langgraph-fleet-specific flows (inbox, approval post/receive, daily digest, cost-cap watcher, awaiting-user sweep, DLQ watcher, weekly operator-drift crons, the approval-flow smoke test, and the Zulip triager webhook) were deleted 2026-07-06.
-- **Langfuse** (`ai/`) — still deployed (ClickHouse + Valkey + MinIO bundled; Postgres via CNPG `postgres-langfuse`) but has **zero active trace producers** — langgraph-agents was its only consumer. Keep-dormant vs. remove is an open question, not yet decided.
+- **Langfuse** — removed 2026-07-06. Its only consumer (langgraph-agents) was already gone; the keep-dormant-vs-remove question is now resolved as remove.
 - **memory-mcp** (`mcp-system/`) — cross-agent knowledge graph on `postgres-langgraph-memory` with pgvector(1024), bge-m3 embeds via Ollama-Spark. Fully unaffected by the decommission — it's memory-mcp's own database, used by Claude Code and Open WebUI. It just lost langgraph-agents as a consumer.
 
 ### Agent fleet — retired 2026-07-06

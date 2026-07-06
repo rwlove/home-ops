@@ -44,12 +44,11 @@ flowchart TB
     subgraph Tools[Tool surfaces]
         Gw[MCP Gateway<br/>16 MCP servers behind Istio]
         Q[(Qdrant<br/>vector DB)]
-        PG[(Postgres CNPG<br/>memory + langfuse)]
+        PG[(Postgres CNPG<br/>memory)]
     end
 
     subgraph Outputs[Outputs]
         Push[Pushover<br/>direct page]
-        LF[Langfuse traces<br/>🟡 zero active producers]
     end
 
     OWUI -->|chat| OllamaSpark
@@ -65,9 +64,10 @@ flowchart TB
 There are no dashed (cold-path) edges left in this diagram — the two
 things that used to be dashed, langgraph's gated Claude API escalation
 and its OTLP export to Langfuse, were both removed with the fleet.
-Langfuse is still deployed but has zero trace producers today (kept
-per the open question in [Observability of the AI fleet](#observability-of-the-ai-fleet),
-not resolved here).
+Langfuse itself — the trace sink, with its bundled ClickHouse/Valkey/MinIO
+and its dedicated CNPG Postgres cluster — was removed 2026-07-06. The
+open keep-dormant-vs-remove question noted in earlier passes of this
+chapter is now resolved: removed.
 
 **Also gone: `claude-runner`, not by this decommission but by a chain
 leading through it.** `claude-runner` (a CronJob-based Claude Code CLI
@@ -307,7 +307,7 @@ Document the kill in the plan's changelog and remove the CronJob.
 
 | Subject | Sink | Wired by |
 |---|---|---|
-| Langfuse traces | Langfuse (OTLP) | ❌ zero active producers as of 2026-07-06 — langgraph-agents was Langfuse's only trace source and it's gone. Langfuse itself is still deployed; whether to keep it dormant or remove it is an open question, not resolved here. |
+| Langfuse traces | Langfuse (OTLP) | ❌ **Removed 2026-07-06.** langgraph-agents was Langfuse's only trace source; with the producer already gone, Langfuse itself (app + bundled ClickHouse/Valkey/MinIO + its CNPG Postgres cluster) was removed too — the keep-dormant-vs-remove question is resolved as remove. |
 | Critical AlertManager alerts | Pushover | Direct `pushover` receiver — no AI investigation step (HolmesGPT + `alertmanager-holmesgpt-notify.ts` removed 2026-07-06) |
 | Ollama (both) | Prometheus | scraped via standard ollama exporter Service in the `ai` namespace |
 | GPU utilization | Prometheus via DCGM | GB10's DCGM counters are mostly broken — use `POWER_USAGE` as the proxy (see `.agents/instructions/gpu-routing.md`) |
@@ -327,29 +327,15 @@ conflate the two. Grafana dashboards `langgraph-agents.json`,
 `aihomeops-state.json`, and `task-queue.json` were deleted;
 `claude-code.json` (Claude Code CLI cost tracking, unrelated) is kept.
 
-### Langfuse storage substrate
-
-Langfuse v3 needs four backends. The chart deploys three in-namespace
-and uses the cluster's CNPG for Postgres. This substrate is unchanged
-by the decommission — only the trace *producer* (langgraph-agents)
-went away, not Langfuse itself:
-
-- **Postgres** — CNPG `postgres-langfuse` (the chart's bundled bitnami
-  postgresql is disabled; `helmrelease.yaml:30-36`). DSN consumed via
-  the `uri` key in `postgres-langfuse-app`.
-- **ClickHouse** — chart-bundled, default `ceph-block` storage.
-- **Valkey (Redis)** — chart-bundled.
-- **MinIO (S3)** — chart-bundled.
-
-Subchart auth secrets all share `langfuse-secret`. The CNPG-generated
-secret is mirrored into the `ai` namespace by emberstack reflector
-(see `databases/cloudnative-pg/config/langfuse/cluster.yaml`).
+**Langfuse storage substrate — removed 2026-07-06.** Langfuse's
+bundled ClickHouse, Valkey, and MinIO subcharts, plus its dedicated
+CNPG Postgres cluster (`postgres-langfuse`), were deleted along with
+the app itself. Nothing else in the cluster depended on any of it.
 
 ## File reference (quick index)
 
 - **Khoj** — `kubernetes/apps/ai/khoj/app/helmrelease.yaml`
 - **khoj extAuth** — `SecurityPolicy` in `kubernetes/apps/ai/khoj/` (oauth2-proxy retired 2026-07-01, #12767)
-- **langfuse** — `kubernetes/apps/ai/langfuse/app/helmrelease.yaml`
 - **memory-mcp** — `kubernetes/apps/mcp-system/memory-mcp/app/helmrelease.yaml` (backed by CNPG `postgres-langgraph-memory`, still live)
 - **ollama** (P40) — `kubernetes/apps/ai/ollama/app/`
 - **ollama-spark** (GB10) — `kubernetes/apps/ai/ollama-spark/app/`
@@ -363,7 +349,9 @@ secret is mirrored into the `ai` namespace by emberstack reflector
 - **MCP servers** — sibling directories under `kubernetes/apps/mcp-system/`
 
 **Removed 2026-07-06** (no longer exist, no path to reference):
-`kubernetes/apps/ai/langgraph-agents/` and `kubernetes/apps/ai/sync-receiver/`.
+`kubernetes/apps/ai/langgraph-agents/`, `kubernetes/apps/ai/sync-receiver/`,
+`kubernetes/apps/ai/langfuse/`, and
+`kubernetes/apps/databases/cloudnative-pg/config/langfuse/`.
 
 ## See also
 

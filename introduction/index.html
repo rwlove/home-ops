@@ -3154,7 +3154,7 @@ _Production-grade Kubernetes for a household._
 | **Paperless-ngx** | Document scanning, OCR, tagging (CNPG-backed, offsite-backed) |
 | **Obsidian** + **obsidian-couchdb** | Notes sync (CouchDB w/ Cloudflare rate-limiting) |
 | **Zulip** | Self-hosted team chat (also wired into agent pipeline approvals) |
-| **Windmill** | Workflow automation; 24 checked-in TypeScript flows under `kubernetes/apps/home/windmill/workflows/` cover AlertManager → HolmesGPT, langgraph inbox/approval/digest/DLQ/cost-cap/awaiting-user/reviewer-weekly, weekly operator drift sweeps (storage / network / ml / observability), paperless RAG ingest+tombstone (Qdrant) and LightRAG graph-RAG ingest+tombstone, Zulip triager webhook, the workaround upstream-watcher, and the errand-runner approval-flow smoke driver |
+| **Windmill** | Workflow automation; 23 checked-in TypeScript flows under `kubernetes/apps/home/windmill/workflows/` cover langgraph inbox/approval/digest/DLQ/cost-cap/awaiting-user/reviewer-weekly, weekly operator drift sweeps (storage / network / ml / observability), paperless RAG ingest+tombstone (Qdrant) and LightRAG graph-RAG ingest+tombstone, Zulip triager webhook, the workaround upstream-watcher, and the errand-runner approval-flow smoke driver |
 | **ntfy** | Self-hosted push notifications (operator approvals via Android tap actions) |
 | **BentoPDF** | Self-hosted PDF toolkit |
 | **Kitchenowl** | Shopping lists + recipe / meal management |
@@ -3212,12 +3212,10 @@ references behind every claim here.</p>
         Khoj[Khoj&lt;br/&gt;personal AI]
         Voice[HA voice 'inbox …']
         ZulipDM[Zulip DM&lt;br/&gt;Triager bot]
-        AM[AlertManager]
     end
 
-    subgraph Bridges[Windmill bridges&lt;br/&gt;24 TS workflows]
+    subgraph Bridges[Windmill bridges&lt;br/&gt;23 TS workflows]
         WInbox[langgraph-inbox.ts]
-        WAlert[alertmanager-holmesgpt-notify.ts]
         WApprove[langgraph-approval-post/receive.ts]
         WPaperless[paperless-rag-ingest.ts]
         WOther[…digest/DLQ/cost-cap/&lt;br/&gt;awaiting-user/workaround]
@@ -3255,7 +3253,6 @@ references behind every claim here.</p>
     OWUI --&gt; Holmes
     OWUI --&gt; Q
     Khoj --&gt; OllamaP40
-    AM --&gt; WAlert --&gt; Holmes
     Holmes --&gt; OllamaSpark
     LG --&gt; OllamaSpark
     LG --&gt; OllamaP40
@@ -3274,9 +3271,9 @@ in 1Password.</p>
 <ul>
 <li><strong>Open WebUI</strong> (<code>collab/</code>) — primary chat UI. Defaults to qwen3-next:80b-a3b-instruct-q4_K_M on Ollama-Spark; users can switch to any langgraph agent via the OpenAI-compatible API. RAG runs over Qdrant with bge-m3 embeds + BGE reranker-v2-m3 in-process. Tool servers wired in: HolmesGPT + the MCP gateway.</li>
 <li><strong>Khoj</strong> (<code>ai/</code>) — parallel personal-AI surface for notes + docs. Self-contained: own embedding pipeline (default gte-small, optionally ollama nomic-embed-text), chat via Ollama-P40. Does <strong>not</strong> consume MCP gateway or langgraph-agents.</li>
-<li><strong>HolmesGPT</strong> (<code>observability/</code>) — live in production for alert triage. AlertManager firings reach it via Windmill's <code>alertmanager-holmesgpt-notify.ts</code>; it reasons over Prometheus + Loki + cluster state and posts a root-cause hypothesis to Zulip / ntfy. Open WebUI also surfaces it as a tool server. Prompt + context budget tuned for qwen3-next:80b-a3b-instruct-q4_K_M on Spark (32K context, 6 tool-call budget per investigation).</li>
-<li><strong>langgraph-agents</strong> (<code>ai/</code>) — the FastAPI multi-agent runtime (<code>rwlove/langgraph-agents</code>, version pinned in <code>helmrelease.yaml</code>). Plumbed end-to-end (Postgres checkpoints + memory, live task-queue substrate in <code>postgres-langgraph-checkpoints</code>, vault PVCs, Windmill approval loop, cost caps in env). Trigger surface live: alertmanager → 6 namespace-mapped operators, daily 22:00 ET historian digest, weekly Saturday operator drift crons (ml / observability / network / reviewer / storage), errand-runner approval-flow smoke. <code>ENABLE_CLAUDE_API: false</code> so Claude API escalation is still gated. Public ingress splits CLI traffic (<code>hai.${SECRET_DOMAIN}</code>, Bearer-only) from browser traffic (<code>hai-web.${SECRET_DOMAIN}</code>, Authelia).</li>
-<li><strong>Windmill</strong> (<code>home/</code>) — 24 checked-in TypeScript flows under <code>kubernetes/apps/home/windmill/workflows/</code> are the bridges that knit the surfaces above together. Every alert webhook, Zulip-triggered DM, approval round-trip, daily digest, weekly vault-hygiene sweep, weekly operator drift sweeps (storage / network / ml / observability), DLQ retry, cost-cap pause, Paperless RAG ingest (Qdrant + LightRAG graph-RAG), and the errand-runner approval-flow smoke driver is a <code>.ts</code> file there.</li>
+<li><strong>HolmesGPT</strong> (<code>observability/</code>) — deployed but no longer reachable from AlertManager: the <code>windmill-investigate</code> route/receiver and the <code>alertmanager-holmesgpt-notify.ts</code> bridge that fed it were removed 2026-07-06 (no value delivered; critical alerts now go straight to Pushover). Open WebUI still surfaces it as a tool server pending full removal. Prompt + context budget were tuned for qwen3-next:80b-a3b-instruct-q4_K_M on Spark (32K context, 6 tool-call budget per investigation).</li>
+<li><strong>langgraph-agents</strong> (<code>ai/</code>) — the FastAPI multi-agent runtime (<code>rwlove/langgraph-agents</code>, version pinned in <code>helmrelease.yaml</code>). Plumbed end-to-end (Postgres checkpoints + memory, live task-queue substrate in <code>postgres-langgraph-checkpoints</code>, vault PVCs, Windmill approval loop, cost caps in env). Trigger surface live: daily 22:00 ET historian digest, weekly Saturday operator drift crons (ml / observability / network / reviewer / storage), errand-runner approval-flow smoke; the alertmanager → namespace-mapped-operator trigger was severed 2026-07-06 along with the HolmesGPT bridge script. <code>ENABLE_CLAUDE_API: false</code> so Claude API escalation is still gated. Public ingress splits CLI traffic (<code>hai.${SECRET_DOMAIN}</code>, Bearer-only) from browser traffic (<code>hai-web.${SECRET_DOMAIN}</code>, Authelia).</li>
+<li><strong>Windmill</strong> (<code>home/</code>) — 23 checked-in TypeScript flows under <code>kubernetes/apps/home/windmill/workflows/</code> are the bridges that knit the surfaces above together. Zulip-triggered DM, approval round-trip, daily digest, weekly vault-hygiene sweep, weekly operator drift sweeps (storage / network / ml / observability), DLQ retry, cost-cap pause, Paperless RAG ingest (Qdrant + LightRAG graph-RAG), and the errand-runner approval-flow smoke driver is a <code>.ts</code> file there.</li>
 <li><strong>Langfuse</strong> (<code>ai/</code>) — OTLP trace sink for langgraph-agents. Chart deploys ClickHouse + Valkey + MinIO bundled; Postgres comes from CNPG <code>postgres-langfuse</code>.</li>
 <li><strong>memory-mcp</strong> (<code>mcp-system/</code>) — cross-agent knowledge graph on <code>postgres-langgraph-memory</code> with pgvector(1024). bge-m3 embeds via Ollama-Spark.</li>
 </ul>
@@ -3293,7 +3290,7 @@ in 1Password.</p>
 <tr>
 <td><code>HolmesGPT</code></td>
 <td>AlertManager-driven root-cause investigation</td>
-<td>✅ live</td>
+<td>⚠️ deployed, unreachable — AlertManager routing removed 2026-07-06, deployment removal pending</td>
 </tr>
 <tr>
 <td><code>triager</code></td>
@@ -3323,32 +3320,32 @@ in 1Password.</p>
 <tr>
 <td><code>storage-operator</code></td>
 <td>Ceph + Longhorn + Garage + CNPG + Barman + NFS planning</td>
-<td>✅ live · alertmanager + weekly Sun 07:00 ET cron</td>
+<td>✅ live · weekly Sun 07:00 ET cron (alertmanager trigger severed 2026-07-06)</td>
 </tr>
 <tr>
 <td><code>network-operator</code></td>
 <td>Lovenet L1–L7 ops (Omada SDN, Cilium BGP, VLANs, DNS, certs)</td>
-<td>✅ live · alertmanager + weekly Sat 04:00 ET cron</td>
+<td>✅ live · weekly Sat 04:00 ET cron (alertmanager trigger severed 2026-07-06)</td>
 </tr>
 <tr>
 <td><code>observability-operator</code></td>
 <td>Prometheus rules, AlertManager routing, Loki, Grafana, HolmesGPT prompt tuning</td>
-<td>✅ live · alertmanager + weekly Sat 03:00 ET cron</td>
+<td>✅ live · weekly Sat 03:00 ET cron (alertmanager trigger severed 2026-07-06)</td>
 </tr>
 <tr>
 <td><code>ml-operator</code></td>
 <td>Frigate, Immich CLIP, model tuning, GPU placement</td>
-<td>✅ live · alertmanager + weekly Sat 02:00 ET cron</td>
+<td>✅ live · weekly Sat 02:00 ET cron (alertmanager trigger severed 2026-07-06)</td>
 </tr>
 <tr>
 <td><code>smart-home-operator</code></td>
 <td>Home Assistant entities, automations, ESPHome configs</td>
-<td>✅ live · alertmanager + intent-drift cron</td>
+<td>✅ live · intent-drift cron (alertmanager trigger severed 2026-07-06)</td>
 </tr>
 <tr>
 <td><code>homelab-engineer</code></td>
 <td>Cluster ops, HelmRelease drafting, PR-shaped output</td>
-<td>✅ live · alertmanager default-route</td>
+<td>🟡 no longer alertmanager-triggered (severed 2026-07-06); reachable via <code>/inbox</code> only</td>
 </tr>
 <tr>
 <td><code>researcher</code></td>

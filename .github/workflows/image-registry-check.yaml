@@ -37,11 +37,9 @@ jobs:
   extract-images:
     if: ${{ needs.filter-changes.outputs.changed-files != '[]' }}
     name: Extract images
-    # Runs flux-local to extract images; charts resolve from public
-    # registries, so GitHub-hosted works (see flux-local.yaml).
+    # Runs flate to extract images; charts resolve from public registries,
+    # so GitHub-hosted works with no cluster access (see flux-local.yaml).
     runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/allenporter/flux-local:v8.4.0
     needs:
       - filter-changes
     strategy:
@@ -59,30 +57,33 @@ jobs:
         with:
           ref: "${{ matrix.branches == 'default' && github.event.repository.default_branch || '' }}"
 
-      # Retry mostly covers first-call cold-cache misses on ZOT — the
-      # underlying upstream-registry transients that motivated this on
-      # ubuntu-latest are largely absorbed by the in-cluster pull-through
-      # cache, but cold tags still occasionally 5xx on first reach.
+      - name: Setup flate
+        uses: home-operations/flate/action@0fc37fae10cf3c265294f6adebc6d6c100c74ea5 # v0.4.10
+
+      # Retry mostly covers first-call cold-cache misses on upstream
+      # registries when resolving chart/image refs.
       - name: Gather images
         uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        # FLATE_BASE="" overrides the setup action's FLATE_BASE=main — each
+        # matrix leg is a single-ref shallow checkout (no `main` to diff
+        # against), so this forces full-tree extraction on both legs instead
+        # of an implicit changed-only mode. Same override as
+        # flux-local.yaml's `test` job.
+        env:
+          FLATE_BASE: ""
         with:
           timeout_minutes: 10
           max_attempts: 3
           retry_wait_seconds: 30
           shell: sh
           command: |
-            flux-local get cluster \
-              --all-namespaces \
+            flate get images \
               --path "$GITHUB_WORKSPACE/kubernetes/flux" \
-              --enable-images \
-              --only-images \
-              --output json \
-              --output-file images.json
+              --output json > images.json
 
-      # Multi-line heredoc avoids needing jq inside the flux-local
-      # container (it isn't there) — file is already valid JSON, just
-      # plumb it through. printf ensures a trailing newline before the
-      # delimiter (flux-local doesn't write one), and the random-ish
+      # Multi-line heredoc avoids needing jq for this step — file is
+      # already valid JSON, just plumb it through. printf ensures a
+      # trailing newline before the delimiter, and the random-ish
       # delimiter guards against any image name literally containing
       # `EOF` on a line.
       - name: Emit images

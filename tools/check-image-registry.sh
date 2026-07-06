@@ -9,7 +9,7 @@
 #
 # Reads from stdin or the file given as the last positional arg.
 # Pass --json if the input is a JSON array of image strings (e.g. the
-# output of `flux-local get cluster --only-images --output json`).
+# output of `flate get images --output json`).
 #
 # Policy: Docker Hub (docker.io) is the only restricted registry — it
 # rate-limits anonymous/free pulls. Every other registry (ghcr.io,

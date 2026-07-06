@@ -25,7 +25,6 @@ flowchart TB
     subgraph Bridges[Bridges — Windmill TS workflows]
         WInbox[langgraph-inbox.ts]
         WZulip[zulip-triager-webhook.ts]
-        WAlert[alertmanager-holmesgpt-notify.ts]
         WDigest[langgraph-daily-digest.ts]
         WCost[langgraph-cost-cap-watcher.ts]
         WSweep[langgraph-awaiting-user-sweep.ts]
@@ -37,7 +36,6 @@ flowchart TB
     end
 
     subgraph Agents[Agents]
-        Holmes[HolmesGPT<br/>✅ live]
         LG[langgraph-agents<br/>🟡 plumbed, cold]
         CR[claude-runner<br/>✅ live<br/>cron-only]
     end
@@ -59,6 +57,7 @@ flowchart TB
         Vault[(Obsidian vault<br/>via langgraph-vault PVC)]
         ZulipO[Zulip threads]
         Ntfy[ntfy push<br/>tap-to-approve]
+        Push[Pushover<br/>direct page]
         LF[Langfuse traces]
     end
 
@@ -67,13 +66,11 @@ flowchart TB
     OWUI -->|chat| OllamaSpark
     OWUI -->|agent-as-model| LG
     OWUI -->|tool calls| Gw
-    OWUI -->|tool calls| Holmes
     Khoj --> OllamaP40
-    AM --> WAlert --> Holmes
+    AM --> Push
     Cron --> WDigest & WCost & WSweep & WDLQ & WWork & WPaperless
 
     WInbox --> LG
-    Holmes --> OllamaSpark
     LG --> OllamaSpark
     LG --> OllamaP40
     LG -.-> Claude
@@ -87,7 +84,6 @@ flowchart TB
     LG --> WApprovePost --> ZulipO & Ntfy
     Ntfy --> WApproveRecv --> LG
     LG --> Vault
-    Holmes --> ZulipO
     CR --> ZulipO
     WPaperless --> Q
     OWUI --> Q
@@ -104,7 +100,7 @@ only fires once Langfuse keys are populated in 1Password).
 | Zulip DM to Triager bot | Outgoing-webhook (bot_type=3) | Windmill `zulip-triager-webhook.ts` → forwards to `langgraph-inbox.ts` |
 | Open WebUI chat | Browser → Authelia OIDC → Open WebUI backend | Routes to ollama-spark (default) or to a langgraph agent via OpenAI-compat API (`kubernetes/apps/collab/open-webui/app/helmrelease.yaml:41-46`) |
 | Khoj UI | Browser → gateway extAuth (Authelia) → khoj | Khoj's own embedding pipeline; chat via ollama P40 |
-| AlertManager firing alert | Webhook receiver | Windmill `alertmanager-holmesgpt-notify.ts` → HolmesGPT `/investigate` |
+| AlertManager firing alert (`severity=critical`) | Webhook receiver | Pushover directly — no Windmill hop, no AI investigation step (the `windmill-investigate` route/receiver and `alertmanager-holmesgpt-notify.ts` were removed 2026-07-06) |
 | Operator tap on ntfy | Action button → HMAC-signed URL | `langgraph-agents` `/approval` endpoint (`kubernetes/apps/ai/langgraph-agents/app/route-approval.yaml`) |
 | Cron — daily digest / DLQ / cost-cap / awaiting-user / workaround | Windmill scheduled trigger | Each `.ts` workflow under `kubernetes/apps/home/windmill/workflows/` |
 | Cron — Renovate PR triage / cost commentary | Kubernetes CronJob | `claude-runner` (`kubernetes/apps/automation/claude-runner/app/cronjob-*.yaml`) |
@@ -119,7 +115,7 @@ migration.
 | Backend | Hardware | Service URL | Models | Notes |
 |---|---|---|---|---|
 | `ollama` | P40 (Pascal, 24 GB) on worker8 | `http://ollama.ai.svc.cluster.local:11434` | qwen2.5:7b, qwen3:8b (voice), bge-m3 (memory rebuild), gte-small/nomic-embed-text (khoj) | The pre-Spark generation. ≤8b chat, embeddings, voice STT/TTS pipeline support. |
-| `ollama-spark` | GB10 (Grace-Blackwell, 128 GB unified) | `http://ollama-spark.ai.svc.cluster.local:11434` | qwen3-next:80b-a3b-instruct-q4_K_M (chat default), bge-m3 (1024-dim embeds) | The post-Spark workhorse. Open WebUI default; HolmesGPT model; langgraph-agents default for memory embeds. |
+| `ollama-spark` | GB10 (Grace-Blackwell, 128 GB unified) | `http://ollama-spark.ai.svc.cluster.local:11434` | qwen3-next:80b-a3b-instruct-q4_K_M (chat default), bge-m3 (1024-dim embeds) | The post-Spark workhorse. Open WebUI default; langgraph-agents default for memory embeds. |
 | Claude API | Anthropic-hosted | langgraph-agents only, gated | per-task | Off by default — `ENABLE_CLAUDE_API: "false"` (`kubernetes/apps/ai/langgraph-agents/app/helmrelease.yaml:36`). Cost caps `$5/task`, `$10/agent/day`, `$30/global/day` (lines 54-56) enforced in code, not Anthropic's billing. |
 | Claude Code | Anthropic-hosted, CLI | `claude-runner` only | per-task | `claude` CLI baked into `ghcr.io/rwlove/claude-runner:0.1.1`; called from CronJobs with `--max-turns 20`. |
 
@@ -141,7 +137,7 @@ plus web search.
 - **Reranker**: BGE reranker-v2-m3 in-process, sentence-transformers on CPU (line 66). Adds ~2.5 GiB to the pod's resident set.
 - **Vector DB**: Qdrant at `http://qdrant.databases.svc.cluster.local:6333` (line 69).
 - **Web search**: SearXNG (`collab.svc.cluster.local:8080`) via `RAG_WEB_SEARCH_ENGINE=searxng` (line 68).
-- **Tool servers** also wired in: HolmesGPT (`observability.svc.cluster.local:8080/openapi.json`) and MCP gateway (`mcp-system.svc.cluster.local:8080/mcp`) — both visible to chat as callable tools (lines 88-112).
+- **Tool server** also wired in: MCP gateway (`mcp-system.svc.cluster.local:8080/mcp`) — visible to chat as callable tools (lines 88-112). HolmesGPT's tool-server registration was removed 2026-07-06 along with the rest of the deployment.
 
 Phase A bge-m3 cutover (2026-05-20, PR #11792) showed bge-m3 (1024-dim)
 beat nomic-embed-text (768-dim) by +23 MRR@10 pts on a 50-doc Paperless
@@ -200,7 +196,7 @@ Cross-agent shared memory, not user-facing.
 
 | Agent | Surface | Status | Notes |
 |---|---|---|---|
-| HolmesGPT | `holmesgpt.observability` | ✅ live | qwen3-next:80b-a3b-instruct-q4_K_M on ollama-spark; AlertManager-driven RCA; also a tool server for Open WebUI. Prompt + context budget tuned 2026-05-23 (32K context, 6 tool-call budget). |
+| HolmesGPT | — | ❌ removed 2026-07-06 | Deployment, RBAC, CNP, SecurityPolicy, and Open WebUI tool-server registration all deleted. No value delivered — see `kubernetes/apps/observability/holmesgpt/` in git history for the last-live manifests. |
 | triager | langgraph-agents fleet | ✅ live | Default route for every untargeted `/inbox`. Voice ("inbox …") + Zulip-DM ingress. qwen2.5:7b on P40. |
 | supervisor | langgraph-agents fleet | ✅ live | In-graph fallback router when a specialist rejects work. |
 | reporter | langgraph-agents fleet | ✅ live | Universal in-graph terminus — every chain ends here, rendering raw state into user-facing markdown. |
@@ -315,7 +311,7 @@ Document the kill in the plan's changelog and remove the CronJob.
 |---|---|---|
 | langgraph-agents traces | Langfuse (OTLP) | `LANGFUSE_INIT_PROJECT_PUBLIC_KEY` / `_SECRET_KEY` provisioned at first boot (`kubernetes/apps/ai/langfuse/app/helmrelease.yaml:146-157`); SDK in `langgraph-agents` reads them from 1Password |
 | langgraph-agents metrics | Prometheus | `kubernetes/apps/ai/langgraph-agents/app/servicemonitor.yaml` + `prometheusrule.yaml` |
-| HolmesGPT investigations | Pushover + Zulip | `alertmanager-holmesgpt-notify.ts` sanitizes the agent text before delivery |
+| Critical AlertManager alerts | Pushover | Direct `pushover` receiver — no AI investigation step (HolmesGPT + `alertmanager-holmesgpt-notify.ts` removed 2026-07-06) |
 | Ollama (both) | Prometheus | scraped via standard ollama exporter Service in the `ai` namespace |
 | GPU utilization | Prometheus via DCGM | GB10's DCGM counters are mostly broken — use `POWER_USAGE` as the proxy (see `.agents/instructions/gpu-routing.md`) |
 | Windmill workflows | Windmill's own UI + Loki | Workflow logs ship via Vector → Loki under the windmill namespace |
@@ -349,7 +345,6 @@ secret is mirrored into the `ai` namespace by emberstack reflector
 - **sync-receiver** — `kubernetes/apps/ai/sync-receiver/`
 - **tei-spark** — `kubernetes/apps/ai/tei-spark/` (unsuspended 2026-05-21, PR #11893; PrometheusRule added in PR #11906)
 - **open-webui** — `kubernetes/apps/collab/open-webui/app/helmrelease.yaml`
-- **holmesgpt** — `kubernetes/apps/observability/holmesgpt/app/helmrelease.yaml`
 - **windmill** — `kubernetes/apps/home/windmill/app/helmrelease.yaml`
 - **windmill workflows** — `kubernetes/apps/home/windmill/workflows/*.ts` (12 today)
 - **claude-runner** — `kubernetes/apps/automation/claude-runner/`

@@ -72,7 +72,7 @@ downloads/<media-pull-stack apps>-oauth2-proxy
 home/frigate-oauth2-proxy
 media/{av1corrector,medialyze,music-assistant,batocera-webdashboard-pro}-oauth2-proxy
 media/<media-pull-stack apps>-oauth2-proxy
-observability/{goldilocks,kube-ops-view,holmesgpt}-oauth2-proxy
+observability/{goldilocks,kube-ops-view}-oauth2-proxy
 storage/garage-webui-oauth2-proxy
 ```
 

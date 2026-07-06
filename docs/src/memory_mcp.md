@@ -1,6 +1,6 @@
 # Memory MCP
 
-`memory-mcp` is a knowledge-graph MCP server backed by Postgres + pgvector (vchord HNSW). It exposes entity / observation / relation tools to every MCP client in the cluster, so LangGraph agents, Claude Code sessions, Open WebUI tool callers, and HolmesGPT triage runs all share the same long-term memory substrate.
+`memory-mcp` is a knowledge-graph MCP server backed by Postgres + pgvector (vchord HNSW). It exposes entity / observation / relation tools to every MCP client in the cluster, so LangGraph agents, Claude Code sessions, and Open WebUI tool callers all share the same long-term memory substrate.
 
 | | |
 |---|---|
@@ -20,7 +20,7 @@
                          │
 LangGraph agents ────────┤ ←  MCPMemoryStore(BaseStore) writes
                          │     directly to kg.* via psycopg3
-Open WebUI / HolmesGPT ──┤
+Open WebUI ──────────────┤
                          │
                          ▼
             ┌──────────────────────────────┐
@@ -98,7 +98,6 @@ Every write carries a `source` JSONB. Server stamps `at: ISO8601` if the caller 
 | Claude Code | `{"agent": "claude-code", "claude_namespace": "<encoded-cwd>"}` |
 | LangGraph fleet (via MCPMemoryStore) | `{"agent": "langgraph", "store": "MCPMemoryStore"}` (set automatically) |
 | Open WebUI tool calls | `{"agent": "open-webui"}` |
-| HolmesGPT | `{"agent": "holmesgpt"}` |
 
 A `memory_recent(agent_filter="claude-code")` query shows just one agent's recent contributions.
 

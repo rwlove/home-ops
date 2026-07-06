@@ -21,7 +21,7 @@ flowchart LR
     end
 
     subgraph "Workflow runtime"
-        Windmill[💨 Windmill<br/>7 TypeScript flows]
+        Windmill[💨 Windmill<br/>6 TypeScript flows]
     end
 
     subgraph "Agent fleet (ai ns)"
@@ -38,14 +38,11 @@ flowchart LR
 
     subgraph "Alert path"
         AM[🚨 AlertManager<br/>severity=critical]
-        Holmes[🔍 HolmesGPT<br/>investigates]
     end
 
     Voice & ZulipApp & HAApp --> Windmill
-    AM --> Windmill
+    AM --> Push
     Windmill --> LG
-    Windmill --> Holmes
-    Holmes --> LG
     LG --> Ollama
     LG -. opt-in .-> Claude
     Windmill --> Push
@@ -53,6 +50,10 @@ flowchart LR
     LG --> ZulipStream
     LG --> Vault
 ```
+
+Critical alerts page Pushover directly — no AI investigation step sits
+between AlertManager and the on-call notification (the `windmill-investigate`
+route/receiver was removed 2026-07-06).
 
 Each block in **Workflow runtime** is a single TypeScript file checked
 into `kubernetes/apps/home/windmill/workflows/`. They run in Deno
@@ -203,8 +204,9 @@ Different surfaces for different shapes of output:
 - **Daily roll-up** → `#digests` stream, one topic per day named
   `daily-YYYY-MM-DD`. Auto-posted at 22:00 ET by the `daily-digest`
   cron flow.
-- **Alert investigations** → push notification with HolmesGPT's
-  ≤500-char root-cause summary + Zulip ack of the original alert.
+- **Critical alerts** → push straight to Pushover with the raw
+  AlertManager payload + Zulip ack of the original alert. No AI
+  investigation step runs in between (removed 2026-07-06).
 - **Cost / state alerts** → push only (cost cap watcher, awaiting-
   user escalations).
 
@@ -217,11 +219,10 @@ If you want to dig deeper than the surface message:
   gated) → `/admin/tasks` for task state, `/admin/tasks/<id>` for
   the full state machine of a specific task.
 
-## The seven Windmill workflows
+## The Windmill workflows
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `alertmanager-holmesgpt-pushover` | Webhook (AlertManager `severity=critical`) | Calls HolmesGPT to investigate (≤2 tool calls, <500 chars); pushes the summary |
 | `langgraph-inbox` | Webhook (Zulip bot, voice, HA companion) | Forwards to `/inbox`; if the task pauses, fans out an approval-post |
 | `langgraph-approval-post` | Webhook (langgraph pause) | Posts approval request to Zulip `#approvals` + tier-1 push |
 | `langgraph-approval-receive` | Outgoing-webhook (Zulip `@Approval Receiver`) | Verifies actor + emoji/keyword; HMAC-signs token; POSTs `/approval` |
@@ -238,9 +239,6 @@ holds the runtime copy; we sync from git when scripts change.
 The system is mostly self-tending, but a few things will eventually
 need attention:
 
-- **HolmesGPT is slow** — each alert investigation takes ~5–7 min on
-  P40-class Ollama hardware. If a burst of critical alerts fires,
-  the workflow queue backs up but every job still runs eventually.
 - **`/admin/tasks` hangs** on langgraph-agents (pre-existing,
   unrelated to Windmill). The awaiting-user-sweep tolerates this
   with a `{skip: true}` return; no errors, just a 5-min retry

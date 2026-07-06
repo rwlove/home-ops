@@ -51,7 +51,7 @@ Six alerts, six labels:
 | `MCPBackendScrapeFailed{backend=netbox}` | warning | Pushover | same, netbox-mcp |
 | `MCPBackendHighErrorRate` | warning | Pushover | error/total > 10% for 10m AND volume > 0.05 calls/sec |
 | `MCPBackendHighLatency` | warning | Pushover | `max by (backend) (mcp:tool_call_duration:p99_5m) > 5s for: 10m` |
-| `MCPGatewayDown` | **critical** | `windmill-investigate` (HolmesGPT) → Pushover | `absent(up{...mcp-gateway-istio} == 1) for: 5m` |
+| `MCPGatewayDown` | **critical** | Pushover | `absent(up{...mcp-gateway-istio} == 1) for: 5m` |
 
 The error-rate volume gate (`> 0.05 calls/sec`) prevents a single
 errored tool call on a quiet backend from triggering a 100%-error

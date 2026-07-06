@@ -16,8 +16,10 @@ the full evaluation. Phase 4 of the rollout plan builds it out.
 
 The closest things to a task pipeline in this cluster:
 
-- **AlertManager → HolmesGPT** for alert triage. AlertManager fires →
-  HolmesGPT investigates → result posts to Zulip / Pushover.
+- **AlertManager → Pushover** for critical alerts. There is no
+  automated triage step — the `windmill-investigate` route/receiver
+  and its HolmesGPT enrichment were removed 2026-07-06; AlertManager
+  fires and pages Pushover directly.
 - **Zulip Triager bot → Windmill → langgraph-agents `/inbox`** for
   DM-shaped intents. The Triager outgoing-webhook converts DMs to
   HTTP and Windmill brokers to langgraph. See memory entry
@@ -97,9 +99,10 @@ Start narrow — easier to widen than retract.
 
 HOMELAB-SPEC Layer 4 defines Observer (watches cluster health, files
 tasks) and Guardian (owns human-approval gate with TTL). Both depend
-on the queue substrate. Until the substrate lands, observer
-responsibilities live in AlertManager + HolmesGPT, and guardian
-responsibilities live in Rob (the human) responding to ntfy /
+on the queue substrate. Observer mode is fully aspirational today —
+AlertManager fires and pages Pushover directly with no automated
+triage step (the HolmesGPT interim substitute was removed 2026-07-06).
+Guardian responsibilities live in Rob (the human) responding to ntfy /
 Pushover approval requests.
 
 ## Token / cost budget (deferred)
@@ -114,8 +117,6 @@ Picking numbers cold would be guessing.
 These do *substrate-ish* work today but are not substitutes for the
 real thing:
 
-- **HolmesGPT** — single-task investigation per alert. No queue, no
-  envelope, no idempotency, no trace correlation.
 - **Zulip Triager → Windmill → langgraph** — DM ingress only. No DLQ,
   no retry policy, no priority routing.
 - **ntfy approval flow** — one-off HMAC-signed approvals. Not a

@@ -206,9 +206,10 @@ shipped in PR #11636 now has live data to plot.
 - [x] **Re-probe qwen2.5:7b for tool-call leakage** after P40 tune — clean.
 - [x] **Phase 2 factory rollout** — v0.2.6 → v0.2.7 → v0.2.9.
 - [x] **Metrics callback wiring** — fixed in v0.2.9.
-- [ ] **HolmesGPT investigation timeout** — litellm hits default 600s on
+- [x] **HolmesGPT investigation timeout** — litellm hits default 600s on
   P40 tool-call chains. Bump `LITELLM_REQUEST_TIMEOUT` (or equivalent) in
   HolmesGPT HR to align with the 1500s outer-timeout from memory
-  `project_holmesgpt_timeout_workaround`.
+  `project_holmesgpt_timeout_workaround`. **MOOT** — HolmesGPT removed
+  2026-07-06, no longer applicable.
 
 - [x] **Legacy alertmanager webhook (retired)** — **WON'T FIX (user decision 2026-05-19).** Root cause turned out to be 2.x license gating: `license:info` shows `isValid: false`, so workflows never escape draft state and `/webhook/*` paths don't register in Express's production webhook router. Setting `PUBLIC_API_DISABLED=false` (PR #11657) and running `update:workflow --active=true` + `publish:workflow` both no-op without a license. Accepted criterion 4 partial: HolmesGPT direct path works (verified) + Alertmanager's direct pushover receiver still fires (the legacy leg has `continue: true`).

@@ -578,11 +578,12 @@ deployment as-is; do not extend mTLS to other namespaces in 2026.
 
 3. **The operator-cost line is the binding constraint.** One person.
    MTTR doubles with the new failure dimensions. The hours that would
-   go into mesh expansion are better spent on the egress restriction,
-   the OS migration program (worker2 → master2, beast Stream 9 → 10,
-   Talos pilot), and the Spark-arrival-conditional LangGraph
-   activation — all of which are higher-leverage for the cluster's
-   current shape.
+   go into mesh expansion are better spent on the egress restriction
+   and the OS migration program (worker2 → master2, beast Stream 9 →
+   10, Talos pilot) — both higher-leverage for the cluster's current
+   shape. (The Spark-arrival-conditional LangGraph activation once
+   listed here is moot: the langgraph-agents fleet was decommissioned
+   2026-07-06.)
 
 4. **Sidecar resource overhead is non-trivial at this scale.** ~15-32
    vCPU and ~25-38 GiB RAM is plausibly the difference between

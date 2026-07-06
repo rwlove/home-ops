@@ -1,5 +1,21 @@
 # Task Queue Substrate — design proposal
 
+**Status: superseded 2026-07-06.** This design picked Option B (CNPG
+LISTEN/NOTIFY) specifically to give the langgraph-agents fleet an
+in-process asyncio task queue sharing its own Postgres checkpointer.
+The langgraph-agents fleet was fully decommissioned 2026-07-06 —
+`kubernetes/apps/ai/langgraph-agents/` and the
+`postgres-langgraph-checkpoints` CNPG cluster this design would have
+extended are both deleted. There is no longer a host process for an
+in-process worker to run inside.
+
+The rest of this document is kept as a historical record of the
+decision and its rationale. If HOMELAB-SPEC Layer 5's durable task
+queue is still needed for the surviving pipeline (Windmill workflows,
+HA voice, memory-mcp, etc.), it needs a fresh evaluation — the
+"in-process into langgraph-agents' Python codebase" argument that won
+this comparison no longer applies to any live workload.
+
 ## Purpose
 
 HOMELAB-SPEC Layer 5 requires a durable task queue with at-least-once
@@ -68,9 +84,13 @@ already used by the Triager webhook and approval flows.
 
 ### B — CNPG LISTEN/NOTIFY (Postgres pub/sub)
 
-Status: **plumbing deployed** — `cnpg-langgraph-checkpoints` and
-`cnpg-langgraph-memory` already exist; langgraph-agents already speaks
-to Postgres via the AsyncPostgresSaver checkpointer.
+Status at the time this was written: **plumbing deployed** —
+`cnpg-langgraph-checkpoints` and `cnpg-langgraph-memory` existed;
+langgraph-agents spoke to Postgres via the AsyncPostgresSaver
+checkpointer. As of 2026-07-06, `cnpg-langgraph-checkpoints` and the
+langgraph-agents runtime are both deleted; `postgres-langgraph-memory`
+survives as memory-mcp's knowledge-graph backend, unrelated to this
+queue design.
 
 #### Pros
 
@@ -222,10 +242,11 @@ sweep PR or split into 3-4 small PRs:
 
 ## Next steps
 
-Phase 4 build-out per the preview above. Schema for the new tables
-lives on `cnpg-langgraph-checkpoints` (re-use existing Cluster) or a
-new `cnpg-langgraph-queue` Cluster — to be decided when migration
-PR is drafted.
+**Moot as of 2026-07-06.** The Phase 4 build-out above targeted the
+langgraph-agents runtime and its `cnpg-langgraph-checkpoints` cluster,
+both now deleted. There is no pending migration or queue build-out on
+this design — see the superseded-status note at the top of this
+document.
 
 ## See also
 

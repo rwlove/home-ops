@@ -12,6 +12,17 @@ order (repo wins; flag the drift and update `CLAUDE.md`), this file
 is the missing artifact. It is the rubric every Stage 1 verification
 PR cites for "done."
 
+> **Status note (2026-07-06):** The langgraph-agents fleet this DoD
+> verifies — the FastAPI multi-agent runtime, its `task_queue`/`task_dlq`
+> checkpoint store, the 13 specialist agents, the `hai` CLI, and the
+> `sync-receiver` vault-access sidecar — was fully decommissioned on
+> this date, following HolmesGPT's earlier removal (also reflected
+> below). Rows and sections below are preserved as historical
+> verification record and marked inline where they concern removed
+> components; they are not a description of anything currently
+> running. `postgres-langgraph-memory` is the one exception — it
+> remains live as `memory-mcp`'s knowledge-graph backend.
+
 ## Stage 1 — final status (2026-05-21)
 
 | goal.md DoD line | Status | Evidence |
@@ -210,13 +221,20 @@ HolmesGPT was removed 2026-07-06.)
 
 **Stage 2 DoD remaining gaps (as of 2026-05-26):**
 
+> **Moot — removed 2026-07-06.** The `hai` CLI and everything it
+> queried (`/inbox`, `hai cost`, `hai task show`) were part of the
+> langgraph-agents fleet, decommissioned on this date. Table preserved
+> as historical record of where Stage 2 stood; the one item that never
+> closed (one full week of CLI-first usage) is now permanently moot
+> rather than pending.
+
 | DoD item | Status |
 |---|---|
 | CLI result retrieval (`hai task show`) | ✅ working |
 | Non-CLI input smoke (Zulip + scheduled) | ✅ confirmed via `hai cost` |
 | Local vs escalated split in `hai cost` | ✅ closed 2026-05-31 — provenance shipped (lga #111, v0.2.63); `hai cost` MODEL GROUP section verified live (223 local / 0 Claude / 4 pre-provenance unknown) |
-| One full week of CLI-first usage | ⏳ clock running — user must confirm |
-| Fallback runbook (local infra down) | ✅ written 2026-05-31 — see Runbooks below |
+| One full week of CLI-first usage | **Moot 2026-07-06** — historical: was ⏳ clock running, user must confirm; the CLI it tracked no longer exists |
+| Fallback runbook (local infra down) | ✅ written 2026-05-31 — see Runbooks below. **Moot 2026-07-06** — the runbook itself describes langgraph-agents' escalation path, removed on this date; see the runbook's own moot note. |
 
 Gate 2 requires: dogfooding day log posted to vault + operator
 approval. Pre-check above satisfies the log requirement; pending
@@ -282,8 +300,10 @@ A live component is **done** when:
 
 For components whose infrastructure is deployed and reconciled but
 which are deliberately gated off behind an env flag / cron suspend /
-absent secret. Today this is **langgraph-agents** (and its 13
-specialist agents), gated on `ENABLE_CLAUDE_API: false`.
+absent secret. **langgraph-agents** (and its 13 specialist agents,
+gated on `ENABLE_CLAUDE_API: false`) was in this class historically;
+the fleet was fully removed 2026-07-06, so this class currently has
+no occupant — retained as a definition for future use.
 
 A plumbed-cold component is **done** when:
 
@@ -344,17 +364,19 @@ relevant kustomizations without manual intervention."
 Scope is **every Kustomization that contributes to the AI pipeline**.
 That's at minimum:
 
-- `kubernetes/apps/ai/` — langgraph-agents, langfuse, ollama,
-  ollama-spark, khoj, tei-spark, paperless-ai, comfyui (where
-  HomeAIOps-relevant)
+- `kubernetes/apps/ai/` — langfuse, ollama, ollama-spark, khoj,
+  tei-spark, paperless-ai, comfyui (where HomeAIOps-relevant)
+  (langgraph-agents and sync-receiver were in scope here; both
+  removed 2026-07-06)
 - `kubernetes/apps/mcp-system/` — gateway + every MCP server
 - `kubernetes/apps/observability/` — Prometheus, AlertManager,
   Loki, Grafana (HolmesGPT was in scope here; removed 2026-07-06)
 - `kubernetes/apps/automation/claude-runner/` — pr-triage,
   cost-cap-commentary
 - `kubernetes/apps/home/windmill/` — server, worker, workflows
-- `kubernetes/apps/databases/cloudnative-pg/` — checkpoints,
-  memory, langfuse clusters
+- `kubernetes/apps/databases/cloudnative-pg/` — memory, langfuse
+  clusters (`checkpoints` cluster removed 2026-07-06 along with the
+  langgraph-agents fleet; `memory` now backs memory-mcp)
 - `kubernetes/apps/storage/qdrant/` — vector DB
 
 Procedure per Kustomization: `flux suspend ks <name>`, wait 30 s,
@@ -402,27 +424,27 @@ blocking issue · ⏳ not yet audited · 🟥 aspirational (no audit).
 
 | Surface | Class | Status | Verifying PR |
 |---|---|---|---|
-| HA voice → langgraph-inbox.ts | A | ⏳ | — |
+| HA voice → langgraph-inbox.ts | A | **Broken 2026-07-06** — the `langgraph-inbox.ts` bridge and the langgraph-agents backend it posted to were removed; HA's voice "inbox …" `rest_command` (in `home-assistant-config`) still fires but now hits a dead endpoint. Known gap, not yet resolved. | — |
 | Zulip DM (Triager bot) | A | ⏳ | — |
 | Open WebUI chat | A | ⏳ | — |
 | Khoj UI | A | ⏳ | — |
 | AlertManager firing alert → HolmesGPT | A | **Removed 2026-07-06** — historical: was ✅ hot with 65 `source=holmesgpt` completions via `alertmanager-holmesgpt-notify.ts` → `/inbox`. AlertManager now pages Pushover directly, no AI investigation step. | — |
-| Cron schedules (Windmill + k8s CronJob) | A | ✅ hot — 15 `source=scheduled` completions (daily-digest + weekly bridges firing) | — |
-| Operator tap on ntfy | A | ✅ hot — round-trip smoke 3/3 automatable links + ~13 prod tasks parked in guardian queue | — |
+| Cron schedules (Windmill + k8s CronJob) | A | **Evidence stale 2026-07-06** — historical: was ✅ hot with 15 `source=scheduled` completions, but those fired via `langgraph-daily-digest.ts` + the langgraph weekly bridges, all deleted in the fleet decommission. Whether any surviving cron workflow (`workaround-watcher.ts`, `windmill-failure-watcher.ts`) still populates this surface is unverified — not re-audited. | — |
+| Operator tap on ntfy | A | **Evidence stale 2026-07-06** — historical: was ✅ hot via the langgraph guardian-approval queue (`langgraph-approval-post.ts`/`-receive.ts`, ~13 prod tasks parked), both deleted. No known replacement consumer of the ntfy tap today — not re-audited. | — |
 
 ### Bridges (Windmill TS workflows)
 
 | Workflow | Class | Status | Verifying PR |
 |---|---|---|---|
-| `langgraph-inbox.ts` | A | ⏳ | — |
-| `zulip-triager-webhook.ts` | A | ⏳ | — |
+| `langgraph-inbox.ts` | A | **Deleted 2026-07-06** — historical: was ⏳ (never fully audited); removed with the rest of the langgraph-agents fleet | — |
+| `zulip-triager-webhook.ts` | A | **Deleted 2026-07-06** — historical: was ⏳ (never fully audited); removed with the rest of the langgraph-agents fleet | — |
 | `alertmanager-holmesgpt-notify.ts` | A | **Deleted 2026-07-06** — historical: was ✅ posting `source=holmesgpt` to `/inbox` (line 224); 65 completions | — |
-| `langgraph-daily-digest.ts` | A | ✅ scheduled cron firing (`source=scheduled` completions) | — |
-| `langgraph-cost-cap-watcher.ts` | A | ⏳ | — |
-| `langgraph-awaiting-user-sweep.ts` | A | ⏳ | — |
-| `langgraph-dlq-watcher.ts` | A | ⏳ | — |
-| `langgraph-approval-post.ts` | A | ✅ push emitted + action buttons wired (smoke-proven) | — |
-| `langgraph-approval-receive.ts` | A | ✅ webhook resume proven (round-trip smoke) | — |
+| `langgraph-daily-digest.ts` | A | **Deleted 2026-07-06** — historical: was ✅ scheduled cron firing (`source=scheduled` completions) | — |
+| `langgraph-cost-cap-watcher.ts` | A | **Deleted 2026-07-06** — historical: was ⏳ (never fully audited); removed with the rest of the langgraph-agents fleet | — |
+| `langgraph-awaiting-user-sweep.ts` | A | **Deleted 2026-07-06** — historical: was ⏳ (never fully audited); removed with the rest of the langgraph-agents fleet | — |
+| `langgraph-dlq-watcher.ts` | A | **Deleted 2026-07-06** — historical: was ⏳ (never fully audited); removed with the rest of the langgraph-agents fleet | — |
+| `langgraph-approval-post.ts` | A | **Deleted 2026-07-06** — historical: was ✅ push emitted + action buttons wired (smoke-proven) | — |
+| `langgraph-approval-receive.ts` | A | **Deleted 2026-07-06** — historical: was ✅ webhook resume proven (round-trip smoke) | — |
 | `paperless-rag-ingest.ts` | A | ⏳ | — |
 | `paperless-rag-tombstone.ts` | A | ⏳ | — |
 | `workaround-watcher.ts` | A | ⏳ | — |
@@ -432,7 +454,7 @@ blocking issue · ⏳ not yet audited · 🟥 aspirational (no audit).
 | Agent | Class | Status | Verifying PR |
 |---|---|---|---|
 | HolmesGPT | A | **Removed 2026-07-06** — historical: was 🟢 batch-audit pass (HR Ready, pod Running 4h+); deployment, RBAC, and CNP/SecurityPolicy all deleted | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
-| langgraph-agents (substrate) | A | ✅ hot — pod `0.2.63` Running (HR Ready, #12189); `ENABLE_CLAUDE_API: true` with in-cluster cost caps ($5/task, $10/agent/day, $30/global/day); queue + DLQ + guardian-approval + TTL + trace-id + Layer 5 envelope validator all live (lga #103–#107). Promoted B→A: the path through it is no longer cold | [#12172](https://github.com/rwlove/home-ops/pull/12172) |
+| langgraph-agents (substrate) | A | **Removed 2026-07-06** — historical: was ✅ hot, pod `0.2.63` Running (HR Ready, #12189); `ENABLE_CLAUDE_API: true` with in-cluster cost caps ($5/task, $10/agent/day, $30/global/day); queue + DLQ + guardian-approval + TTL + trace-id + Layer 5 envelope validator all live (lga #103–#107). Whole HelmRelease deleted along with the fleet | [#12172](https://github.com/rwlove/home-ops/pull/12172) |
 | supervisor (langgraph specialist) | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
 | researcher | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
 | coder | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
@@ -451,6 +473,16 @@ blocking issue · ⏳ not yet audited · 🟥 aspirational (no audit).
 | claude-runner cost-cap-commentary | A | 🟢 batch-audit pass (CronJob 22:00 UTC daily) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
 | doc-writer / Scribner | C | 🟥 n/a | — |
 
+> **Removed 2026-07-06.** Every specialist row above from `supervisor`
+> through `health-tracker` (13 agents) ran inside the langgraph-agents
+> pod and was deleted along with the fleet in the same pass as the
+> substrate row above. Rows are left as-is (not individually re-marked)
+> for the historical audit trail — the 2026-05-31 reconciliation note
+> below still describes accurately what was and wasn't exercised before
+> the decommission. `claude-runner pr-triage` / `cost-cap-commentary`
+> and `doc-writer / Scribner` were separate components and are
+> unaffected.
+>
 > **Reconciliation note (2026-05-31).** Several specialist rows above
 > still read "🟡 cold via substrate — exercise pending E2E smoke," but
 > that predates Batch 4 and the Stage 2 logs. Already exercised
@@ -471,7 +503,7 @@ blocking issue · ⏳ not yet audited · 🟥 aspirational (no audit).
 |---|---|---|---|
 | ollama (P40) | A | 🟢 batch-audit pass (HR `Ready=True / UpgradeSucceeded`, pod 2d17h uptime, 0 restarts) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
 | ollama-spark (GB10) | A | 🟢 batch-audit pass (HR `Ready=True`, pod 41h uptime, 0 restarts) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
-| Claude API (via langgraph) | A | ✅ armed — `ENABLE_CLAUDE_API: true` (enabled 2026-05-21, #11923 single-sourced the key); cost caps active; Batch 4 confirmed the gate hot with `spent_usd=0.0` (local routing sufficed). The escalation path is ready; the fleet still routes 100% local, so live Claude spend remains $0 — correct behavior, not a gap | [#11923](https://github.com/rwlove/home-ops/pull/11923) |
+| Claude API (via langgraph) | A | **Removed 2026-07-06** — historical: was ✅ armed, `ENABLE_CLAUDE_API: true` (enabled 2026-05-21, #11923 single-sourced the key); cost caps active; Batch 4 confirmed the gate hot with `spent_usd=0.0` (local routing sufficed). Escalation path, cost-cap rules, and `claude-cost-rules` PrometheusRule all deleted along with the fleet — this is distinct from the still-pending, separate Claude Code CLI cost-governor pipeline | [#11923](https://github.com/rwlove/home-ops/pull/11923) |
 | Claude Code (via claude-runner) | A | 🟢 batch-audit pass (CronJob-driven, `claude-runner-secret` has live 108-byte key) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
 | tei-spark (reranker) | A | 🟢 batch-audit pass (HR `Ready=True`, pod 4h32m uptime, 0 restarts) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
 
@@ -497,18 +529,18 @@ blocking issue · ⏳ not yet audited · 🟥 aspirational (no audit).
 | `time-mcp` | A | 🟢 batch-audit pass (Running 41h) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
 | `windmill-mcp` | A | ✅ verified (HR recovered via preventive timeout bump alone — destructive procedure not needed) | [#11919](https://github.com/rwlove/home-ops/pull/11919) |
 | Qdrant | A | 🟢 batch-audit pass (HR Ready in databases ns) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
-| Postgres CNPG `langgraph-checkpoints` (task_queue + task_dlq + checkpoints) | A | 🟢 batch-audit pass (3/3 instances, phase=healthy) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
-| Postgres CNPG `langgraph-memory` (pgvector KG) | A | 🟢 batch-audit pass (3/3 instances, phase=healthy) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| Postgres CNPG `langgraph-checkpoints` (task_queue + task_dlq + checkpoints) | A | **Removed 2026-07-06** — historical: was 🟢 batch-audit pass (3/3 instances, phase=healthy); cluster deleted along with the fleet | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| Postgres CNPG `langgraph-memory` (pgvector KG) | A | 🟢 batch-audit pass (3/3 instances, phase=healthy). **Still live** — now serves as `memory-mcp`'s knowledge-graph backend rather than langgraph's; see `memory_mcp.md` | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
 | Postgres CNPG `langfuse` | A | 🟢 batch-audit pass (3/3 instances, phase=healthy) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
 
 ### Outputs
 
 | Output | Class | Status | Verifying PR |
 |---|---|---|---|
-| Obsidian vault (via `langgraph-vault` PVC) | A | 🚧 PVC bound (`langgraph-agents` pod mounts it) — write-side exercise pending E2E smoke | — |
+| Obsidian vault (via `langgraph-vault` PVC) | A | **Removed 2026-07-06** — historical: was 🚧 PVC bound (`langgraph-agents` pod mounts it), write-side exercise pending E2E smoke; both `langgraph-vault` and `langgraph-vault-rw` PVCs deleted along with the fleet | — |
 | Zulip threads (ops + per-agent) | A | 🚧 Zulip live (`collab/zulip` HR Ready) — write-side exercise pending E2E smoke | — |
 | Ntfy push (tap-to-approve) | A | ✅ hot — push + action buttons + webhook resume all proven (3/3 automatable links); only the literal finger-tap is unsimulable; guardian gate hot in prod (~13 parked tasks) | — |
-| Langfuse traces (OTLP sink) | A | 🚧 frames flow, but worker spans are **orphaned** — no ingress root span, parent ids absent; needs trace-context propagation fix in langgraph-agents | — |
+| Langfuse traces (OTLP sink) | A | **Producer removed 2026-07-06** — historical: was 🚧 frames flowing but worker spans **orphaned** (no ingress root span, parent ids absent), needing a trace-context propagation fix in langgraph-agents. That fix is now moot: langgraph-agents was Langfuse's only trace producer, so Langfuse currently receives zero traces. Langfuse itself is still deployed; keep-dormant vs remove is an open, unresolved question — not decided here. | — |
 
 > **Reconciliation note (2026-05-31).** Two output sinks have moved off
 > 🚧 in practice but the rows above are conservatively left as-is pending
@@ -1239,6 +1271,15 @@ window per `CLAUDE.md` if the component is operator- or
 Renee-facing.
 
 ### Local inference path down — escalation fallback
+
+> **Moot — removed 2026-07-06.** This runbook describes langgraph-agents'
+> `/inbox` queue and its Claude API escalation fallback; the whole
+> langgraph-agents fleet was decommissioned on this date, so there is
+> no `/inbox` queue or `hai cost` left to check today. Preserved
+> because the underlying inference backends (`ollama`, `ollama-spark`)
+> and their wedge/failure modes are unchanged and still relevant to
+> whatever consumes them next — only the langgraph-specific escalation
+> plumbing described below is gone.
 
 **Symptom.** Agent tasks queued at `/inbox` stop completing, or
 complete with empty/garbage model output. The langgraph-agents pod is

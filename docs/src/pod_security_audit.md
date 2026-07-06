@@ -87,7 +87,10 @@ container level. Likely candidates for one-PR-each remediation:
 - `collab/{it-tools,nametag,paperless,pump,pump-cv,swiparr,kitchenowl}`
 - `media/{flaresolverr,immich-power-tools,videodupfinder,theme-park,immichkiosk}`
 - `home/wyoming-services-{kokoro,openwakeword,whisper}`
-- `ai/{paperless-ai,sync-receiver}`
+- `ai/{paperless-ai,sync-receiver}` — **`sync-receiver` moot, removed 2026-07-06**:
+  deleted along with the langgraph-agents fleet it existed solely to
+  serve (rsync-over-ssh access to the now-deleted langgraph-vault
+  PVCs). `paperless-ai` remediation is still open.
 
 Each is a stateless or near-stateless app reading from a configMap or
 PVC; readOnlyRootFilesystem should land with at most a `tmpfs`
@@ -99,6 +102,10 @@ PVC; readOnlyRootFilesystem should land with at most a `tmpfs`
 `fsGroupChangePolicy: OnRootMismatch`. Cosmetic for already-chowned
 PVCs, but adds startup latency on large volumes (Immich, paperless,
 similar Node-style apps). One-line fix per app:
+
+> **`ai/{langgraph-agents}` moot, removed 2026-07-06** — the whole
+> HelmRelease was deleted along with the rest of the langgraph-agents
+> fleet decommission. Listed below for the audit trail; no fix needed.
 
 ```text
 ai/{langgraph-agents}

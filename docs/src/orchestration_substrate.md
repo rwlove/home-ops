@@ -10,25 +10,36 @@ shape so we don't lose the specs while we wait.
 
 **Substrate decision (2026-05-20):** CNPG LISTEN/NOTIFY — see
 [`task_queue_substrate_design.md`](task_queue_substrate_design.md) for
-the full evaluation. Phase 4 of the rollout plan builds it out.
+the full evaluation. **That decision is moot as of 2026-07-06** — the
+design picked LISTEN/NOTIFY specifically to piggyback on
+`langgraph-agents`' own Postgres checkpointer, and both the fleet and
+its `postgres-langgraph-checkpoints` database are gone. If/when this
+substrate gets built, the evaluation needs to be redone against
+whatever (if anything) plays the role langgraph-agents used to play.
 
-## What exists today
+## What exists today (2026-07-06)
 
-The closest things to a task pipeline in this cluster:
+Less than existed a day ago. The closest thing this cluster had to a
+task pipeline — `langgraph-agents`, reached via Zulip DM and HA voice —
+was removed entirely 2026-07-06 (`kubernetes/apps/ai/langgraph-agents/`,
+`kubernetes/apps/ai/sync-receiver/`, the `postgres-langgraph-checkpoints`
+CNPG cluster, and 16 Windmill workflows). See
+[`workflow_automation.md`](workflow_automation.md) for the full
+decommission detail. What's left:
 
 - **AlertManager → Pushover** for critical alerts. There is no
   automated triage step — the `windmill-investigate` route/receiver
-  and its HolmesGPT enrichment were removed 2026-07-06; AlertManager
-  fires and pages Pushover directly.
-- **Zulip Triager bot → Windmill → langgraph-agents `/inbox`** for
-  DM-shaped intents. The Triager outgoing-webhook converts DMs to
-  HTTP and Windmill brokers to langgraph. See memory entry
-  `project_zulip_triager_webhook_done`.
-- **ntfy → langgraph approval endpoint** for tap-to-approve actions
-  on Android. HMAC-signed, single-use. See memory entry
-  `project_ntfy_pushover_migration_done`.
+  and its HolmesGPT enrichment were removed 2026-07-06 (a separate,
+  earlier decommission); AlertManager fires and pages Pushover
+  directly.
 - **HA voice + ntfy notifications** for Renee-facing surfaces.
   Currently end-user-driven, not agent-mediated.
+- **Known gap, not yet fixed:** the HA voice "inbox …" intent (a
+  `rest_command` in `home-assistant-config`) still POSTs toward the
+  now-deleted `/inbox` endpoint and will silently fail. There is no
+  DM-to-agent or voice-to-agent path anymore — Zulip Triager →
+  Windmill → langgraph-agents `/inbox` and ntfy → langgraph approval
+  endpoint are both gone along with the fleet they targeted.
 
 None of these speak a common task contract. None have a DLQ. None
 queue durably across a worker crash. None carry an OpenTelemetry
@@ -102,8 +113,10 @@ tasks) and Guardian (owns human-approval gate with TTL). Both depend
 on the queue substrate. Observer mode is fully aspirational today —
 AlertManager fires and pages Pushover directly with no automated
 triage step (the HolmesGPT interim substitute was removed 2026-07-06).
-Guardian responsibilities live in Rob (the human) responding to ntfy /
-Pushover approval requests.
+Guardian responsibilities live in Rob (the human); there is currently
+no automated pipeline generating approval requests for Rob to respond
+to (the ntfy/Zulip approval loop was langgraph-agents-specific and was
+removed with the fleet 2026-07-06).
 
 ## Token / cost budget (deferred)
 
@@ -117,12 +130,13 @@ Picking numbers cold would be guessing.
 These do *substrate-ish* work today but are not substitutes for the
 real thing:
 
-- **Zulip Triager → Windmill → langgraph** — DM ingress only. No DLQ,
-  no retry policy, no priority routing.
-- **ntfy approval flow** — one-off HMAC-signed approvals. Not a
-  generic guardian.
 - **AlertManager** — fires, doesn't reason. The piece closest to
   observer-by-rule.
+
+**Zulip Triager → Windmill → langgraph** (DM ingress) and the **ntfy
+approval flow** (one-off HMAC-signed approvals) both existed here
+before 2026-07-06 — both are gone along with `langgraph-agents`. There
+is currently no substitute occupying either role.
 
 When the substrate is built, each of these collapses into the
 appropriate mode worker.

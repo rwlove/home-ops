@@ -1,36 +1,61 @@
 # Routing Policy — Local vs Claude Escalation
 
-## What this is
+## Status: removed 2026-07-06 — historical record only
 
-`kubernetes/apps/ai/langgraph-agents/routing-policy.yaml` is the
-version-controlled source of truth for how HomeAIOps decides whether
-a task runs on a local Ollama model or escalates to the Anthropic
+`kubernetes/apps/ai/langgraph-agents/routing-policy.yaml` and the
+entire langgraph-agents fleet it belonged to were decommissioned
+2026-07-06 (Flux `Kustomization`, HelmRelease, the
+`postgres-langgraph-checkpoints` CNPG cluster, HTTPRoutes, and
+everything else under `kubernetes/apps/ai/langgraph-agents/`). This
+routing policy was never wired into a running runtime — it stayed a
+declared-intent ConfigMap through the fleet's entire life — so nothing
+downstream needs to be un-wired.
+
+`postgres-langgraph-memory` is a **separate, still-live** CNPG cluster
+(memory-mcp's knowledge-graph backend); it has nothing to do with this
+routing policy and was not affected by the decommission.
+
+The rest of this document is preserved below as a record of the
+design that was drafted for HomeAIOps Stage 3. None of the `kubectl
+exec -n ai deploy/langgraph-agents` commands, file paths, or "current"
+framing below are still valid against the live cluster. For live
+model-routing policy (which model/GPU handles which class of work),
+see `langgraph-agents/.agents/instructions/hardware-routing.md` in the
+separate `rwlove/langgraph-agents` source repo — that repo itself is
+**not** decommissioned, only the in-cluster deployment is gone — and
+`.agents/instructions/gpu-routing.md` in this repo.
+
+## What this was
+
+`kubernetes/apps/ai/langgraph-agents/routing-policy.yaml` was the
+version-controlled source of truth for how HomeAIOps decided whether
+a task ran on a local Ollama model or escalated to the Anthropic
 Claude API.
 
-The policy is an explicit ruleset — no learned router yet. First-match
-wins. Changing the file changes behavior (once the Stage 3 execution
-work wires the ConfigMap into the runtime; see **Status** below).
+The policy was an explicit ruleset — no learned router. First-match
+wins, by design, had wiring ever landed.
 
-This is a Stage 3 artifact. Per `goal.md`:
+This was a Stage 3 artifact. Per `goal.md`:
 
 > "Version-controlled file in the repo that decides local vs. escalate
 > based on explicit rules (task type, model capability, context size,
 > sensitivity). No learned router yet — explicit rules first. Changing
 > the file changes behavior."
 
-## Status
+## Status at time of writing (superseded — see banner above)
 
 **Draft / not yet wired (as of initial commit).**
 
-The ConfigMap is committed to the repo and will be reconciled by Flux
-into the `ai` namespace, but the langgraph-agents runtime does not yet
-read it. Routing decisions are still made by the hardcoded `AGENT_GROUP`
+The ConfigMap was committed to the repo and reconciled by Flux
+into the `ai` namespace, but the langgraph-agents runtime never
+read it. Routing decisions were still made by the hardcoded `AGENT_GROUP`
 dict and `llm()` factory in `src/agents/llm.py`. Wiring the
-ConfigMap into the runtime is Stage 3 execution work, gated on Gate 2
-(dogfooding sign-off).
+ConfigMap into the runtime was Stage 3 execution work, gated on Gate 2
+(dogfooding sign-off) — a gate that was never reached before the
+fleet was decommissioned.
 
-Until wiring lands, this file is the declarative statement of *intent* —
-the target routing behavior that code will be written to enforce.
+This file remained the declarative statement of *intent* — the target
+routing behavior code would have enforced — for its entire life.
 
 ## Where it lives
 
@@ -250,11 +275,16 @@ itself is unhealthy):
 
 ## See also
 
-- `docs/src/ai_architecture.md` — component map showing where the router
-  sits in the pipeline
+- `docs/src/ai_architecture.md` — component map; note the router and
+  the rest of the langgraph-agents pipeline it describes were removed
+  2026-07-06
 - `docs/src/homeaiops_dod.md` — Stage 3 definition of done
-- `kubernetes/apps/ai/langgraph-agents/app/helmrelease.yaml` — current
-  cost cap env vars (until wired from this ConfigMap)
-- `langgraph-agents/src/agents/llm.py` — current routing implementation
-- `langgraph-agents/src/agents/redaction.py` — restricted-tier emission gate
+- `kubernetes/apps/ai/langgraph-agents/app/helmrelease.yaml` — **gone**;
+  deleted with the rest of `kubernetes/apps/ai/langgraph-agents/`
+  2026-07-06
+- `langgraph-agents/src/agents/llm.py` — routing implementation as it
+  stood before decommission; still present in the separate,
+  non-decommissioned `rwlove/langgraph-agents` source repo
+- `langgraph-agents/src/agents/redaction.py` — restricted-tier emission
+  gate; same source-repo caveat as above
 - `goal.md` — Stage 3 routing, escalation, and provenance requirements

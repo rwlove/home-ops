@@ -88,7 +88,7 @@ Grouped from the 51 CNPs by destination shape:
 | Category | Example apps | Today's allow shape | Tractability |
 |---|---|---|---|
 | Package registries — CNAME-fronted | actions-runner-system (github.com, *.githubusercontent.com), media/\<media-pull-stack quality-rules app\> | `matchPattern: <fqdn>` works | High (already narrow) |
-| Provider APIs — canonical | external-secrets→1P Connect cloud, smtp-relay→mailgun, langgraph→Anthropic/Pushover, cert-manager→ACME, ai/khoj→HuggingFace | `matchPattern + .*` workaround OR `world:443` | Low (matchPattern silently fails on canonical) |
+| Provider APIs — canonical | external-secrets→1P Connect cloud, smtp-relay→mailgun, home/windmill→Anthropic/Pushover, cert-manager→ACME, ai/khoj→HuggingFace | `matchPattern + .*` workaround OR `world:443` | Low (matchPattern silently fails on canonical) |
 | Container registries — pull-through via ZOT | n/a (in-cluster ZOT) | covered by `toEndpoints` | Already restricted |
 | S3 to AWS (offsite backups) | immich, paperless rclone CronJobs | `world:443` | Medium (AWS S3 IP ranges are published but rotate) |
 | LAN-internal hosts (host identity) | longhorn→beast NFS, snmp/omada→LAN devices | `toEntities: [host, remote-node, world]` mix | Already non-internet but `world` is the catch-all |

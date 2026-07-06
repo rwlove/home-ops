@@ -1,16 +1,63 @@
 # Workflow Automation: Agents, Approvals, and Push
 
-> **Authoritative maintainer**: the documentation agent owns keeping
-> this page in sync with the cluster. If you spot drift, run the doc
-> agent — don't hand-edit unless you also intend to update upstream
-> sources.
+> **Status: decommissioned 2026-07-06.** The `langgraph-agents` fleet
+> this page describes — its `/inbox` and `/approval` endpoints, the
+> Zulip/ntfy/Pushover approval loop, and 16 of the Windmill workflows
+> referenced below — was removed entirely
+> (`kubernetes/apps/ai/langgraph-agents/`, `kubernetes/apps/ai/sync-receiver/`,
+> the `postgres-langgraph-checkpoints` CNPG cluster, the `langgraph-vault`
+> PVCs, and the `hai.${SECRET_DOMAIN}` / `hai-web.${SECRET_DOMAIN}`
+> HTTPRoutes are all gone). See **Current state** below for what's
+> actually running today; the rest of the page is kept as a historical
+> record of the original design.
 
-This is the system that turns a voice memo, a Zulip ping, or a critical
-AlertManager event into work done by a fleet of LLM agents — with a
-human in the loop for anything risky, and a paper trail in the vault
-for anything important.
+## Current state (2026-07-06)
 
-## The system at a glance
+- **No agent fleet.** `langgraph-agents` (the FastAPI service that
+  used to live in the `ai` namespace) was deleted along with its
+  Postgres checkpoints database, vault PVCs, and public routes. There
+  is no `/inbox`, no `/approval`, no `/admin/tasks`.
+- **Windmill is still deployed and still runs 7 workflows** — none of
+  them agent- or approval-related. What's left, all under
+  `kubernetes/apps/home/windmill/workflows/`:
+  - `paperless-rag-ingest.ts` / `paperless-rag-tombstone.ts` — Paperless-ngx → Qdrant RAG pipeline
+  - `lightrag-rag-ingest.ts` / `lightrag-rag-tombstone.ts` — LightRAG graph-RAG pipeline
+  - `smart-home-intent-drift.ts` — HA-native, unrelated to the fleet
+  - `windmill-failure-watcher.ts` — Windmill self-introspection
+  - `workaround-watcher.ts` — GitHub `workaround`-labeled issue discovery, backs the upstream-watcher convention
+- **The approval flow no longer exists.** There's no Class A–D task
+  taxonomy, no Zulip `#approvals` stream, no ntfy/Pushover
+  tap-to-approve loop — because there's no automated task pipeline
+  producing anything to approve.
+- **Known gap, not yet fixed:** the HA voice "inbox …" intent (a
+  `rest_command` defined in the separate `home-assistant-config` repo)
+  still exists and will silently fail — it POSTs to a Windmill webhook
+  that used to forward to `langgraph-agents` `/inbox`, which no longer
+  exists. Anyone using the old "hold power button, say inbox …" gesture
+  gets nothing. This is a known follow-up, not resolved here.
+- **Critical AlertManager alerts still page Pushover directly.** That
+  part of the pipeline predates and is unrelated to this decommission
+  — the AI investigation step in front of it (HolmesGPT) was removed
+  in an earlier, separate pass, also landing 2026-07-06.
+- **memory-mcp is unaffected** — the cross-agent knowledge graph MCP
+  server backed by `postgres-langgraph-memory` is still live, still
+  used by Claude Code and Open WebUI. It simply lost langgraph-agents
+  as a consumer.
+
+If a replacement task-intake mechanism gets built, it belongs on this
+page — this file stays the canonical spot for "how does work get from
+a human to an agent" once that's true again.
+
+---
+
+## Historical design (as originally built)
+
+The section below documents the system as it existed before the
+2026-07-06 decommission. Kept for design-rationale reference — none
+of the flows, endpoints, or Windmill scripts named past this point are
+live.
+
+### The system at a glance (historical)
 
 ```mermaid
 flowchart LR
@@ -51,85 +98,51 @@ flowchart LR
     LG --> Vault
 ```
 
-Critical alerts page Pushover directly — no AI investigation step sits
-between AlertManager and the on-call notification (the `windmill-investigate`
-route/receiver was removed 2026-07-06).
+Each block in **Workflow runtime** was a single TypeScript file checked
+into `kubernetes/apps/home/windmill/workflows/`, run in Deno sandboxes
+inside the Windmill worker pods, with secrets injected via the
+`windmill-workflows-secret` k8s Secret (sourced from 1Password).
 
-Each block in **Workflow runtime** is a single TypeScript file checked
-into `kubernetes/apps/home/windmill/workflows/`. They run in Deno
-sandboxes inside the Windmill worker pods, with secrets injected via
-the `windmill-workflows-secret` k8s Secret (sourced from 1Password).
-
-The **agent fleet** is `langgraph-agents` — a FastAPI service in the
-`ai` namespace. It exposes `/inbox` (submit a task), `/approval`
+The **agent fleet** was `langgraph-agents` — a FastAPI service in the
+`ai` namespace. It exposed `/inbox` (submit a task), `/approval`
 (answer a paused task), and `/admin/*` for housekeeping. Internally it
-routes each agent to either a local Ollama backend (default) or the
-Anthropic API (opt-in per agent, gated by daily cost cap).
+routed each agent to either a local Ollama backend (default) or the
+Anthropic API (opt-in per agent, gated by a daily cost cap).
 
-## Triggering jobs from Android
+### Triggering jobs from Android (historical)
 
-Three first-class paths. All three end up POSTing to `/inbox` on
-`langgraph-agents` — the difference is just the front door.
+Three first-class paths all ended up POSTing to `/inbox` on
+`langgraph-agents` — the difference was just the front door.
 
-### Option 1 — Zulip mobile app (recommended for ad-hoc)
+**Option 1 — Zulip mobile app.** Direct message to the `triager-bot`
+in the Zulip app. Triager listened on a webhook → forwarded to
+`/inbox`; the triager LLM classified the task and routed to a
+specialist agent (coder, errand-runner, homelab-engineer,
+smart-home-operator, etc.).
 
-Send a direct message to the `triager-bot` in the Zulip app (the bot
-named **Triager 📥**). The Zulip mobile app is a Play-Store install,
-already logged in if you set it up before, and works over LTE without
-needing the VPN.
+**Option 2 — Voice intake (Wyoming + Whisper).** The HA companion
+app's "Assist" button recorded audio → posted to HA → routed to
+Whisper (`wyoming-services`) → forwarded transcribed text to
+Windmill's `langgraph-inbox` webhook → same `/inbox` as the Zulip path.
 
-What happens:
+**Option 3 — HA companion app (templated tasks).** A dashboard button
+calling the `windmill_inbox` script (an HA `rest_command`) for
+recurring asks.
 
-- Triager listens on a webhook → forwards your message to `/inbox`.
-- The triager LLM classifies your task and routes to one of the
-  specialist agents (coder, errand-runner, homelab-engineer,
-  smart-home-operator, etc.).
-- If the agent can complete autonomously, it does so and posts the
-  result to a topic in `#tasks` (Zulip stream).
-- If the agent needs your approval, it pauses and you get a push
-  notification (see [Approval flow](#approval-flow) below).
+### Approval flow (historical)
 
-When to use: anything conversational. "Schedule the dishwasher to
-run after 11pm tonight." "What's my power draw averaging this week?"
-"Draft a reply to Joakim about the deck stain colors."
-
-### Option 2 — Voice intake (Wyoming + Whisper)
-
-The `wyoming-services` namespace runs Whisper for speech-to-text. The
-Home Assistant companion app on Android has an "Assist" button that
-records audio → posts to HA → routes to Whisper → forwards transcribed
-text to Windmill's `/api/w/lovenet/jobs/run/p/f/lovenet/langgraph-inbox`
-webhook → same `/inbox` as the Zulip path.
-
-When to use: hands-free in the car, while cooking, or anytime typing
-is friction. The Assist button is configurable as a phone shortcut
-or a quick-action tile in the HA app's UI.
-
-### Option 3 — Home Assistant companion app (templated tasks)
-
-In the HA dashboard, add a button that calls the `windmill_inbox`
-script (an HA `rest_command`). The button can pre-fill the task
-content — useful for recurring asks like "give me today's energy
-report" or "run the daily backups summary."
-
-When to use: anything you do more than once a week and want as
-one-tap. Less general than voice, more reliable than tapping through
-the Zulip app.
-
-## Approval flow
-
-Some actions are dangerous enough that the agent shouldn't run them
-alone. The fleet uses a four-class taxonomy:
+The fleet used a four-class taxonomy:
 
 | Class | Examples | Default behavior |
 |---|---|---|
 | **A** | Read-only queries; vault writes; status reports | Run autonomously |
 | **B** | Idempotent ops with trivial undo (toggle a HA light, set a thermostat) | Run autonomously |
-| **C** | Stateful changes with non-trivial undo (reschedule a recurring HA automation, edit Frigate zones, schedule a CronJob, push a draft message) | **Pause — needs approval** |
-| **D** | Irreversible or high-blast-radius (delete data, send a real email/SMS, ship to PR, restart a service) | **Pause — needs approval; escalate to D only if undo_path is empty** |
+| **C** | Stateful changes with non-trivial undo (reschedule a recurring HA automation, edit Frigate zones, schedule a CronJob, push a draft message) | Pause — needs approval |
+| **D** | Irreversible or high-blast-radius (delete data, send a real email/SMS, ship to PR, restart a service) | Pause — needs approval; escalate to D only if undo_path is empty |
 
-When an agent proposes a Class C or D action, it pauses and emits an
-**approval request**. You'll see it through two channels:
+When an agent proposed a Class C or D action, it paused and emitted an
+approval request over two channels (Zulip `#approvals` + ntfy/Pushover
+tap-to-approve buttons):
 
 ```mermaid
 sequenceDiagram
@@ -157,96 +170,38 @@ sequenceDiagram
     Agent->>ZulipStream: 📝 Task continues<br/>(status update in same topic)
 ```
 
-### Giving / rejecting approval
-
-Two paths to the same outcome — pick whichever is in front of you:
-
-- **From the push notification** (ntfy on Android, Pushover during
-  the migration window): tap one of the action buttons:
-  - **Approve** — resume the task
-  - **Reject** — cancel the task; the agent will say so in the
-    Zulip topic and not retry
-  - **Defer 4h** — silence for 4 hours; sweep will re-notify at the
-    4h mark
-- **From Zulip** (mobile, desktop, or web): in the approval topic
-  (named `<task_id> — Class C: <target>`), post one of:
-  - `@**Approval Receiver** approve`
-  - `@**Approval Receiver** reject`
-  - `@**Approval Receiver** defer`
-
-The two paths are equivalent and idempotent — once a decision is
-recorded, follow-up attempts are no-ops.
-
-### Escalation timeline
-
-If you don't respond:
-
-| Age | What happens |
-|---|---|
-| 30 min | Second push notification (tier-1 attention sound) |
-| 4 h | Task marked "cold"; no further pushes; still resumable |
-| 7 d | Auto-cancelled with reason `"7-day timeout"` (with a handful of per-agent exceptions; health-tracker never auto-cancels) |
-
-The 30 min / 4 h / 7 d sweep is the `langgraph-awaiting-user-sweep`
+Escalation timeline if you didn't respond: second push at 30 min;
+marked "cold" (no further pushes, still resumable) at 4 h;
+auto-cancelled at 7 d (with per-agent exceptions — health-tracker
+never auto-cancelled). Driven by the `langgraph-awaiting-user-sweep`
 Windmill flow, running every 5 minutes.
 
-## Where results land
-
-Different surfaces for different shapes of output:
+### Where results landed (historical)
 
 - **Long-form deliverables** → the Obsidian vault, under
-  `~/vaults/claude/reports/`. Daily digests, weekly summaries,
-  research findings, draft emails — anything that's a document.
-  The reporter agent writes these and tells you the filename via
-  Zulip.
-- **Status updates + acknowledgements** → the same Zulip topic as
-  the approval request, so the conversation stays threaded.
-- **Daily roll-up** → `#digests` stream, one topic per day named
-  `daily-YYYY-MM-DD`. Auto-posted at 22:00 ET by the `daily-digest`
-  cron flow.
-- **Critical alerts** → push straight to Pushover with the raw
-  AlertManager payload + Zulip ack of the original alert. No AI
-  investigation step runs in between (removed 2026-07-06).
-- **Cost / state alerts** → push only (cost cap watcher, awaiting-
-  user escalations).
+  `~/vaults/claude/reports/`. The reporter agent wrote these.
+- **Status updates + acknowledgements** → the same Zulip topic as the
+  approval request.
+- **Daily roll-up** → `#digests` stream, auto-posted at 22:00 ET by
+  the `langgraph-daily-digest` cron flow.
+- **Critical alerts** → pushed straight to Pushover — this part is
+  unchanged today.
 
-If you want to dig deeper than the surface message:
+### The Windmill workflows that were removed
 
-- **Windmill UI** at `https://windmill.${SECRET_DOMAIN}` →
-  workspace `lovenet` → Runs tab. Every execution has full args,
-  return value, stdout, and timings.
-- **langgraph-agents** at `https://agents.${SECRET_DOMAIN}` (auth-
-  gated) → `/admin/tasks` for task state, `/admin/tasks/<id>` for
-  the full state machine of a specific task.
-
-## The Windmill workflows
-
-| Workflow | Trigger | What it does |
+| Workflow | Trigger | What it did |
 |---|---|---|
-| `langgraph-inbox` | Webhook (Zulip bot, voice, HA companion) | Forwards to `/inbox`; if the task pauses, fans out an approval-post |
-| `langgraph-approval-post` | Webhook (langgraph pause) | Posts approval request to Zulip `#approvals` + tier-1 push |
-| `langgraph-approval-receive` | Outgoing-webhook (Zulip `@Approval Receiver`) | Verifies actor + emoji/keyword; HMAC-signs token; POSTs `/approval` |
+| `langgraph-inbox` | Webhook (Zulip bot, voice, HA companion) | Forwarded to `/inbox`; if the task paused, fanned out an approval-post |
+| `langgraph-approval-post` | Webhook (langgraph pause) | Posted approval request to Zulip `#approvals` + tier-1 push |
+| `langgraph-approval-receive` | Outgoing-webhook (Zulip `@Approval Receiver`) | Verified actor + emoji/keyword; HMAC-signed token; POSTed `/approval` |
 | `langgraph-awaiting-user-sweep` | Cron (every 5 min) | Tier-1 push at 30m; mark cold at 4h; auto-cancel at 7d |
 | `langgraph-cost-cap-watcher` | Cron (every 4 h) | Push if today's Anthropic spend ≥ 80% (warn) or 100% (cap-hit) |
-| `langgraph-daily-digest` | Cron (22:00 ET) | Triggers the reporter agent to write today's digest + posts summary to `#digests` |
+| `langgraph-daily-digest` | Cron (22:00 ET) | Triggered the reporter agent to write today's digest + posted summary to `#digests` |
+| `langgraph-completion-post` | Webhook (langgraph task completion) | Posted a completed-task summary back to Zulip |
+| `langgraph-dlq-watcher`, `langgraph-ml-weekly`, `langgraph-network-weekly`, `langgraph-observability-weekly`, `langgraph-renovate-triage`, `langgraph-reviewer-weekly`, `langgraph-storage-weekly` | Cron (various) | Weekly operator drift sweeps + DLQ retry, all fleet-specific |
+| `smoke-approval-flow` | Manual | Smoke test for the approval round-trip above |
+| `zulip-triager-webhook` | Outgoing-webhook | Forwarded Zulip DMs to langgraph's `/inbox` |
 
-Source-of-truth on disk:
-`kubernetes/apps/home/windmill/workflows/<name>.ts`. The Windmill DB
-holds the runtime copy; we sync from git when scripts change.
-
-## Operating notes
-
-The system is mostly self-tending, but a few things will eventually
-need attention:
-
-- **`/admin/tasks` hangs** on langgraph-agents (pre-existing,
-  unrelated to Windmill). The awaiting-user-sweep tolerates this
-  with a `{skip: true}` return; no errors, just a 5-min retry
-  cadence until langgraph fixes the endpoint.
-- **Push backend in transition** — Pushover (SaaS, paid) is being
-  replaced with **ntfy** (self-hosted, tap-to-action buttons). The
-  Zulip approval-receive path is unaffected; it stays as the
-  reliable fallback.
-
-See memory `project_windmill_migration_done` for the history
-of the migration off.
+All 16 files above are deleted from
+`kubernetes/apps/home/windmill/workflows/` as of 2026-07-06. See
+**Current state** at the top of this page for the 7 that remain.

@@ -1,5 +1,11 @@
 # Post-Spark tool-call-JSON leakage audit (2026-05-18)
 
+> **Note (2026-07-06):** langgraph-agents (the roadmap this audit gated)
+> was fully decommissioned on this date. The findings below remain
+> accurate for the underlying inference infra — `ollama` (P40) and
+> `ollama-spark` (GB10) are unaffected and still serve other consumers —
+> but the Phase 0d activation context is historical.
+
 **Phase 0d acceptance criterion 5** for the langgraph-agents activation roadmap.
 Verifies that both Ollama-backed models in the dual-concurrent stack emit
 tool-calls via the proper `tool_calls` channel rather than leaking raw

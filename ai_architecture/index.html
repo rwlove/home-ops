@@ -646,23 +646,6 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Observability of the AI fleet">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#langfuse-storage-substrate" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Langfuse storage substrate
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
 </li>
       
         <li class="md-nav__item">
@@ -2321,23 +2304,6 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Observability of the AI fleet">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#langfuse-storage-substrate" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Langfuse storage substrate
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
 </li>
       
         <li class="md-nav__item">
@@ -2429,12 +2395,11 @@ decommission detail.</p>
     subgraph Tools[Tool surfaces]
         Gw[MCP Gateway&lt;br/&gt;16 MCP servers behind Istio]
         Q[(Qdrant&lt;br/&gt;vector DB)]
-        PG[(Postgres CNPG&lt;br/&gt;memory + langfuse)]
+        PG[(Postgres CNPG&lt;br/&gt;memory)]
     end
 
     subgraph Outputs[Outputs]
         Push[Pushover&lt;br/&gt;direct page]
-        LF[Langfuse traces&lt;br/&gt;🟡 zero active producers]
     end
 
     OWUI --&gt;|chat| OllamaSpark
@@ -2448,9 +2413,10 @@ decommission detail.</p>
 <p>There are no dashed (cold-path) edges left in this diagram — the two
 things that used to be dashed, langgraph's gated Claude API escalation
 and its OTLP export to Langfuse, were both removed with the fleet.
-Langfuse is still deployed but has zero trace producers today (kept
-per the open question in <a href="#observability-of-the-ai-fleet">Observability of the AI fleet</a>,
-not resolved here).</p>
+Langfuse itself — the trace sink, with its bundled ClickHouse/Valkey/MinIO
+and its dedicated CNPG Postgres cluster — was removed 2026-07-06. The
+open keep-dormant-vs-remove question noted in earlier passes of this
+chapter is now resolved: removed.</p>
 <p><strong>Also gone: <code>claude-runner</code>, not by this decommission but by a chain
 leading through it.</strong> <code>claude-runner</code> (a CronJob-based Claude Code CLI
 runner for Renovate PR triage + cost commentary) was retired
@@ -2892,7 +2858,7 @@ is gone along with everything else in the removed column above.</p>
 <tr>
 <td>Langfuse traces</td>
 <td>Langfuse (OTLP)</td>
-<td>❌ zero active producers as of 2026-07-06 — langgraph-agents was Langfuse's only trace source and it's gone. Langfuse itself is still deployed; whether to keep it dormant or remove it is an open question, not resolved here.</td>
+<td>❌ <strong>Removed 2026-07-06.</strong> langgraph-agents was Langfuse's only trace source; with the producer already gone, Langfuse itself (app + bundled ClickHouse/Valkey/MinIO + its CNPG Postgres cluster) was removed too — the keep-dormant-vs-remove question is resolved as remove.</td>
 </tr>
 <tr>
 <td>Critical AlertManager alerts</td>
@@ -2933,27 +2899,14 @@ pipeline (a local script + systemd exporter outside this repo) — don't
 conflate the two. Grafana dashboards <code>langgraph-agents.json</code>,
 <code>aihomeops-state.json</code>, and <code>task-queue.json</code> were deleted;
 <code>claude-code.json</code> (Claude Code CLI cost tracking, unrelated) is kept.</p>
-<h3 id="langfuse-storage-substrate">Langfuse storage substrate<a class="headerlink" href="#langfuse-storage-substrate" title="Permanent link">&para;</a></h3>
-<p>Langfuse v3 needs four backends. The chart deploys three in-namespace
-and uses the cluster's CNPG for Postgres. This substrate is unchanged
-by the decommission — only the trace <em>producer</em> (langgraph-agents)
-went away, not Langfuse itself:</p>
-<ul>
-<li><strong>Postgres</strong> — CNPG <code>postgres-langfuse</code> (the chart's bundled bitnami
-  postgresql is disabled; <code>helmrelease.yaml:30-36</code>). DSN consumed via
-  the <code>uri</code> key in <code>postgres-langfuse-app</code>.</li>
-<li><strong>ClickHouse</strong> — chart-bundled, default <code>ceph-block</code> storage.</li>
-<li><strong>Valkey (Redis)</strong> — chart-bundled.</li>
-<li><strong>MinIO (S3)</strong> — chart-bundled.</li>
-</ul>
-<p>Subchart auth secrets all share <code>langfuse-secret</code>. The CNPG-generated
-secret is mirrored into the <code>ai</code> namespace by emberstack reflector
-(see <code>databases/cloudnative-pg/config/langfuse/cluster.yaml</code>).</p>
+<p><strong>Langfuse storage substrate — removed 2026-07-06.</strong> Langfuse's
+bundled ClickHouse, Valkey, and MinIO subcharts, plus its dedicated
+CNPG Postgres cluster (<code>postgres-langfuse</code>), were deleted along with
+the app itself. Nothing else in the cluster depended on any of it.</p>
 <h2 id="file-reference-quick-index">File reference (quick index)<a class="headerlink" href="#file-reference-quick-index" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Khoj</strong> — <code>kubernetes/apps/ai/khoj/app/helmrelease.yaml</code></li>
 <li><strong>khoj extAuth</strong> — <code>SecurityPolicy</code> in <code>kubernetes/apps/ai/khoj/</code> (oauth2-proxy retired 2026-07-01, #12767)</li>
-<li><strong>langfuse</strong> — <code>kubernetes/apps/ai/langfuse/app/helmrelease.yaml</code></li>
 <li><strong>memory-mcp</strong> — <code>kubernetes/apps/mcp-system/memory-mcp/app/helmrelease.yaml</code> (backed by CNPG <code>postgres-langgraph-memory</code>, still live)</li>
 <li><strong>ollama</strong> (P40) — <code>kubernetes/apps/ai/ollama/app/</code></li>
 <li><strong>ollama-spark</strong> (GB10) — <code>kubernetes/apps/ai/ollama-spark/app/</code></li>
@@ -2967,7 +2920,9 @@ secret is mirrored into the <code>ai</code> namespace by emberstack reflector
 <li><strong>MCP servers</strong> — sibling directories under <code>kubernetes/apps/mcp-system/</code></li>
 </ul>
 <p><strong>Removed 2026-07-06</strong> (no longer exist, no path to reference):
-<code>kubernetes/apps/ai/langgraph-agents/</code> and <code>kubernetes/apps/ai/sync-receiver/</code>.</p>
+<code>kubernetes/apps/ai/langgraph-agents/</code>, <code>kubernetes/apps/ai/sync-receiver/</code>,
+<code>kubernetes/apps/ai/langfuse/</code>, and
+<code>kubernetes/apps/databases/cloudnative-pg/config/langfuse/</code>.</p>
 <h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
 <ul>
 <li><a href="../mcp_observability/">MCP Fleet Observability</a> — gateway internals,

@@ -22,25 +22,6 @@ spec:
           - name: alertname
             value: InfoInhibitor
             matchType: "="
-      # Claude Code cost gates — split by severity so soft (warning)
-      # fires once/24h and hard (critical) repeats every 30m.
-      - receiver: "claude-cost-warn"
-        matchers:
-          - name: group
-            value: claude-cost
-            matchType: "="
-          - name: severity
-            value: warning
-            matchType: "="
-      - receiver: "claude-cost-hard"
-        repeatInterval: 30m
-        matchers:
-          - name: group
-            value: claude-cost
-            matchType: "="
-          - name: severity
-            value: critical
-            matchType: "="
   # All other severity=critical alerts fall through to the root
   # receiver (pushover) above — HolmesGPT/windmill-investigate
   # enrichment was removed 2026-07-06 (no value delivered).
@@ -86,44 +67,6 @@ spec:
           title: >-
             [{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}]
             {{ .CommonLabels.alertname }}
-          ttl: 86400s
-          token:
-            name: alertmanager-secret
-            key: pushover_api_token
-          userKey:
-            name: alertmanager-secret
-            key: pushover_api_userkey
-    - name: "claude-cost-warn"
-      pushoverConfigs:
-        - html: true
-          message: |-
-            {{- range .Alerts -}}
-              {{ .Annotations.description }}<br>
-            {{- end -}}
-          priority: "0"
-          sendResolved: true
-          sound: gamelan
-          title: >-
-            [{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}
-          ttl: 86400s
-          token:
-            name: alertmanager-secret
-            key: pushover_api_token
-          userKey:
-            name: alertmanager-secret
-            key: pushover_api_userkey
-    - name: "claude-cost-hard"
-      pushoverConfigs:
-        - html: true
-          message: |-
-            {{- range .Alerts -}}
-              {{ .Annotations.description }}<br>
-            {{- end -}}
-          priority: "1"
-          sendResolved: true
-          sound: siren
-          title: >-
-            [{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}
           ttl: 86400s
           token:
             name: alertmanager-secret

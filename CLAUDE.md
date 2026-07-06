@@ -88,7 +88,7 @@ Per HOMELAB-SPEC Layer 5 blast-radius rules.
 Non-emergency disruptive changes wait for one of these windows
 (US Eastern):
 
-- **Routine** (internal services, langgraph-agents, Windmill,
+- **Routine** (internal services, Windmill,
   MCP servers, observability, storage backends): any night,
   02:00–05:00.
 - **Renee-facing** (Home Assistant, Music Assistant, Jellyfin,

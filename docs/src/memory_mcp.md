@@ -1,6 +1,6 @@
 # Memory MCP
 
-`memory-mcp` is a knowledge-graph MCP server backed by Postgres + pgvector (vchord HNSW). It exposes entity / observation / relation tools to every MCP client in the cluster, so LangGraph agents, Claude Code sessions, and Open WebUI tool callers all share the same long-term memory substrate.
+`memory-mcp` is a knowledge-graph MCP server backed by Postgres + pgvector (vchord HNSW). It exposes entity / observation / relation tools to every MCP client in the cluster, so Claude Code sessions and Open WebUI tool callers share the same long-term memory substrate. (The langgraph-agents fleet was a third consumer, writing directly via `MCPMemoryStore` — removed 2026-07-06 along with the rest of the fleet; see Architecture and Provenance below for what that leaves behind.)
 
 | | |
 |---|---|
@@ -18,8 +18,6 @@
               │  + memory_* MCP tools   │
               └──────────┬──────────────┘
                          │
-LangGraph agents ────────┤ ←  MCPMemoryStore(BaseStore) writes
-                         │     directly to kg.* via psycopg3
 Open WebUI ──────────────┤
                          │
                          ▼
@@ -42,7 +40,7 @@ Open WebUI ──────────────┤
             └──────────────────────────────┘
 ```
 
-LangGraph agents bypass the MCP transport — they speak direct SQL to the same `kg.*` schema via `MCPMemoryStore(BaseStore)`. The two write paths converge on identical rows.
+**Removed 2026-07-06:** langgraph-agents used to bypass the MCP transport, writing direct SQL to the same `kg.*` schema via `MCPMemoryStore(BaseStore)` (that arrow is gone from the diagram above). The rest of the fleet was decommissioned in the same pass. Rows it wrote remain in place under the `langgraph/*` namespace (see Namespace conventions below) — nothing is deleted, there's just no active writer on that path anymore.
 
 ## Schema
 
@@ -87,7 +85,7 @@ Embedding model is `nomic-embed-text` (768 dimensions). The model must be reside
 Two distinct namespacings live in this schema:
 
 1. **`entities.namespace`** — caller-supplied free-form grouping (e.g. `infra`, `cluster`, `software`, `people`). Filter via `memory_list_entities(namespace_filter=...)` or `memory_search(namespace_filter=...)`.
-2. **`langgraph/*` prefix** — entities created by `MCPMemoryStore` (the LangGraph BaseStore adapter) all live under `langgraph/{ns0}/{ns1}/...`, where the LangGraph `namespace: tuple[str, ...]` becomes the path. Their `type` is always `langgraph-store-item`. This keeps fleet writes visually separated from human-seeded entries (host/cnpg/service/etc.) when other agents query the graph.
+2. **`langgraph/*` prefix** — entities created by `MCPMemoryStore` (the LangGraph BaseStore adapter) all live under `langgraph/{ns0}/{ns1}/...`, where the LangGraph `namespace: tuple[str, ...]` becomes the path. Their `type` is always `langgraph-store-item`. This kept fleet writes visually separated from human-seeded entries (host/cnpg/service/etc.) when other agents query the graph. **Historical namespace** — langgraph-agents (the only writer of this prefix) was removed 2026-07-06; existing `langgraph/*` entities are still queryable, but the prefix no longer receives new writes.
 
 ## Provenance
 
@@ -96,7 +94,7 @@ Every write carries a `source` JSONB. Server stamps `at: ISO8601` if the caller 
 | Caller | Minimum source |
 |--------|----------------|
 | Claude Code | `{"agent": "claude-code", "claude_namespace": "<encoded-cwd>"}` |
-| LangGraph fleet (via MCPMemoryStore) | `{"agent": "langgraph", "store": "MCPMemoryStore"}` (set automatically) |
+| LangGraph fleet (via MCPMemoryStore) — **removed 2026-07-06**, historical rows only | `{"agent": "langgraph", "store": "MCPMemoryStore"}` (was set automatically) |
 | Open WebUI tool calls | `{"agent": "open-webui"}` |
 
 A `memory_recent(agent_filter="claude-code")` query shows just one agent's recent contributions.

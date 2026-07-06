@@ -1,5 +1,17 @@
 # Stage 2 — Capability Gap Analysis
 
+> **Status note (2026-07-06):** The system this whole document designs
+> against — `langgraph-agents`, the `/inbox` task-queue pipeline, and
+> the `hai` CLI built on top of it — was fully decommissioned on this
+> date. The fleet, its `postgres-langgraph-checkpoints` CNPG cluster,
+> and the `hai.${SECRET_DOMAIN}` / `hai-web.${SECRET_DOMAIN}` routes
+> are all gone. Everything below is preserved as historical design
+> record — it explains why `/inbox`, the todo store, and the CLI were
+> shaped the way they were, not a description of anything currently
+> running. One exception: `postgres-langgraph-memory` (referenced
+> throughout) is still live — it's `memory-mcp`'s knowledge-graph
+> backend now, not langgraph's.
+
 Paired with `goal.md` Stage 2. This is the **deliverable before
 building** — per goal: *"Show me the gap analysis before you start
 closing it."*

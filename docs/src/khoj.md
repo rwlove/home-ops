@@ -1,15 +1,8 @@
 # Khoj — personal RAG surface
 
-[Khoj](https://khoj.dev) is the cluster's personal-document RAG surface — separate from the [langgraph-agents fleet](ai_architecture.md). Different problem, different deployment, different API.
+[Khoj](https://khoj.dev) is the cluster's personal-document RAG surface — conversational chat over your own notes, backed by persistent chat threads in `postgres-khoj` and per-user custom agents. It has no side effects (read-only) and no task queue; contrast with "do this thing" task automation, which is a different shape of problem.
 
-| Aspect | langgraph-agents | Khoj |
-|---|---|---|
-| Shape | task-in / side-effect-out | conversational chat |
-| State | task queue + checkpointer | persistent chat threads |
-| Specialists | 18-agent fleet (triager → specialist → reporter) | per-user custom agents |
-| Use case | "do this thing" / "triage these PRs" | "what did I write about X" / "summarize this URL" |
-| Surface | `hai` CLI, Zulip bot, Open WebUI | `khoj.${SECRET_DOMAIN}` web UI |
-| Side effects | yes (via errand-runner) | no (read-only) |
+Khoj was previously documented here relative to the langgraph-agents multi-agent task fleet (task-in / side-effect-out, 18-agent triager→specialist→reporter pipeline, `hai` CLI / Zulip bot / Open WebUI surface). That fleet was fully decommissioned 2026-07-06, so khoj is now the cluster's only conversational AI surface — there's no longer a second system to disambiguate against.
 
 ## Where it lives
 

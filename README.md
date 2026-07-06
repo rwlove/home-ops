@@ -182,13 +182,11 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 | App | Purpose |
 |-----|---------|
 | **Ollama** (P40) | Local LLM serving on the Pascal P40 (≤8b-class models, embeddings) |
-| **Ollama Spark** | LLM serving on Spark/GB10 (qwen3-next:80b-a3b-instruct-q4_K_M for the agent fleet + Open WebUI, bge-m3 embeddings) |
+| **Ollama Spark** | LLM serving on Spark/GB10 (qwen3-next:80b-a3b-instruct-q4_K_M for Open WebUI, bge-m3 embeddings) |
 | **ComfyUI** | Image generation workflows |
 | **Khoj** | Personal AI assistant over notes + docs (Authelia extAuth-gated) |
-| **LangGraph Agents** | Custom multi-agent runtime (`rwlove/langgraph-agents`, version pinned in `helmrelease.yaml`); Postgres-checkpointed with live `task_queue` + `task_dlq` substrate; MCP-gateway client. See **AI architecture** section below. |
-| **Langfuse** | LLM observability — OTLP trace sink for the langgraph-agents fleet (CNPG-backed; ClickHouse/Valkey/MinIO bundled) |
+| **Langfuse** | LLM observability, CNPG-backed with ClickHouse/Valkey/MinIO bundled — deployed but currently has zero trace producers (its only consumer, the langgraph-agents fleet, was removed 2026-07-06) |
 | **Paperless-AI** | Auto-tagging for paperless-ngx |
-| **sync-receiver** | Cross-host AI state sync endpoint |
 | **tei-spark** | Text-embedding-inference reranker (unsuspended 2026-05-21) |
 
 </details>
@@ -259,12 +257,12 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 |-----|---------|
 | **Paperless-ngx** | Document scanning, OCR, tagging (CNPG-backed, offsite-backed) |
 | **Obsidian** + **obsidian-couchdb** | Notes sync (CouchDB w/ Cloudflare rate-limiting) |
-| **Zulip** | Self-hosted team chat (also wired into agent pipeline approvals) |
-| **Windmill** | Workflow automation; 23 checked-in TypeScript flows under `kubernetes/apps/home/windmill/workflows/` cover langgraph inbox/approval/digest/DLQ/cost-cap/awaiting-user/reviewer-weekly, weekly operator drift sweeps (storage / network / ml / observability), paperless RAG ingest+tombstone (Qdrant) and LightRAG graph-RAG ingest+tombstone, Zulip triager webhook, the workaround upstream-watcher, and the errand-runner approval-flow smoke driver |
+| **Zulip** | Self-hosted team chat |
+| **Windmill** | Workflow automation; 7 checked-in TypeScript flows under `kubernetes/apps/home/windmill/workflows/` cover paperless RAG ingest+tombstone (Qdrant), LightRAG graph-RAG ingest+tombstone, HA smart-home intent drift, Windmill self-failure-watch, and the workaround upstream-watcher. (Down from 23 — the 16 langgraph-agents-fleet-specific flows, including the inbox/approval/digest/DLQ/cost-cap/awaiting-user/reviewer-weekly scripts and the Zulip triager webhook, were removed 2026-07-06 along with the fleet.) |
 | **ntfy** | Self-hosted push notifications (operator approvals via Android tap actions) |
 | **BentoPDF** | Self-hosted PDF toolkit |
 | **Kitchenowl** | Shopping lists + recipe / meal management |
-| **Open WebUI** | Self-hosted LLM frontend; routes chat to Ollama-Spark (default) / Ollama-P40, surfaces langgraph agents as selectable models, and pulls in the MCP gateway as a tool server. RAG via bge-m3 + bge-reranker-v2-m3 over Qdrant |
+| **Open WebUI** | Self-hosted LLM frontend; routes chat to Ollama-Spark (default) / Ollama-P40, and pulls in the MCP gateway as its only tool server (the langgraph-agent-as-model registration and the HolmesGPT tool server were both removed 2026-07-06). RAG via bge-m3 + bge-reranker-v2-m3 over Qdrant |
 | **SearXNG** | Privacy-respecting metasearch engine |
 | **Glance** | Personal dashboard / start page |
 | **Atuin** | Encrypted shell-history sync across machines |
@@ -306,171 +304,108 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 
 ## 🧠 AI architecture (overview)
 
-Local-first by default — chat, agents, retrieval, alert triage, doc
-ops — with explicit, separately-gated escape hatches to Claude API
-and Claude Code when a task genuinely needs cloud capacity.
+Local-first by default — chat and retrieval today; the automated
+agent fleet and its cloud-escalation gate were both removed
+2026-07-06 (see **Current state** below). Claude Code (this CLI) is
+available for interactive, operator-driven use, but there is no
+automated pipeline that reaches it or the Claude API on its own.
 
 > 📖 **Full chapter**: see [`docs/src/ai_architecture.md`](https://github.com/rwlove/home-ops/blob/main/docs/src/ai_architecture.md)
-> for per-app integration paths, RAG pipelines, escalation matrix, and the file:line
-> references behind every claim here.
+> for per-app integration paths, RAG pipelines, the historical agent-fleet
+> roster, and the file:line references behind every claim here.
 
 ```mermaid
 flowchart TB
     subgraph Surfaces[Surfaces]
         OWUI[Open WebUI<br/>chat + RAG]
         Khoj[Khoj<br/>personal AI]
-        Voice[HA voice 'inbox …']
-        ZulipDM[Zulip DM<br/>Triager bot]
     end
 
-    subgraph Bridges[Windmill bridges<br/>23 TS workflows]
-        WInbox[langgraph-inbox.ts]
-        WApprove[langgraph-approval-post/receive.ts]
-        WPaperless[paperless-rag-ingest.ts]
-        WOther[…digest/DLQ/cost-cap/<br/>awaiting-user/workaround]
-    end
-
-    subgraph Agents[Agents]
-        LG[langgraph-agents<br/>🟡 plumbed, cold]
+    subgraph Bridges[Windmill bridges<br/>7 TS workflows]
+        WPaperless[paperless-rag-ingest/tombstone.ts]
+        WLightrag[lightrag-rag-ingest/tombstone.ts]
+        WOther[smart-home-intent-drift.ts ·<br/>windmill-failure-watcher.ts ·<br/>workaround-watcher.ts]
     end
 
     subgraph Inference[Inference]
         OllamaP40[(ollama / P40<br/>qwen2.5:7b · embeddings)]
         OllamaSpark[(ollama-spark / GB10<br/>qwen3-next:80b-a3b-instruct-q4_K_M · bge-m3)]
-        Claude[(Claude API)]
     end
 
     subgraph Tools[Tools + retrieval]
-        Gw[MCP Gateway<br/>17 servers]
+        Gw[MCP Gateway<br/>20 servers]
         Q[(Qdrant<br/>vector DB)]
         Mem[(memory-mcp<br/>pgvector KG)]
     end
 
     subgraph Outputs[Outputs + observability]
-        Zulip[Zulip threads]
-        Ntfy[ntfy push]
-        Vault[(langgraph-vault)]
-        LF[Langfuse traces]
+        AM[AlertManager]
+        Push[Pushover<br/>direct page]
+        LF[Langfuse<br/>🟡 no active producers]
     end
 
-    Voice --> WInbox --> LG
-    ZulipDM --> WInbox
     OWUI -->|chat| OllamaSpark
-    OWUI -->|agent-as-model| LG
-    OWUI --> Gw
+    OWUI --> Gw --> Mem
     OWUI --> Q
     Khoj --> OllamaP40
-    LG --> OllamaSpark
-    LG --> OllamaP40
-    LG -.->|gated| Claude
-    LG --> Gw --> Mem
-    LG -.->|OTLP| LF
     WPaperless --> Q
-    LG --> WApprove --> Zulip & Ntfy
-    LG --> Vault
-    CR --> Zulip
+    WLightrag --> Q
+    AM --> Push
 ```
 
-Dashed lines mark cold paths: `ENABLE_CLAUDE_API: false` today on
-langgraph-agents; OTLP exporter fires only once Langfuse keys land
-in 1Password.
+There's no agent fleet, no gated Claude API lane, and no OTLP trace
+producer left in this diagram — all three were `langgraph-agents`
+plumbing, removed 2026-07-06 along with the fleet.
 
-### Surfaces, agents, and bridges
+### Surfaces and bridges
 
-- **Open WebUI** (`collab/`) — primary chat UI. Defaults to qwen3-next:80b-a3b-instruct-q4_K_M on Ollama-Spark; users can switch to any langgraph agent via the OpenAI-compatible API. RAG runs over Qdrant with bge-m3 embeds + BGE reranker-v2-m3 in-process. Tool server wired in: the MCP gateway.
-- **Khoj** (`ai/`) — parallel personal-AI surface for notes + docs. Self-contained: own embedding pipeline (default gte-small, optionally ollama nomic-embed-text), chat via Ollama-P40. Does **not** consume MCP gateway or langgraph-agents.
+- **Open WebUI** (`collab/`) — primary chat UI. Defaults to qwen3-next:80b-a3b-instruct-q4_K_M on Ollama-Spark. RAG runs over Qdrant with bge-m3 embeds + BGE reranker-v2-m3 in-process. Tool server wired in: the MCP gateway (the langgraph-agent-as-model registration and the HolmesGPT tool server are both gone).
+- **Khoj** (`ai/`) — parallel personal-AI surface for notes + docs. Self-contained: own embedding pipeline (default gte-small, optionally ollama nomic-embed-text), chat via Ollama-P40. Does **not** consume the MCP gateway.
 - **HolmesGPT** — removed 2026-07-06 (no value delivered). The `windmill-investigate` route/receiver and the `alertmanager-holmesgpt-notify.ts` bridge were removed in Stage 1 (critical alerts now go straight to Pushover); the HolmesGPT deployment itself, its RBAC, its Open WebUI tool-server registration, and its Ollama/Authelia wiring were removed in Stage 2. HolmesGPT no longer exists anywhere in the cluster.
-- **langgraph-agents** (`ai/`) — the FastAPI multi-agent runtime (`rwlove/langgraph-agents`, version pinned in `helmrelease.yaml`). Plumbed end-to-end (Postgres checkpoints + memory, live task-queue substrate in `postgres-langgraph-checkpoints`, vault PVCs, Windmill approval loop, cost caps in env). Trigger surface live: daily 22:00 ET historian digest, weekly Saturday operator drift crons (ml / observability / network / reviewer / storage), errand-runner approval-flow smoke; the alertmanager → namespace-mapped-operator trigger was severed 2026-07-06 along with the HolmesGPT bridge script. `ENABLE_CLAUDE_API: false` so Claude API escalation is still gated. Public ingress splits CLI traffic (`hai.${SECRET_DOMAIN}`, Bearer-only) from browser traffic (`hai-web.${SECRET_DOMAIN}`, Authelia).
-- **Windmill** (`home/`) — 23 checked-in TypeScript flows under `kubernetes/apps/home/windmill/workflows/` are the bridges that knit the surfaces above together. Zulip-triggered DM, approval round-trip, daily digest, weekly vault-hygiene sweep, weekly operator drift sweeps (storage / network / ml / observability), DLQ retry, cost-cap pause, Paperless RAG ingest (Qdrant + LightRAG graph-RAG), and the errand-runner approval-flow smoke driver is a `.ts` file there.
-- **Langfuse** (`ai/`) — OTLP trace sink for langgraph-agents. Chart deploys ClickHouse + Valkey + MinIO bundled; Postgres comes from CNPG `postgres-langfuse`.
-- **memory-mcp** (`mcp-system/`) — cross-agent knowledge graph on `postgres-langgraph-memory` with pgvector(1024). bge-m3 embeds via Ollama-Spark.
+- **langgraph-agents** — removed 2026-07-06. The FastAPI multi-agent runtime, its Postgres checkpoints (`postgres-langgraph-checkpoints`, deleted), vault PVCs (`langgraph-vault`/`langgraph-vault-rw`, deleted), and both public routes (`hai.${SECRET_DOMAIN}` and `hai-web.${SECRET_DOMAIN}`) are gone. `sync-receiver` — an sshd sidecar that existed solely to expose the langgraph-vault PVCs over rsync — was deleted alongside it. See [Agent fleet — status today](https://github.com/rwlove/home-ops/blob/main/docs/src/ai_architecture.md#agent-fleet--status-today) for the historical roster.
+- **Windmill** (`home/`) — 7 checked-in TypeScript flows remain under `kubernetes/apps/home/windmill/workflows/` (down from 23): Paperless RAG ingest+tombstone, LightRAG graph-RAG ingest+tombstone, HA smart-home intent drift, Windmill self-failure-watch, and the workaround upstream-watcher. The 16 langgraph-fleet-specific flows (inbox, approval post/receive, daily digest, cost-cap watcher, awaiting-user sweep, DLQ watcher, weekly operator-drift crons, the approval-flow smoke test, and the Zulip triager webhook) were deleted 2026-07-06.
+- **Langfuse** (`ai/`) — still deployed (ClickHouse + Valkey + MinIO bundled; Postgres via CNPG `postgres-langfuse`) but has **zero active trace producers** — langgraph-agents was its only consumer. Keep-dormant vs. remove is an open question, not yet decided.
+- **memory-mcp** (`mcp-system/`) — cross-agent knowledge graph on `postgres-langgraph-memory` with pgvector(1024), bge-m3 embeds via Ollama-Spark. Fully unaffected by the decommission — it's memory-mcp's own database, used by Claude Code and Open WebUI. It just lost langgraph-agents as a consumer.
 
-### Agent fleet — activation status
+### Agent fleet — retired 2026-07-06
 
-| Agent                  | Role                                                       | Status |
-|------------------------|------------------------------------------------------------|--------|
-| `HolmesGPT`            | AlertManager-driven root-cause investigation               | ❌ removed 2026-07-06 — no value delivered |
-| `triager`              | Classifies inbound items, assigns owner agent              | ✅ live · default route for every untargeted `/inbox` |
-| `supervisor`           | Routes work to specialist agents; opens approvals          | ✅ live · in-graph fallback |
-| `historian`            | Activity log curator + daily/weekly/monthly accomplishment digests | ✅ live · daily 22:00 ET cron |
-| `reporter`             | Universal final hop — composes user-facing DM from upstream agent output | ✅ live · in-graph terminus |
-| `reviewer`             | Vault hygiene: aging TODOs, drift findings, dead `[[wiki-links]]` | ✅ live · weekly Sat 06:00 ET cron |
-| `storage-operator`     | Ceph + Longhorn + Garage + CNPG + Barman + NFS planning    | ✅ live · weekly Sun 07:00 ET cron (alertmanager trigger severed 2026-07-06) |
-| `network-operator`     | Lovenet L1–L7 ops (Omada SDN, Cilium BGP, VLANs, DNS, certs) | ✅ live · weekly Sat 04:00 ET cron (alertmanager trigger severed 2026-07-06) |
-| `observability-operator` | Prometheus rules, AlertManager routing, Loki, Grafana | ✅ live · weekly Sat 03:00 ET cron (alertmanager trigger severed 2026-07-06) |
-| `ml-operator`          | Frigate, Immich CLIP, model tuning, GPU placement          | ✅ live · weekly Sat 02:00 ET cron (alertmanager trigger severed 2026-07-06) |
-| `smart-home-operator`  | Home Assistant entities, automations, ESPHome configs      | ✅ live · intent-drift cron (alertmanager trigger severed 2026-07-06) |
-| `homelab-engineer`     | Cluster ops, HelmRelease drafting, PR-shaped output        | 🟡 no longer alertmanager-triggered (severed 2026-07-06); reachable via `/inbox` only |
-| `researcher`           | Web + repo + vault research                                | ✅ live · hourly renovate-triage cron |
-| `errand-runner`        | Class C+ MCP-write executor (the only agent that calls MCP write) | ✅ live · in-graph after approval · local-only |
-| `note-maker`           | Captures decisions + facts back into the vault             | 🟡 reachable via `/inbox` (HA voice "inbox …"); no recurring trigger |
-| `coder`                | Code reading, drafting, PR descriptions                    | 🟡 reachable via `/inbox`; no recurring trigger |
-| `security`             | Surveillance + physical-security analyst (Frigate triage)  | 🟡 cold · needs Frigate HTTP client wiring |
-| `auditor`              | CVE + vulnerability researcher (kubectl + OSV + GH Advisory) | 🟡 cold · needs OSV/GHSA client wiring |
-| `artist`               | Image generation via ComfyUI MCP                           | 🟡 cold · needs ComfyUI MCP allowlist populated |
-| `property-coordinator` | 3532 Foxhall workstreams (contractors, deck, pool)         | 🟡 cold · ad-hoc `/inbox` only |
-| `health-tracker`       | Personal health tracking                                   | 🟡 cold · local-only |
-| `doc-writer` (Scribner) | Sweeps repos for stale docs; drafts README + `docs/` patches as diffs when commits land | 🟥 aspirational |
-
-✅ live · 🟡 wired but not on a recurring trigger or blocked on tool wiring · 🟥 not built
-
-**Tool-binding gap (load-bearing caveat):** All ✅-live agents above use `with_structured_output()` against the prompt content they receive. Only `errand-runner` actually calls MCP at runtime. Operator weekly drift crons produce LLM reasoning over the prompt — they do NOT dynamically query Prometheus / kubectl / Omada / etc. (the MCP allowlists exist, but the LLM call doesn't bind them as tools). Adding ReAct-style tool-binding to an agent is a deferred architectural step.
-
-`health-tracker` and `errand-runner` are pinned local-only at the
-routing layer — they never escalate to Claude API regardless of agent
-uncertainty, because the data class isn't suitable for off-site
-inference.
+The langgraph-agents multi-agent fleet (`triager`, `supervisor`,
+`historian`, `reporter`, `reviewer`, the five operator personas —
+`storage`/`network`/`observability`/`ml`/`smart-home` — plus
+`errand-runner`, `researcher`, `homelab-engineer`, and eight more
+wired-but-cold agents) was removed in its entirety. There is no
+automated agent pipeline in the cluster today. The full historical
+roster with per-agent role and trigger detail lives in
+[`docs/src/ai_architecture.md`](https://github.com/rwlove/home-ops/blob/main/docs/src/ai_architecture.md#agent-fleet--status-today),
+preserved as a record of what was built and retired — not as a status
+board for anything currently running.
 
 ### Local-first routing tiers
 
 | Tier | Backend                              | When used                                                  |
-|------|--------------------------------------|------------------------------------------------------------|
-| 1    | `qwen2.5:7b` on Ollama (P40)         | Fast / simple agents (`triager`, `note-maker` drafts)      |
-| 2    | `qwen3-next:80b-a3b-instruct-q4_K_M` on Ollama-Spark (GB10) | Default chat + agent inference                              |
-| 3    | Claude API (langgraph escalation)    | Explicit uncertainty markers, repeated local-retry failure, novel/long-context, or `requires_cloud` tag. Cost caps `$5/task` · `$10/agent/day` · `$30/global/day` enforced inside the cluster |
+|------|--------------------------------------|---------------------------------------------------------------|
+| 1    | `qwen2.5:7b` on Ollama (P40)         | Fast / simple chat, embeddings, voice STT/TTS support      |
+| 2    | `qwen3-next:80b-a3b-instruct-q4_K_M` on Ollama-Spark (GB10) | Default chat inference (Open WebUI) |
 
-### Voice-to-action: power button → HA Assist → agents → Obsidian
+**Removed 2026-07-06:** the third tier — gated Claude API escalation
+via langgraph-agents (`ENABLE_CLAUDE_API`, cost caps `$5/task` ·
+`$10/agent/day` · `$30/global/day`) — is gone along with the fleet.
+There is no automated cloud-escalation tier today.
 
-The most common way work enters the fleet — hold the phone's power button, say "inbox &lt;whatever I'm thinking&gt;", and the cluster takes it from there.
+### Voice-to-action: retired, known gap
 
-```mermaid
-flowchart LR
-    Btn[📱 Hold power button<br/>Pixel: 'Hold for Assistant'] --> Assist[HA Companion app<br/>set as default assistant]
-    Assist -->|audio stream| HA[Home Assistant<br/>Assist pipeline]
-    HA --> Whisper[Whisper STT<br/>wyoming-services on P40]
-    Whisper --> Sentence[Sentence trigger:<br/>'inbox &#123;content&#125;']
-    Sentence --> Ollama[conversation.ollama_voice<br/>qwen3:8b]
-    Ollama --> Rest[HA rest_command<br/>POST + Authelia JWT]
-    Rest --> Hook[Windmill:<br/>langgraph-inbox.ts]
-    Hook --> LG[langgraph-agents /inbox]
-    LG --> Triage[triager classifies]
-    Triage -->|capture only| Note[note-maker]
-    Triage -->|plan + act| Spec[specialist agent<br/>drafts plan]
-    Spec -->|needs input| Zulip[💬 Zulip approval<br/>+ ntfy push]
-    Zulip -->|reply / tap| Receive[approval-receive]
-    Receive --> Spec
-    Spec --> Done[outcome to vault]
-    Note --> Inbox[/vault/inbox/YYYY-MM-DD-…md/]
-    Done --> Outputs[/vault/outputs/&#123;drafts,finals&#125;//]
-    Inbox --> Couch[(obsidian-couchdb)]
-    Outputs --> Couch
-    Couch -->|LiveSync| Phone[📱 Obsidian on phone<br/>same vault]
-```
+Before 2026-07-06, holding the phone's power button and saying "inbox
+&lt;whatever I'm thinking&gt;" routed through Whisper STT → an HA
+`rest_command` → Windmill → `langgraph-agents` `/inbox`, which
+triaged the note to a specialist agent and synced results to the
+Obsidian vault. That backend is gone.
 
-#### The path
-
-1. **Hold power button.** Pixel's "Hold for Assistant" gesture is bound to the HA Companion app as the default digital assistant. The Assist UI opens with the mic hot.
-2. **Speak.** Audio streams to the cluster — no on-phone STT. The trigger phrase is `inbox <body>`; everything after `inbox` is the note.
-3. **STT in cluster.** The Assist pipeline routes the audio to **Whisper** (`wyoming-services`, GPU-accelerated on the P40).
-4. **Intent + LLM.** A sentence trigger matches `inbox {content}` and hands `{content}` to `conversation.ollama_voice` (qwen3:8b on Ollama, tool-calling enabled). The conversation agent's only job here is to confirm the intent and call the rest_command — it does not interpret the content.
-5. **Auth'd POST.** An HA `rest_command` POSTs to `https://langgraph-inbox.${SECRET_DOMAIN}/webhook` with `{ source:"voice", user:"rob", content:"<transcript>" }`. The request carries an **Authelia client_credentials JWT** issued to a dedicated `ha-voice-inbox` OIDC client — same daily-rotated signing-key machinery the MCP gateway already uses. Envoy's `SecurityPolicy` validates the JWT against Authelia's JWKS at the gateway.
-6. **Windmill `langgraph-inbox.ts`.** Normalizes the payload and POSTs to `/inbox` on `langgraph-agents`.
-7. **Triager classifies.** Research question, household errand, homelab change, property task, or note-to-self — and picks the specialist agent.
-8. **Capture path → note-maker writes the file** to `/vault/inbox/YYYY-MM-DD-HHMM-<slug>.md` on the `langgraph-vault-rw` PVC. Single writer, no race with the phone.
-9. **Plan-and-act path → specialist drafts a plan** into Postgres + a draft under `/vault/outputs/drafts/`. HITL approval via the existing Zulip + Pushover loop when needed (see triggers above).
-10. **Round-trip to the phone.** `obsidian-couchdb` watches the vault PVC and replicates new files through Self-hosted LiveSync — the note from step 8, plus any drafts/finals from step 9, appear in the Obsidian app on the phone within a sync cycle. Same surface the dictation started on.
-
-The loop closes locally and on one surface: power-button → speak → outcome appears in the vault. Whisper, Ollama, Windmill, and the agents all run in the cluster; the only off-site dependency is `claude.com` if the local fleet escalates a task.
+**Known gap, not yet fixed:** the HA voice `rest_command` (defined in
+the separate `home-assistant-config` repo) still exists and still
+POSTs toward the deleted Windmill webhook — it will silently fail.
+The full original design (mermaid diagram + step-by-step path) is
+preserved as a historical record in
+[`docs/src/workflow_automation.md`](https://github.com/rwlove/home-ops/blob/main/docs/src/workflow_automation.md).
 
 ### Alert triage
 
@@ -483,8 +418,8 @@ removed 2026-07-06 — no value delivered.
 ### Current state (2026-07-06)
 
 - **HolmesGPT** — removed. No longer deployed anywhere in the cluster.
-- **LangGraph fleet** — specialist agents plumbed end-to-end (Postgres checkpoints + memory, Windmill approval loop, cost caps). Public ingress split into CLI (`hai.${SECRET_DOMAIN}`, Bearer) and browser (`hai-web.${SECRET_DOMAIN}`, Authelia). `ENABLE_CLAUDE_API: false` so Claude API escalation stays gated. The alertmanager → namespace-mapped-operator trigger was severed 2026-07-06 along with the HolmesGPT bridge script; the six specialist operators still run on their own weekly cron triggers.
-- **claude-runner** — retired 2026-05-23. Superseded by the langgraph fleet; the two CronJobs (PR triage + cost-cap commentary) graduated into agent workflows inside langgraph-agents.
+- **LangGraph fleet** — removed in its entirety: the FastAPI runtime, `postgres-langgraph-checkpoints`, the `langgraph-vault`/`langgraph-vault-rw` PVCs, both public routes (`hai.${SECRET_DOMAIN}`, `hai-web.${SECRET_DOMAIN}`), and `sync-receiver`. 16 of 23 Windmill workflows deleted with it. `postgres-langgraph-memory` and `memory-mcp` are **kept** — that database is memory-mcp's own backend, unaffected by this decommission. Known gap: the HA voice "inbox …" intent is now broken (see **Voice-to-action** above).
+- **claude-runner** — retired 2026-05-23, superseded by the langgraph fleet (its two CronJobs graduated into agent workflows inside langgraph-agents). With langgraph-agents now also removed, that functionality is gone twice over — there is no automated Claude Code or Claude API pipeline anywhere in the cluster today. Claude Code use is interactive-only (an operator running the CLI, same as the session that made this edit).
 - **KubeClaw** — retired (memo `project_open_issues_cleanup_2026_05_20`).
 
 ---
@@ -527,7 +462,7 @@ kube-prometheus-stack scrapes everything; Loki ingests pod logs (via Vector); Te
 Two GPUs split the workload:
 
 - **NVIDIA P40 on worker8** (Pascal, 24 GB VRAM) — Ollama for ≤8b-class models + embeddings, ComfyUI, Whisper STT, Immich CLIP face/pet recognition, and the immich-pet-tagger fork pinned to a P40-compatible PyTorch build.
-- **NVIDIA GB10 on Spark** (Grace-Blackwell, 128 GB unified) — the larger Ollama deployment serving qwen3-next:80b-a3b-instruct-q4_K_M for the LangGraph agent fleet and Open WebUI, plus bge-m3 embeddings for the cross-agent knowledge graph and Paperless RAG.
+- **NVIDIA GB10 on Spark** (Grace-Blackwell, 128 GB unified) — the larger Ollama deployment serving qwen3-next:80b-a3b-instruct-q4_K_M for Open WebUI, plus bge-m3 embeddings for the cross-agent knowledge graph and Paperless RAG.
 
 Driver lifecycle is handled by the NVIDIA GPU Operator. Spark is the lone containerd node in an otherwise CRI-O cluster; a NodeFeatureRule auto-skips the GPU container-toolkit DaemonSet on CRI-O nodes.
 

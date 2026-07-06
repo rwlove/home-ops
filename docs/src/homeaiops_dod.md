@@ -205,6 +205,8 @@ within seconds, completed in 46 s wall time, vault file written at
 `hai cost` (last 7 days): 117 completions — source breakdown:
 `cli: 71`, `holmesgpt: 25`, `test: 10`, `scheduled: 5`, `zulip: 3`.
 Non-CLI paths (Zulip bridge + scheduled crons) are confirmed working.
+(Historical snapshot — the `holmesgpt` source no longer exists;
+HolmesGPT was removed 2026-07-06.)
 
 **Stage 2 DoD remaining gaps (as of 2026-05-26):**
 
@@ -247,9 +249,10 @@ checks on top.
 
 ### Class A — live (✅)
 
-For components currently serving traffic: HolmesGPT, claude-runner,
+For components currently serving traffic: claude-runner,
 all live MCP servers, both ollama backends, Qdrant, all CNPG
 clusters, Langfuse, the Windmill bridges that are wired today.
+(HolmesGPT was in this class historically; removed 2026-07-06.)
 
 A live component is **done** when:
 
@@ -346,7 +349,7 @@ That's at minimum:
   HomeAIOps-relevant)
 - `kubernetes/apps/mcp-system/` — gateway + every MCP server
 - `kubernetes/apps/observability/` — Prometheus, AlertManager,
-  Loki, Grafana, HolmesGPT
+  Loki, Grafana (HolmesGPT was in scope here; removed 2026-07-06)
 - `kubernetes/apps/automation/claude-runner/` — pr-triage,
   cost-cap-commentary
 - `kubernetes/apps/home/windmill/` — server, worker, workflows
@@ -403,7 +406,7 @@ blocking issue · ⏳ not yet audited · 🟥 aspirational (no audit).
 | Zulip DM (Triager bot) | A | ⏳ | — |
 | Open WebUI chat | A | ⏳ | — |
 | Khoj UI | A | ⏳ | — |
-| AlertManager firing alert → HolmesGPT | A | ✅ hot — 65 `source=holmesgpt` completions via `alertmanager-holmesgpt-notify.ts` → `/inbox` | — |
+| AlertManager firing alert → HolmesGPT | A | **Removed 2026-07-06** — historical: was ✅ hot with 65 `source=holmesgpt` completions via `alertmanager-holmesgpt-notify.ts` → `/inbox`. AlertManager now pages Pushover directly, no AI investigation step. | — |
 | Cron schedules (Windmill + k8s CronJob) | A | ✅ hot — 15 `source=scheduled` completions (daily-digest + weekly bridges firing) | — |
 | Operator tap on ntfy | A | ✅ hot — round-trip smoke 3/3 automatable links + ~13 prod tasks parked in guardian queue | — |
 
@@ -413,7 +416,7 @@ blocking issue · ⏳ not yet audited · 🟥 aspirational (no audit).
 |---|---|---|---|
 | `langgraph-inbox.ts` | A | ⏳ | — |
 | `zulip-triager-webhook.ts` | A | ⏳ | — |
-| `alertmanager-holmesgpt-notify.ts` | A | ✅ posts `source=holmesgpt` to `/inbox` (line 224); 65 completions | — |
+| `alertmanager-holmesgpt-notify.ts` | A | **Deleted 2026-07-06** — historical: was ✅ posting `source=holmesgpt` to `/inbox` (line 224); 65 completions | — |
 | `langgraph-daily-digest.ts` | A | ✅ scheduled cron firing (`source=scheduled` completions) | — |
 | `langgraph-cost-cap-watcher.ts` | A | ⏳ | — |
 | `langgraph-awaiting-user-sweep.ts` | A | ⏳ | — |
@@ -428,7 +431,7 @@ blocking issue · ⏳ not yet audited · 🟥 aspirational (no audit).
 
 | Agent | Class | Status | Verifying PR |
 |---|---|---|---|
-| HolmesGPT | A | 🟢 batch-audit pass (HR Ready, pod Running 4h+) | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
+| HolmesGPT | A | **Removed 2026-07-06** — historical: was 🟢 batch-audit pass (HR Ready, pod Running 4h+); deployment, RBAC, and CNP/SecurityPolicy all deleted | [#11924](https://github.com/rwlove/home-ops/pull/11924) |
 | langgraph-agents (substrate) | A | ✅ hot — pod `0.2.63` Running (HR Ready, #12189); `ENABLE_CLAUDE_API: true` with in-cluster cost caps ($5/task, $10/agent/day, $30/global/day); queue + DLQ + guardian-approval + TTL + trace-id + Layer 5 envelope validator all live (lga #103–#107). Promoted B→A: the path through it is no longer cold | [#12172](https://github.com/rwlove/home-ops/pull/12172) |
 | supervisor (langgraph specialist) | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
 | researcher | B | 🟡 cold via substrate — exercise pending E2E smoke | — |
@@ -1242,9 +1245,8 @@ complete with empty/garbage model output. The langgraph-agents pod is
 `Running` and the queue is draining (no DLQ pileup from worker crashes),
 but every task that routes to a local model group (`local-p40`,
 `local-spark`) errors out or times out. Symptoms that point here rather
-than at the worker: HolmesGPT alert-triage returns "model unavailable,"
-`hai cost` shows no new local rows accumulating, and Ollama's own probes
-are red.
+than at the worker: `hai cost` shows no new local rows accumulating,
+and Ollama's own probes are red.
 
 **How to confirm.** Check the two local inference backends directly —
 this is read-only:

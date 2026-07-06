@@ -16,8 +16,8 @@ _Production-grade Kubernetes for a household._
 
 <br/>
 
-![apps](https://img.shields.io/badge/apps-165-blue?style=for-the-badge)
-![helmreleases](https://img.shields.io/badge/HelmReleases-178-326CE5?style=for-the-badge&logo=helm&logoColor=white)
+![apps](https://img.shields.io/badge/apps-164-blue?style=for-the-badge)
+![helmreleases](https://img.shields.io/badge/HelmReleases-177-326CE5?style=for-the-badge&logo=helm&logoColor=white)
 ![nodes](https://img.shields.io/badge/k8s_nodes-11-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white)
 ![cnpg](https://img.shields.io/badge/Postgres_clusters-24-336791?style=for-the-badge&logo=postgresql&logoColor=white)
 ![secrets](https://img.shields.io/badge/secrets-95-0572EC?style=for-the-badge&logo=1password&logoColor=white)
@@ -82,7 +82,7 @@ Storage tiers are picked deliberately per workload — see [`storage-class.instr
 | **VPN**          | wg-easy                             | Operator OOB WireGuard access                         |
 | **Storage**      | Rook-Ceph, Longhorn, Garage, direct NFS | Tiered by durability requirement                  |
 | **Databases**    | CloudNative-PG, Dragonfly, Qdrant   | 24 Postgres clusters, KV, vector                      |
-| **Observability**| kube-prometheus-stack, Loki, Tempo, Grafana, HolmesGPT | Metrics, logs, traces, dashboards, AI alert triage |
+| **Observability**| kube-prometheus-stack, Loki, Tempo, Grafana | Metrics, logs, traces, dashboards                    |
 | **Telemetry**    | OpenTelemetry Collector + Vector    | Trace pipeline (→ Tempo) + log shipping (→ Loki)      |
 | **Images**       | ZOT                                 | Pull-through registry / local cache                   |
 
@@ -182,7 +182,7 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 | App | Purpose |
 |-----|---------|
 | **Ollama** (P40) | Local LLM serving on the Pascal P40 (≤8b-class models, embeddings) |
-| **Ollama Spark** | LLM serving on Spark/GB10 (qwen3-next:80b-a3b-instruct-q4_K_M for the agent fleet + HolmesGPT + Open WebUI, bge-m3 embeddings) |
+| **Ollama Spark** | LLM serving on Spark/GB10 (qwen3-next:80b-a3b-instruct-q4_K_M for the agent fleet + Open WebUI, bge-m3 embeddings) |
 | **ComfyUI** | Image generation workflows |
 | **Khoj** | Personal AI assistant over notes + docs (Authelia extAuth-gated) |
 | **LangGraph Agents** | Custom multi-agent runtime (`rwlove/langgraph-agents`, version pinned in `helmrelease.yaml`); Postgres-checkpointed with live `task_queue` + `task_dlq` substrate; MCP-gateway client. See **AI architecture** section below. |
@@ -194,7 +194,7 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 </details>
 
 <details>
-<summary>📊 <b>Observability</b> — Prom/Loki/Grafana with AI triage on top</summary>
+<summary>📊 <b>Observability</b> — Prom/Loki/Grafana</summary>
 
 | App | Purpose |
 |-----|---------|
@@ -204,7 +204,6 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 | **OpenTelemetry Collector** | Trace ingestion pipeline (apps → OTel → Tempo) |
 | **Vector** | Log shipping (sources → Loki) |
 | **Grafana** | Dashboards + alerting UI |
-| **HolmesGPT** | LLM-backed alert investigation |
 | **kube-state-metrics / kube-ops-view** | Cluster state & visualization |
 | **Goldilocks** | VPA-driven resource right-sizing recommendations |
 | **Kromgo** | Prometheus → Glance dashboard bridge |
@@ -265,7 +264,7 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 | **ntfy** | Self-hosted push notifications (operator approvals via Android tap actions) |
 | **BentoPDF** | Self-hosted PDF toolkit |
 | **Kitchenowl** | Shopping lists + recipe / meal management |
-| **Open WebUI** | Self-hosted LLM frontend; routes chat to Ollama-Spark (default) / Ollama-P40, surfaces langgraph agents as selectable models, and pulls in HolmesGPT + the MCP gateway as tool servers. RAG via bge-m3 + bge-reranker-v2-m3 over Qdrant |
+| **Open WebUI** | Self-hosted LLM frontend; routes chat to Ollama-Spark (default) / Ollama-P40, surfaces langgraph agents as selectable models, and pulls in the MCP gateway as a tool server. RAG via bge-m3 + bge-reranker-v2-m3 over Qdrant |
 | **SearXNG** | Privacy-respecting metasearch engine |
 | **Glance** | Personal dashboard / start page |
 | **Atuin** | Encrypted shell-history sync across machines |
@@ -332,7 +331,6 @@ flowchart TB
     end
 
     subgraph Agents[Agents]
-        Holmes[HolmesGPT<br/>✅ live · qwen3-next:80b-a3b-instruct-q4_K_M]
         LG[langgraph-agents<br/>🟡 plumbed, cold]
     end
 
@@ -360,10 +358,8 @@ flowchart TB
     OWUI -->|chat| OllamaSpark
     OWUI -->|agent-as-model| LG
     OWUI --> Gw
-    OWUI --> Holmes
     OWUI --> Q
     Khoj --> OllamaP40
-    Holmes --> OllamaSpark
     LG --> OllamaSpark
     LG --> OllamaP40
     LG -.->|gated| Claude
@@ -372,7 +368,6 @@ flowchart TB
     WPaperless --> Q
     LG --> WApprove --> Zulip & Ntfy
     LG --> Vault
-    Holmes --> Zulip
     CR --> Zulip
 ```
 
@@ -382,9 +377,9 @@ in 1Password.
 
 ### Surfaces, agents, and bridges
 
-- **Open WebUI** (`collab/`) — primary chat UI. Defaults to qwen3-next:80b-a3b-instruct-q4_K_M on Ollama-Spark; users can switch to any langgraph agent via the OpenAI-compatible API. RAG runs over Qdrant with bge-m3 embeds + BGE reranker-v2-m3 in-process. Tool servers wired in: HolmesGPT + the MCP gateway.
+- **Open WebUI** (`collab/`) — primary chat UI. Defaults to qwen3-next:80b-a3b-instruct-q4_K_M on Ollama-Spark; users can switch to any langgraph agent via the OpenAI-compatible API. RAG runs over Qdrant with bge-m3 embeds + BGE reranker-v2-m3 in-process. Tool server wired in: the MCP gateway.
 - **Khoj** (`ai/`) — parallel personal-AI surface for notes + docs. Self-contained: own embedding pipeline (default gte-small, optionally ollama nomic-embed-text), chat via Ollama-P40. Does **not** consume MCP gateway or langgraph-agents.
-- **HolmesGPT** (`observability/`) — deployed but no longer reachable from AlertManager: the `windmill-investigate` route/receiver and the `alertmanager-holmesgpt-notify.ts` bridge that fed it were removed 2026-07-06 (no value delivered; critical alerts now go straight to Pushover). Open WebUI still surfaces it as a tool server pending full removal. Prompt + context budget were tuned for qwen3-next:80b-a3b-instruct-q4_K_M on Spark (32K context, 6 tool-call budget per investigation).
+- **HolmesGPT** — removed 2026-07-06 (no value delivered). The `windmill-investigate` route/receiver and the `alertmanager-holmesgpt-notify.ts` bridge were removed in Stage 1 (critical alerts now go straight to Pushover); the HolmesGPT deployment itself, its RBAC, its Open WebUI tool-server registration, and its Ollama/Authelia wiring were removed in Stage 2. HolmesGPT no longer exists anywhere in the cluster.
 - **langgraph-agents** (`ai/`) — the FastAPI multi-agent runtime (`rwlove/langgraph-agents`, version pinned in `helmrelease.yaml`). Plumbed end-to-end (Postgres checkpoints + memory, live task-queue substrate in `postgres-langgraph-checkpoints`, vault PVCs, Windmill approval loop, cost caps in env). Trigger surface live: daily 22:00 ET historian digest, weekly Saturday operator drift crons (ml / observability / network / reviewer / storage), errand-runner approval-flow smoke; the alertmanager → namespace-mapped-operator trigger was severed 2026-07-06 along with the HolmesGPT bridge script. `ENABLE_CLAUDE_API: false` so Claude API escalation is still gated. Public ingress splits CLI traffic (`hai.${SECRET_DOMAIN}`, Bearer-only) from browser traffic (`hai-web.${SECRET_DOMAIN}`, Authelia).
 - **Windmill** (`home/`) — 23 checked-in TypeScript flows under `kubernetes/apps/home/windmill/workflows/` are the bridges that knit the surfaces above together. Zulip-triggered DM, approval round-trip, daily digest, weekly vault-hygiene sweep, weekly operator drift sweeps (storage / network / ml / observability), DLQ retry, cost-cap pause, Paperless RAG ingest (Qdrant + LightRAG graph-RAG), and the errand-runner approval-flow smoke driver is a `.ts` file there.
 - **Langfuse** (`ai/`) — OTLP trace sink for langgraph-agents. Chart deploys ClickHouse + Valkey + MinIO bundled; Postgres comes from CNPG `postgres-langfuse`.
@@ -394,7 +389,7 @@ in 1Password.
 
 | Agent                  | Role                                                       | Status |
 |------------------------|------------------------------------------------------------|--------|
-| `HolmesGPT`            | AlertManager-driven root-cause investigation               | ⚠️ deployed, unreachable — AlertManager routing removed 2026-07-06, deployment removal pending |
+| `HolmesGPT`            | AlertManager-driven root-cause investigation               | ❌ removed 2026-07-06 — no value delivered |
 | `triager`              | Classifies inbound items, assigns owner agent              | ✅ live · default route for every untargeted `/inbox` |
 | `supervisor`           | Routes work to specialist agents; opens approvals          | ✅ live · in-graph fallback |
 | `historian`            | Activity log curator + daily/weekly/monthly accomplishment digests | ✅ live · daily 22:00 ET cron |
@@ -402,7 +397,7 @@ in 1Password.
 | `reviewer`             | Vault hygiene: aging TODOs, drift findings, dead `[[wiki-links]]` | ✅ live · weekly Sat 06:00 ET cron |
 | `storage-operator`     | Ceph + Longhorn + Garage + CNPG + Barman + NFS planning    | ✅ live · weekly Sun 07:00 ET cron (alertmanager trigger severed 2026-07-06) |
 | `network-operator`     | Lovenet L1–L7 ops (Omada SDN, Cilium BGP, VLANs, DNS, certs) | ✅ live · weekly Sat 04:00 ET cron (alertmanager trigger severed 2026-07-06) |
-| `observability-operator` | Prometheus rules, AlertManager routing, Loki, Grafana, HolmesGPT prompt tuning | ✅ live · weekly Sat 03:00 ET cron (alertmanager trigger severed 2026-07-06) |
+| `observability-operator` | Prometheus rules, AlertManager routing, Loki, Grafana | ✅ live · weekly Sat 03:00 ET cron (alertmanager trigger severed 2026-07-06) |
 | `ml-operator`          | Frigate, Immich CLIP, model tuning, GPU placement          | ✅ live · weekly Sat 02:00 ET cron (alertmanager trigger severed 2026-07-06) |
 | `smart-home-operator`  | Home Assistant entities, automations, ESPHome configs      | ✅ live · intent-drift cron (alertmanager trigger severed 2026-07-06) |
 | `homelab-engineer`     | Cluster ops, HelmRelease drafting, PR-shaped output        | 🟡 no longer alertmanager-triggered (severed 2026-07-06); reachable via `/inbox` only |
@@ -431,7 +426,7 @@ inference.
 | Tier | Backend                              | When used                                                  |
 |------|--------------------------------------|------------------------------------------------------------|
 | 1    | `qwen2.5:7b` on Ollama (P40)         | Fast / simple agents (`triager`, `note-maker` drafts)      |
-| 2    | `qwen3-next:80b-a3b-instruct-q4_K_M` on Ollama-Spark (GB10) | Default chat + agent inference + HolmesGPT                 |
+| 2    | `qwen3-next:80b-a3b-instruct-q4_K_M` on Ollama-Spark (GB10) | Default chat + agent inference                              |
 | 3    | Claude API (langgraph escalation)    | Explicit uncertainty markers, repeated local-retry failure, novel/long-context, or `requires_cloud` tag. Cost caps `$5/task` · `$10/agent/day` · `$30/global/day` enforced inside the cluster |
 
 ### Voice-to-action: power button → HA Assist → agents → Obsidian
@@ -477,18 +472,18 @@ flowchart LR
 
 The loop closes locally and on one surface: power-button → speak → outcome appears in the vault. Whisper, Ollama, Windmill, and the agents all run in the cluster; the only off-site dependency is `claude.com` if the local fleet escalates a task.
 
-### Alert triage (production today)
+### Alert triage
 
-HolmesGPT is the one agent already running in production:
+There is no automated investigation step today. AlertManager fires a
+critical alert and pages Pushover directly. HolmesGPT used to sit in
+between (querying Prometheus, Loki, and the cluster to build a
+root-cause hypothesis before posting back via Windmill) but was
+removed 2026-07-06 — no value delivered.
 
-- **AlertManager → Windmill `alertmanager-holmesgpt-notify.ts` → HolmesGPT** on every firing alert
-- HolmesGPT queries Prometheus, Loki, and the cluster directly to build a root-cause hypothesis
-- Result posted back as a Pushover message + Zulip thread; the Windmill workflow sanitizes raw tool-call descriptors out of the agent text before delivery
+### Current state (2026-07-06)
 
-### Current state (2026-05-23)
-
-- **HolmesGPT** — live, handling cluster alerts daily on Ollama-Spark / qwen3-next:80b-a3b-instruct-q4_K_M.
-- **LangGraph fleet** — 21 specialist agents plumbed end-to-end but cold (`ENABLE_CLAUDE_API: false`, no production triggers). Public ingress split into CLI (`hai.${SECRET_DOMAIN}`, Bearer) and browser (`hai-web.${SECRET_DOMAIN}`, Authelia). Gated on the Claude API key + a cluster-confidence sign-off; the Spark migration that was the prior gate completed 2026-05-20.
+- **HolmesGPT** — removed. No longer deployed anywhere in the cluster.
+- **LangGraph fleet** — specialist agents plumbed end-to-end (Postgres checkpoints + memory, Windmill approval loop, cost caps). Public ingress split into CLI (`hai.${SECRET_DOMAIN}`, Bearer) and browser (`hai-web.${SECRET_DOMAIN}`, Authelia). `ENABLE_CLAUDE_API: false` so Claude API escalation stays gated. The alertmanager → namespace-mapped-operator trigger was severed 2026-07-06 along with the HolmesGPT bridge script; the six specialist operators still run on their own weekly cron triggers.
 - **claude-runner** — retired 2026-05-23. Superseded by the langgraph fleet; the two CronJobs (PR triage + cost-cap commentary) graduated into agent workflows inside langgraph-agents.
 - **KubeClaw** — retired (memo `project_open_issues_cleanup_2026_05_20`).
 
@@ -523,16 +518,16 @@ All 116 ExternalSecrets resolve through External Secrets Operator from 1Password
 
 Authelia (with LLDAP) is the identity provider; per-route Envoy Gateway `SecurityPolicy` extAuth (Authelia's ext-authz endpoint) enforces auth at the gateway — 26 apps sit behind SSO today, tiered admin vs household via `access_control` rules (the oauth2-proxy sidecar fleet was retired 2026-07-01, #12767). Native-OIDC apps (immich, paperless, open-webui, …) authenticate against Authelia directly. The mcp-gateway validates Authelia-issued JWTs with a daily-rotated signing key for MCP tooling.
 
-### 🔭 Observability — metrics, logs, AI triage
+### 🔭 Observability — metrics, logs, dashboards
 
-kube-prometheus-stack scrapes everything; Loki ingests pod logs (via Vector); Tempo ingests traces (via OpenTelemetry Collector); Grafana stitches the dashboards. AlertManager fans alerts to ntfy and to **HolmesGPT**, which runs LLM-driven root-cause investigation against the cluster and posts findings back via Windmill.
+kube-prometheus-stack scrapes everything; Loki ingests pod logs (via Vector); Tempo ingests traces (via OpenTelemetry Collector); Grafana stitches the dashboards. AlertManager fans critical alerts straight to Pushover — no automated triage step (the HolmesGPT investigation path was removed 2026-07-06).
 
 ### 🎮 GPU workloads
 
 Two GPUs split the workload:
 
 - **NVIDIA P40 on worker8** (Pascal, 24 GB VRAM) — Ollama for ≤8b-class models + embeddings, ComfyUI, Whisper STT, Immich CLIP face/pet recognition, and the immich-pet-tagger fork pinned to a P40-compatible PyTorch build.
-- **NVIDIA GB10 on Spark** (Grace-Blackwell, 128 GB unified) — the larger Ollama deployment serving qwen3-next:80b-a3b-instruct-q4_K_M for the LangGraph agent fleet, HolmesGPT, and Open WebUI, plus bge-m3 embeddings for the cross-agent knowledge graph and Paperless RAG.
+- **NVIDIA GB10 on Spark** (Grace-Blackwell, 128 GB unified) — the larger Ollama deployment serving qwen3-next:80b-a3b-instruct-q4_K_M for the LangGraph agent fleet and Open WebUI, plus bge-m3 embeddings for the cross-agent knowledge graph and Paperless RAG.
 
 Driver lifecycle is handled by the NVIDIA GPU Operator. Spark is the lone containerd node in an otherwise CRI-O cluster; a NodeFeatureRule auto-skips the GPU container-toolkit DaemonSet on CRI-O nodes.
 

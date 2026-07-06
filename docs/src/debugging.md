@@ -256,7 +256,7 @@ That's the only path that doesn't depend on wg-easy being healthy (which depends
 
 If a problem isn't yielding to direct inspection:
 
-- **AlertManager + HolmesGPT** are wired to do automated root-cause analysis on every firing alert — check the most recent Pushover ping or Zulip alert thread for HolmesGPT's investigation report before going deeper.
+- **AlertManager pages Pushover directly** for critical alerts — there's no automated root-cause/investigation step. Check the Pushover ping (and the Zulip alert thread, if wired) for the raw alert payload, then work the failure-modes tables below and in `cluster_upgrade.md` by hand.
 - **mdBook docs** elsewhere in `docs/src/` — `cluster_upgrade.md` has a deep failure-modes table from the 1.34 → 1.35 upgrade that captures most cri-o / kubelet / Longhorn / Rook failure shapes.
 
 ## External references

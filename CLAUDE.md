@@ -44,7 +44,7 @@ home-ops/
 | Secrets       | external-secrets + 1Password | Secret management (109 ExternalSecrets)          |
 | Storage       | Rook/Ceph, Longhorn, Garage  | Tiered durable storage; see `storage-class` instr |
 | Databases     | CloudNative-PG               | 24+ Postgres clusters with Garage Barman backup  |
-| Observability | kube-prometheus-stack, Loki, Grafana, HolmesGPT | Metrics, logs, AI alert triage |
+| Observability | kube-prometheus-stack, Loki, Grafana | Metrics, logs, dashboards         |
 | Images        | ZOT                          | Pull-through registry cache                      |
 
 ## GitOps Flow

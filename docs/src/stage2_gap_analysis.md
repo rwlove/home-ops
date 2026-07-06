@@ -98,6 +98,12 @@ type InboxBody = {
 };
 ```
 
+> Note (2026-07-06): HolmesGPT itself was removed from the cluster on
+> this date. The `"holmesgpt"` source value and the HolmesGPT rows
+> below are preserved as historical design record — they explain why
+> `/inbox` was scoped the way it was, not a description of anything
+> currently running.
+
 Existing producers:
 
 | Producer | Source value | task_id format | Reply-back path |

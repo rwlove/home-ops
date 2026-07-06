@@ -2544,6 +2544,20 @@
 
 
 <h1 id="task-queue-substrate--design-proposal">Task Queue Substrate — design proposal<a class="headerlink" href="#task-queue-substrate--design-proposal" title="Permanent link">&para;</a></h1>
+<p><strong>Status: superseded 2026-07-06.</strong> This design picked Option B (CNPG
+LISTEN/NOTIFY) specifically to give the langgraph-agents fleet an
+in-process asyncio task queue sharing its own Postgres checkpointer.
+The langgraph-agents fleet was fully decommissioned 2026-07-06 —
+<code>kubernetes/apps/ai/langgraph-agents/</code> and the
+<code>postgres-langgraph-checkpoints</code> CNPG cluster this design would have
+extended are both deleted. There is no longer a host process for an
+in-process worker to run inside.</p>
+<p>The rest of this document is kept as a historical record of the
+decision and its rationale. If HOMELAB-SPEC Layer 5's durable task
+queue is still needed for the surviving pipeline (Windmill workflows,
+HA voice, memory-mcp, etc.), it needs a fresh evaluation — the
+"in-process into langgraph-agents' Python codebase" argument that won
+this comparison no longer applies to any live workload.</p>
 <h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">&para;</a></h2>
 <p>HOMELAB-SPEC Layer 5 requires a durable task queue with at-least-once
 delivery, DLQ, visibility timeouts, and idempotency. <code>docs/src/orchestration_substrate.md</code> documents the gap and the
@@ -2605,9 +2619,13 @@ already used by the Triager webhook and approval flows.</p>
 <li>~M effort: 1 generic router script + DLQ adapter + per-mode wiring.</li>
 </ul>
 <h3 id="b--cnpg-listennotify-postgres-pubsub">B — CNPG LISTEN/NOTIFY (Postgres pub/sub)<a class="headerlink" href="#b--cnpg-listennotify-postgres-pubsub" title="Permanent link">&para;</a></h3>
-<p>Status: <strong>plumbing deployed</strong> — <code>cnpg-langgraph-checkpoints</code> and
-<code>cnpg-langgraph-memory</code> already exist; langgraph-agents already speaks
-to Postgres via the AsyncPostgresSaver checkpointer.</p>
+<p>Status at the time this was written: <strong>plumbing deployed</strong> —
+<code>cnpg-langgraph-checkpoints</code> and <code>cnpg-langgraph-memory</code> existed;
+langgraph-agents spoke to Postgres via the AsyncPostgresSaver
+checkpointer. As of 2026-07-06, <code>cnpg-langgraph-checkpoints</code> and the
+langgraph-agents runtime are both deleted; <code>postgres-langgraph-memory</code>
+survives as memory-mcp's knowledge-graph backend, unrelated to this
+queue design.</p>
 <h4 id="pros_1">Pros<a class="headerlink" href="#pros_1" title="Permanent link">&para;</a></h4>
 <ul>
 <li>Native Python integration: psycopg async already in dependencies;
@@ -2798,10 +2816,11 @@ sweep PR or split into 3-4 small PRs:</p>
 <li>DLQ surface + dashboard</li>
 </ul>
 <h2 id="next-steps">Next steps<a class="headerlink" href="#next-steps" title="Permanent link">&para;</a></h2>
-<p>Phase 4 build-out per the preview above. Schema for the new tables
-lives on <code>cnpg-langgraph-checkpoints</code> (re-use existing Cluster) or a
-new <code>cnpg-langgraph-queue</code> Cluster — to be decided when migration
-PR is drafted.</p>
+<p><strong>Moot as of 2026-07-06.</strong> The Phase 4 build-out above targeted the
+langgraph-agents runtime and its <code>cnpg-langgraph-checkpoints</code> cluster,
+both now deleted. There is no pending migration or queue build-out on
+this design — see the superseded-status note at the top of this
+document.</p>
 <h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
 <ul>
 <li><code>docs/src/orchestration_substrate.md</code> — the gap doc; this is the

@@ -616,10 +616,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#approval-and-escalation-flow" class="md-nav__link">
+  <a href="#approval-and-escalation-flow-historical--removed-2026-07-06" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Approval and escalation flow
+        Approval and escalation flow (historical — removed 2026-07-06)
       
     </span>
   </a>
@@ -2291,10 +2291,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#approval-and-escalation-flow" class="md-nav__link">
+  <a href="#approval-and-escalation-flow-historical--removed-2026-07-06" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Approval and escalation flow
+        Approval and escalation flow (historical — removed 2026-07-06)
       
     </span>
   </a>
@@ -2396,83 +2396,81 @@ approval, and escalation hop named.</p>
 the vault runbook at <code>~/vaults/claude/runbooks/home-ops/workflow_automation.md</code>
 per HOMELAB-SPEC Layer 2 #5.</p>
 <h2 id="big-picture">Big picture<a class="headerlink" href="#big-picture" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>2026-07-06:</strong> the <code>langgraph-agents</code> fleet — the FastAPI multi-agent
+runtime this diagram used to show as the hub between every surface,
+Windmill bridge, and inference backend — was removed entirely, along
+with <code>sync-receiver</code>, the <code>postgres-langgraph-checkpoints</code> CNPG
+cluster, the <code>langgraph-vault</code> PVCs, and 16 Windmill workflows. The
+diagram below reflects what's actually running today; see
+<a href="#agent-fleet--status-today">Agent fleet — status today</a> for the
+decommission detail.</p>
+</blockquote>
 <pre class="mermaid"><code>flowchart TB
     subgraph Surfaces[Surfaces — how work enters]
-        Voice[HA voice&lt;br/&gt;'inbox …']
-        Zulip[Zulip DM&lt;br/&gt;Triager bot]
         OWUI[Open WebUI&lt;br/&gt;chat]
         Khoj[Khoj UI&lt;br/&gt;personal AI]
         AM[AlertManager&lt;br/&gt;firing alert]
-        Cron[Cron schedules]
     end
 
     subgraph Bridges[Bridges — Windmill TS workflows]
-        WInbox[langgraph-inbox.ts]
-        WZulip[zulip-triager-webhook.ts]
-        WDigest[langgraph-daily-digest.ts]
-        WCost[langgraph-cost-cap-watcher.ts]
-        WSweep[langgraph-awaiting-user-sweep.ts]
-        WDLQ[langgraph-dlq-watcher.ts]
-        WApprovePost[langgraph-approval-post.ts]
-        WApproveRecv[langgraph-approval-receive.ts]
         WPaperless[paperless-rag-ingest.ts&lt;br/&gt;paperless-rag-tombstone.ts]
+        WLightrag[lightrag-rag-ingest.ts&lt;br/&gt;lightrag-rag-tombstone.ts]
+        WIntent[smart-home-intent-drift.ts]
+        WFail[windmill-failure-watcher.ts]
         WWork[workaround-watcher.ts]
-    end
-
-    subgraph Agents[Agents]
-        LG[langgraph-agents&lt;br/&gt;🟡 plumbed, cold]
-        CR[claude-runner&lt;br/&gt;✅ live&lt;br/&gt;cron-only]
     end
 
     subgraph Inference[Inference]
         OllamaP40[(ollama / P40&lt;br/&gt;qwen2.5:7b · gte-small)]
         OllamaSpark[(ollama-spark / GB10&lt;br/&gt;qwen3-next:80b-a3b-instruct-q4_K_M · bge-m3)]
-        Claude[(Claude API&lt;br/&gt;via langgraph-agents)]
-        ClaudeCode[(Claude Code&lt;br/&gt;via claude-runner CronJobs)]
     end
 
     subgraph Tools[Tool surfaces]
         Gw[MCP Gateway&lt;br/&gt;16 MCP servers behind Istio]
         Q[(Qdrant&lt;br/&gt;vector DB)]
-        PG[(Postgres CNPG&lt;br/&gt;checkpoints + memory + langfuse)]
+        PG[(Postgres CNPG&lt;br/&gt;memory + langfuse)]
     end
 
     subgraph Outputs[Outputs]
-        Vault[(Obsidian vault&lt;br/&gt;via langgraph-vault PVC)]
-        ZulipO[Zulip threads]
-        Ntfy[ntfy push&lt;br/&gt;tap-to-approve]
         Push[Pushover&lt;br/&gt;direct page]
-        LF[Langfuse traces]
+        LF[Langfuse traces&lt;br/&gt;🟡 zero active producers]
     end
 
-    Voice --&gt; WInbox
-    Zulip --&gt; WZulip --&gt; WInbox
     OWUI --&gt;|chat| OllamaSpark
-    OWUI --&gt;|agent-as-model| LG
     OWUI --&gt;|tool calls| Gw
+    OWUI --&gt; Q
     Khoj --&gt; OllamaP40
     AM --&gt; Push
-    Cron --&gt; WDigest &amp; WCost &amp; WSweep &amp; WDLQ &amp; WWork &amp; WPaperless
 
-    WInbox --&gt; LG
-    LG --&gt; OllamaSpark
-    LG --&gt; OllamaP40
-    LG -.-&gt; Claude
-    LG --&gt; Gw
-    LG --&gt; PG
-    LG -.-&gt;|OTLP| LF
-
-    CR --&gt; ClaudeCode
-    CR --&gt;|gh MCP| Gw
-
-    LG --&gt; WApprovePost --&gt; ZulipO &amp; Ntfy
-    Ntfy --&gt; WApproveRecv --&gt; LG
-    LG --&gt; Vault
-    CR --&gt; ZulipO
     WPaperless --&gt; Q
-    OWUI --&gt; Q</code></pre>
-<p>Dashed lines mark cold paths (Claude API is gated; OTLP exporter
-only fires once Langfuse keys are populated in 1Password).</p>
+    WLightrag --&gt; Q</code></pre>
+<p>There are no dashed (cold-path) edges left in this diagram — the two
+things that used to be dashed, langgraph's gated Claude API escalation
+and its OTLP export to Langfuse, were both removed with the fleet.
+Langfuse is still deployed but has zero trace producers today (kept
+per the open question in <a href="#observability-of-the-ai-fleet">Observability of the AI fleet</a>,
+not resolved here).</p>
+<p><strong>Also gone: <code>claude-runner</code>, not by this decommission but by a chain
+leading through it.</strong> <code>claude-runner</code> (a CronJob-based Claude Code CLI
+runner for Renovate PR triage + cost commentary) was retired
+2026-05-23 — its function was absorbed into <code>langgraph-agents</code> at the
+time. Now that langgraph-agents is also gone, that function is gone
+twice over: <code>kubernetes/apps/automation/claude-runner/</code> does not exist
+on disk today. The rest of this chapter still describes <code>claude-runner</code>
+in several places below as if it were live CronJob-based infrastructure
+— that content predates this pass and was not otherwise rewritten here
+(out of scope for the langgraph-agents/HolmesGPT decommission this
+edit covers), but it should be read as historical, not current state.
+There is no automated Claude Code or Claude API pipeline in the
+cluster today; Claude Code use is interactive-only.</p>
+<p><strong>Known gap, not yet fixed:</strong> HA voice ("inbox …") and the Zulip
+Triager DM bot both used to be surfaces feeding this diagram — both
+POSTed toward the now-deleted <code>/inbox</code> endpoint. The HA voice
+<code>rest_command</code> (in the separate <code>home-assistant-config</code> repo) still
+exists and will silently fail; the Zulip Triager webhook
+(<code>zulip-triager-webhook.ts</code>) was deleted outright. Neither surface is
+shown above because neither currently does anything.</p>
 <h2 id="ingress-surfaces--what-enters-the-cluster-as-work">Ingress surfaces — what enters the cluster as work<a class="headerlink" href="#ingress-surfaces--what-enters-the-cluster-as-work" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -2486,17 +2484,12 @@ only fires once Langfuse keys are populated in 1Password).</p>
 <tr>
 <td>HA voice ("inbox …")</td>
 <td>Whisper STT → ollama_voice conversation → HA <code>rest_command</code> → Authelia-JWT POST</td>
-<td>Windmill <code>langgraph-inbox.ts</code> (<code>kubernetes/apps/home/windmill/workflows/langgraph-inbox.ts:42</code>)</td>
-</tr>
-<tr>
-<td>Zulip DM to Triager bot</td>
-<td>Outgoing-webhook (bot_type=3)</td>
-<td>Windmill <code>zulip-triager-webhook.ts</code> → forwards to <code>langgraph-inbox.ts</code></td>
+<td><strong>Broken, not yet fixed.</strong> The <code>rest_command</code> (in the separate <code>home-assistant-config</code> repo) still POSTs toward the Windmill <code>langgraph-inbox.ts</code> webhook, which was deleted 2026-07-06 along with the fleet it forwarded to.</td>
 </tr>
 <tr>
 <td>Open WebUI chat</td>
 <td>Browser → Authelia OIDC → Open WebUI backend</td>
-<td>Routes to ollama-spark (default) or to a langgraph agent via OpenAI-compat API (<code>kubernetes/apps/collab/open-webui/app/helmrelease.yaml:41-46</code>)</td>
+<td>Routes to ollama-spark (default). The langgraph-agent-as-model registration was removed 2026-07-06 — Open WebUI's only remaining tool surface is the MCP gateway.</td>
 </tr>
 <tr>
 <td>Khoj UI</td>
@@ -2509,14 +2502,9 @@ only fires once Langfuse keys are populated in 1Password).</p>
 <td>Pushover directly — no Windmill hop, no AI investigation step (the <code>windmill-investigate</code> route/receiver and <code>alertmanager-holmesgpt-notify.ts</code> were removed 2026-07-06)</td>
 </tr>
 <tr>
-<td>Operator tap on ntfy</td>
-<td>Action button → HMAC-signed URL</td>
-<td><code>langgraph-agents</code> <code>/approval</code> endpoint (<code>kubernetes/apps/ai/langgraph-agents/app/route-approval.yaml</code>)</td>
-</tr>
-<tr>
-<td>Cron — daily digest / DLQ / cost-cap / awaiting-user / workaround</td>
+<td>Cron — RAG ingest/tombstone, HA intent drift, self-watch</td>
 <td>Windmill scheduled trigger</td>
-<td>Each <code>.ts</code> workflow under <code>kubernetes/apps/home/windmill/workflows/</code></td>
+<td>The 7 surviving <code>.ts</code> workflows under <code>kubernetes/apps/home/windmill/workflows/</code> — see <a href="../workflow_automation/">Workflow Automation</a></td>
 </tr>
 <tr>
 <td>Cron — Renovate PR triage / cost commentary</td>
@@ -2525,10 +2513,15 @@ only fires once Langfuse keys are populated in 1Password).</p>
 </tr>
 </tbody>
 </table>
-<p>There are <strong>12 Windmill TypeScript workflows</strong> in the repo today;
-they're all under <code>kubernetes/apps/home/windmill/workflows/</code>. There is
-No legacy orchestration substrate; flows were ported during the ntfy/Zulip approval
-migration.</p>
+<p><strong>Removed 2026-07-06, no longer ingress surfaces:</strong> Zulip DM to the
+Triager bot (<code>zulip-triager-webhook.ts</code> deleted) and operator taps on
+ntfy for approval actions (<code>langgraph-agents</code> <code>/approval</code> endpoint
+deleted). Neither has a replacement today.</p>
+<p>There are <strong>7 Windmill TypeScript workflows</strong> in the repo today (down
+from 23 — 16 scripts were deleted 2026-07-06: 14 <code>langgraph-*.ts</code>
+fleet scripts plus <code>smoke-approval-flow.ts</code> and
+<code>zulip-triager-webhook.ts</code>); they're all under
+<code>kubernetes/apps/home/windmill/workflows/</code>.</p>
 <h2 id="inference-backends">Inference backends<a class="headerlink" href="#inference-backends" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -2553,14 +2546,7 @@ migration.</p>
 <td>GB10 (Grace-Blackwell, 128 GB unified)</td>
 <td><code>http://ollama-spark.ai.svc.cluster.local:11434</code></td>
 <td>qwen3-next:80b-a3b-instruct-q4_K_M (chat default), bge-m3 (1024-dim embeds)</td>
-<td>The post-Spark workhorse. Open WebUI default; langgraph-agents default for memory embeds.</td>
-</tr>
-<tr>
-<td>Claude API</td>
-<td>Anthropic-hosted</td>
-<td>langgraph-agents only, gated</td>
-<td>per-task</td>
-<td>Off by default — <code>ENABLE_CLAUDE_API: "false"</code> (<code>kubernetes/apps/ai/langgraph-agents/app/helmrelease.yaml:36</code>). Cost caps <code>$5/task</code>, <code>$10/agent/day</code>, <code>$30/global/day</code> (lines 54-56) enforced in code, not Anthropic's billing.</td>
+<td>The post-Spark workhorse. Open WebUI default; memory-mcp's default for knowledge-graph embeds.</td>
 </tr>
 <tr>
 <td>Claude Code</td>
@@ -2571,6 +2557,10 @@ migration.</p>
 </tr>
 </tbody>
 </table>
+<p><strong>Removed 2026-07-06:</strong> the langgraph-gated Claude API escalation lane
+(<code>ENABLE_CLAUDE_API</code>, <code>$5/task</code>/<code>$10/agent/day</code>/<code>$30/global/day</code> cost
+caps enforced in <code>langgraph-agents</code> code) — deleted along with the
+fleet. There is no automated in-cluster path to the Claude API today.</p>
 <p>Routing decisions belong in <code>langgraph-agents/.agents/instructions/hardware-routing.md</code>
 (canonical) and <code>.agents/instructions/gpu-routing.md</code> in this repo
 (local pointer + cluster-specific facts).</p>
@@ -2602,8 +2592,9 @@ the agent fleet.</p>
 <li><strong>Web search</strong>: SearXNG (<code>kubernetes/apps/ai/khoj/app/helmrelease.yaml:64</code>).</li>
 <li><strong>Storage</strong>: two RWO PVCs — <code>khoj-config</code> (config + Django state) and <code>khoj-models</code> (HF embedding model cache).</li>
 </ul>
-<p>Khoj does <strong>not</strong> consume the MCP gateway or langgraph-agents. It is a
-self-contained personal-AI app.</p>
+<p>Khoj does <strong>not</strong> consume the MCP gateway. It is a self-contained
+personal-AI app, and always was — it never consumed langgraph-agents
+either, before that fleet was removed 2026-07-06.</p>
 <h3 id="paperless-rag-ingest">Paperless RAG ingest<a class="headerlink" href="#paperless-rag-ingest" title="Permanent link">&para;</a></h3>
 <p>Document-store-to-vector-store pipeline run by Windmill, not by any
 agent.</p>
@@ -2622,19 +2613,34 @@ own collection namespacing and does not directly read the
 Windmill-ingested <code>paperless</code> collection. Operator-side access is via
 <code>paperless-mcp</code> (the MCP server), not Open WebUI's KB UI.</p>
 <h3 id="memory-mcp-knowledge-graph">memory-mcp knowledge graph<a class="headerlink" href="#memory-mcp-knowledge-graph" title="Permanent link">&para;</a></h3>
-<p>Cross-agent shared memory, not user-facing.</p>
+<p>Cross-agent shared memory, not user-facing. Unaffected by the
+2026-07-06 langgraph-agents decommission — this is memory-mcp's own
+backend, not langgraph's.</p>
 <ul>
 <li><strong>Backend</strong>: CNPG cluster <code>postgres-langgraph-memory</code> with pgvector
-  (1024-dim column).</li>
+  (1024-dim column). The name predates the decommission; it's
+  memory-mcp's database today, confirmed via <code>DATABASE_URL</code>,
+  CNP egress, and the schema-init Job all referencing it
+  independently of the now-deleted langgraph-agents.</li>
 <li><strong>Embedder</strong>: bge-m3 via ollama-spark
-  (<code>kubernetes/apps/ai/langgraph-agents/app/helmrelease.yaml:47-48</code>).</li>
+  (<code>kubernetes/apps/mcp-system/memory-mcp/app/helmrelease.yaml:39-41</code>).</li>
 <li><strong>Surface</strong>: <code>memory-mcp</code> MCP server (<code>kubernetes/apps/mcp-system/memory-mcp/</code>),
   exposed through the gateway.</li>
-<li><strong>Writers</strong>: langgraph-agents writes observations via direct SQL;
-  Claude Code consumes the same KG via the MCP gateway (search +
-  graph-walk tools).</li>
+<li><strong>Writers</strong>: Claude Code and Open WebUI both write via the MCP
+  gateway's memory-mcp tools (create-entity, add-observation,
+  graph-walk, etc.). langgraph-agents used to write via direct SQL
+  before it was removed 2026-07-06 — it's no longer a consumer or
+  writer of any kind.</li>
 </ul>
 <h2 id="agent-fleet--status-today">Agent fleet — status today<a class="headerlink" href="#agent-fleet--status-today" title="Permanent link">&para;</a></h2>
+<p><strong>The entire langgraph-agents fleet below was removed 2026-07-06</strong> —
+the FastAPI runtime, its Postgres checkpoints, its vault PVCs, its
+public routes, all of it. The table is kept as a historical record of
+what the fleet's internal agent graph looked like; every row past
+HolmesGPT describes a deleted thing. <code>memory-mcp</code> (separate app,
+still live) and <code>postgres-langgraph-memory</code> (separate database, still
+live) are unaffected — see <a href="#memory-mcp-knowledge-graph">memory-mcp knowledge graph</a>
+above.</p>
 <table>
 <thead>
 <tr>
@@ -2654,191 +2660,167 @@ Windmill-ingested <code>paperless</code> collection. Operator-side access is via
 <tr>
 <td>triager</td>
 <td>langgraph-agents fleet</td>
-<td>✅ live</td>
-<td>Default route for every untargeted <code>/inbox</code>. Voice ("inbox …") + Zulip-DM ingress. qwen2.5:7b on P40.</td>
+<td>❌ removed 2026-07-06</td>
+<td>Was the default route for every untargeted <code>/inbox</code>. Voice ("inbox …") + Zulip-DM ingress. qwen2.5:7b on P40.</td>
 </tr>
 <tr>
 <td>supervisor</td>
 <td>langgraph-agents fleet</td>
-<td>✅ live</td>
-<td>In-graph fallback router when a specialist rejects work.</td>
+<td>❌ removed 2026-07-06</td>
+<td>Was the in-graph fallback router when a specialist rejected work.</td>
 </tr>
 <tr>
 <td>reporter</td>
 <td>langgraph-agents fleet</td>
-<td>✅ live</td>
-<td>Universal in-graph terminus — every chain ends here, rendering raw state into user-facing markdown.</td>
+<td>❌ removed 2026-07-06</td>
+<td>Was the universal in-graph terminus — every chain ended here, rendering raw state into user-facing markdown.</td>
 </tr>
 <tr>
 <td>historian</td>
 <td>langgraph-agents fleet</td>
-<td>✅ live</td>
-<td>Daily 22:00 ET activity-log digest → Zulip <code>#digests</code>. Pinned via <code>target_agent</code> in <code>langgraph-daily-digest.ts</code>.</td>
+<td>❌ removed 2026-07-06</td>
+<td>Was a daily 22:00 ET activity-log digest → Zulip <code>#digests</code>, pinned via <code>target_agent</code> in the now-deleted <code>langgraph-daily-digest.ts</code>.</td>
 </tr>
 <tr>
 <td>reviewer</td>
 <td>langgraph-agents fleet</td>
-<td>✅ live</td>
-<td>Weekly Sat 06:00 ET vault hygiene sweep (aging TODOs, drift findings, dead <code>[[wiki-links]]</code>).</td>
+<td>❌ removed 2026-07-06</td>
+<td>Was a weekly Sat 06:00 ET vault hygiene sweep (aging TODOs, drift findings, dead <code>[[wiki-links]]</code>).</td>
 </tr>
 <tr>
 <td>storage-operator</td>
 <td>langgraph-agents fleet</td>
-<td>✅ live</td>
-<td>Alertmanager <code>rook-ceph</code> + <code>databases</code> namespaces + weekly Sun 07:00 ET drift sweep.</td>
+<td>❌ removed 2026-07-06</td>
+<td>Was Alertmanager <code>rook-ceph</code> + <code>databases</code> namespaces + weekly Sun 07:00 ET drift sweep.</td>
 </tr>
 <tr>
 <td>network-operator</td>
 <td>langgraph-agents fleet</td>
-<td>✅ live</td>
-<td>Alertmanager <code>network</code> namespace + weekly Sat 04:00 ET Lovenet drift sweep.</td>
+<td>❌ removed 2026-07-06</td>
+<td>Was Alertmanager <code>network</code> namespace + weekly Sat 04:00 ET Lovenet drift sweep.</td>
 </tr>
 <tr>
 <td>observability-operator</td>
 <td>langgraph-agents fleet</td>
-<td>✅ live</td>
-<td>Alertmanager <code>observability</code> namespace + weekly Sat 03:00 ET PrometheusRule/silence/flap drift.</td>
+<td>❌ removed 2026-07-06</td>
+<td>Was Alertmanager <code>observability</code> namespace + weekly Sat 03:00 ET PrometheusRule/silence/flap drift.</td>
 </tr>
 <tr>
 <td>ml-operator</td>
 <td>langgraph-agents fleet</td>
-<td>✅ live</td>
-<td>Alertmanager <code>ai</code> + <code>mcp-system</code> namespaces + weekly Sat 02:00 ET GPU/Ollama/Frigate drift.</td>
+<td>❌ removed 2026-07-06</td>
+<td>Was Alertmanager <code>ai</code> + <code>mcp-system</code> namespaces + weekly Sat 02:00 ET GPU/Ollama/Frigate drift.</td>
 </tr>
 <tr>
 <td>smart-home-operator</td>
 <td>langgraph-agents fleet</td>
-<td>✅ live</td>
-<td>Alertmanager <code>home</code> + <code>collab</code> namespaces + intent-drift cron.</td>
+<td>❌ removed 2026-07-06</td>
+<td>Was Alertmanager <code>home</code> + <code>collab</code> namespaces + intent-drift cron.</td>
 </tr>
 <tr>
 <td>homelab-engineer</td>
 <td>langgraph-agents fleet</td>
-<td>✅ live</td>
-<td>Alertmanager default route for any unmapped namespace.</td>
+<td>❌ removed 2026-07-06</td>
+<td>Was the Alertmanager default route for any unmapped namespace.</td>
 </tr>
 <tr>
 <td>researcher</td>
 <td>langgraph-agents fleet</td>
-<td>✅ live</td>
-<td>Hourly renovate-triage cron (drafts a Zulip card per open Renovate PR).</td>
+<td>❌ removed 2026-07-06</td>
+<td>Was an hourly renovate-triage cron (drafted a Zulip card per open Renovate PR).</td>
 </tr>
 <tr>
 <td>errand-runner</td>
 <td>langgraph-agents fleet</td>
-<td>✅ live</td>
-<td>The only agent that calls MCP write (HA, paperless, etc.). Gated on signed approval token.</td>
+<td>❌ removed 2026-07-06</td>
+<td>Was the only agent that called MCP write (HA, paperless, etc.), gated on signed approval token.</td>
 </tr>
 <tr>
 <td>note-maker</td>
 <td>langgraph-agents fleet</td>
-<td>🟡 wired</td>
-<td>Reachable via <code>/inbox</code> (HA voice "inbox …"); no recurring trigger.</td>
+<td>❌ removed 2026-07-06</td>
+<td>Was reachable via <code>/inbox</code> (HA voice "inbox …"); no recurring trigger.</td>
 </tr>
 <tr>
 <td>coder</td>
 <td>langgraph-agents fleet</td>
-<td>🟡 wired</td>
-<td>Reachable via <code>/inbox</code>; no recurring trigger.</td>
+<td>❌ removed 2026-07-06</td>
+<td>Was reachable via <code>/inbox</code>; no recurring trigger.</td>
 </tr>
 <tr>
 <td>security</td>
 <td>langgraph-agents fleet</td>
-<td>🟡 cold</td>
-<td>Needs Frigate HTTP client wiring (no Frigate MCP exists).</td>
+<td>❌ removed 2026-07-06</td>
+<td>Was cold — needed Frigate HTTP client wiring that was never built.</td>
 </tr>
 <tr>
 <td>auditor</td>
 <td>langgraph-agents fleet</td>
-<td>🟡 cold</td>
-<td>Needs OSV.dev / GHSA HTTP client wiring (no direct query path).</td>
+<td>❌ removed 2026-07-06</td>
+<td>Was cold — needed OSV.dev / GHSA HTTP client wiring that was never built.</td>
 </tr>
 <tr>
 <td>artist</td>
 <td>langgraph-agents fleet</td>
-<td>🟡 cold</td>
-<td>Needs ComfyUI MCP allowlist populated (gateway deployed, agent's allowlist is intentional stub).</td>
+<td>❌ removed 2026-07-06</td>
+<td>Was cold — ComfyUI MCP allowlist was never populated.</td>
 </tr>
 <tr>
 <td>property-coordinator</td>
 <td>langgraph-agents fleet</td>
-<td>🟡 cold</td>
-<td>Ad-hoc <code>/inbox</code> only; no recurring trigger.</td>
+<td>❌ removed 2026-07-06</td>
+<td>Was ad-hoc <code>/inbox</code> only; no recurring trigger.</td>
 </tr>
 <tr>
 <td>health-tracker</td>
 <td>langgraph-agents fleet</td>
-<td>🟡 cold · local-only</td>
-<td>Manual /inbox from Obsidian; data class restricts to local only.</td>
+<td>❌ removed 2026-07-06</td>
+<td>Was cold, local-only; manual <code>/inbox</code> from Obsidian; data class restricted it to local only.</td>
 </tr>
 <tr>
 <td>doc-writer (Scribner)</td>
 <td>langgraph-agents (planned)</td>
-<td>🟥 aspirational</td>
-<td>Not built. Goal: drafts README + <code>docs/</code> patches as diffs when commits land.</td>
+<td>🟥 never built</td>
+<td>Was aspirational even before the decommission. Goal was: drafts README + <code>docs/</code> patches as diffs when commits land. Still not built, and now has no fleet to build it in.</td>
 </tr>
 </tbody>
 </table>
 <blockquote>
-<p><strong>Tool-binding gap (load-bearing caveat).</strong> Every ✅-live agent
-above except <code>errand-runner</code> uses <code>with_structured_output()</code>
-against the prompt content it receives — it reasons over text but
-does NOT dynamically query its MCP allowlist. Operator weekly
-drift crons produce LLM reasoning over the prompt, not
-data-grounded analysis. The per-agent MCP allowlist is the
-declared scope for <em>future</em> tool-binding (ReAct-style); the
-binding itself is the next architectural step. See
-<code>reference_agent_fleet_tool_binding_gap</code> in memory.</p>
+<p><strong>Tool-binding gap (historical, load-bearing while the fleet was
+live).</strong> Every agent above except <code>errand-runner</code> used
+<code>with_structured_output()</code> against the prompt content it received —
+it reasoned over text but did NOT dynamically query its MCP
+allowlist. Operator weekly drift crons produced LLM reasoning over
+the prompt, not data-grounded analysis. See
+<code>reference_agent_fleet_tool_binding_gap</code> in memory for the full
+writeup; moot now that the fleet is gone, kept for anyone evaluating
+a future replacement.</p>
 </blockquote>
-<p><code>health-tracker</code> and <code>errand-runner</code> are pinned local-only at the
-routing layer — they never escalate to Claude API regardless of agent
-uncertainty, because the data class is unsuitable for off-site
-inference.</p>
-<h2 id="approval-and-escalation-flow">Approval and escalation flow<a class="headerlink" href="#approval-and-escalation-flow" title="Permanent link">&para;</a></h2>
-<pre class="mermaid"><code>flowchart LR
-    subgraph LG[langgraph-agents]
-        Spec[specialist agent]
-        Pause[(checkpoint:&lt;br/&gt;paused, awaiting_approval)]
-    end
-
-    subgraph Bridges[Windmill]
-        APost[langgraph-approval-post.ts]
-        ARecv[langgraph-approval-receive.ts]
-        Sweep[awaiting-user-sweep.ts&lt;br/&gt;chases stale items]
-        Cost[cost-cap-watcher.ts&lt;br/&gt;per-task/agent/day caps]
-        DLQ[dlq-watcher.ts]
-    end
-
-    subgraph Operator[Operator]
-        Z[Zulip thread&lt;br/&gt;full plan summary]
-        N[📱 ntfy&lt;br/&gt;tap-to-approve]
-    end
-
-    Spec --&gt; Pause
-    Pause --&gt; APost
-    APost --&gt;|HMAC-signed token| Z
-    APost --&gt;|HMAC-signed action URL| N
-    N --&gt;|tap| ARecv
-    ARecv --&gt;|resume task| Spec
-    Sweep -.-&gt;|TTL expired| Z
-    Cost -.-&gt;|cap exceeded| Pause
-    DLQ -.-&gt;|crash + redeliver| Pause</code></pre>
-<p>The approval token is signed with <code>LANGGRAPH_APPROVAL_SIGNING_KEY</code>
-(stored in 1Password, whitelisted into the Windmill worker env at
-<code>kubernetes/apps/home/windmill/app/helmrelease.yaml:77-82</code>). Pre-signing
-moved from approval-receive to approval-post during the ntfy migration
-so the Android tap path doesn't have to wait for langgraph to come
-back with a fresh token.</p>
-<p>Cost caps fire <strong>before</strong> Claude API egress. The cap-watcher polls
-<code>/admin/costs/today</code> on langgraph-agents and pauses additional
-escalations once the daily threshold is breached — the spend ceiling
-is enforced inside the cluster, not at the Anthropic billing layer.</p>
+<h2 id="approval-and-escalation-flow-historical--removed-2026-07-06">Approval and escalation flow (historical — removed 2026-07-06)<a class="headerlink" href="#approval-and-escalation-flow-historical--removed-2026-07-06" title="Permanent link">&para;</a></h2>
+<p>The entire approval loop below — the langgraph pause/resume state
+machine, the two Windmill bridges, the Zulip <code>#approvals</code> stream, and
+the ntfy tap-to-approve buttons — was removed with the fleet
+2026-07-06. There is no replacement approval mechanism today because
+there is no automated task pipeline producing anything to approve. See
+<a href="../workflow_automation/#historical-design-as-originally-built">Workflow Automation § Historical design</a>
+for the full original design writeup (same diagram, kept there as the
+canonical historical record so it isn't duplicated in two places).</p>
+<p>Cost caps used to fire before Claude API egress, polling
+<code>/admin/costs/today</code> on langgraph-agents — moot now; there is no
+in-cluster Claude API lane to cap.</p>
 <h2 id="claude-api-vs-claude-code--separate-escalation-lanes">Claude API vs Claude Code — separate escalation lanes<a class="headerlink" href="#claude-api-vs-claude-code--separate-escalation-lanes" title="Permanent link">&para;</a></h2>
+<p><strong>The Claude API (via langgraph) column below was removed 2026-07-06</strong>
+along with the rest of the fleet — <code>ENABLE_CLAUDE_API</code>, the
+per-task/agent/day cost caps, and <code>postgres-langgraph-checkpoints</code> are
+all gone. There is no automated in-cluster path to the Claude API
+today. The table is kept as a historical record of how the two lanes
+compared when both existed; the Claude Code / <code>claude-runner</code> column
+was not otherwise re-verified in this pass.</p>
 <table>
 <thead>
 <tr>
 <th></th>
-<th>Claude API (via langgraph)</th>
+<th>Claude API (via langgraph) — ❌ removed 2026-07-06</th>
 <th>Claude Code (via claude-runner)</th>
 </tr>
 </thead>
@@ -2880,10 +2862,11 @@ is enforced inside the cluster, not at the Anthropic billing layer.</p>
 </tr>
 </tbody>
 </table>
-<p>The two lanes do not consume each other. <code>claude-runner</code> does not call
-langgraph-agents; it's a parallel reasoning surface that reads the
-cluster directly via <code>gh</code> MCP and uses langgraph's <code>/admin/costs/today</code>
-endpoint only as a data source.</p>
+<p>The two lanes never consumed each other. <code>claude-runner</code> did not call
+langgraph-agents; it was a parallel reasoning surface that read the
+cluster directly via <code>gh</code> MCP and used langgraph's
+<code>/admin/costs/today</code> endpoint only as a data source — that data source
+is gone along with everything else in the removed column above.</p>
 <p>Kill criteria for any <code>claude-runner</code> workflow (per
 <code>kubernetes/apps/automation/claude-runner/README.md:40-47</code>):</p>
 <ul>
@@ -2907,14 +2890,9 @@ endpoint only as a data source.</p>
 </thead>
 <tbody>
 <tr>
-<td>langgraph-agents traces</td>
+<td>Langfuse traces</td>
 <td>Langfuse (OTLP)</td>
-<td><code>LANGFUSE_INIT_PROJECT_PUBLIC_KEY</code> / <code>_SECRET_KEY</code> provisioned at first boot (<code>kubernetes/apps/ai/langfuse/app/helmrelease.yaml:146-157</code>); SDK in <code>langgraph-agents</code> reads them from 1Password</td>
-</tr>
-<tr>
-<td>langgraph-agents metrics</td>
-<td>Prometheus</td>
-<td><code>kubernetes/apps/ai/langgraph-agents/app/servicemonitor.yaml</code> + <code>prometheusrule.yaml</code></td>
+<td>❌ zero active producers as of 2026-07-06 — langgraph-agents was Langfuse's only trace source and it's gone. Langfuse itself is still deployed; whether to keep it dormant or remove it is an open question, not resolved here.</td>
 </tr>
 <tr>
 <td>Critical AlertManager alerts</td>
@@ -2943,9 +2921,23 @@ endpoint only as a data source.</p>
 </tr>
 </tbody>
 </table>
+<p><strong>Removed 2026-07-06:</strong> langgraph-agents traces/metrics rows (the
+<code>ServiceMonitor</code> + <code>PrometheusRule</code> under
+<code>kubernetes/apps/ai/langgraph-agents/</code> are gone along with the app).
+The <code>claude-cost-rules</code> PrometheusRule (tracking
+<code>langgraph_cost_usd_total</code> / <code>langgraph_calls_total</code> — langgraph's own
+Anthropic spend instrumentation) was deleted too, along with the
+AlertManager <code>claude-cost-warn</code>/<code>claude-cost-hard</code> routes. This is
+unrelated to the separate, still-pending Claude Code CLI cost-governor
+pipeline (a local script + systemd exporter outside this repo) — don't
+conflate the two. Grafana dashboards <code>langgraph-agents.json</code>,
+<code>aihomeops-state.json</code>, and <code>task-queue.json</code> were deleted;
+<code>claude-code.json</code> (Claude Code CLI cost tracking, unrelated) is kept.</p>
 <h3 id="langfuse-storage-substrate">Langfuse storage substrate<a class="headerlink" href="#langfuse-storage-substrate" title="Permanent link">&para;</a></h3>
 <p>Langfuse v3 needs four backends. The chart deploys three in-namespace
-and uses the cluster's CNPG for Postgres:</p>
+and uses the cluster's CNPG for Postgres. This substrate is unchanged
+by the decommission — only the trace <em>producer</em> (langgraph-agents)
+went away, not Langfuse itself:</p>
 <ul>
 <li><strong>Postgres</strong> — CNPG <code>postgres-langfuse</code> (the chart's bundled bitnami
   postgresql is disabled; <code>helmrelease.yaml:30-36</code>). DSN consumed via
@@ -2962,19 +2954,20 @@ secret is mirrored into the <code>ai</code> namespace by emberstack reflector
 <li><strong>Khoj</strong> — <code>kubernetes/apps/ai/khoj/app/helmrelease.yaml</code></li>
 <li><strong>khoj extAuth</strong> — <code>SecurityPolicy</code> in <code>kubernetes/apps/ai/khoj/</code> (oauth2-proxy retired 2026-07-01, #12767)</li>
 <li><strong>langfuse</strong> — <code>kubernetes/apps/ai/langfuse/app/helmrelease.yaml</code></li>
-<li><strong>langgraph-agents</strong> — <code>kubernetes/apps/ai/langgraph-agents/app/helmrelease.yaml</code></li>
+<li><strong>memory-mcp</strong> — <code>kubernetes/apps/mcp-system/memory-mcp/app/helmrelease.yaml</code> (backed by CNPG <code>postgres-langgraph-memory</code>, still live)</li>
 <li><strong>ollama</strong> (P40) — <code>kubernetes/apps/ai/ollama/app/</code></li>
 <li><strong>ollama-spark</strong> (GB10) — <code>kubernetes/apps/ai/ollama-spark/app/</code></li>
 <li><strong>paperless-ai</strong> — <code>kubernetes/apps/ai/paperless-ai/app/helmrelease.yaml</code></li>
-<li><strong>sync-receiver</strong> — <code>kubernetes/apps/ai/sync-receiver/</code></li>
 <li><strong>tei-spark</strong> — <code>kubernetes/apps/ai/tei-spark/</code> (unsuspended 2026-05-21, PR #11893; PrometheusRule added in PR #11906)</li>
 <li><strong>open-webui</strong> — <code>kubernetes/apps/collab/open-webui/app/helmrelease.yaml</code></li>
 <li><strong>windmill</strong> — <code>kubernetes/apps/home/windmill/app/helmrelease.yaml</code></li>
-<li><strong>windmill workflows</strong> — <code>kubernetes/apps/home/windmill/workflows/*.ts</code> (12 today)</li>
+<li><strong>windmill workflows</strong> — <code>kubernetes/apps/home/windmill/workflows/*.ts</code> (7 today, down from 23)</li>
 <li><strong>claude-runner</strong> — <code>kubernetes/apps/automation/claude-runner/</code></li>
 <li><strong>MCP gateway</strong> — <code>kubernetes/apps/mcp-system/mcp-gateway/</code></li>
-<li><strong>MCP servers</strong> — 16 sibling directories under <code>kubernetes/apps/mcp-system/</code></li>
+<li><strong>MCP servers</strong> — sibling directories under <code>kubernetes/apps/mcp-system/</code></li>
 </ul>
+<p><strong>Removed 2026-07-06</strong> (no longer exist, no path to reference):
+<code>kubernetes/apps/ai/langgraph-agents/</code> and <code>kubernetes/apps/ai/sync-receiver/</code>.</p>
 <h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
 <ul>
 <li><a href="../mcp_observability/">MCP Fleet Observability</a> — gateway internals,
@@ -2982,11 +2975,13 @@ secret is mirrored into the <code>ai</code> namespace by emberstack reflector
 <li><a href="../memory_mcp/">Memory MCP — Cross-Agent Knowledge Graph</a> — KG schema
   and ingest path</li>
 <li><a href="../workflow_automation/">Workflow Automation: Agents, Approvals, and Push</a>
-  — operator runbook (lives in the vault)</li>
+  — current state + historical design record of the removed approval loop</li>
 <li><a href="../orchestration_substrate/">Orchestration Substrate</a> — why a real
-  task queue is still the missing piece</li>
+  task queue is still the missing piece (langgraph-agents was the
+  closest thing to one; it's gone too now)</li>
 <li><a href="../task_queue_substrate_design/">Task Queue Substrate — design proposal</a>
-  — the candidates being weighed</li>
+  — superseded 2026-07-06; the evaluation assumed langgraph-agents' own
+  Postgres checkpointer</li>
 <li><a href="../tei_spark/">TEI on Spark — reranker for RAG</a> — text-embedding-
   inference deployment (vault-canonical runbook)</li>
 </ul>

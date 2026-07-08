@@ -25,15 +25,17 @@ spec:
         http_2xx:
           http:
             follow_redirects: true
+            ip_protocol_fallback: false
             preferred_ip_protocol: "ip4"
             valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
           prober: http
           timeout: 5s
         icmp:
           icmp:
+            ip_protocol_fallback: false
             preferred_ip_protocol: "ip4"
           prober: icmp
-          timeout: 30s
+          timeout: 4s
         # Synthetic embed prober for ollama-spark. POSTs a small input
         # against bge-m3 and validates a 200 with an "embeddings" key
         # in the body. 30 s timeout accommodates cold model load (bge-m3
@@ -77,22 +79,11 @@ spec:
         release: prometheus
       enabled: true
       rules:
-        - alert: BlackboxSslCertificateWillExpireSoon
-          annotations:
-            description: |-
-              The SSL certificate for {{ $labels.instance }} will expire in less than 3 days
-          expr: probe_ssl_earliest_cert_expiry - time() < 86400 * 3
-          for: 5m
-          labels:
-            severity: critical
-        - alert: BlackboxSslCertificateExpired
-          annotations:
-            description: |-
-              The SSL certificate for {{ $labels.instance }} has expired
-          expr: probe_ssl_earliest_cert_expiry - time() <= 0
-          for: 5m
-          labels:
-            severity: critical
+        # NB: the two BlackboxSslCertificate* alerts were removed — no
+        # probe uses an https module, so probe_ssl_earliest_cert_expiry
+        # was never populated and the rules could never fire. Cert
+        # expiry is handled by cert-manager. Re-add an https_2xx module
+        # + cert-bearing targets first if SSL monitoring is wanted here.
         # Infrastructure reachability — storage NFS path (brain/beast/
         # security-storage:2049) and the two ollama embed heartbeats.
         # These are genuinely page-worthy: a sustained failure means a
@@ -109,8 +100,9 @@ spec:
           labels:
             severity: critical
         # IoT / device reachability (the ICMP `devices` probe + the HTTP
-        # `http` probe — WLED, Hue, Kodi, presence sensors, ratgdo, frame
-        # displays, UPS/iDRAC ICMP, cameras). These targets legitimately
+        # `http` probe — WLED, Kodi, presence sensors, ratgdo, frame
+        # displays, UPS/iDRAC ICMP, cameras, pool/pump/water ESP devices,
+        # WiiM). These targets legitimately
         # sleep or power-cycle, so a critical/5m page floods the surface
         # (14 distinct devices fired criticals in one day). warning +
         # for:15m absorbs the transient blips and routes to Pushover

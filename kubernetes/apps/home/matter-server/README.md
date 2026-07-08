@@ -18,13 +18,16 @@ The image bundles the matter-server dashboard, served on port `5580` and exposed
 at `https://matter.${SECRET_DOMAIN}/` (internal HTTPRoute) and on the
 LoadBalancer VIP (`${SVC_MATTER_ADDR}`).
 
-On first visit the dashboard prompts **"Enter Websocket URL to a running Matter
-Server"** and defaults to `ws://localhost:5580/ws` — that default does **not**
-work from a browser (localhost = your machine). Enter:
+The bundled dashboard auto-connects its WebSocket **only** when the page URL
+contains `:5580` (or an HA add-on ingress path); otherwise it prompts for a WS
+URL. So there are two ways in:
 
-```text
-wss://matter.${SECRET_DOMAIN}/ws
-```
-
-The value is stored in the browser's localStorage, so it's a one-time step per
-browser. Envoy proxies the `/ws` WebSocket upgrade to the backend over HTTP/1.1.
+- **Zero-prompt (recommended):** hit the LoadBalancer VIP on 5580 —
+  `http://${SVC_MATTER_ADDR}:5580/`. The `:5580` in the URL makes the dashboard
+  self-connect to `ws://${SVC_MATTER_ADDR}:5580/ws`, no prompt. This is what the
+  Glance tile links to (`glance/url` on the HTTPRoute in `helmrelease.yaml`).
+- **Pretty HTTPS host:** `https://matter.${SECRET_DOMAIN}/` (internal HTTPRoute).
+  Because the URL has no `:5580`, the dashboard prompts once — enter
+  `wss://matter.${SECRET_DOMAIN}/ws` (envoy proxies the `/ws` upgrade over
+  HTTP/1.1). The value is stored in that browser's localStorage, so it's a
+  one-time step per browser.

@@ -33,7 +33,22 @@ spec:
         - ports:
             - port: "5580"
               protocol: TCP
-    # NOTE: Matter devices live on the IoT VLAN and are reached via
-    # the multus-attached secondary NIC (matter-server-iot-static,
-    # --primary-interface=net1). All device traffic bypasses Cilium
-    # entirely.
+  # NOTE: Matter devices live on the IoT VLAN and are reached via
+  # the multus-attached secondary NIC (matter-server-iot-static,
+  # --primary-interface=net1). All device traffic bypasses Cilium
+  # entirely.
+  egress:
+    # PAA root-cert bootstrap (device attestation) + vendor info (DCL),
+    # both fetched at startup over the primary (eth0) NIC. Without them
+    # the server fetches 0 PAA certs and commissioning CERTIFIED Matter
+    # devices fails attestation. The namespace default-deny blocks this
+    # by default; the baseline allow-dns L7 rule populates Cilium's FQDN
+    # cache so these toFQDNs entries resolve. Widen to toEntities:world
+    # on 443 (node-red pattern) only if PAA fetch still reports 0.
+    - toFQDNs:
+        - matchName: api.github.com
+        - matchName: on.dcl.csa-iot.org
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

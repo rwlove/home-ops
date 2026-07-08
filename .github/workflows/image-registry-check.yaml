@@ -76,10 +76,33 @@ jobs:
           max_attempts: 3
           retry_wait_seconds: 30
           shell: sh
+          # workaround: https://github.com/FairwindsOps/charts/issues/1879 — remove when Fairwinds re-indexes
+          # The Fairwinds Helm repo (charts.fairwinds.com) publishes an
+          # index.yaml whose `digest:` for vpa/goldilocks no longer matches the
+          # served .tgz, so flate's strict reconcile exits non-zero. flate still
+          # writes the full image list to stdout, so we keep images.json and
+          # tolerate ONLY when every reconcile failure is a `fairwinds-charts-*
+          # … digest mismatch`; any other error (or a transient failure) exits
+          # non-zero so retry / the job still fails loud. Same tolerance as
+          # flux-local.yaml's `test` job.
           command: |
+            set +e
             flate get images \
               --path "$GITHUB_WORKSPACE/kubernetes/flux" \
-              --output json > images.json
+              --output json > images.json 2> flate.err
+            rc=$?
+            set -e
+            cat flate.err >&2
+            [ "$rc" -eq 0 ] && exit 0
+            clean="$(sed 's/\x1b\[[0-9;]*m//g' flate.err)"
+            total="$(printf '%s\n' "$clean" | grep -oE 'reconcile completed with [0-9]+ failure' | grep -oE '[0-9]+' | tail -1)"
+            tolerated="$(printf '%s\n' "$clean" | grep -cE 'fairwinds-charts-.*digest mismatch' || true)"
+            if [ -n "$total" ] && [ "$total" -gt 0 ] && [ "$total" -eq "$tolerated" ]; then
+              echo "::warning::flate get images: tolerating ${tolerated} Fairwinds index digest mismatch(es) (vpa/goldilocks) — see FairwindsOps/charts#1879. Image list still emitted."
+              exit 0
+            fi
+            echo "::error::flate get images failed with untolerated errors (failed=${total:-unknown}, tolerated Fairwinds digest mismatches=${tolerated})."
+            exit "$rc"
 
       # Multi-line heredoc avoids needing jq for this step — file is
       # already valid JSON, just plumb it through. printf ensures a

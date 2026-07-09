@@ -32,6 +32,9 @@ spec:
       main:
         containers:
           main:
+            image:
+              # renovate: datasource=github-releases depName=immich-app/immich
+              tag: "v3.0.2@sha256:14390f3dc9512dc3273b12ccee6363d9be16c388699abc3f3fe0498bb9829937"
             env:
               DB_DATABASE_NAME: immich
 
@@ -53,33 +56,15 @@ spec:
             envFrom:
               - secretRef:
                   name: immich-secret
-    image:
-      # renovate: datasource=github-releases depName=immich-app/immich
-      tag: "v2.7.5@sha256:c15bff75068effb03f4355997d03dc7e0fc58720c2b54ad6f7f10d1bc57efaa5"
-
     immich:
-      concurrency:
-        backgroundTask: 10
-        faceDetection: 5
-        library: 5
-        metadataExtraction: 10
-        migration: 5
-        search: 5
-        sidecar: 5
-        smartSearch: 5
-        thumbnailGeneration: 10
-        videoConversion: 1
-      enablePasswordLogin: true
-      logLevel: "log"
-      machineLearning:
-        clipModelName: ViT-SO400M-16-SigLIP2-384__webli
-        facialRecognitionModelName: antelopev2
+      # System config (concurrency, oauth, logLevel, passwordLogin,
+      # machineLearning model names) is sourced from the mounted
+      # /config/system.json (IMMICH_CONFIG_FILE) below — it is
+      # authoritative and supersedes chart-rendered config. The v3
+      # chart's values schema no longer accepts those keys here anyway;
+      # they were dead config under IMMICH_CONFIG_FILE.
       metrics:
         enabled: true
-      oauth:
-        clientId: immich
-
-        issuerUrl: https://auth.${SECRET_DOMAIN}
       persistence:
         library:
           existingClaim: immich-managed-library-pvc
@@ -90,14 +75,17 @@ spec:
           containers:
             main:
               env:
-                # Nvidia
-                MACHINE_LEARNING_PRELOAD__CLIP: "ViT-SO400M-16-SigLIP2-384__webli"
+                # v3.0.0 split the single CLIP preload var into textual +
+                # visual; the old MACHINE_LEARNING_PRELOAD__CLIP is removed.
+                MACHINE_LEARNING_PRELOAD__CLIP__TEXTUAL: "ViT-SO400M-16-SigLIP2-384__webli"
+                MACHINE_LEARNING_PRELOAD__CLIP__VISUAL: "ViT-SO400M-16-SigLIP2-384__webli"
 
+                # Nvidia
                 NVIDIA_DRIVER_CAPABILITIES: "all"
                 NVIDIA_VISIBLE_DEVICES: "all"
               image:
                 repository: ghcr.io/immich-app/immich-machine-learning
-                tag: v2.7.5-cuda@sha256:304142175e345f0155d7642f637cfdceae60e89075ff03938cb2886d52c65a62
+                tag: v3.0.2-cuda@sha256:cad0c6c38c60bd6a5a1929cbed01eecc105bcb58775682c137497632f8db5adc
 
               # GPU inference can briefly block the HTTP server; the chart
               # default timeout=1s causes spurious liveness restarts mid-job.
@@ -147,13 +135,6 @@ spec:
           replicas: 1
           strategy: RollingUpdate
           type: statefulset
-
-      persistence:
-        cache:
-          enabled: true
-          size: 40G
-
-          storageClassName: ceph-block
     server:
       controllers:
         main:

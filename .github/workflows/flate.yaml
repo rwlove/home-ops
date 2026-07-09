@@ -1,11 +1,13 @@
 ---
 # yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
-name: Flux Local
+name: flate
 
 # Engine: flate (https://github.com/home-operations/flate), a Go
-# reimplementation of flux-local. The workflow + job names are intentionally
-# unchanged — "Flux Local successful" is a required status check in the
-# "Require CI on main" ruleset, so renaming would silently block merges.
+# reimplementation of flux-local. The workflow + job names track the engine.
+# "flate successful" is a required status check in the "Require CI on main"
+# ruleset — renaming this job means updating that ruleset's required-check
+# context in the same change, or merges silently block. (Renamed from
+# "Flux Local successful" in lockstep with the ruleset; see home-ops#12958.)
 #
 # flate ships as a static binary installed by its setup action and runs
 # directly on a GitHub-hosted runner. Charts are pulled direct from public
@@ -45,11 +47,11 @@ jobs:
         with:
           patterns: |-
             kubernetes/**/*
-            .github/workflows/flux-local.yaml
+            .github/workflows/flate.yaml
 
   test:
     if: ${{ needs.filter-changes.outputs.changed-files != '[]' }}
-    name: Flux Local Test
+    name: flate test
     runs-on: ubuntu-latest
     needs:
       - filter-changes
@@ -110,7 +112,7 @@ jobs:
   diff:
     # Diff-against-default-branch only makes sense on PRs.
     if: ${{ github.event_name == 'pull_request' && needs.filter-changes.outputs.changed-files != '[]' }}
-    name: Flux Local Diff
+    name: flate diff
     runs-on: ubuntu-latest
     needs:
       - filter-changes
@@ -163,7 +165,7 @@ jobs:
       - name: Upload diff artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: flux-local-diff
+          name: flate-diff
           path: diff-full.patch
           retention-days: 1
           if-no-files-found: ignore
@@ -196,12 +198,12 @@ jobs:
             ${{ steps.diff.outputs.content }}
             ```
 
-  flux-local-success:
+  flate-success:
     needs:
       - test
       - diff
     if: ${{ !cancelled() }}
-    name: Flux Local successful
+    name: flate successful
     runs-on: ubuntu-latest
     steps:
       - name: Check job status

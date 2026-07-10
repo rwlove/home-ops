@@ -44,13 +44,13 @@ spec:
               KIOSK_DISABLE_SCREENSAVER: false
               KIOSK_OPTIMIZE_IMAGES: false
               KIOSK_USE_GPU: true
-              # Asset sources — Party Album, excluding assets already shown
-              # this cycle. kiosk-party-curator tags shown assets and clears
-              # the tag when the unplayed pool is exhausted.
+              # Asset sources — Party Album, cycled in random order with
+              # replacement (same model as the main immichkiosk / familyroom
+              # frame). No shuffle-without-replacement: the kiosk never
+              # exhausts a pool, so it cannot wedge on an empty result set.
               KIOSK_SHOW_ARCHIVED: false
               KIOSK_ALBUMS: "59526fba-9726-4976-a6da-b7f71ebd16cd"
               KIOSK_ALBUM_ORDER: random
-              KIOSK_EXCLUDED_TAGS: "kiosk-party-shown"
               KIOSK_MEMORIES: false
               # FILTER
               KIOSK_DATE_FILTER: ""
@@ -94,19 +94,21 @@ spec:
               KIOSK_SHOW_MORE_INFO_IMAGE_LINK: true
               KIOSK_SHOW_MORE_INFO_QR_CODE: true
               KIOSK_SHOW_PERSON_AGE: true
-              # Kiosk settings — cache off so newly added Party Album
-              # photos enter the unplayed pool within one cycle, not
-              # eight hours later. Buffer at 300 (not the main kiosk's
-              # 1000) keeps the pool fresh while giving prefetch enough
-              # margin to avoid htmx fetch-timeout reloads, which the
-              # ImmichFrame webview escapes into a bare browser.
+              # Kiosk settings — aligned with the main immichkiosk
+              # (familyroom): cache on, 1000-asset buffer, asset
+              # weighting. Cache hits keep prefetch off the htmx
+              # fetch-timeout path, so the ImmichFrame webview doesn't
+              # error-reload and escape into a bare browser. Trade-off:
+              # newly added Party Album photos appear on the cache's
+              # refresh cycle rather than immediately — acceptable now
+              # that the curator no longer needs a live unplayed pool.
               KIOSK_WATCH_CONFIG: false
-              KIOSK_FETCHED_ASSETS_SIZE: 300
+              KIOSK_FETCHED_ASSETS_SIZE: 1000
               KIOSK_HTTP_TIMEOUT: 20
               KIOSK_PASSWORD: ""
-              KIOSK_CACHE: false
+              KIOSK_CACHE: true
               KIOSK_PREFETCH: true
-              KIOSK_ASSET_WEIGHTING: false
+              KIOSK_ASSET_WEIGHTING: true
               KIOSK_PORT: 3000
               KIOSK_SHOW_USER: false
 
@@ -137,15 +139,6 @@ spec:
             port: &httpPort 3000
 
     persistence:
-      config-file:
-        type: configMap
-        name: immichkiosk-party-config
-        advancedMounts:
-          immichkiosk-party:
-            app:
-              - path: /config/config.yaml
-                subPath: config.yaml
-                readOnly: true
       # kiosk 0.41.0's video manager creates /tmp/immich-kiosk at startup;
       # readOnlyRootFilesystem blocks it. Writable scratch for /tmp.
       tmp:

@@ -37,8 +37,8 @@ spec:
         - ports:
             - port: "2283"
               protocol: TCP
-    # ServiceMonitor scrape from observability/prometheus is already
-    # covered by the baseline allow-monitoring-scrape — no rule needed.
+  # ServiceMonitor scrape from observability/prometheus is already
+  # covered by the baseline allow-monitoring-scrape — no rule needed.
   egress:
     # CNPG: postgres-immich in databases ns (Pattern B).
     - toEndpoints:
@@ -130,9 +130,8 @@ spec:
   # auto-generated batch labels — no app.kubernetes.io/* labels.
   # Cilium endpointSelector can't regex on label values, so we select
   # the union of "is a Job pod" AND "has no app.kubernetes.io/name
-  # set". The only raw-CronJob pods in media that match this are
-  # immich-offsite-backup-* and immichkiosk-transcode-* — both need
-  # external egress (S3 and immich-server, respectively). All other
+  # set". The only raw-CronJob pod in media that matches this is
+  # immich-offsite-backup-* (needs external S3 egress). All other
   # Job-based workloads (beets, recyclarr, lidarr-bridge) ARE
   # app-template-based and carry app.kubernetes.io/name, so they
   # don't match here and instead get their own per-app CNP.
@@ -147,9 +146,11 @@ spec:
     ingress: false
   egress:
     # External: rclone sync to crypt:* on AWS S3 (encrypted backend
-    # over the public S3 endpoint). Plus immichkiosk-transcode hits
-    # immich-server intra-ns (covered by baseline allow-intra-namespace)
-    # and curl pulls alpine apk packages from dl-cdn.alpinelinux.org.
+    # over the public S3 endpoint) on :443. The :80 rule previously
+    # served immichkiosk-transcode's alpine apk pulls; that CronJob was
+    # removed, so :80 now has no known consumer and is a candidate to
+    # drop in a follow-up (left in place pending confirmation that the
+    # offsite-backup rclone path never falls back to HTTP).
     - toEntities:
         - world
       toPorts:

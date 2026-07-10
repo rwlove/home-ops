@@ -96,6 +96,25 @@ spec:
         globalMounts:
           - path: /output
 
+      # Baseimage 4.12.x (jlesage jdownloader-2 >= v26.07.x) symlinks
+      # /run -> /tmp/run, which does not exist at container-create time.
+      # CRI-O writes /run/.containerenv on every container; following the
+      # dangling symlink fails (openat2 `run`: No such file or directory),
+      # so the app container never starts (CreateContainerError). Give it a
+      # real writable /run so the runtime can create .containerenv. This is
+      # also the tmpfs /run the baseimage expects for its runtime state.
+      # See jlesage/docker-baseimage#18. Paired with the 08-clear-tmp-dir.sh
+      # override below (clear-tmp-fix), which stops init from rm-ing the now
+      # busy /tmp/run mount.
+      run:
+        type: emptyDir
+        medium: Memory
+        sizeLimit: 64Mi
+        advancedMounts:
+          jdownloader2:
+            app:
+              - path: /run
+
       # The image's /etc/cont-init.d/10-init-users.sh runs `rm -f /etc/passwd
       # /etc/group /etc/shadow` to reset them before recreation. With runAsGroup
       # 1001 (which doesn't exist in the image), CRI-O auto-mounts /etc/group
@@ -114,3 +133,21 @@ spec:
             app:
               - path: /etc/cont-init.d/10-init-users.sh
                 subPath: 10-init-users.sh
+
+      # Baseimage 4.12.x's 08-clear-tmp-dir.sh does `rm -rf /tmp/run`. With the
+      # emptyDir mounted at /run above (which the runtime resolves through the
+      # /run -> /tmp/run symlink), /tmp/run is an active mount point, so that rm
+      # fails EBUSY and, under `set -e`, aborts init. Override with a copy that
+      # clears /tmp/run's contents but skips active mount points and never
+      # removes the mount itself. See jlesage/docker-baseimage#18.
+      clear-tmp-fix:
+        type: custom
+        volumeSpec:
+          configMap:
+            name: jdownloader2-clear-tmp-fix
+            defaultMode: 0755
+        advancedMounts:
+          jdownloader2:
+            app:
+              - path: /etc/cont-init.d/08-clear-tmp-dir.sh
+                subPath: 08-clear-tmp-dir.sh

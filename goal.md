@@ -1,5 +1,12 @@
 # Goal: HomeAIOps to Production-Ready, Then Invert the Workflow
 
+> **Superseded 2026-07-06 — historical record only.** This brief drove the
+> HomeAIOps / langgraph-agents buildout. The langgraph-agents fleet was
+> decommissioned 2026-07-06 ("no value delivered"); Stages 2–3 below describe
+> machinery that no longer exists in the cluster. Retained as preserved intent.
+> The companion routing artifact (`docs/src/routing_policy.md`) is likewise
+> marked removed/historical.
+
 ## Context
 
 `CLAUDE.md` is the canonical context for this work. Read it first. It defines

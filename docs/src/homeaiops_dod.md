@@ -371,14 +371,12 @@ That's at minimum:
 - `kubernetes/apps/mcp-system/` — gateway + every MCP server
 - `kubernetes/apps/observability/` — Prometheus, AlertManager,
   Loki, Grafana (HolmesGPT was in scope here; removed 2026-07-06)
-- `kubernetes/apps/automation/claude-runner/` — pr-triage,
-  cost-cap-commentary
 - `kubernetes/apps/home/windmill/` — server, worker, workflows
 - `kubernetes/apps/databases/cloudnative-pg/` — memory cluster
   (`checkpoints` and `langfuse` clusters both removed by 2026-07-06 —
   `checkpoints` alongside the langgraph-agents fleet, `langfuse`
   alongside the Langfuse app itself; `memory` now backs memory-mcp)
-- `kubernetes/apps/storage/qdrant/` — vector DB
+- `kubernetes/apps/databases/qdrant/` — vector DB
 
 Procedure per Kustomization: `flux suspend ks <name>`, wait 30 s,
 `flux resume ks <name>`, verify `Ready=True` within 5 min, verify

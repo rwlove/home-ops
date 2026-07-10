@@ -38,7 +38,6 @@ flow — they're for ad-hoc operator work.
 | Script | Purpose |
 |---|---|
 | `check_jellyfin-internal.sh` | curl the internal jellyfin hostname. |
-| `check_k8s-gateway.sh` | nslookup against the in-cluster gateway DNS. |
 | `check_smtp-relay.sh` | Send a test email through smtp-relay. |
 | `clear-stuck-cni-sandbox.sh` | Force-remove a cri-o sandbox stuck on a missing CNI plugin. |
 
@@ -52,7 +51,6 @@ flow — they're for ad-hoc operator work.
 
 | Script | Purpose |
 |---|---|
-| `cilium-install-cli.sh` | Install the upstream Cilium CLI binary. |
 | `etcd-defrag.sh` | Defrag the etcd cluster (fixes the `EtcdDatabaseHighFragmentationRatio` alert). |
 
 ## Cleanup
@@ -60,8 +58,6 @@ flow — they're for ad-hoc operator work.
 | Script | Purpose |
 |---|---|
 | `remove-failed-storage-jobs.sh` | Delete Failed Jobs in the `storage` namespace. |
-| `remove-old-replicasets.sh` | Delete ReplicaSets with `replicas=0`. |
-| `restart-k8s-service.sh` | Scale a Deployment to 0, wait, scale back up. |
 | `enable-disable-hr.sh` | Pause/unpause a HelmRelease via the `disable-<app>` commit pattern. |
 
 ## Auth + registry helpers

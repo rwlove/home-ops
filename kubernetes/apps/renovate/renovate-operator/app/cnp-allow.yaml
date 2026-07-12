@@ -34,16 +34,17 @@ spec:
     # spawned RenovateJob pods (covered by renovate-jobs-allow in
     # ../jobs/).
     #
-    # Was a toFQDNs allow-list (api.github.com, github.com — with
-    # matchPattern + `.*` variants per the search-domain hack from
-    # PR #11492). Even with that workaround Cilium 1.19 doesn't
-    # reliably match through Kubernetes pod DNS search-domain
-    # augmentation (pod queries
-    # `api.github.com.renovate.svc.cluster.local.`; FQDN cache stores
-    # the augmented name; matching is unreliable). Broadened to
-    # toEntities:world:443 so it actually works. Tighten when FQDN
-    # matching is fixed.
-    - toEntities: [world]
+    # Tightened from toEntities:[world]:443 back to a toFQDNs allow-list
+    # (home-ops#11851). The search-domain-augmentation bug (cilium#20191)
+    # that forced the world:443 workaround no longer fires: PR #12482
+    # removed CoreDNS `autopath @kubernetes`, so Cilium's DNS proxy sees
+    # the bare-name query and caches these canonical A-record hosts under
+    # the bare name. matchName works (verified on Cilium 1.19.5). L7 DNS
+    # proxy visibility is provided namespace-wide by the baseline
+    # allow-dns component. NB: regresses if autopath is re-enabled.
+    - toFQDNs:
+        - matchName: api.github.com
+        - matchName: github.com
       toPorts:
         - ports:
             - port: "443"

@@ -16,19 +16,20 @@ spec:
     egress: false
     ingress: false
   egress:
-    # 1Password Cloud (sync container only). Was a toFQDNs allow-list
-    # for `my.1password.com`. Cilium 1.19 matchPattern's `.*` token
-    # expands to `[-a-zA-Z0-9_]*` (single DNS label) in the generated
-    # regex, so the dual-form `my.1password.com` + `my.1password.com.*`
-    # pattern doesn't match the search-domain-augmented form actually
-    # cached in this cluster:
-    #   `my.1password.com.external-secrets.svc.cluster.local.`
-    # (four trailing labels — see PR #11512 follow-up). Broadened to
-    # toEntities:world:443 so it actually works. Tighten when FQDN
-    # search-domain augmentation in Cilium policy is fixed upstream
-    # (track PR #11498 / mcp-system precedent).
-    - toEntities:
-        - world
+    # 1Password Cloud (sync container only) — my.1password.com.
+    #
+    # Tightened from toEntities:world:443 back to toFQDNs.matchName
+    # (home-ops#11851). The search-domain-augmentation bug that forced
+    # world:443 (pod queried `my.1password.com.external-secrets.svc.
+    # cluster.local.`; the augmented form was cached, not the bare name)
+    # no longer fires: PR #12482 removed CoreDNS `autopath @kubernetes`,
+    # so Cilium's DNS proxy caches my.1password.com under the bare name
+    # and matchName matches (verified on Cilium 1.19.5). matchName follows
+    # the CNAME chain, so it covers the resolved edge IPs. L7 DNS proxy
+    # visibility is provided namespace-wide by the baseline allow-dns
+    # component. NB: regresses if autopath is re-enabled.
+    - toFQDNs:
+        - matchName: my.1password.com
       toPorts:
         - ports:
             - port: "443"

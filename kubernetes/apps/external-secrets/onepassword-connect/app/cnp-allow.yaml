@@ -16,20 +16,20 @@ spec:
     egress: false
     ingress: false
   egress:
-    # 1Password Cloud (sync container only) — my.1password.com.
-    #
-    # Tightened from toEntities:world:443 back to toFQDNs.matchName
-    # (home-ops#11851). The search-domain-augmentation bug that forced
-    # world:443 (pod queried `my.1password.com.external-secrets.svc.
-    # cluster.local.`; the augmented form was cached, not the bare name)
-    # no longer fires: PR #12482 removed CoreDNS `autopath @kubernetes`,
-    # so Cilium's DNS proxy caches my.1password.com under the bare name
-    # and matchName matches (verified on Cilium 1.19.5). matchName follows
-    # the CNAME chain, so it covers the resolved edge IPs. L7 DNS proxy
-    # visibility is provided namespace-wide by the baseline allow-dns
-    # component. NB: regresses if autopath is re-enabled.
-    - toFQDNs:
-        - matchName: my.1password.com
+    # 1Password Cloud (sync container only). Stays on toEntities:world:443
+    # — it is NOT a single-canonical-host case. The sync container talks to
+    # BOTH `my.1password.com` (direct A-records) AND `b5n.1password.com`,
+    # the real-time sync/events backend, which is CloudFront-fronted
+    # (CNAME → 13.35.x / 2600:9000). A matchName:my.1password.com tightening
+    # (attempted under home-ops#11851, verified-broken 2026-07-12: b5n
+    # SYNs Policy-denied DROPPED in Hubble) severs the events channel;
+    # matchName:b5n is fragile (1Password rotates the sync-backend host),
+    # and matchPattern:*.1password.com hits Cilium's matchPattern CNAME-
+    # following gap (project_cilium_matchpattern_fqdn_limits) since b5n is
+    # CNAME-fronted. So world:443 is the correct tier here — same class as
+    # the other CNAME/wildcard-fronted egress rules that keep world:443.
+    - toEntities:
+        - world
       toPorts:
         - ports:
             - port: "443"

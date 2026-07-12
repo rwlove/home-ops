@@ -13,12 +13,41 @@ spec:
   values:
     controllers:
       paperless:
+        pod:
+          # paperless-ngx is s6-overlay based: its preinit refuses to start
+          # unless /run is owned by uid 1000. fsGroup only sets the GID, so
+          # the chown-runtime-dirs initContainer (root + CAP_CHOWN) fixes the
+          # UID ownership of the /run and /tmp emptyDirs before app boot.
+          # See issue #12851 / #12846 (first attempt crashlooped ~16h).
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            fsGroupChangePolicy: OnRootMismatch
+
         annotations:
           reloader.stakater.com/auto: "true"
 
         type: statefulset
 
         initContainers:
+          chown-runtime-dirs:
+            image:
+              repository: public.ecr.aws/docker/library/busybox
+              tag: "1.37"
+            command:
+              - sh
+              - -c
+              - chown 1000:1000 /run /tmp
+            securityContext:
+              runAsNonRoot: false
+              runAsUser: 0
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+                add: ["CHOWN"]
           init-db:
             image:
               repository: ghcr.io/home-operations/postgres-init
@@ -70,6 +99,15 @@ spec:
                 # headroom bump for the rare large-document burst.
                 memory: 5Gi
 
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+
     service:
       app:
         controller: paperless
@@ -98,3 +136,15 @@ spec:
     persistence:
       library:
         existingClaim: paperless-library-pvc
+      # s6-overlay writes supervision state to /run; readOnlyRootFilesystem
+      # forces these onto tmpfs. chown-runtime-dirs sets uid-1000 ownership.
+      run:
+        type: emptyDir
+        medium: Memory
+        globalMounts:
+          - path: /run
+      tmp:
+        type: emptyDir
+        medium: Memory
+        globalMounts:
+          - path: /tmp

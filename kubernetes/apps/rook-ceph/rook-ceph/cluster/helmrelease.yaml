@@ -79,15 +79,25 @@ spec:
       mgr:
         modules:
           - enabled: true
-
             name: rook
+          # restful is a legacy mgr module (standalone REST API on :8003) with
+          # no consumer in this cluster — nothing routes to it. It is also a
+          # known ceph-mgr memory leaker proportional to PG count
+          # (https://tracker.ceph.com/issues/40260). The active mgr grows
+          # ~300Mi/hr and OOMKills every ~5h under the 1536Mi limit; disabling
+          # unused leaky modules is the root-cause fix rather than re-raising
+          # the ceiling. dashboard + prometheus stay (both are used).
+          - enabled: false
+            name: restful
       resources:
         mgr:
           limits:
-            # Active mgr's memory creeps with enabled modules (prometheus,
-            # pg_autoscaler, balancer, devicehealth). 940Mi was too tight —
-            # the active mgr peaked at 938Mi and OOMKilled. 1.5Gi gives
-            # ~60% headroom over that peak.
+            # The active mgr leaks memory linearly (~300Mi/hr) — not a stable
+            # "creep" — driven by enabled modules (prometheus/dashboard, and
+            # formerly restful, now disabled above). 940Mi→1536Mi (#12513) only
+            # extended the OOMKill period; the real fix is cutting leak sources.
+            # Keep 1536Mi as headroom while we confirm the leak plateaus after
+            # dropping restful. Guaranteed QoS (req == limit).
             memory: 1536Mi
           requests:
             cpu: 100m

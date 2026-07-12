@@ -74,12 +74,35 @@ spec:
           for: 5m
           labels:
             severity: warning
-        # TODO: re-introduce BackupStale once a CustomResourceStateMetrics config
-        # exposes Cluster.status.conditions[type=LastBackupSucceeded] as a metric.
-        # cnpg_collector_last_available_backup_timestamp is unreliable for plugin-method
-        # clusters — it freezes at the migration timestamp instead of advancing on each
-        # successful backup (verified 2026-05-25, all 6 "stale" clusters are actually
-        # healthy). Tracking: https://github.com/rwlove/home-ops/issues/12075
+        # BackupStale — no successful backup in too long, complementary to
+        # BackupFailed (which catches recent explicit failures). Signal is
+        # kube-state-metrics CRSM over Cluster.status.conditions: the metric
+        # cnpg_cluster_condition_last_transition_time carries lastTransitionTime
+        # (epoch seconds) labeled by condition type+status. We watch the
+        # LastBackupSucceeded condition. cnpg_collector_last_available_backup_timestamp
+        # is unreliable for plugin-method clusters — it freezes at the migration
+        # timestamp instead of advancing per successful backup (verified 2026-05-25,
+        # all 6 "stale" clusters were actually healthy). See #12075.
+        #
+        # No-data-on-failure edge case: CRSM emits one series per condition
+        # reflecting its CURRENT status, so the {status="True"} series DISAPPEARS
+        # the moment a backup is failing. A naive `time() - max(...{status="True"})`
+        # would then go empty and silently miss a stuck-failing cluster. We instead
+        # alert on staleness of the LastBackupSucceeded transition REGARDLESS of
+        # status (drop the status label with max by), so a cluster stuck at
+        # status="False" whose last success is >26h old still trips. Once a backup
+        # succeeds again the transition time advances and the alert clears.
+        - alert: BackupStale
+          annotations:
+            description: Cluster {{ $labels.cluster }} in {{ $labels.namespace }} has had no successful backup in over 26 hours.
+            summary: CNPG cluster backup is stale.
+          expr: |-
+            time() - max by (cluster, namespace) (
+              cnpg_cluster_condition_last_transition_time{type="LastBackupSucceeded"}
+            ) > 26 * 3600
+          for: 30m
+          labels:
+            severity: warning
         # changes()[25h] false-fires when the gauge is re-emitted after a CNPG
         # pod restart, even when the last failure is weeks old (same gauge
         # re-emission problem documented for BackupStale above). Gate on the

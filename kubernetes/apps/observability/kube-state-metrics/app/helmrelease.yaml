@@ -12,10 +12,46 @@ spec:
   values:
     fullnameOverride: kube-state-metrics
 
+    # Expose CNPG Cluster.status.conditions as metrics. plugin-method
+    # barman-cloud clusters make cnpg_collector_last_available_backup_timestamp
+    # unreliable (freezes at the migration timestamp), so the reliable
+    # backup-recency signal is the LastBackupSucceeded condition's
+    # lastTransitionTime, which advances on every successful backup.
+    # Consumed by the BackupStale alert (cloudnative-pg-rules). See #12075.
+    customResourceState:
+      enabled: true
+      config:
+        spec:
+          resources:
+            - groupVersionKind:
+                group: postgresql.cnpg.io
+                kind: Cluster
+                version: v1
+              labelsFromPath:
+                cluster: [metadata, name]
+                namespace: [metadata, namespace]
+              metricNamePrefix: cnpg_cluster
+              metrics:
+                - name: condition_last_transition_time
+                  help: Unix timestamp of the last transition of a CNPG Cluster status condition
+                  each:
+                    type: Gauge
+                    gauge:
+                      path: [status, conditions]
+                      labelsFromPath:
+                        status: [status]
+                        type: [type]
+                      valueFrom: [lastTransitionTime]
     prometheus:
       monitor:
         enabled: true
         honorLabels: true
+    rbac:
+      # CRSM needs read access to the CNPG Cluster CR (see customResourceState).
+      extraRules:
+        - apiGroups: [postgresql.cnpg.io]
+          resources: [clusters]
+          verbs: [list, watch]
     resources:
       requests:
         cpu: 10m

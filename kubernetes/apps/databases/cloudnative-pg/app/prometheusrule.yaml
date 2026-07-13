@@ -90,16 +90,24 @@ spec:
         # would then go empty and silently miss a stuck-failing cluster. We instead
         # alert on staleness of the LastBackupSucceeded transition REGARDLESS of
         # status (drop the status label with max by), so a cluster stuck at
-        # status="False" whose last success is >26h old still trips. Once a backup
+        # status="False" whose last success is >8d old still trips. Once a backup
         # succeeds again the transition time advances and the alert clears.
+        #
+        # Threshold is 8 days, not 26h: every cluster backs up @weekly (168h) via
+        # the shared cnpg-app-database component's ScheduledBackup — no cluster is
+        # on a daily cadence. A 26h threshold false-fires ~6 of every 7 days on a
+        # healthy weekly cluster. 8d = one full week + 24h grace, so it only trips
+        # on a genuinely missed cycle. Fast detection of a backup that RAN AND
+        # FAILED is already covered by BackupFailed below (<24h on the failure
+        # timestamp); BackupStale is the backstop for "nothing happened at all".
         - alert: BackupStale
           annotations:
-            description: Cluster {{ $labels.cluster }} in {{ $labels.namespace }} has had no successful backup in over 26 hours.
+            description: Cluster {{ $labels.cluster }} in {{ $labels.namespace }} has had no successful backup in over 8 days.
             summary: CNPG cluster backup is stale.
           expr: |-
             time() - max by (cluster, namespace) (
               cnpg_cluster_condition_last_transition_time{type="LastBackupSucceeded"}
-            ) > 26 * 3600
+            ) > 8 * 24 * 3600
           for: 30m
           labels:
             severity: warning

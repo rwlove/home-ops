@@ -8,6 +8,11 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: aquapured-config
+  annotations:
+    # Flux 2.9 makes postBuild substitution strict; exempt this ConfigMap so
+    # the literal ${MQTT_USER}/${MQTT_PASSWD} placeholders pass through for the
+    # container entrypoint's envsubst to fill from the aquapured Secret.
+    kustomize.toolkit.fluxcd.io/substitute: disabled
 data:
   aquapured.conf.tmpl: |
     [AQUACONTROLD]
@@ -30,10 +35,11 @@ data:
     # parser silently drops. Mosquitto is lenient, accepts it, and bridges
     # aquapured/# to EMQX. (Address still kept short for the [20] buffer.)
     MQTT_ADDRESS = 127.0.0.1:1883
-    # $$ escapes Flux post-build substitution so the literal ${MQTT_USER}
-    # placeholder survives into the cluster for the container's envsubst to fill.
-    MQTT_USER = $${MQTT_USER}
-    MQTT_PASSWD = $${MQTT_PASSWD}
+    # Flux substitution is disabled on this ConfigMap (metadata annotation), so
+    # these literal placeholders survive for the container entrypoint's envsubst
+    # to fill from the aquapured Secret.
+    MQTT_USER = ${MQTT_USER}
+    MQTT_PASSWD = ${MQTT_PASSWD}
     MQTT_TOPIC = aquapured
 
     # Disable Domoticz integration (no DZIDX_SWG_STATUS_ALERT_SENSOR needed).

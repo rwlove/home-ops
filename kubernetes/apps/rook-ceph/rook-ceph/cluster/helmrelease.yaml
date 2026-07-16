@@ -68,11 +68,18 @@ spec:
       crashCollector:
         disable: false
 
+      # workaround: https://tracker.ceph.com/issues/48792 — remove when the ceph
+      # dashboard-module perf_schema memory leak is fixed upstream (still open as
+      # of v20.2.2 Tentacle). The dashboard mgr module leaks ~330Mi/hr on the
+      # ACTIVE mgr (standby stays flat), OOMKilling mgr.b every ~4h at the 1536Mi
+      # limit. Confirmed 2026-07-16 by the tracker's signature toggle test:
+      # `ceph mgr module disable dashboard && enable dashboard` on mgr.b dropped
+      # working-set 642->270Mi (-58%) instantly. Disabling restful (#13029) did
+      # NOT fix it — dashboard is the real leaker. Grafana (via the prometheus
+      # module, still enabled) covers observability; only Ceph's embedded UI is
+      # lost. Re-enable by flipping this back to true + restoring the route below.
       dashboard:
-        enabled: true
-        prometheusEndpoint: http://kube-prometheus-stack-prometheus.observability.svc.cluster.local:9090
-        ssl: false
-        urlPrefix: /
+        enabled: false
 
       dataDirHostPath: /var/lib/rook
 
@@ -86,18 +93,20 @@ spec:
           # (https://tracker.ceph.com/issues/40260). The active mgr grows
           # ~300Mi/hr and OOMKills every ~5h under the 1536Mi limit; disabling
           # unused leaky modules is the root-cause fix rather than re-raising
-          # the ceiling. dashboard + prometheus stay (both are used).
+          # the ceiling. dashboard is ALSO disabled (above, cephClusterSpec) —
+          # it was the dominant leaker (ceph#48792), restful alone didn't fix it.
+          # prometheus stays (feeds kube-prometheus-stack / Grafana).
           - enabled: false
             name: restful
       resources:
         mgr:
           limits:
-            # The active mgr leaks memory linearly (~300Mi/hr) — not a stable
-            # "creep" — driven by enabled modules (prometheus/dashboard, and
-            # formerly restful, now disabled above). 940Mi→1536Mi (#12513) only
-            # extended the OOMKill period; the real fix is cutting leak sources.
-            # Keep 1536Mi as headroom while we confirm the leak plateaus after
-            # dropping restful. Guaranteed QoS (req == limit).
+            # The active mgr leaked memory linearly (~330Mi/hr) — not a stable
+            # "creep" — driven by the dashboard module (ceph#48792), now disabled
+            # above along with restful. 940Mi→1536Mi (#12513) only extended the
+            # OOMKill period; cutting the leak source is the real fix. Keep 1536Mi
+            # as headroom until the plateau is confirmed post-dashboard-disable,
+            # then right-size downward in a follow-up. Guaranteed QoS (req == limit).
             memory: 1536Mi
           requests:
             cpu: 100m
@@ -238,19 +247,8 @@ spec:
       createPrometheusRules: true
       enabled: true
 
-    route:
-      dashboard:
-        annotations:
-          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/rook.svg"
-          glance/id: "Storage"
-          glance/name: "Rook"
-          glance/show: "true"
-        host:
-          name: "rook.${SECRET_DOMAIN}"
-          path: /
-          pathType: PathPrefix
-        parentRefs:
-          - name: internal
-            namespace: network
-            sectionName: https
+  # route.dashboard removed with the dashboard module (disabled above,
+  # ceph#48792). Nothing serves rook.${SECRET_DOMAIN} now; the glance "Rook"
+  # Storage tile goes away with it. Restore this block if the dashboard is
+  # ever re-enabled.
   timeout: 15m

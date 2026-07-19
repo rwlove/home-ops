@@ -169,7 +169,7 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 | **Music Assistant** + **Gonic** | Multi-room music control + Subsonic API |
 | **RomM** | Retro game library (~10k ROMs) |
 | **Beets** | Music library tagging |
-| **cutVideo / av1corrector / videodupfinder / medialyze** | Custom video tooling |
+| **av1corrector / videodupfinder / medialyze** | Custom video tooling |
 | **Theme Park** | Consistent UI theming across apps |
 | **Batocera Webdashboard Pro** | Retro-gaming console dashboard |
 | **kodi-playback-watcher** | Bridge for Kodi playback state |

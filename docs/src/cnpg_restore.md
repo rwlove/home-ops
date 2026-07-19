@@ -129,7 +129,7 @@ shipped offsite. App reconstruction depends on the app:
 - media-pull-stack apps — full data loss is non-recoverable beyond
   re-scraping from external sources
 - `medikeep` — full loss; manual reentry
-- `pump`, `sparkyfitness`, `videodupfinder`, `cutvideo` —
+- `pump`, `sparkyfitness`, `videodupfinder` —
   application-specific; mostly recoverable from source data
 - `nametag`, `medialyze`, `windmill` — workflow / metadata; full
   loss

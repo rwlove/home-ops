@@ -1,0 +1,91 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app monica
+spec:
+  chart:
+    spec:
+      # renovate: registryUrl=https://monicahq.github.io/helm chart=monica
+      chart: monica
+      sourceRef:
+        kind: HelmRepository
+        name: *app
+      version: 1.0.15
+  interval: 30m
+  values:
+    # Chart default is the unreleased monica-next:main (moving tag).
+    # Pinned to the classic, stable Monica v5 apache image by digest
+    # instead — Renovate tracks docker.io/library/monica.
+    image:
+      repository: docker.io/library/monica
+      tag: 5.0-apache@sha256:2a07a56474945d463da35617f7fe2f5d325880b307d8fab81a0d9d0239639453
+      pullPolicy: IfNotPresent
+
+    replicaCount: 1
+
+    # Auth + TLS are handled at the internal gateway (httproute.yaml +
+    # securitypolicy.yaml extAuth → Authelia). No in-chart ingress.
+    ingress:
+      enabled: false
+
+    monica:
+      host: monica.${SECRET_DOMAIN}
+      # enabled: true stops the chart from generating its own APP_KEY
+      # Secret. The chart then reads APP_KEY from a Secret hardcoded to
+      # name=`monica` (release fullname), key=`appkey` — supplied by the
+      # externalsecret.yaml ExternalSecret from 1Password. The
+      # secretName/appKey fields are ignored by the chart for APP_KEY,
+      # so they are intentionally omitted.
+      existingSecret:
+        enabled: true
+      # Laravel scheduler (reminders, cleanup, stats).
+      cronjob:
+        enabled: true
+
+    # SQLite off — Monica uses the dedicated CNPG postgres-monica cluster.
+    internalDatabase:
+      enabled: false
+
+    externalDatabase:
+      enabled: true
+      type: postgresql
+      host: postgres-monica-rw.databases.svc.cluster.local
+      database: monica
+      # username/password from CNPG's generated postgres-monica-app
+      # Secret, reflected into collab (see cluster.yaml inheritedMetadata).
+      existingSecret:
+        enabled: true
+        secretName: postgres-monica-app
+        usernameKey: username
+        passwordKey: password
+
+    # No bundled subcharts — DB is CNPG, no queue/cache/search backends.
+    mariadb:
+      enabled: false
+    postgresql:
+      enabled: false
+    redis:
+      enabled: false
+    memcached:
+      enabled: false
+    meilisearch:
+      enabled: false
+
+    # Uploaded files (avatars, contact documents) — irreplaceable, so
+    # Longhorn with recurring backups (longhorn-pvc.yaml), not ceph-block.
+    persistence:
+      enabled: true
+      existingClaim: monica-data-pvc
+
+    service:
+      type: ClusterIP
+      port: 8080
+
+    resources:
+      requests:
+        cpu: 50m
+        memory: 256Mi
+      limits:
+        memory: 1Gi

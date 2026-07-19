@@ -101,6 +101,39 @@ spec:
               # model downloads once and survives restarts.
               XDG_CACHE_HOME: /data/.cache
 
+            # Probe the unauthenticated /info webserver endpoint (returns
+            # 200 with {"status": "running"}). During the 2026-07-18 failed
+            # 2.9.9 downgrade the app crashed in DB setup and never bound
+            # :8095, yet the pod still reported Running 1/1 because nothing
+            # was probing it — /info would have caught that (connection
+            # refused). Startup probe is generous: the ~2.5 GB image can
+            # cold-boot slowly, and we don't want liveness killing a healthy
+            # slow start.
+            probes:
+              liveness: &probes
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /info
+                    port: 8095
+                  initialDelaySeconds: 0
+                  periodSeconds: 30
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              readiness: *probes
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /info
+                    port: 8095
+                  initialDelaySeconds: 5
+                  periodSeconds: 5
+                  timeoutSeconds: 5
+                  failureThreshold: 60
+
             resources:
               requests:
                 cpu: 15m

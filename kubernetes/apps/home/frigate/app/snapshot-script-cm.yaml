@@ -106,13 +106,25 @@ data:
       # every regenerated snapshot trips ~30 lint errors. Kept inside the
       # script (not patched onto the file post-hoc) so it survives every
       # snapshot regeneration.
+      # Redact the Frigate+ model id (model.path `plus://<id>`) before commit.
+      # The id identifies Rob's Frigate+ account and this repo is public. It
+      # CANNOT be moved to a secret + env var: Frigate only substitutes env
+      # vars in `EnvString`-typed fields (mqtt/rtsp/onvif/genai/proxy);
+      # model.path is a plain `str` and is read verbatim, so a `{FRIGATE_*}`
+      # placeholder there just fails as `incorrect_id`. So keep the real id in
+      # the live PVC config and scrub only the committed snapshot. The sed
+      # matches `plus://<hex>` (the active path line only — the commented
+      # model-history lines are bare `#<hex>`, no `plus://`); the constant
+      # `plus://REDACTED` keeps the diff stable (no per-snapshot churn).
       {
         echo "# yamllint disable"
         echo "# This file is a snapshot of Frigate's live /config/config.yml,"
         echo "# written by Frigate itself via the UI / API config setter."
         echo "# Not hand-authored YAML; not Flux-reconciled. Lint rules around"
         echo "# quoted-strings / comment-spacing don't apply."
-        cat "$CONFIG_FILE"
+        echo "# model.path Frigate+ id is REDACTED; real value in 1Password"
+        echo "# (Kubernetes/frigate/frigate_plus_custom_model)."
+        sed -E 's#(plus://)[a-f0-9]{8,}#\1REDACTED#g' "$CONFIG_FILE"
       } > "$DEST"
 
       if git diff --quiet; then

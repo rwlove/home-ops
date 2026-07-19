@@ -1,0 +1,75 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/cronjob-batch-v1.json
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: rook-ceph-mgr-recycle
+  # workaround: https://tracker.ceph.com/issues/40260 — remove when the ceph-mgr
+  # prometheus-module memory leak is fixed upstream and the active-mgr
+  # working-set trend stays flat without recycling.
+spec:
+  # The active ceph-mgr leaks ~330Mi/hr — isolated 2026-07-17 to the
+  # `prometheus` module (see cluster/helmrelease.yaml) — and OOMKills at the
+  # 1536Mi limit every ~4h, an involuntary restart that fires OOMKilled
+  # criticals. Recycling the active mgr every 3h reclaims the heap *before*
+  # the ceiling (fresh ~160Mi + 3h × 330Mi/hr ≈ 1150Mi, ~75% of limit): ceph
+  # promotes the standby in seconds and the deleted pod returns as a fresh
+  # standby. Graceful, keeps the prometheus metrics + ceph_default alerts, and
+  # eliminates the OOMKill. k8tz injects timeZone America/New_York; every-3h
+  # cadence is timezone-agnostic anyway.
+  schedule: "17 */3 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: rook-ceph-mgr-recycle
+        spec:
+          serviceAccountName: rook-ceph-mgr-recycle
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+          containers:
+            - name: recycle
+              image: docker.io/alpine/k8s:1.36.2@sha256:44ef4942e171939b9c665a4a84beb80e2dcdb9a24330d4651cfdfd2e9deecc47
+              env:
+                - name: KUBECACHEDIR
+                  value: /tmp/.kube-cache
+              command:
+                - /bin/sh
+                - -ceu
+                - |
+                  # Delete the active mgr pod by its rook-set role label; the
+                  # operator recreates it and ceph promotes the standby. No
+                  # spec mutation → GitOps-clean. --wait=false so the Job
+                  # returns immediately (the failover is async).
+                  kubectl -n rook-ceph delete pod \
+                    -l app=rook-ceph-mgr,mgr_role=active --wait=false
+                  echo "Requested recycle of the active rook-ceph mgr"
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+                limits:
+                  memory: 128Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir: {}

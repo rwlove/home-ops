@@ -68,18 +68,23 @@ spec:
       crashCollector:
         disable: false
 
-      # workaround: https://tracker.ceph.com/issues/48792 — remove when the ceph
-      # dashboard-module perf_schema memory leak is fixed upstream (still open as
-      # of v20.2.2 Tentacle). The dashboard mgr module leaks ~330Mi/hr on the
-      # ACTIVE mgr (standby stays flat), OOMKilling mgr.b every ~4h at the 1536Mi
-      # limit. Confirmed 2026-07-16 by the tracker's signature toggle test:
-      # `ceph mgr module disable dashboard && enable dashboard` on mgr.b dropped
-      # working-set 642->270Mi (-58%) instantly. Disabling restful (#13029) did
-      # NOT fix it — dashboard is the real leaker. Grafana (via the prometheus
-      # module, still enabled) covers observability; only Ceph's embedded UI is
-      # lost. Re-enable by flipping this back to true + restoring the route below.
+      # The ~330Mi/hr active-mgr memory leak (OOMKill every ~4h at the 1536Mi
+      # limit) was isolated 2026-07-17 to the `prometheus` mgr module — NOT the
+      # dashboard. A disable-and-leave test flatlined the active mgr at ~210Mi
+      # with prometheus off, while the dashboard made no difference (the earlier
+      # 642->270Mi "dashboard" result was a Python-heap reload artifact that any
+      # module toggle reproduces; #13086 disabled dashboard for zero benefit).
+      # prometheus stays enabled (it feeds kube-prometheus-stack and the
+      # ceph_default alerts; the module's tunables are already at their
+      # memory-safe defaults, so the leak is a genuine upstream bug on 20.2.2).
+      # The leak is instead mitigated by a periodic active-mgr recycle CronJob
+      # (see app/mgr-recycle-*). So the dashboard has no reason to stay off —
+      # re-enabled here (reverts #13086).
       dashboard:
-        enabled: false
+        enabled: true
+        prometheusEndpoint: http://kube-prometheus-stack-prometheus.observability.svc.cluster.local:9090
+        ssl: false
+        urlPrefix: /
 
       dataDirHostPath: /var/lib/rook
 
@@ -88,14 +93,12 @@ spec:
           - enabled: true
             name: rook
           # restful is a legacy mgr module (standalone REST API on :8003) with
-          # no consumer in this cluster — nothing routes to it. It is also a
-          # known ceph-mgr memory leaker proportional to PG count
-          # (https://tracker.ceph.com/issues/40260). The active mgr grows
-          # ~300Mi/hr and OOMKills every ~5h under the 1536Mi limit; disabling
-          # unused leaky modules is the root-cause fix rather than re-raising
-          # the ceiling. dashboard is ALSO disabled (above, cephClusterSpec) —
-          # it was the dominant leaker (ceph#48792), restful alone didn't fix it.
-          # prometheus stays (feeds kube-prometheus-stack / Grafana).
+          # no consumer in this cluster — nothing routes to it, and it is a
+          # known ceph-mgr memory leaker (https://tracker.ceph.com/issues/40260),
+          # so it stays disabled. It was NOT the dominant leaker, though: the
+          # ~330Mi/hr active-mgr leak was isolated 2026-07-17 to the `prometheus`
+          # module (kept enabled for metrics; mitigated by the recycle CronJob in
+          # app/mgr-recycle-*), and dashboard (ceph#48792) was ruled out entirely.
           - enabled: false
             name: restful
       resources:
@@ -247,8 +250,19 @@ spec:
       createPrometheusRules: true
       enabled: true
 
-  # route.dashboard removed with the dashboard module (disabled above,
-  # ceph#48792). Nothing serves rook.${SECRET_DOMAIN} now; the glance "Rook"
-  # Storage tile goes away with it. Restore this block if the dashboard is
-  # ever re-enabled.
+    route:
+      dashboard:
+        annotations:
+          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/rook.svg"
+          glance/id: "Storage"
+          glance/name: "Rook"
+          glance/show: "true"
+        host:
+          name: "rook.${SECRET_DOMAIN}"
+          path: /
+          pathType: PathPrefix
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
   timeout: 15m

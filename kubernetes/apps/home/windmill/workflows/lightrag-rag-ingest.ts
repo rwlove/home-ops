@@ -57,7 +57,7 @@ export async function main() {
     const existing = await lightragSourceMap(apiKey); // "paperless:<id>" -> [docId]
     console.log(`[lightrag-ingest] watermark=${watermark} known_sources=${existing.size}`);
 
-    let submitted = 0, replaced = 0, skipped = 0;
+    let submitted = 0, replaced = 0, skipped = 0, already = 0;
     let maxModified = watermark;
     let page = 1;
     let capped = false;
@@ -77,8 +77,8 @@ export async function main() {
             }
             const prior = existing.get(src);
             if (prior?.length) { await lightragDelete(apiKey, prior); replaced++; }
-            await lightragInsert(apiKey, text, src);
-            submitted++;
+            const inserted = await lightragInsert(apiKey, text, src);
+            if (inserted) submitted++; else already++;
             if (doc.modified > maxModified) maxModified = doc.modified;
         }
         if (!list.next) break;
@@ -97,6 +97,7 @@ export async function main() {
         submitted,
         replaced,
         skipped,
+        already,
         capped,
     };
 }
@@ -120,14 +121,23 @@ async function lightragSourceMap(apiKey: string): Promise<Map<string, string[]>>
     return map;
 }
 
-async function lightragInsert(apiKey: string, text: string, source: string): Promise<void> {
+async function lightragInsert(apiKey: string, text: string, source: string): Promise<boolean> {
     const r = await fetch(`${LIGHTRAG}/documents/text`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
         body: JSON.stringify({ text, file_source: source }),
         signal: AbortSignal.timeout(60_000),
     });
+    // 409 = LightRAG already has this source but our dedup map missed it
+    // (GET /documents returns a capped subset). Treat as already-ingested,
+    // NOT fatal — otherwise one duplicate aborts the run before the watermark
+    // advances (line ~90), and every subsequent run re-scans from EPOCH and
+    // re-hits the same doc forever. Returns false so the caller counts it as
+    // `already` rather than a fresh submit. Follow-up: paginate
+    // lightragSourceMap so modified docs still refresh cleanly.
+    if (r.status === 409) return false;
     if (!r.ok) throw new Error(`lightrag insert ${source} ${r.status}: ${await r.text()}`);
+    return true;
 }
 
 async function lightragDelete(apiKey: string, docIds: string[]): Promise<void> {

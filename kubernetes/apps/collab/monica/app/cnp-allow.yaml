@@ -1,0 +1,38 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: monica-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: monica
+  # Additive — default-deny (collab ns) is what triggers the lockdown;
+  # these rules punch holes through it. DNS + intra-namespace are
+  # covered by the baseline network-policy component.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # CNPG cluster postgres-monica in databases ns.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            cnpg.io/cluster: postgres-monica
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+  ingress:
+    # Internal Gateway (extAuth SecurityPolicy) → monica apache :80.
+    # The chart's Service maps port 8080 → containerPort 80; the pod
+    # listens on 80, so the policy allows 80.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP

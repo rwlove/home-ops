@@ -1,0 +1,80 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/postgresql.cnpg.io/cluster_v1.json
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres-monica
+spec:
+  instances: 3
+
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.7
+
+  primaryUpdateStrategy: unsupervised
+
+  failoverDelay: 30
+
+  replicationSlots:
+    highAvailability:
+      enabled: true
+
+  postgresql:
+    parameters:
+      timezone: "America/New_York"
+
+  storage:
+    size: 8Gi
+    storageClass: ceph-block
+
+  walStorage:
+    size: 8Gi
+    storageClass: ceph-block
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+  enableSuperuserAccess: true
+  superuserSecret:
+    name: cloudnative-pg
+
+  bootstrap:
+    initdb:
+      database: monica
+      owner: monica
+
+  # CNPG generates the `postgres-monica-app` Secret (username/password/
+  # host/dbname) in this namespace. The Monica HelmRelease consumes it
+  # cross-namespace from `collab` via emberstack reflector — these
+  # annotations propagate to the generated Secret through
+  # inheritedMetadata so a future cluster rebuild re-establishes the
+  # mirror. Pattern: project_cnpg_cross_namespace_reflector.
+  inheritedMetadata:
+    annotations:
+      reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: collab
+      reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+      reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: collab
+
+  monitoring:
+    enablePodMonitor: true
+
+  plugins:
+    - enabled: true
+      isWALArchiver: true
+      name: barman-cloud.cloudnative-pg.io
+      parameters:
+        barmanObjectName: garage-monica
+        serverName: postgres-monica-backup
+
+  externalClusters:
+    - name: postgres-monica-backup
+      plugin:
+        enabled: true
+        isWALArchiver: false
+        name: barman-cloud.cloudnative-pg.io
+        parameters:
+          barmanObjectName: garage-monica
+          serverName: postgres-monica-backup

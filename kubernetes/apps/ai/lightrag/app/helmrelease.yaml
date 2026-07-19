@@ -66,7 +66,17 @@ spec:
               LLM_BINDING_HOST: http://ollama-spark.ai.svc.cluster.local:11434
               LLM_MODEL: qwen3-next:80b-a3b-instruct-q4_K_M
               OLLAMA_LLM_NUM_CTX: "32768"
-              LLM_TIMEOUT: "240"
+              LLM_TIMEOUT: "600"
+              # Single GB10 serves ~4 concurrent (ollama-spark
+              # OLLAMA_NUM_PARALLEL=4) and each 80b call runs at a fraction of
+              # GPU speed under load. LightRAG's defaults offer up to
+              # MAX_PARALLEL_INSERT(3) × MAX_ASYNC(4) = 12 concurrent extraction
+              # calls, which queue past the read timeout → extraction
+              # ReadTimeouts (docs stuck 'failed'). Cap concurrency so we stop
+              # over-subscribing the shared Spark GPU; ingest is slower but
+              # completes cleanly.
+              MAX_ASYNC: "2"
+              MAX_PARALLEL_INSERT: "1"
               # --- Embeddings: bge-m3 (1024-dim) on Ollama-Spark ---
               EMBEDDING_BINDING: ollama
               EMBEDDING_BINDING_HOST: http://ollama-spark.ai.svc.cluster.local:11434

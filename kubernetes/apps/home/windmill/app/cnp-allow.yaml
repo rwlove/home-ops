@@ -107,30 +107,19 @@ spec:
               protocol: TCP
             - port: "3001"
               protocol: TCP
-    # In-cluster Services Windmill workflows POST to:
-    # Zulip (chat notifications + approval reactions)
-    # MCP gateway (future flows may call MCP backends)
-    - toEndpoints:
-        - matchLabels:
-            io.kubernetes.pod.namespace: collab
-            app.kubernetes.io/name: zulip
-      toPorts:
-        - ports:
-            - port: "80"
-              protocol: TCP
-    # ntfy (in-cluster Service) — Windmill workflows publish pushes
-    # here. External URL https://ntfy.${SECRET_DOMAIN} doesn't work
-    # from inside the cluster (Cilium FQDN egress doesn't match the
-    # split-horizon internal LB IP), so we use the cluster-internal
-    # Service URL set in the windmill-workflows-secret NTFY_URL.
+    # smtp-relay (home ns, maddy) — the watcher workflows
+    # (windmill-failure-watcher, workaround-watcher,
+    # smart-home-intent-drift) submit mail here on :2525 (plaintext
+    # SMTP); smtp-relay relays out via Mailgun.
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: home
-            app.kubernetes.io/name: ntfy
+            app.kubernetes.io/name: smtp-relay
       toPorts:
         - ports:
-            - port: "8080"
+            - port: "2525"
               protocol: TCP
+    # MCP gateway (mcp-system) — future flows may call MCP backends.
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: mcp-system

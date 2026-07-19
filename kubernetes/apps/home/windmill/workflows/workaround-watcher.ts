@@ -7,7 +7,7 @@
 // 2. For each tracking issue, parse `Upstream: <url>` from the body.
 // 3. Fetch the upstream issue/PR state via the GitHub REST API.
 // 4. If upstream is closed/merged → flag for removal.
-// 5. ntfy + Zulip a summary if any removals are due.
+// 5. Email a summary (via in-cluster smtp-relay) if any removals are due.
 //
 // Anonymous GitHub API access (60 req/hr) is sufficient for the weekly
 // cadence + the small number of workarounds expected.
@@ -160,18 +160,70 @@ async function notifyRemovable(removable: WorkaroundCheckResult[]) {
         (r) =>
             `• #${r.tracking_number} ${r.tracking_title} — ${r.upstream_state} (${r.upstream_url})`,
     );
-    const ntfyUrl = Deno.env.get("NTFY_URL") ?? "http://ntfy.home.svc.cluster.local:8080";
-    const ntfyToken = Deno.env.get("NTFY_WRITE_TOKEN");
-    if (!ntfyToken) return;
-    await fetch(`${ntfyUrl}/operations`, {
-        method: "POST",
-        headers: {
-            Authorization: `Bearer ${ntfyToken}`,
-            Title: `🔧 ${removable.length} workaround(s) ready to retire`,
-            Priority: "3",
-            Tags: "wrench",
-        },
-        body: lines.join("\n"),
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-    }).catch(() => {});
+    await sendEmail(
+        `🔧 ${removable.length} workaround(s) ready to retire`,
+        lines.join("\n"),
+    ).catch(() => {});
+}
+
+// ---------- Email (in-cluster smtp-relay -> Mailgun) ----------
+//
+// Raw SMTP over plaintext to smtp-relay:2525 (maddy, `tls off`, no auth
+// on submission — it relays everything out via Mailgun). Kept
+// self-contained per the workflows "no shared modules" convention.
+
+async function sendEmail(subject: string, body: string) {
+    const host = Deno.env.get("SMTP_HOST") ?? "smtp-relay.home.svc.cluster.local";
+    const port = parseInt(Deno.env.get("SMTP_PORT") ?? "2525", 10);
+    const from = Deno.env.get("NOTIFY_EMAIL_FROM");
+    const to = Deno.env.get("NOTIFY_EMAIL_TO");
+    if (!from) throw new Error("NOTIFY_EMAIL_FROM env not set");
+    if (!to) throw new Error("NOTIFY_EMAIL_TO env not set");
+
+    const conn = await Deno.connect({ hostname: host, port });
+    const enc = new TextEncoder();
+    const dec = new TextDecoder();
+    const rbuf = new Uint8Array(4096);
+
+    // Read one full SMTP reply. Multi-line replies use "NNN-" for
+    // continuation lines and "NNN " (space) on the final line.
+    async function reply(): Promise<{ code: number; text: string }> {
+        let acc = "";
+        while (true) {
+            const n = await conn.read(rbuf);
+            if (n === null) break;
+            acc += dec.decode(rbuf.subarray(0, n));
+            const last = acc.split(/\r?\n/).filter((l) => l.length > 0).at(-1) ?? "";
+            if (/^\d{3} /.test(last)) break;
+        }
+        return { code: parseInt(acc.slice(0, 3), 10) || 0, text: acc.trim() };
+    }
+    async function cmd(line: string, expect: number) {
+        await conn.write(enc.encode(line + "\r\n"));
+        const { code, text } = await reply();
+        if (code !== expect) {
+            throw new Error(`SMTP ${line.split(/\s/)[0]}: expected ${expect}, got ${text}`);
+        }
+    }
+
+    try {
+        const greet = await reply(); // 220 banner
+        if (greet.code !== 220) throw new Error(`SMTP greeting: ${greet.text}`);
+        await cmd(`EHLO windmill`, 250);
+        await cmd(`MAIL FROM:<${from}>`, 250);
+        await cmd(`RCPT TO:<${to}>`, 250);
+        await cmd(`DATA`, 354);
+        const msg =
+            `From: ${from}\r\n` +
+            `To: ${to}\r\n` +
+            `Subject: ${subject}\r\n` +
+            `Content-Type: text/plain; charset=utf-8\r\n` +
+            `\r\n` +
+            body.replace(/\r?\n/g, "\r\n").replace(/^\./gm, "..") +
+            `\r\n.`;
+        await cmd(msg, 250);
+        await cmd(`QUIT`, 221);
+    } finally {
+        conn.close();
+    }
 }

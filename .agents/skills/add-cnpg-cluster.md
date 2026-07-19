@@ -18,7 +18,7 @@ app — its own ExternalSecret pointing at `postgres-<app>-rw` — lives in
 its own namespace under `kubernetes/apps/<ns>/<app>/app/`. This skill
 covers both.
 
-Canonical recent reference: `cloudnative-pg/config/cutvideo/`.
+Canonical recent reference: `cloudnative-pg/config/videodupfinder/`.
 
 ## Workflow
 
@@ -26,7 +26,7 @@ Canonical recent reference: `cloudnative-pg/config/cutvideo/`.
 
 Ask the user for:
 
-1. **App name** — e.g. `cutvideo`, `videodupfinder`. Used as the
+1. **App name** — e.g. `videodupfinder`, `sparkyfitness`. Used as the
    directory name and as `<app>` in every reference below.
 2. **App namespace** — where the consuming workload lives (e.g. `media`,
    `auth`). The DB always lives in `databases/`.
@@ -270,7 +270,7 @@ The `INIT_POSTGRES_*` block is consumed by an `initContainers:` entry
 in the consuming HelmRelease (typical pattern: a `mendhak/init-pg`-style
 container that creates the DB and grants it to the app user). If the
 app already exists and just needs DB env wiring, look at
-`media/cutvideo/app/helmrelease.yaml` for the canonical init-container
+`media/videodupfinder/app/helmrelease.yaml` for the canonical init-container
 shape.
 
 ### Step 6: Smoke test before declaring done

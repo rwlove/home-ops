@@ -329,7 +329,7 @@ This repository:
   recurses into.
 - Per-app Kustomizations live next to each app at
   `kubernetes/apps/<namespace>/<app>/ks.yaml`. The `metadata.name` is
-  just the app name (e.g., `nextcloud`, `cutvideo`); there is no
+  just the app name (e.g., `nextcloud`, `videodupfinder`); there is no
   `<system>-<app>` prefix.
 - The Flux source is `GitRepository/home-ops-kubernetes` in the
   `flux-system` namespace — every `ks.yaml` references it as

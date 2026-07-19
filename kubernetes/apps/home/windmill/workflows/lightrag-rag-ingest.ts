@@ -45,6 +45,9 @@ type PaperlessDoc = { id: number; title: string; content: string; modified: stri
 type PaperlessList = { count: number; next: string | null; results: PaperlessDoc[] };
 type DocStatus = { id: string; file_path: string };
 type DocsStatusesResponse = { statuses: Record<string, DocStatus[]> };
+type PipelineStatus = { busy?: boolean; request_pending?: boolean; destructive_busy?: boolean };
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function main() {
     const token = Deno.env.get("PAPERLESS_TOKEN");
@@ -75,8 +78,28 @@ export async function main() {
                 if (doc.modified > maxModified) maxModified = doc.modified;
                 continue;
             }
+            // Refresh path (doc already in LightRAG). LightRAG has no upsert:
+            // /documents/text 409s if the source exists, and delete is an
+            // ASYNC pipeline task that is refused while the pipeline is busy.
+            // So: bail fast if busy (delete would be refused), else delete and
+            // confirm the source is actually gone before re-inserting. If we
+            // can't confirm removal, the OLD doc is still present — leave it
+            // (no silent graph-doc loss) and let a future run retry.
             const prior = existing.get(src);
-            if (prior?.length) { await lightragDelete(apiKey, prior); replaced++; }
+            if (prior?.length) {
+                if (await pipelineBusy(apiKey)) {
+                    already++;
+                    if (doc.modified > maxModified) maxModified = doc.modified;
+                    continue;
+                }
+                await lightragDelete(apiKey, prior);
+                if (!(await waitSourceAbsent(apiKey, src, 30_000))) {
+                    already++;
+                    if (doc.modified > maxModified) maxModified = doc.modified;
+                    continue;
+                }
+                replaced++;
+            }
             const inserted = await lightragInsert(apiKey, text, src);
             if (inserted) submitted++; else already++;
             if (doc.modified > maxModified) maxModified = doc.modified;
@@ -121,6 +144,32 @@ async function lightragSourceMap(apiKey: string): Promise<Map<string, string[]>>
     return map;
 }
 
+// LightRAG's delete is an async pipeline task that is refused while the
+// pipeline is busy (busy / request_pending / destructive_busy). Checking
+// first lets us skip a refresh that would be refused, instead of issuing a
+// delete and then racing a re-insert against it.
+async function pipelineBusy(apiKey: string): Promise<boolean> {
+    const r = await fetch(`${LIGHTRAG}/documents/pipeline_status`, {
+        headers: { "X-API-Key": apiKey },
+        signal: AbortSignal.timeout(30_000),
+    });
+    if (!r.ok) return true; // unknown → treat as busy; skip the refresh this run
+    const s = (await r.json()) as PipelineStatus;
+    return Boolean(s.busy || s.request_pending || s.destructive_busy);
+}
+
+// Poll until `source` no longer appears in LightRAG (delete has landed), or
+// the timeout elapses. Returns true if confirmed absent.
+async function waitSourceAbsent(apiKey: string, source: string, timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        const map = await lightragSourceMap(apiKey);
+        if (!map.get(source)?.length) return true;
+        await sleep(2_000);
+    }
+    return false;
+}
+
 async function lightragInsert(apiKey: string, text: string, source: string): Promise<boolean> {
     const r = await fetch(`${LIGHTRAG}/documents/text`, {
         method: "POST",
@@ -128,13 +177,12 @@ async function lightragInsert(apiKey: string, text: string, source: string): Pro
         body: JSON.stringify({ text, file_source: source }),
         signal: AbortSignal.timeout(60_000),
     });
-    // 409 = LightRAG already has this source but our dedup map missed it
-    // (GET /documents returns a capped subset). Treat as already-ingested,
-    // NOT fatal — otherwise one duplicate aborts the run before the watermark
-    // advances (line ~90), and every subsequent run re-scans from EPOCH and
-    // re-hits the same doc forever. Returns false so the caller counts it as
-    // `already` rather than a fresh submit. Follow-up: paginate
-    // lightragSourceMap so modified docs still refresh cleanly.
+    // 409 = LightRAG already has this source (no upsert; it wants a delete
+    // first). Backstop for the refresh path racing LightRAG's async delete —
+    // treat as already-ingested, NOT fatal. Without this, one such doc aborts
+    // the run before the watermark advances (line ~90), and every subsequent
+    // run re-scans from EPOCH and re-hits it forever. Returns false so the
+    // caller counts it as `already` rather than a fresh submit.
     if (r.status === 409) return false;
     if (!r.ok) throw new Error(`lightrag insert ${source} ${r.status}: ${await r.text()}`);
     return true;

@@ -59,7 +59,17 @@ spec:
                 nodeAffinityType:
                   - requiredDuringSchedulingIgnoredDuringExecution
               name: RemovePodsViolatingNodeAffinity
-            - name: RemovePodsViolatingNodeTaints
+            - args:
+                # Ignore Cilium's transient CNI-rollout taint. During a
+                # cilium-agent restart (every chart upgrade) the node carries
+                # `node.cilium.io/agent-not-ready:NoSchedule` until the new
+                # agent is Ready; without this exclusion the descheduler
+                # evicts every non-tolerating pod on that node, producing a
+                # cluster-wide eviction storm (2026-07-18: 50-64 pods/tick,
+                # blacked out Immich during the 1.19.6 rollout).
+                excludedTaints:
+                  - node.cilium.io/agent-not-ready
+              name: RemovePodsViolatingNodeTaints
             - name: RemovePodsViolatingTopologySpreadConstraint
           plugins:
             balance:

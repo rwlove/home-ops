@@ -21,28 +21,23 @@ or the inline curl in the README two levels up).
 
 ## Secrets the workers consume (via env)
 
-| env | source 1P item / field |
+| env | source |
 |---|---|
-| `LANGGRAPH_APPROVAL_SIGNING_KEY` | `langgraph-agents.LANGGRAPH_APPROVAL_SIGNING_KEY` |
-| `NTFY_URL` | literal template (`https://ntfy.${SECRET_DOMAIN}`) |
-| `NTFY_WRITE_TOKEN` | `ntfy.NTFY_WRITE_TOKEN` |
-| `ZULIP_BOT_EMAIL` | `zulip-windmill-bot.ZULIP_BOT_EMAIL` |
-| `ZULIP_BOT_API_KEY` | `zulip-windmill-bot.ZULIP_BOT_API_KEY` |
-| `ROB_ZULIP_USER_ID` | `zulip-windmill-bot.ROB_ZULIP_USER_ID` |
+| `SMTP_HOST` / `SMTP_PORT` | literal (`smtp-relay.home.svc.cluster.local` / `2525`) — plain env in the HelmRelease |
+| `NOTIFY_EMAIL_FROM` / `NOTIFY_EMAIL_TO` | literal (`windmill@${SECRET_DOMAIN}` / `admin@${SECRET_DOMAIN}`) — plain env in the HelmRelease |
 | `PAPERLESS_TOKEN` | `paperless.mcp_token` (shared with paperless-mcp) |
 | `LIGHTRAG_API_KEY` | `lightrag.api_key` (shared with the ai-ns lightrag ExternalSecret) |
+| `WINDMILL_TOKEN` | `windmill.windmill_api_token` (failure-watcher self-introspection) |
 
-## Approval-token signing (pre-sign at post-time)
+## Notifications
 
-`langgraph-approval-post.ts` and the inline `postApproval` in
-`langgraph-inbox.ts` pre-sign three HMAC-SHA256 approval tokens
-(approve / reject / defer) when the agent pauses and embeds them in
-the ntfy push's action buttons. Tapping a button on the phone POSTs
-the matching token to `https://langgraph.${SECRET_DOMAIN}/approval`
-(exposed by `kubernetes/apps/ai/langgraph-agents/app/route-approval.yaml`).
+The watcher workflows (`windmill-failure-watcher`, `workaround-watcher`,
+`smart-home-intent-drift`) notify by **email**. Each speaks plaintext
+SMTP to the in-cluster `smtp-relay` (home ns, maddy) on port 2525,
+which relays out via Mailgun. The small SMTP helper is duplicated inline
+in each workflow (self-contained, per the convention above).
 
-Single-use is enforced by langgraph-agents' paused-state machine: once
-one verdict resumes the task, subsequent token POSTs return 409.
-
-The Zulip emoji-reaction path in `langgraph-approval-receive.ts`
-remains as a desktop fallback — it signs its own token at react-time.
+The earlier ntfy push + Zulip DM paths — including the langgraph
+interactive approve/reject/defer action buttons — were retired when the
+langgraph fleet was decommissioned (2026-07-07) and ntfy + Zulip were
+removed from the notification stack.

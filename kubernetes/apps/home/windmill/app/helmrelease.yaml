@@ -74,32 +74,22 @@ spec:
           # an explicit allowlist).
           extraEnv: &workflow_secrets
             - name: WHITELIST_ENVS
-              value: NTFY_URL,NTFY_WRITE_TOKEN,ZULIP_API_URL,ZULIP_BOT_EMAIL,ZULIP_BOT_API_KEY,ROB_ZULIP_USER_ID,PAPERLESS_TOKEN,LIGHTRAG_API_KEY,WINDMILL_TOKEN
-            - name: NTFY_URL
-              valueFrom:
-                secretKeyRef:
-                  name: windmill-workflows-secret
-                  key: NTFY_URL
-            - name: NTFY_WRITE_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: windmill-workflows-secret
-                  key: NTFY_WRITE_TOKEN
-            - name: ZULIP_API_URL
-              valueFrom:
-                secretKeyRef:
-                  name: windmill-workflows-secret
-                  key: ZULIP_API_URL
-            - name: ZULIP_BOT_EMAIL
-              valueFrom:
-                secretKeyRef:
-                  name: windmill-workflows-secret
-                  key: ZULIP_BOT_EMAIL
-            - name: ZULIP_BOT_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: windmill-workflows-secret
-                  key: ZULIP_BOT_API_KEY
+              value: SMTP_HOST,SMTP_PORT,NOTIFY_EMAIL_FROM,NOTIFY_EMAIL_TO,PAPERLESS_TOKEN,LIGHTRAG_API_KEY,WINDMILL_TOKEN
+            # Email sink config for the watcher workflows — non-secret
+            # literals (plain env, not routed through the ExternalSecret).
+            # The workflows speak plaintext SMTP to smtp-relay:2525, which
+            # relays out via Mailgun. ${SECRET_DOMAIN} is Flux-substituted
+            # at reconcile; NOTIFY_EMAIL_FROM must be on the Mailgun-
+            # authorized domain, NOTIFY_EMAIL_TO reuses the admin@ role
+            # address (same recipient convention as netbox notifications).
+            - name: SMTP_HOST
+              value: smtp-relay.home.svc.cluster.local
+            - name: SMTP_PORT
+              value: "2525"
+            - name: NOTIFY_EMAIL_FROM
+              value: windmill@${SECRET_DOMAIN}
+            - name: NOTIFY_EMAIL_TO
+              value: admin@${SECRET_DOMAIN}
             - name: PAPERLESS_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -121,11 +111,6 @@ spec:
                 secretKeyRef:
                   name: windmill-workflows-secret
                   key: WINDMILL_TOKEN
-            - name: ROB_ZULIP_USER_ID
-              valueFrom:
-                secretKeyRef:
-                  name: windmill-workflows-secret
-                  key: ROB_ZULIP_USER_ID
         # Native worker — runs Bash/PowerShell/etc. without nsjail.
         - name: native
           replicas: 1

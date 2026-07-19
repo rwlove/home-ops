@@ -20,7 +20,7 @@
 //   4. critical_devices entries pointing at non-existent entities
 //      → rot, remove or fix
 //
-// Output: Zulip DM to ADMIN if drift_count > 0. Silent no-op if clean.
+// Output: Email to ADMIN if drift_count > 0. Silent no-op if clean.
 // Schedule: weekly (configured via Windmill cron — not part of this file).
 
 import * as wmill from "npm:windmill-client@1.527.0";
@@ -141,13 +141,16 @@ export async function main() {
     }
     await wmill.setState(verdictHash);
 
-    await postZulip([
-        `**Smart-home intent-map drift** — \`device-intent-map.yaml\` needs attention.`,
-        ``,
-        output,
-        ``,
-        `_Audited by smart-home-operator. Task: \`${taskId}\`._`,
-    ].join("\n"));
+    await sendEmail(
+        "⚠️ Smart-home intent-map drift detected",
+        [
+            `device-intent-map.yaml needs attention.`,
+            ``,
+            output,
+            ``,
+            `Audited by smart-home-operator. Task: ${taskId}.`,
+        ].join("\n"),
+    );
 
     return {
         task_id: taskId,
@@ -156,27 +159,64 @@ export async function main() {
     };
 }
 
-// ---------- Zulip ----------
+// ---------- Email (in-cluster smtp-relay -> Mailgun) ----------
+//
+// Raw SMTP over plaintext to smtp-relay:2525 (maddy, `tls off`, no auth
+// on submission — it relays everything out via Mailgun). Kept
+// self-contained per the workflows "no shared modules" convention.
 
-async function postZulip(content: string) {
-    const email = Deno.env.get("ZULIP_BOT_EMAIL");
-    const apiKey = Deno.env.get("ZULIP_BOT_API_KEY");
-    if (!email || !apiKey) throw new Error("ZULIP_BOT_EMAIL / ZULIP_BOT_API_KEY env not set");
-    const robId = parseInt(Deno.env.get("ROB_ZULIP_USER_ID") ?? "8", 10);
-    const zulipApiUrl = Deno.env.get("ZULIP_API_URL") ?? "http://zulip.collab.svc.cluster.local";
-    const zulipHostHeader = Deno.env.get("ZULIP_HOST_HEADER") ??
-        `chat.${Deno.env.get("SECRET_DOMAIN") ?? ""}`;
-    const auth = "Basic " + btoa(`${email}:${apiKey}`);
-    const form = new URLSearchParams({ type: "private", to: `[${robId}]`, content });
-    const r = await fetch(`${zulipApiUrl}/api/v1/messages`, {
-        method: "POST",
-        headers: {
-            Authorization: auth,
-            "Content-Type": "application/x-www-form-urlencoded",
-            Host: zulipHostHeader,
-        },
-        body: form,
-        signal: AbortSignal.timeout(30_000),
-    });
-    return { status: r.status, ok: r.ok };
+async function sendEmail(subject: string, body: string) {
+    const host = Deno.env.get("SMTP_HOST") ?? "smtp-relay.home.svc.cluster.local";
+    const port = parseInt(Deno.env.get("SMTP_PORT") ?? "2525", 10);
+    const from = Deno.env.get("NOTIFY_EMAIL_FROM");
+    const to = Deno.env.get("NOTIFY_EMAIL_TO");
+    if (!from) throw new Error("NOTIFY_EMAIL_FROM env not set");
+    if (!to) throw new Error("NOTIFY_EMAIL_TO env not set");
+
+    const conn = await Deno.connect({ hostname: host, port });
+    const enc = new TextEncoder();
+    const dec = new TextDecoder();
+    const rbuf = new Uint8Array(4096);
+
+    // Read one full SMTP reply. Multi-line replies use "NNN-" for
+    // continuation lines and "NNN " (space) on the final line.
+    async function reply(): Promise<{ code: number; text: string }> {
+        let acc = "";
+        while (true) {
+            const n = await conn.read(rbuf);
+            if (n === null) break;
+            acc += dec.decode(rbuf.subarray(0, n));
+            const last = acc.split(/\r?\n/).filter((l) => l.length > 0).at(-1) ?? "";
+            if (/^\d{3} /.test(last)) break;
+        }
+        return { code: parseInt(acc.slice(0, 3), 10) || 0, text: acc.trim() };
+    }
+    async function cmd(line: string, expect: number) {
+        await conn.write(enc.encode(line + "\r\n"));
+        const { code, text } = await reply();
+        if (code !== expect) {
+            throw new Error(`SMTP ${line.split(/\s/)[0]}: expected ${expect}, got ${text}`);
+        }
+    }
+
+    try {
+        const greet = await reply(); // 220 banner
+        if (greet.code !== 220) throw new Error(`SMTP greeting: ${greet.text}`);
+        await cmd(`EHLO windmill`, 250);
+        await cmd(`MAIL FROM:<${from}>`, 250);
+        await cmd(`RCPT TO:<${to}>`, 250);
+        await cmd(`DATA`, 354);
+        const msg =
+            `From: ${from}\r\n` +
+            `To: ${to}\r\n` +
+            `Subject: ${subject}\r\n` +
+            `Content-Type: text/plain; charset=utf-8\r\n` +
+            `\r\n` +
+            body.replace(/\r?\n/g, "\r\n").replace(/^\./gm, "..") +
+            `\r\n.`;
+        await cmd(msg, 250);
+        await cmd(`QUIT`, 221);
+    } finally {
+        conn.close();
+    }
 }

@@ -1,5 +1,5 @@
 // Periodic self-check: detect Windmill scripts that are failing at a
-// high rate and notify Rob via ntfy + Zulip DM.
+// high rate and notify Rob via email (in-cluster smtp-relay → Mailgun).
 //
 // Why: PR #11894 fixed alertmanager-holmesgpt-notify in git on
 // 2026-05-21, but the change was never pushed to Windmill via
@@ -162,66 +162,77 @@ function matchesThreshold(g: Grouped): boolean {
 
 async function notify(groups: Grouped[]) {
     const lines = [
-        `🚨 **Windmill workflow failures** (last ${LOOKBACK_MIN} min)`,
+        `Windmill workflow failures (last ${LOOKBACK_MIN} min):`,
         "",
     ];
     for (const g of groups) {
         const pct = Math.round(g.failure_rate * 100);
-        lines.push(`- \`${g.path.replace(/^f\/lovenet\//, "")}\` — ${g.failed}/${g.total} failed (${pct}%)`);
+        lines.push(`- ${g.path.replace(/^f\/lovenet\//, "")} — ${g.failed}/${g.total} failed (${pct}%)`);
     }
     lines.push("");
-    lines.push("Inspect: `wmill flows runs` or Windmill UI → Jobs page");
+    lines.push("Inspect: `wmill flows runs` or Windmill UI -> Jobs page");
 
-    await Promise.allSettled([
-        publishNtfy({
-            topic: "alerts",
-            title: `🚨 Windmill workflows failing: ${groups.length}`,
-            message: lines.join("\n"),
-            priority: 3,
-            tags: ["warning", "windmill"],
-        }),
-        postZulipDM(lines.join("\n")),
-    ]);
+    await sendEmail(`🚨 Windmill workflows failing: ${groups.length}`, lines.join("\n"));
 }
 
-async function publishNtfy(args: {
-    topic: string;
-    title: string;
-    message: string;
-    priority: number;
-    tags: string[];
-}) {
-    const url = Deno.env.get("NTFY_URL") ?? "";
-    const token = Deno.env.get("NTFY_WRITE_TOKEN");
-    if (!token) throw new Error("NTFY_WRITE_TOKEN env not set");
-    const r = await fetch(url, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify(args),
-        signal: AbortSignal.timeout(15_000),
-    });
-    return { status: r.status, ok: r.ok };
-}
+// ---------- Email (in-cluster smtp-relay -> Mailgun) ----------
+//
+// Raw SMTP over plaintext to smtp-relay:2525 (maddy, `tls off`, no auth
+// on submission — it relays everything out via Mailgun). Kept
+// self-contained per the workflows "no shared modules" convention.
 
-async function postZulipDM(content: string) {
-    const email = Deno.env.get("ZULIP_BOT_EMAIL");
-    const apiKey = Deno.env.get("ZULIP_BOT_API_KEY");
-    if (!email || !apiKey) throw new Error("ZULIP_BOT_EMAIL / ZULIP_BOT_API_KEY env not set");
-    const robId = parseInt(Deno.env.get("ROB_ZULIP_USER_ID") ?? "8", 10);
-    const zulipApiUrl = Deno.env.get("ZULIP_API_URL") ?? "http://zulip.collab.svc.cluster.local";
-    const zulipHostHeader = Deno.env.get("ZULIP_HOST_HEADER")
-        ?? `chat.${Deno.env.get("SECRET_DOMAIN") ?? ""}`;
-    const auth = "Basic " + btoa(`${email}:${apiKey}`);
-    const form = new URLSearchParams({ type: "private", to: `[${robId}]`, content });
-    const r = await fetch(`${zulipApiUrl}/api/v1/messages`, {
-        method: "POST",
-        headers: {
-            Authorization: auth,
-            "Content-Type": "application/x-www-form-urlencoded",
-            Host: zulipHostHeader,
-        },
-        body: form,
-        signal: AbortSignal.timeout(15_000),
-    });
-    return { status: r.status, ok: r.ok };
+async function sendEmail(subject: string, body: string) {
+    const host = Deno.env.get("SMTP_HOST") ?? "smtp-relay.home.svc.cluster.local";
+    const port = parseInt(Deno.env.get("SMTP_PORT") ?? "2525", 10);
+    const from = Deno.env.get("NOTIFY_EMAIL_FROM");
+    const to = Deno.env.get("NOTIFY_EMAIL_TO");
+    if (!from) throw new Error("NOTIFY_EMAIL_FROM env not set");
+    if (!to) throw new Error("NOTIFY_EMAIL_TO env not set");
+
+    const conn = await Deno.connect({ hostname: host, port });
+    const enc = new TextEncoder();
+    const dec = new TextDecoder();
+    const rbuf = new Uint8Array(4096);
+
+    // Read one full SMTP reply. Multi-line replies use "NNN-" for
+    // continuation lines and "NNN " (space) on the final line.
+    async function reply(): Promise<{ code: number; text: string }> {
+        let acc = "";
+        while (true) {
+            const n = await conn.read(rbuf);
+            if (n === null) break;
+            acc += dec.decode(rbuf.subarray(0, n));
+            const last = acc.split(/\r?\n/).filter((l) => l.length > 0).at(-1) ?? "";
+            if (/^\d{3} /.test(last)) break;
+        }
+        return { code: parseInt(acc.slice(0, 3), 10) || 0, text: acc.trim() };
+    }
+    async function cmd(line: string, expect: number) {
+        await conn.write(enc.encode(line + "\r\n"));
+        const { code, text } = await reply();
+        if (code !== expect) {
+            throw new Error(`SMTP ${line.split(/\s/)[0]}: expected ${expect}, got ${text}`);
+        }
+    }
+
+    try {
+        const greet = await reply(); // 220 banner
+        if (greet.code !== 220) throw new Error(`SMTP greeting: ${greet.text}`);
+        await cmd(`EHLO windmill`, 250);
+        await cmd(`MAIL FROM:<${from}>`, 250);
+        await cmd(`RCPT TO:<${to}>`, 250);
+        await cmd(`DATA`, 354);
+        const msg =
+            `From: ${from}\r\n` +
+            `To: ${to}\r\n` +
+            `Subject: ${subject}\r\n` +
+            `Content-Type: text/plain; charset=utf-8\r\n` +
+            `\r\n` +
+            body.replace(/\r?\n/g, "\r\n").replace(/^\./gm, "..") +
+            `\r\n.`;
+        await cmd(msg, 250);
+        await cmd(`QUIT`, 221);
+    } finally {
+        conn.close();
+    }
 }

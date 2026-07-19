@@ -116,37 +116,50 @@ data:
       # matches `plus://<hex>` (the active path line only — the commented
       # model-history lines are bare `#<hex>`, no `plus://`); the constant
       # `plus://REDACTED` keeps the diff stable (no per-snapshot churn).
-      {
-        echo "# yamllint disable"
-        echo "# This file is a snapshot of Frigate's live /config/config.yml,"
-        echo "# written by Frigate itself via the UI / API config setter."
-        echo "# Not hand-authored YAML; not Flux-reconciled. Lint rules around"
-        echo "# quoted-strings / comment-spacing don't apply."
-        echo "# model.path Frigate+ id is REDACTED; real value in 1Password"
-        echo "# (Kubernetes/frigate/frigate_plus_custom_model)."
-        sed -E 's#(plus://)[a-f0-9]{8,}#\1REDACTED#g' "$CONFIG_FILE"
-      } > "$DEST"
+      render_snapshot() {
+        mkdir -p "$(dirname "$DEST")"
+        {
+          echo "# yamllint disable"
+          echo "# This file is a snapshot of Frigate's live /config/config.yml,"
+          echo "# written by Frigate itself via the UI / API config setter."
+          echo "# Not hand-authored YAML; not Flux-reconciled. Lint rules around"
+          echo "# quoted-strings / comment-spacing don't apply."
+          echo "# model.path Frigate+ id is REDACTED; real value in 1Password"
+          echo "# (Kubernetes/frigate/frigate_plus_custom_model)."
+          sed -E 's#(plus://)[a-f0-9]{8,}#\1REDACTED#g' "$CONFIG_FILE"
+        } > "$DEST"
+      }
 
-      if git diff --quiet; then
-        echo "No diff; nothing to commit."
-        return 0
-      fi
-
-      git add "$SNAPSHOT_PATH"
-      TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-      git commit --quiet -m "chore(frigate): config.yml snapshot ${TS}"
-
+      # Idempotent single-file sync that survives a busy main. This job is the
+      # SOLE writer of SNAPSHOT_PATH, so rather than rebasing a local commit
+      # (which failed on the --depth=1 clone under concurrent pushes), each
+      # attempt resets the working tree to the latest origin tip and re-applies
+      # the deterministic render. A rejected push then can't conflict — it just
+      # retries from a newer HEAD until the window is clear.
       tries=0
-      until git push origin "$BRANCH" 2>&1; do
+      max_tries=5
+      while :; do
+        render_snapshot
+        if git diff --quiet; then
+          echo "No diff; nothing to commit."
+          return 0
+        fi
+        git add "$SNAPSHOT_PATH"
+        TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        git commit --quiet -m "chore(frigate): config.yml snapshot ${TS}"
+        if git push origin "$BRANCH" 2>&1; then
+          echo "Snapshot pushed."
+          return 0
+        fi
         tries=$((tries + 1))
-        if [ "$tries" -ge 3 ]; then
-          echo "ERROR: push failed after 3 attempts" >&2
+        if [ "$tries" -ge "$max_tries" ]; then
+          echo "ERROR: push failed after ${max_tries} attempts" >&2
           return 1
         fi
-        echo "Push rejected; rebasing and retrying ($tries/3)..."
-        git pull --rebase --quiet origin "$BRANCH"
+        echo "Push rejected; resetting to latest origin/${BRANCH} and retrying (${tries}/${max_tries})..."
+        sleep 2
+        git fetch --quiet origin "$BRANCH" && git reset --hard FETCH_HEAD >/dev/null 2>&1
       done
-      echo "Snapshot pushed."
     }
 
     if snapshot_attempt; then

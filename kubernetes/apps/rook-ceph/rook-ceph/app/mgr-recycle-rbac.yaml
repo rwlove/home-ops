@@ -1,0 +1,32 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rook-ceph-mgr-recycle
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: rook-ceph-mgr-recycle
+rules:
+  # The active mgr pod name is non-deterministic
+  # (rook-ceph-mgr-<a|b>-<hash>-<rand>), so it must be selected by the
+  # rook-set `mgr_role=active` label — which requires `list` (a
+  # resourceNames-scoped Role cannot match a label selector). Scope stays
+  # namespace-local (rook-ceph) via the RoleBinding below. The operator
+  # recreates the deleted pod, so no Deployment spec mutation / Flux drift.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rook-ceph-mgr-recycle
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: rook-ceph-mgr-recycle
+subjects:
+  - kind: ServiceAccount
+    name: rook-ceph-mgr-recycle

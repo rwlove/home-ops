@@ -23,7 +23,9 @@
 //   3. POST /documents/text { text, file_source: "paperless:<id>" }
 //      (X-API-Key) — fire-and-forget; LightRAG processes in its pipeline
 //
-// Watermark: persisted in Windmill state (max Paperless `modified` seen).
+// Watermark: persisted in Windmill state (max Paperless `modified` seen),
+// forward-clamped to a LOOKBACK_DAYS floor so a stale/diverged trigger scope
+// can't trigger wasteful refresh churn (see LOOKBACK_DAYS below).
 // Identity: file_source "paperless:<id>" surfaces as file_path in
 // LightRAG's doc status — the stable key for clean updates AND the
 // tombstone sweep (lightrag-rag-tombstone).
@@ -40,6 +42,15 @@ const MIN_TEXT_LEN = 50;
 const MAX_DOC_CHARS = 500_000; // safety: refuse runaway docs
 const SOURCE_PREFIX = "paperless:";
 const EPOCH = "1970-01-01T00:00:00Z";
+// Forward-clamp floor (#4). wmill.getState() is scoped per trigger context:
+// the schedule advances its own state to ~now every run, but a manual /
+// webhook trigger can read a stale, months-old scope. A stale watermark
+// makes EVERY already-ingested doc above it sort into the refresh path
+// (delete + reinsert = wasteful 80B re-extraction on the shared GB10, up to
+// the per-run cap, on every such invocation). Clamp any watermark older than
+// this many days forward to the floor so a stale/diverged read can only ever
+// touch a small recent window. Inert for the schedule (its state is ~now).
+const LOOKBACK_DAYS = 14;
 
 type PaperlessDoc = { id: number; title: string; content: string; modified: string };
 type PaperlessList = { count: number; next: string | null; results: PaperlessDoc[] };
@@ -56,7 +67,36 @@ export async function main() {
     if (!apiKey) throw new Error("LIGHTRAG_API_KEY env not set");
 
     const started = new Date().toISOString();
-    const watermark = ((await wmill.getState()) as string | null) ?? EPOCH;
+    const stored = ((await wmill.getState()) as string | null) ?? EPOCH;
+    const floor = new Date(Date.now() - LOOKBACK_DAYS * 86_400_000).toISOString();
+    const watermark = stored > floor ? stored : floor;
+    if (watermark !== stored) {
+        console.warn(
+            `[lightrag-ingest] stored watermark ${stored} older than ${LOOKBACK_DAYS}d floor — clamping to ${floor} (stale/diverged trigger state)`,
+        );
+    }
+
+    // Lazy fetch (#2): pull the first candidate page BEFORE the O(corpus)
+    // GET /documents. Idle runs (nothing modified past the watermark) return
+    // here without ever building the source map — the common case once the
+    // backfill is done. The map is only worth its full-corpus fetch when
+    // there is at least one doc to reconcile against it.
+    const firstPage = await paperlessList(token, watermark, 1);
+    if (firstPage.results.length === 0) {
+        console.log(`[lightrag-ingest] watermark=${watermark} no changes — skipping source-map fetch`);
+        return {
+            started,
+            finished: new Date().toISOString(),
+            watermark_in: watermark,
+            watermark_out: watermark,
+            submitted: 0,
+            replaced: 0,
+            skipped: 0,
+            already: 0,
+            capped: false,
+        };
+    }
+
     const existing = await lightragSourceMap(apiKey); // "paperless:<id>" -> [docId]
     console.log(`[lightrag-ingest] watermark=${watermark} known_sources=${existing.size}`);
 
@@ -65,10 +105,10 @@ export async function main() {
     let page = 1;
     let capped = false;
 
+    // Reuse the page we already fetched; page in from page 2 onward.
+    let list = firstPage;
     outer:
     while (true) {
-        const list = await paperlessList(token, watermark, page);
-        if (list.results.length === 0) break;
         for (const doc of list.results) {
             if (submitted >= MAX_DOCS_PER_RUN) { capped = true; break outer; }
             const text = (doc.content ?? "").slice(0, MAX_DOC_CHARS).trim();
@@ -106,6 +146,8 @@ export async function main() {
         }
         if (!list.next) break;
         page += 1;
+        list = await paperlessList(token, watermark, page);
+        if (list.results.length === 0) break;
     }
 
     // Advance the watermark only as far as the docs we actually decided this

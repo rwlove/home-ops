@@ -257,7 +257,7 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 | **Paperless-ngx** | Document scanning, OCR, tagging (CNPG-backed, offsite-backed) |
 | **Obsidian** + **obsidian-couchdb** | Notes sync (CouchDB w/ Cloudflare rate-limiting) |
 | **Zulip** | Self-hosted team chat |
-| **Windmill** | Workflow automation; 7 checked-in TypeScript flows under `kubernetes/apps/home/windmill/workflows/` cover paperless RAG ingest+tombstone (Qdrant), LightRAG graph-RAG ingest+tombstone, HA smart-home intent drift, Windmill self-failure-watch, and the workaround upstream-watcher. (Down from 23 — the 16 langgraph-agents-fleet-specific flows, including the inbox/approval/digest/DLQ/cost-cap/awaiting-user/reviewer-weekly scripts and the Zulip triager webhook, were removed 2026-07-06 along with the fleet.) |
+| **Windmill** | Workflow automation; 8 checked-in TypeScript flows under `kubernetes/apps/home/windmill/workflows/` cover the unified paperless→Qdrant+LightRAG fan-out ingest, paperless + LightRAG RAG tombstones, HA smart-home intent drift, Windmill self-failure-watch, and the workaround upstream-watcher. (The two original split ingests — `paperless-rag-ingest` (Qdrant) + `lightrag-rag-ingest` (graph) — were merged into `paperless-rag-fanout` on 2026-07-20; their `.ts` remain and their schedules are paused for rollback. Down from 23 — the 16 langgraph-agents-fleet-specific flows, including the inbox/approval/digest/DLQ/cost-cap/awaiting-user/reviewer-weekly scripts and the Zulip triager webhook, were removed 2026-07-06 along with the fleet.) |
 | **ntfy** | Self-hosted push notifications (operator approvals via Android tap actions) |
 | **BentoPDF** | Self-hosted PDF toolkit |
 | **Kitchenowl** | Shopping lists + recipe / meal management |
@@ -319,7 +319,7 @@ flowchart TB
         Khoj[Khoj<br/>personal AI]
     end
 
-    subgraph Bridges[Windmill bridges<br/>7 TS workflows]
+    subgraph Bridges[Windmill bridges<br/>8 TS workflows]
         WPaperless[paperless-rag-ingest/tombstone.ts]
         WLightrag[lightrag-rag-ingest/tombstone.ts]
         WOther[smart-home-intent-drift.ts ·<br/>windmill-failure-watcher.ts ·<br/>workaround-watcher.ts]
@@ -360,7 +360,7 @@ plumbing, removed 2026-07-06 along with the fleet.
 - **Khoj** (`ai/`) — parallel personal-AI surface for notes + docs. Self-contained: own embedding pipeline (default gte-small, optionally ollama nomic-embed-text), chat via Ollama-P40. Does **not** consume the MCP gateway.
 - **HolmesGPT** — removed 2026-07-06 (no value delivered). The `windmill-investigate` route/receiver and the `alertmanager-holmesgpt-notify.ts` bridge were removed in Stage 1 (critical alerts now go straight to Pushover); the HolmesGPT deployment itself, its RBAC, its Open WebUI tool-server registration, and its Ollama/Authelia wiring were removed in Stage 2. HolmesGPT no longer exists anywhere in the cluster.
 - **langgraph-agents** — removed 2026-07-06. The FastAPI multi-agent runtime, its Postgres checkpoints (`postgres-langgraph-checkpoints`, deleted), vault PVCs (`langgraph-vault`/`langgraph-vault-rw`, deleted), and both public routes (`hai.${SECRET_DOMAIN}` and `hai-web.${SECRET_DOMAIN}`) are gone. `sync-receiver` — an sshd sidecar that existed solely to expose the langgraph-vault PVCs over rsync — was deleted alongside it. See [Agent fleet — status today](https://github.com/rwlove/home-ops/blob/main/docs/src/ai_architecture.md#agent-fleet--status-today) for the historical roster.
-- **Windmill** (`home/`) — 7 checked-in TypeScript flows remain under `kubernetes/apps/home/windmill/workflows/` (down from 23): Paperless RAG ingest+tombstone, LightRAG graph-RAG ingest+tombstone, HA smart-home intent drift, Windmill self-failure-watch, and the workaround upstream-watcher. The 16 langgraph-fleet-specific flows (inbox, approval post/receive, daily digest, cost-cap watcher, awaiting-user sweep, DLQ watcher, weekly operator-drift crons, the approval-flow smoke test, and the Zulip triager webhook) were deleted 2026-07-06.
+- **Windmill** (`home/`) — 8 checked-in TypeScript flows remain under `kubernetes/apps/home/windmill/workflows/` (down from 23): the unified `paperless-rag-fanout` ingest (Qdrant + LightRAG from one pull), Paperless + LightRAG RAG tombstones, HA smart-home intent drift, Windmill self-failure-watch, and the workaround upstream-watcher. The two original split ingests (`paperless-rag-ingest`, `lightrag-rag-ingest`) were merged into the fan-out 2026-07-20 — retained on disk, schedules paused for rollback. The 16 langgraph-fleet-specific flows (inbox, approval post/receive, daily digest, cost-cap watcher, awaiting-user sweep, DLQ watcher, weekly operator-drift crons, the approval-flow smoke test, and the Zulip triager webhook) were deleted 2026-07-06.
 - **Langfuse** — removed 2026-07-06. Its only consumer (langgraph-agents) was already gone; the keep-dormant-vs-remove question is now resolved as remove.
 - **memory-mcp** (`mcp-system/`) — cross-agent knowledge graph on `postgres-langgraph-memory` with pgvector(1024), bge-m3 embeds via Ollama-Spark. Fully unaffected by the decommission — it's memory-mcp's own database, used by Claude Code and Open WebUI. It just lost langgraph-agents as a consumer.
 

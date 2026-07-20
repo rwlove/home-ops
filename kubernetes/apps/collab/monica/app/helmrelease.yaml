@@ -122,3 +122,28 @@ spec:
         memory: 256Mi
       limits:
         memory: 1Gi
+  # The chart mounts monica-data-pvc (RWO Longhorn, single-node attach)
+  # into both the web Deployment and the every-minute scheduler CronJob,
+  # but hardcodes the cron jobTemplate pod spec with no affinity — so the
+  # cron pod wedged in PodInitializing whenever it scheduled onto a node
+  # other than the web pod. There is no chart value for cron affinity, so
+  # inject a required podAffinity via post-render: pin the cron pod to
+  # whatever node currently runs the web pod (component=app). Evaluated at
+  # schedule time, so it follows the web pod across reschedules.
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: CronJob
+              name: monica-cron
+            patch: |
+              - op: add
+                path: /spec/jobTemplate/spec/template/spec/affinity
+                value:
+                  podAffinity:
+                    requiredDuringSchedulingIgnoredDuringExecution:
+                      - labelSelector:
+                          matchLabels:
+                            app.kubernetes.io/instance: monica
+                            app.kubernetes.io/component: app
+                        topologyKey: kubernetes.io/hostname

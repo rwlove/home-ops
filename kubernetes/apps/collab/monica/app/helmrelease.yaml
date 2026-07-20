@@ -122,14 +122,24 @@ spec:
         memory: 256Mi
       limits:
         memory: 1Gi
-  # The chart mounts monica-data-pvc (RWO Longhorn, single-node attach)
-  # into both the web Deployment and the every-minute scheduler CronJob,
-  # but hardcodes the cron jobTemplate pod spec with no affinity — so the
-  # cron pod wedged in PodInitializing whenever it scheduled onto a node
-  # other than the web pod. There is no chart value for cron affinity, so
-  # inject a required podAffinity via post-render: pin the cron pod to
-  # whatever node currently runs the web pod (component=app). Evaluated at
-  # schedule time, so it follows the web pod across reschedules.
+  # The chart hardcodes the cron jobTemplate pod spec, so two things it
+  # needs are missing and there are no chart values for either. Inject
+  # both via post-render:
+  #
+  # 1. affinity — monica-data-pvc is RWO Longhorn (single-node attach)
+  #    mounted into both the web Deployment and the cron pod. With no
+  #    affinity the cron pod wedged in PodInitializing whenever it landed
+  #    on a node other than the web pod. Pin it (required podAffinity) to
+  #    whatever node runs the web pod (component=app); evaluated at
+  #    schedule time, so it follows the web pod across reschedules.
+  #
+  # 2. pod labels — the chart gives the cron POD no app.kubernetes.io/*
+  #    labels (only the Job controller's job-name/controller-uid). The
+  #    monica-allow CiliumNetworkPolicy selects endpoints by
+  #    app.kubernetes.io/name=monica, so an unlabelled cron pod falls
+  #    under the collab default-deny and its egress to postgres-monica is
+  #    SYN-dropped (SQLSTATE[08006] timeout). Stamp the standard labels so
+  #    the existing CNP egress rule covers it too.
   postRenderers:
     - kustomize:
         patches:
@@ -137,6 +147,13 @@ spec:
               kind: CronJob
               name: monica-cron
             patch: |
+              - op: add
+                path: /spec/jobTemplate/spec/template/metadata
+                value:
+                  labels:
+                    app.kubernetes.io/name: monica
+                    app.kubernetes.io/instance: monica
+                    app.kubernetes.io/component: cronjob
               - op: add
                 path: /spec/jobTemplate/spec/template/spec/affinity
                 value:

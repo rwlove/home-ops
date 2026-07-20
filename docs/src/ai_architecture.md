@@ -99,7 +99,7 @@ shown above because neither currently does anything.
 | Open WebUI chat | Browser → Authelia OIDC → Open WebUI backend | Routes to ollama-spark (default). The langgraph-agent-as-model registration was removed 2026-07-06 — Open WebUI's only remaining tool surface is the MCP gateway. |
 | Khoj UI | Browser → gateway extAuth (Authelia) → khoj | Khoj's own embedding pipeline; chat via ollama P40 |
 | AlertManager firing alert (`severity=critical`) | Webhook receiver | Pushover directly — no Windmill hop, no AI investigation step (the `windmill-investigate` route/receiver and `alertmanager-holmesgpt-notify.ts` were removed 2026-07-06) |
-| Cron — RAG ingest/tombstone, HA intent drift, self-watch | Windmill scheduled trigger | The 7 surviving `.ts` workflows under `kubernetes/apps/home/windmill/workflows/` — see [Workflow Automation](workflow_automation.md) |
+| Cron — RAG ingest/tombstone, HA intent drift, self-watch | Windmill scheduled trigger | The 8 surviving `.ts` workflows under `kubernetes/apps/home/windmill/workflows/` (paperless→Qdrant+LightRAG unified in `paperless-rag-fanout` since 2026-07-20) — see [Workflow Automation](workflow_automation.md) |
 | Cron — Renovate PR triage / cost commentary | Kubernetes CronJob | `claude-runner` (`kubernetes/apps/automation/claude-runner/app/cronjob-*.yaml`) |
 
 **Removed 2026-07-06, no longer ingress surfaces:** Zulip DM to the
@@ -107,10 +107,12 @@ Triager bot (`zulip-triager-webhook.ts` deleted) and operator taps on
 ntfy for approval actions (`langgraph-agents` `/approval` endpoint
 deleted). Neither has a replacement today.
 
-There are **7 Windmill TypeScript workflows** in the repo today (down
+There are **8 Windmill TypeScript workflows** in the repo today (down
 from 23 — 16 scripts were deleted 2026-07-06: 14 `langgraph-*.ts`
 fleet scripts plus `smoke-approval-flow.ts` and
-`zulip-triager-webhook.ts`); they're all under
+`zulip-triager-webhook.ts`; then `paperless-rag-fanout.ts` was added
+2026-07-20, unifying the two split RAG ingests, which remain on disk
+with schedules paused for rollback); they're all under
 `kubernetes/apps/home/windmill/workflows/`.
 
 ## Inference backends
@@ -346,7 +348,7 @@ the app itself. Nothing else in the cluster depended on any of it.
 - **tei-spark** — `kubernetes/apps/ai/tei-spark/` (unsuspended 2026-05-21, PR #11893; PrometheusRule added in PR #11906)
 - **open-webui** — `kubernetes/apps/collab/open-webui/app/helmrelease.yaml`
 - **windmill** — `kubernetes/apps/home/windmill/app/helmrelease.yaml`
-- **windmill workflows** — `kubernetes/apps/home/windmill/workflows/*.ts` (7 today, down from 23)
+- **windmill workflows** — `kubernetes/apps/home/windmill/workflows/*.ts` (8 today, down from 23)
 - **claude-runner** — `kubernetes/apps/automation/claude-runner/`
 - **MCP gateway** — `kubernetes/apps/mcp-system/mcp-gateway/`
 - **MCP servers** — sibling directories under `kubernetes/apps/mcp-system/`

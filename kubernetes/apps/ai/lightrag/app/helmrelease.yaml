@@ -58,15 +58,18 @@ spec:
               # re-downloads every cold start (and fails under default-deny).
               TIKTOKEN_CACHE_DIR: /app/data/tiktoken
               # --- LLM: graph extraction + query synthesis via Ollama-Spark ---
-              # qwen3-next:80b-a3b is an MoE (~3B active) → fast despite the
-              # 80b name, and already warm on the Spark (verified via
-              # `ollama list`). bge-m3 lives there too, so both calls stay on
-              # one host and never touch the P40 (no model-swap churn).
+              # qwen3.5:122b-a10b (MoE, ~10B active) replaced qwen3-next
+              # (~3B active) as the single pinned Spark reasoning model — see
+              # ollama-spark HR. TRADEOFF: ~3x the active compute per token, so
+              # extraction is slower and more ReadTimeout-prone; LLM_TIMEOUT
+              # bumped 600 -> 900 and the tight MAX_ASYNC/INSERT caps below stay.
+              # bge-m3 lives on the same host, so both calls stay on one host
+              # and never touch the P40 (no model-swap churn).
               LLM_BINDING: ollama
               LLM_BINDING_HOST: http://ollama-spark.ai.svc.cluster.local:11434
-              LLM_MODEL: qwen3-next:80b-a3b-instruct-q4_K_M
+              LLM_MODEL: qwen3.5:122b-a10b
               OLLAMA_LLM_NUM_CTX: "32768"
-              LLM_TIMEOUT: "600"
+              LLM_TIMEOUT: "900"
               # Single GB10 serves ~4 concurrent (ollama-spark
               # OLLAMA_NUM_PARALLEL=4) and each 80b call runs at a fraction of
               # GPU speed under load. LightRAG's defaults offer up to

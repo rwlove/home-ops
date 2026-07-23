@@ -1,0 +1,53 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: tei-embed-spark-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: tei-embed-spark
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # API + metrics share port 3000 (TEI HTTP variant — /metrics on the
+    # main port; same finding as tei-spark). Embedding consumers are
+    # listed up front; the matching egress rule lands on each consumer's
+    # CNP in the embedding-cutover PR, so this is inert until then.
+    # Consumers: Open WebUI RAG embed, LightRAG, memory-mcp, the
+    # paperless-RAG Windmill flow, and the blackbox synthetic embed probe.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: collab
+            app.kubernetes.io/name: open-webui
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: lightrag
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+            app.kubernetes.io/name: memory-mcp
+        - matchLabels:
+            io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: windmill
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: blackbox-exporter
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: prometheus
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+  egress:
+    # HuggingFace Hub model download — bge-m3 weights pulled to the model
+    # cache PVC on first start. Reuses the world:443 pattern from
+    # tei-spark / ollama-spark (HF / CDN IPs are not FQDN-stable enough
+    # for toFQDNs).
+    - toEntities: [world]
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

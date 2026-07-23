@@ -1,0 +1,34 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: vllm-coder-spark-rules
+spec:
+  groups:
+    # GB10 DCGM counters broken (see vllm-driver-spark rule). Pod liveness
+    # is the reliable, actionable signal; richer vLLM alerts land with the
+    # Spark dashboards once on-box baselines exist.
+    - name: vllm-coder-spark.availability
+      rules:
+        # Pod-level failure. Dark until the LLM-consumer cutover; then it
+        # covers coder-model outage: opencode's coder + Open WebUI's coder
+        # option fail. Lower blast radius than the driver (the driver can
+        # cover coding if this is down), so severity is warning, not
+        # critical.
+        - alert: SparkVllmCoderPodDown
+          annotations:
+            summary: vllm-coder-spark Pod not Ready (coder LLM unavailable)
+            description: |
+              Pod {{ $labels.namespace }}/{{ $labels.pod }} on Spark
+              has been not-Ready for >5 minutes. Inspect with
+              `kubectl -n ai describe pod {{ $labels.pod }}` and
+              `kubectl -n ai logs {{ $labels.pod }} --previous`.
+              Impact: the dedicated coder (qwen3.6-27b) is down; opencode /
+              coder-agent work falls back to the driver model. A cold
+              restart re-downloads/loads ~27 GB — do not thrash the pod.
+          expr: |-
+            kube_pod_status_ready{namespace="ai",pod=~"vllm-coder-spark-.*",condition="true"} == 0
+          for: 5m
+          labels:
+            severity: warning

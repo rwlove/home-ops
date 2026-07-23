@@ -1,0 +1,187 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: vllm-coder-spark
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 30m
+  install:
+    disableWait: true
+  upgrade:
+    disableWait: true
+  values:
+    controllers:
+      vllm:
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        # StatefulSet for the same reason as vllm-driver-spark / ollama-spark:
+        # RWO cache PVC + never two pods contending for the GPU slice.
+        type: statefulset
+
+        pod:
+          nodeSelector:
+            node-role.kubernetes.io/gpu: blackwell
+
+          tolerations:
+            - key: kubernetes.io/arch
+              operator: Equal
+              value: arm64
+              effect: NoSchedule
+            - key: nvidia.com/gpu
+              operator: Equal
+              value: "true"
+              effect: NoSchedule
+
+          priorityClassName: ai-gpu-critical
+
+        containers:
+          app:
+            image:
+              # workaround: https://github.com/vllm-project/vllm/issues/36821
+              #   — remove when upstream vLLM publishes an official sm_121
+              #   (GB10) arm64 image (#36821 / #31128). Same community image
+              #   + pinning rationale as vllm-driver-spark; keep the two
+              #   instances on the same digest so they upgrade in lockstep.
+              # Base image has no entrypoint (Cmd=bash) → `command` below.
+              repository: ghcr.io/timothystewart6/vllm-gb10
+              tag: v0.25.1-cu13.2-torch2.11-gb10.3@sha256:30e70a376ff076f4dc3e1e5fd5ee5f99f36a8ba274f6f590fa1d7894045a66d8
+
+            command: ["vllm", "serve"]
+            args:
+              # Qwen3.6-27B is the DENSE flagship coder (higher code quality
+              # than the MoE driver; slower single-stream since it reads all
+              # 27B/token — the accepted tradeoff for the coder role).
+              - Qwen/Qwen3.6-27B-FP8
+              - --served-model-name
+              - qwen3.6-27b
+              - --host
+              - 0.0.0.0
+              - --port
+              - "8000"
+              - --max-model-len
+              - "32768"
+              # ~0.35 ≈ 45 GB (27 GB weights + KV). Sized so driver (0.42) +
+              # this + TEI fit the 128 GB. Tuned in Phase 3 on-box.
+              - --gpu-memory-utilization
+              - "0.35"
+              - --kv-cache-dtype
+              - fp8
+              - --reasoning-parser
+              - qwen3
+              - --tool-call-parser
+              - qwen3_xml
+              - --enable-auto-tool-choice
+
+            env:
+              HF_HOME: &cachePath /data
+              VLLM_LOGGING_LEVEL: INFO
+
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /health
+                    port: &httpPort 8000
+                  initialDelaySeconds: 60
+                  periodSeconds: 30
+                  timeoutSeconds: 5
+                  failureThreshold: 5
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /health
+                    port: *httpPort
+                  initialDelaySeconds: 30
+                  periodSeconds: 15
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              # First start downloads ~27 GB FP8 + loads to GPU. 120 * 15s =
+              # 30 min; disableWait means Flux won't block on it.
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /health
+                    port: *httpPort
+                  initialDelaySeconds: 30
+                  periodSeconds: 15
+                  timeoutSeconds: 5
+                  failureThreshold: 120
+
+            resources:
+              requests:
+                cpu: 1000m
+                memory: 12Gi
+                nvidia.com/gpu: 1
+              limits:
+                # Generous ceiling; unified-memory cgroup accounting is
+                # validated/tightened in Phase 3 (see vllm-driver-spark).
+                memory: 48Gi
+                nvidia.com/gpu: 1
+
+            securityContext:
+              # Root image + vLLM compiles/writes caches → runAsNonRoot /
+              # readOnlyRootFilesystem off (same as vllm-driver-spark /
+              # ollama-spark). Rest of the baseline hardening kept.
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop: ["ALL"]
+              seccompProfile:
+                type: RuntimeDefault
+
+    service:
+      app:
+        controller: vllm
+        ports:
+          http:
+            port: *httpPort
+
+    # Internal (LAN-only) route — opencode's coder model points here at
+    # cutover. Mirrors vllm-driver-spark / ollama-spark.
+    route:
+      main:
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: *httpPort
+
+    persistence:
+      cache:
+        existingClaim: vllm-coder-spark-cache-pvc
+        advancedMounts:
+          vllm:
+            app:
+              - path: *cachePath
+
+      # vLLM needs a larger /dev/shm than the default 64 MB.
+      shm:
+        type: emptyDir
+        medium: Memory
+        sizeLimit: 8Gi
+        advancedMounts:
+          vllm:
+            app:
+              - path: /dev/shm
+
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          vllm:
+            app:
+              - path: /tmp

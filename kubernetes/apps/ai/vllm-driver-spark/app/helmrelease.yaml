@@ -75,11 +75,15 @@ spec:
               # only with headroom proven on-box.
               - --max-model-len
               - "32768"
-              # Explicit cap so this instance + vllm-coder-spark + TEI fit
-              # the 128 GB. ~0.42 ≈ 54 GB (35 GB weights + KV). Tuned in the
-              # Phase 3 on-box memory validation before consumer cutover.
+              # Explicit cap. TUNED FROM LIVE MEASUREMENT (2026-07-23):
+              # vLLM sees 121.63 GiB total; the non-vLLM co-tenants
+              # (comfyui, tei x2, pump-cv, av1corrector, bge-m3, CUDA
+              # contexts) hold ~32 GiB. 0.36 ≈ 44 GiB (35 weights + ~9 KV);
+              # with coder 0.28 that leaves ~12 GiB for comfyui image-gen
+              # bursts. Was 0.42 — dropped because 0.42+0.35 overshot free
+              # memory and the coder failed to init.
               - --gpu-memory-utilization
-              - "0.42"
+              - "0.36"
               # FP8 KV cache — halves KV footprint, key to fitting two
               # instances (per the vLLM Qwen3.6 recipe).
               - --kv-cache-dtype

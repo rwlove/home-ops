@@ -78,7 +78,7 @@ later upside.**
   │ opencode      │──┬──▶└──────────────────────────────────────────┘
   │  (driver)     │  │   ┌──────────────────────────────────────────┐
   │  (coder)      │  └──▶│ vllm-coder-spark  (vLLM FP8)              │
-  └───────┬───────┘      │  <coder>-FP8          /v1                │
+  └───────┬───────┘      │  qwen3.6-27b-FP8      /v1                │
           │              └──────────────────────────────────────────┘
           │ embed        ┌──────────────────────────────────────────┐
           ├─────────────▶│ tei-embed-spark  (TEI, bge-m3)  [NEW]     │
@@ -97,19 +97,46 @@ then removed).
 
 ### Memory budget (does it fit in 128 GB?)
 
-Unified memory is shared with the OS/kubelet; the Spark runs only GPU workloads,
-so reserve ~12 GB for system and budget ~116 GB for inference.
+The GB10's 128 GB is **unified** — shared by the OS, the kubelet, *and every
+GPU workload on the node*. The Spark is not dedicated to the vLLM fleet: it
+already runs **comfyui-spark, av1corrector, and pump-cv** alongside Ollama and
+TEI (confirmed live — 5 of 8 GPU time-slices in use; see below). Their memory
+**must** be counted, and my first draft did not.
 
-| Instance | Weights (FP8) | KV + activations | `--gpu-memory-utilization` (of 128 GB) |
-|---|---|---|---|
-| `vllm-driver-spark` (35B-A3B) | ~35 GB | ~16 GB | ~0.40 (~51 GB) |
-| `vllm-coder-spark` (~32B) | ~32 GB | ~13 GB | ~0.35 (~45 GB) |
-| `tei-embed-spark` + `tei-spark` | ~2 GB | small | ~0.03 |
-| **Total** | | | **~0.78 (~100 GB), ~16 GB headroom** |
+| Workload | Resident footprint | `--gpu-memory-utilization` (of 128 GB) |
+|---|---|---|
+| `vllm-driver-spark` — Qwen3.6-35B-A3B-FP8 (35 GB + KV) | ~51 GB | ~0.40 |
+| `vllm-coder-spark` — Qwen3.6-27B-FP8 (dense, 27 GB + KV) | ~39 GB | ~0.30 |
+| `tei-embed-spark` + `tei-spark` | ~4 GB | — |
+| **comfyui-spark** (idle ~2 GB, **bursts to tens of GB** loading an image-gen model) | **~2–20 GB** | — |
+| **pump-cv** (CV model) | ~2 GB | — |
+| **av1corrector** (video-encode jobs, bursty) | a few GB when active | — |
+| System / OS / kubelet | ~12 GB | — |
+| **Total (comfyui idle)** | **~93 GB** | ~0.70 |
+| **Total (comfyui mid-generation)** | **~110 GB+** | — |
 
-Fits, but the utilizations must be **explicitly capped** so the two vLLM
-instances don't each grab 90%. `max-model-len` is tuned to keep KV modest.
-This is the tightest part of the design and gets validated on-box in Phase 3.
+So it fits **at rest with headroom, but a comfyui image-generation burst while
+both vLLM instances are resident can approach or exceed 128 GB.** The coder's
+utilization is cut to **~0.30** (from 0.35) to widen the shared headroom for
+those bursty co-tenants; final values are set from the Phase-3 measurement.
+
+**Measuring the real number is hard on the GB10** — and that is a first-class
+caveat, not a footnote:
+
+- `kubectl top` reads cgroup RSS and **undercounts CUDA allocations** (ollama-spark
+  shows ~13 GB RSS while holding ~50 GB of model in unified memory).
+- The Spark is not cleanly exposed in node-exporter, and GB10 DCGM `FB_USED` is
+  broken (see `gpu-routing.md`).
+- The reliable read is **`/proc/meminfo` (`MemAvailable`) on the host** — a
+  Phase-3 on-box step, plus watching for pod OOMKills and vLLM startup
+  out-of-memory errors.
+
+**Contention policy (decide in Phase 3):** the vLLM fleet and embeddings are the
+protected tier; comfyui/av1corrector are best-effort and may need a memory cap
+or lower priority so a generation burst can't OOM the reasoning path. `ollama-spark`
+scaling to 0 at cutover frees its ~13–50 GB back — but note the **transition
+window** (Phase 3, ollama *still resident* while the fleet loads) is the tightest
+moment: scale ollama down before bringing the fleet up.
 
 ## Key decisions (recommendations inline — Rob confirms)
 
@@ -124,16 +151,37 @@ stability window. Keep it *only* if you decide the experimentation escape hatch
 (easy `ollama pull` of arbitrary new models) is worth a parked deployment —
 that is the single remaining reason to retain it (see Open questions).
 
-### D5 — Which coder model, and confirm it earns a permanent slice
+### D5 — Coder model (DECIDED: Qwen3.6-27B-FP8)
 
-Keeping the coder hot costs a permanent ~32 GB + a second instance.
-`qwen3.6-35b-a3b` is itself a strong coder, so the separate coder is partly
-redundant — worth a deliberate choice rather than defaulting to the current
-`qwen2.5-coder:32b` (older gen). **Recommendation:** if the coder stays,
-consider upgrading it to a current-gen Qwen coder in FP8 rather than carrying
-2.5; validate it beats the driver on the coder/reviewer-agent workload before
-committing the slice. If it doesn't clearly beat the driver, drop it and let the
-driver do both.
+Keeping the coder hot costs a permanent ~27 GB + a second instance.
+`qwen3.6-35b-a3b` is itself a strong coder, so this was a deliberate choice, not
+a default. **Decided: `Qwen/Qwen3.6-27B-FP8`** — the dense flagship coder (77.2
+SWE-bench, matches Opus on Terminal-Bench), replacing the older `qwen2.5-coder:32b`.
+Tradeoff accepted: dense → slower single-stream than the MoE driver (reads all
+27B/token), bought for higher code quality on the coder/reviewer-agent workload.
+Still worth validating on-box that it *meaningfully* beats the driver at coding
+before it earns the permanent slice — if it doesn't, drop it and let the driver
+do both. (Built in PR 4.)
+
+### D6 — vLLM image (DECIDED: `timothystewart6/vllm-gb10`, digest-pinned)
+
+Reviewed against the sourcing principles: official `vllm/vllm-openai` lacks
+sm_121 arm64 (upstream #36821/#31128 open); NVIDIA NGC lags upstream
+(disqualifying for a just-released model). **Decided:
+`ghcr.io/timothystewart6/vllm-gb10:v0.25.1-cu13.2-torch2.11-gb10.3@sha256:30e70a37…`**
+— community sm_121/arm64 image that tracks upstream vLLM directly, SHA-pins every
+build input, and is transparent (public GH + CI). Digest-pinned,
+`# workaround:`-annotated, and Renovate-held — exactly the `tei-spark`
+precedent. Base image has no entrypoint
+(`Cmd=bash`) so the HR sets `command: ["vllm","serve"]`.
+
+### D7 — GPU time-slicing (VERIFIED: no change needed)
+
+The gpu-operator advertises **8 time-slices**; **5 are in use** (comfyui-spark,
+ollama-spark, tei-spark, pump-cv, av1corrector), leaving **exactly 3 free** for
+tei-embed + the two vLLM instances = 8/8. No config bump required. Note this is
+slice *scheduling* capacity, independent of the *memory* budget above (the real
+constraint).
 
 ### D2 — Embeddings → new TEI instance (`bge-m3`), not a minimal Ollama
 
@@ -186,17 +234,24 @@ services (Open WebUI, LightRAG) are routine-tier, not Renee-facing.
 
 ### Phase 3 — Deploy the vLLM fleet (driver + coder, FP8), Ollama still primary
 
-- Deploy **both** vLLM instances with their capped `--gpu-memory-utilization`
-  so they bring up and self-test while Ollama is scaled down enough to free
-  memory (Ollama serving is briefly degraded — do this in a window).
-- **Validate the memory budget on-box first** — this is the riskiest step:
-  confirm both instances load and stay resident without OOM, and that ~16 GB
-  headroom holds under load.
-- Benchmark: confirm the driver hits **~28–30 tok/s single-stream** and
-  concurrency scaling; confirm the coder loads and serves; validate tool-calling
-  via a real opencode session against the driver.
-- **Gate:** both instances co-resident and correct; driver hits the throughput
-  target; memory headroom stable.
+- **Scale `ollama-spark` down first** to free its ~13–50 GB — the transition
+  window (ollama resident *and* the fleet loading) is the tightest memory moment.
+  Ollama serving is briefly degraded; do this in a window.
+- Deploy **both** vLLM instances with their capped `--gpu-memory-utilization`.
+- **Validate unified-memory co-residency on-box — the riskiest step, and it must
+  account for the co-resident non-vLLM workloads (comfyui-spark, av1corrector,
+  pump-cv), not just the fleet:**
+  - Read true usage via **`/proc/meminfo` `MemAvailable` on the Spark host** (not
+    `kubectl top` — it undercounts CUDA on the GB10; not DCGM `FB_USED` — broken).
+  - Confirm both vLLM instances load and stay resident without OOMKill.
+  - **Stress the worst case:** trigger a comfyui image-generation *while* both
+    vLLM instances are resident and under load — this is the burst that can blow
+    the budget. If it OOMs the reasoning path, lower the vLLM `--gpu-memory-utilization`
+    and/or cap comfyui's memory (D-contention).
+- Benchmark: driver hits **~28–30 tok/s single-stream** + concurrency scaling;
+  coder loads and serves; tool-calling validated via a real opencode session.
+- **Gate:** both instances co-resident and correct through a comfyui burst;
+  driver hits the throughput target; `MemAvailable` stays positive with margin.
 
 ### Phase 4 — Flip the GPU allocation + cut LLM consumers over
 
@@ -223,13 +278,13 @@ Standard GitOps app, mirroring `ollama-spark` / `tei-spark`:
 kubernetes/apps/ai/vllm-driver-spark/  # NEW — qwen3.6-35b-a3b-FP8
 ├── ks.yaml
 └── app/
-    ├── helmrelease.yaml      # app-template; vllm/vllm-openai:<gb10-arm64 digest>
+    ├── helmrelease.yaml      # app-template; ghcr.io/timothystewart6/vllm-gb10 (digest-pinned)
     ├── pvc.yaml              # ceph-block, FP8 weights (~35 Gi)
     ├── cnp-allow.yaml        # Cilium policy (consumers → :8000)
     ├── servicemonitor.yaml   # vLLM native Prometheus metrics
     └── prometheusrule.yaml   # queue depth / TTFT / model-loaded alerts
 
-kubernetes/apps/ai/vllm-coder-spark/   # NEW — <coder>-FP8, second instance
+kubernetes/apps/ai/vllm-coder-spark/   # NEW — Qwen3.6-27B-FP8, second instance
 └── app/ ...                          # same shape; capped gpu-memory-utilization
 
 kubernetes/apps/ai/tei-embed-spark/    # NEW — bge-m3 embeddings on TEI
@@ -256,8 +311,9 @@ Both vLLM instances set an **explicit, capped** `--gpu-memory-utilization`
 | Risk | Mitigation |
 |---|---|
 | vLLM GB10 image maturity (built from `main`, arm64/sm_121) | Pin digest + `# workaround:`; community runs this exact model on GB10 |
-| **Two instances OOM the 128 GB** (tightest risk) | Explicit capped `--gpu-memory-utilization` per instance + tuned `max-model-len`; validate co-residency on-box in Phase 3 before cutover |
-| GPU contention during Phase 3 coexistence with Ollama | Scale Ollama down to free memory; keep coexistence brief; flip in a window |
+| **Fleet OOMs the 128 GB** (tightest risk) | Explicit capped `--gpu-memory-utilization` (driver 0.40 / coder 0.30) + FP8 KV + tuned `max-model-len`; validate co-residency on-box in Phase 3 via host `/proc/meminfo` before cutover |
+| **comfyui-spark image-gen burst OOMs the reasoning path** (the co-resident workload the first draft missed) | comfyui/av1corrector are best-effort; cap their memory or lower priority so a burst can't evict vLLM; explicitly stress-test a comfyui burst against the resident fleet in Phase 3 |
+| GPU contention during Phase 3 coexistence with Ollama | Scale Ollama down **first** (transition window is tightest); keep coexistence brief; flip in a window |
 | Compute time-sharing between the two vLLM instances | Acceptable for low-traffic fleet (usually one hit at a time); revisit if both go hot simultaneously |
 | FP8 weights quality vs q4 | Validate output quality in Phase 3 before cutover |
 | Embedding regression on TEI | Phase 2 gate: RAG quality spot-check + probe before retiring Ollama embeddings |

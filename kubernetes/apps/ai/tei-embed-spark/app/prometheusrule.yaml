@@ -1,0 +1,73 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: tei-embed-spark-rules
+spec:
+  groups:
+    # GB10 DCGM utilization counters are broken on this arch — see
+    # reference_dcgm_gb10_broken_counters.md / ollama-spark
+    # prometheusrule.yaml. POWER_USAGE / SM_CLOCK are the only reliable
+    # signals on Spark, and this embedder shares the GPU with tei-spark
+    # and the vLLM fleet, so a power heuristic would conflate workloads —
+    # skipped on purpose. Pod liveness + request-success rate cover the
+    # failure modes we can act on.
+    - name: tei-embed-spark.availability
+      rules:
+        # Pod-level failure. Until the embedding-cutover PR repoints RAG
+        # traffic here, this is dark capacity and only fires on infra
+        # failure (image-pull, OOM, GPU-bind, node loss). Post-cutover it
+        # covers user-visible RAG degradation: embedding calls from Open
+        # WebUI / LightRAG / memory-mcp / paperless-RAG fail when the pod
+        # is unready.
+        - alert: SparkTeiEmbedPodDown
+          annotations:
+            summary: tei-embed-spark Pod not Ready (embedding surface unavailable)
+            description: |
+              Pod {{ $labels.namespace }}/{{ $labels.pod }} on Spark
+              has been not-Ready for >5 minutes. Inspect with
+              `kubectl -n ai describe pod {{ $labels.pod }}` and
+              `kubectl -n ai logs {{ $labels.pod }} --previous`.
+              Post-cutover impact: RAG embedding is unavailable —
+              Open WebUI / LightRAG / memory-mcp / paperless-RAG
+              retrieval and ingest degrade or stall.
+          expr: |-
+            kube_pod_status_ready{namespace="ai",pod=~"tei-embed-spark-.*",condition="true"} == 0
+          for: 5m
+          labels:
+            severity: critical
+    - name: tei-embed-spark.errors
+      rules:
+        # Elevated request-failure rate. TEI exposes te_request_count
+        # (total) and te_request_success separately; the difference over
+        # a rate window is the failure rate. Guarded by request_count
+        # rate > 0 so the alert is inert without traffic (the pre-cutover
+        # dark-capacity window).
+        #
+        # 5% over 10m matches "user-visible RAG quality degradation"
+        # rather than transient blips — a sustained embed failure rate
+        # translates to retrieval quality loss across every RAG consumer.
+        - alert: SparkTeiEmbedErrorRate
+          annotations:
+            summary: tei-embed-spark embedding error rate elevated (>5% for 10m)
+            description: |
+              tei-embed-spark embedding requests are failing at >5% over
+              the last 10 minutes. Check `kubectl -n ai logs
+              deploy/tei-embed-spark` for backend errors (CUDA OOM,
+              tokenizer faults, model eviction). Sustained failures
+              degrade retrieval across all RAG consumers.
+          expr: |-
+            sum(rate(te_request_count{job="tei-embed-spark"}[5m])) > 0
+            and
+            (
+              sum(rate(te_request_count{job="tei-embed-spark"}[5m]))
+              -
+              sum(rate(te_request_success{job="tei-embed-spark"}[5m]))
+            )
+            /
+            sum(rate(te_request_count{job="tei-embed-spark"}[5m]))
+            > 0.05
+          for: 10m
+          labels:
+            severity: warning

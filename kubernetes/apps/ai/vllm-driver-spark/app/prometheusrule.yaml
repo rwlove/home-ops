@@ -1,0 +1,40 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: vllm-driver-spark-rules
+spec:
+  groups:
+    # GB10 DCGM utilization counters are broken on this arch (POWER_USAGE /
+    # SM_CLOCK are the only reliable signals — see
+    # reference_dcgm_gb10_broken_counters.md). This instance shares the GPU
+    # with vllm-coder-spark + TEI, so a power heuristic would conflate
+    # workloads. Pod liveness is the reliable, actionable signal here;
+    # richer vLLM alerts (TTFT, queue depth via vllm:* metrics) land with
+    # the Spark dashboards in a follow-up once we have on-box baselines.
+    - name: vllm-driver-spark.availability
+      rules:
+        # Pod-level failure. Until the LLM-consumer cutover PR repoints
+        # chat / LightRAG traffic here, this is dark capacity and only
+        # fires on infra failure (image-pull, OOM, GPU-bind, node loss).
+        # Post-cutover it covers user-visible outage: Open WebUI chat,
+        # LightRAG query/ingest, and opencode all fail when the engine is
+        # down.
+        - alert: SparkVllmDriverPodDown
+          annotations:
+            summary: vllm-driver-spark Pod not Ready (reasoning/driver LLM unavailable)
+            description: |
+              Pod {{ $labels.namespace }}/{{ $labels.pod }} on Spark
+              has been not-Ready for >5 minutes. Inspect with
+              `kubectl -n ai describe pod {{ $labels.pod }}` and
+              `kubectl -n ai logs {{ $labels.pod }} --previous`.
+              Post-cutover impact: Open WebUI chat, LightRAG, and opencode
+              lose the primary reasoning/driver model (qwen3.6-35b-a3b).
+              A cold restart re-downloads/loads ~35 GB — expect a slow
+              recovery; do not thrash the pod.
+          expr: |-
+            kube_pod_status_ready{namespace="ai",pod=~"vllm-driver-spark-.*",condition="true"} == 0
+          for: 5m
+          labels:
+            severity: critical

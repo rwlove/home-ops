@@ -1,0 +1,52 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: vllm-driver-spark-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: vllm-driver-spark
+  # Additive — default-deny triggers the lockdown; these rules punch holes.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # HTTPRoute on the internal gateway → vllm-driver-spark:8000
+    # (vllm-driver-spark.${SECRET_DOMAIN} for off-cluster access, e.g.
+    # opencode on Rob's workstation).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+    # In-cluster LLM consumers + Prometheus /metrics scrape. Chat + LightRAG
+    # LLM traffic lands here at the LLM-consumer cutover PR; listed up front
+    # so the ingress side is ready (their egress rules land at cutover).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: collab
+            app.kubernetes.io/name: open-webui
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: lightrag
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: prometheus
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+  egress:
+    # HuggingFace Hub — vLLM downloads the FP8 weights to the cache PVC on
+    # first start. Same world:443 pattern as ollama-spark / tei-spark (HF /
+    # CDN IPs are not FQDN-stable enough for toFQDNs).
+    - toEntities: [world]
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

@@ -1,0 +1,217 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: vllm-driver-spark
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 30m
+  install:
+    disableWait: true
+  upgrade:
+    disableWait: true
+  values:
+    controllers:
+      vllm:
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        # StatefulSet (not Deployment) for the same reason as ollama-spark:
+        # the weight-cache PVC is RWO and we must never have two pods
+        # contending for the single GPU slice — a StatefulSet terminates
+        # the old pod before starting the new one.
+        type: statefulset
+
+        pod:
+          nodeSelector:
+            node-role.kubernetes.io/gpu: blackwell
+
+          # Spark taints: arm64 (keeps amd64-only workloads off) + the
+          # nvidia.com/gpu reservation. Mirrors ollama-spark / tei-spark.
+          tolerations:
+            - key: kubernetes.io/arch
+              operator: Equal
+              value: arm64
+              effect: NoSchedule
+            - key: nvidia.com/gpu
+              operator: Equal
+              value: "true"
+              effect: NoSchedule
+
+          priorityClassName: ai-gpu-critical
+
+        containers:
+          app:
+            image:
+              # workaround: https://github.com/vllm-project/vllm/issues/36821
+              #   — remove when upstream vLLM publishes an official sm_121
+              #   (GB10) arm64 image. Tracked upstream in #36821 / #31128;
+              #   until then this community image (Techno Tim, built via
+              #   GitHub Actions on a Spark runner, every input SHA-pinned)
+              #   tracks upstream vLLM releases directly. Renovate-held —
+              #   bump deliberately, validate on-box before merging.
+              # Base image has no entrypoint (Cmd=bash), so `command`
+              # below invokes vLLM explicitly.
+              repository: ghcr.io/timothystewart6/vllm-gb10
+              tag: v0.25.1-cu13.2-torch2.11-gb10.3@sha256:30e70a376ff076f4dc3e1e5fd5ee5f99f36a8ba274f6f590fa1d7894045a66d8
+
+            command: ["vllm", "serve"]
+            args:
+              - Qwen/Qwen3.6-35B-A3B-FP8
+              # Consumers reference this name (Open WebUI model id, LightRAG
+              # LLM_MODEL, opencode model). Keep stable across image bumps.
+              - --served-model-name
+              - qwen3.6-35b-a3b
+              - --host
+              - 0.0.0.0
+              - --port
+              - "8000"
+              # Capped from the model's native 262144. The two-instance
+              # co-residency budget (see vllm_spark_migration_plan.md) needs
+              # KV modest; 32k is ample for chat + agentic coding. Raise
+              # only with headroom proven on-box.
+              - --max-model-len
+              - "32768"
+              # Explicit cap so this instance + vllm-coder-spark + TEI fit
+              # the 128 GB. ~0.42 ≈ 54 GB (35 GB weights + KV). Tuned in the
+              # Phase 3 on-box memory validation before consumer cutover.
+              - --gpu-memory-utilization
+              - "0.42"
+              # FP8 KV cache — halves KV footprint, key to fitting two
+              # instances (per the vLLM Qwen3.6 recipe).
+              - --kv-cache-dtype
+              - fp8
+              # Reasoning + tool-calling parsers (vLLM Qwen3.6 recipe).
+              # tool-call support is the whole point of the driver role —
+              # opencode/LightRAG drive tools through it.
+              - --reasoning-parser
+              - qwen3
+              - --tool-call-parser
+              - qwen3_xml
+              - --enable-auto-tool-choice
+
+            env:
+              # HF Hub cache on the PVC so the ~35 GB FP8 download survives
+              # pod restarts (re-download otherwise, and it fails under
+              # default-deny without the world:443 egress in cnp-allow).
+              HF_HOME: &cachePath /data
+              VLLM_LOGGING_LEVEL: INFO
+
+            probes:
+              # /health returns 200 once the engine is up and the model is
+              # loaded. Fast once warm.
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /health
+                    port: &httpPort 8000
+                  initialDelaySeconds: 60
+                  periodSeconds: 30
+                  timeoutSeconds: 5
+                  failureThreshold: 5
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /health
+                    port: *httpPort
+                  initialDelaySeconds: 30
+                  periodSeconds: 15
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              # Very generous startup budget: FIRST start downloads ~35 GB
+              # FP8 weights from HF + loads to GPU + compiles CUDA graphs.
+              # 120 * 15s = 30 min. disableWait above means Flux won't block
+              # on this. Refine once we have Spark cold-start wall-clock.
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /health
+                    port: *httpPort
+                  initialDelaySeconds: 30
+                  periodSeconds: 15
+                  timeoutSeconds: 5
+                  failureThreshold: 120
+
+            resources:
+              requests:
+                cpu: 1000m
+                memory: 16Gi
+                nvidia.com/gpu: 1
+              limits:
+                # Generous ceiling. On GB10 unified memory it's unclear how
+                # much of vLLM's CUDA allocation bills against the cgroup
+                # (ollama-spark observed ~14 GB RSS for a 50 GB model). Set
+                # high to avoid a cgroup OOMKill; validated/tightened in
+                # Phase 3.
+                memory: 64Gi
+                nvidia.com/gpu: 1
+
+            securityContext:
+              # Image runs as root and vLLM compiles CUDA graphs + writes
+              # the HF cache, so runAsNonRoot / readOnlyRootFilesystem are
+              # off (same rationale as ollama-spark). Keep the rest of the
+              # baseline hardening.
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop: ["ALL"]
+              seccompProfile:
+                type: RuntimeDefault
+
+    service:
+      app:
+        controller: vllm
+        ports:
+          http:
+            port: *httpPort
+
+    # Internal (LAN-only) route so off-cluster consumers reach the OpenAI
+    # /v1 endpoint — opencode on Rob's workstation points its ollama-spark
+    # provider baseURL here at cutover. Mirrors ollama-spark's route.
+    route:
+      main:
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: *httpPort
+
+    persistence:
+      cache:
+        existingClaim: vllm-driver-spark-cache-pvc
+        advancedMounts:
+          vllm:
+            app:
+              - path: *cachePath
+
+      # vLLM uses /dev/shm for intra-process IPC; the default 64 MB is too
+      # small and causes cryptic startup failures. 8 Gi emptyDir(Memory).
+      shm:
+        type: emptyDir
+        medium: Memory
+        sizeLimit: 8Gi
+        advancedMounts:
+          vllm:
+            app:
+              - path: /dev/shm
+
+      # Writable /tmp for compilation scratch (torch.compile / CUDA graphs).
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          vllm:
+            app:
+              - path: /tmp

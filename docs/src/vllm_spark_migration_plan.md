@@ -105,8 +105,8 @@ TEI (confirmed live — 5 of 8 GPU time-slices in use; see below). Their memory
 
 | Workload | Resident footprint | `--gpu-memory-utilization` (of 128 GB) |
 |---|---|---|
-| `vllm-driver-spark` — Qwen3.6-35B-A3B-FP8 (35 GB + KV) | ~51 GB | ~0.40 |
-| `vllm-coder-spark` — Qwen3.6-27B-FP8 (dense, 27 GB + KV) | ~39 GB | ~0.30 |
+| `vllm-driver-spark` — Qwen3.6-35B-A3B-FP8 (35 GB + KV) | ~44 GB | **0.36** |
+| `vllm-coder-spark` — Qwen3.6-27B-FP8 (dense, 27 GB + KV) | ~34 GB | **0.28** |
 | `tei-embed-spark` + `tei-spark` | ~4 GB | — |
 | **comfyui-spark** (idle ~2 GB, **bursts to tens of GB** loading an image-gen model) | **~2–20 GB** | — |
 | **pump-cv** (CV model) | ~2 GB | — |
@@ -116,9 +116,12 @@ TEI (confirmed live — 5 of 8 GPU time-slices in use; see below). Their memory
 | **Total (comfyui mid-generation)** | **~110 GB+** | — |
 
 So it fits **at rest with headroom, but a comfyui image-generation burst while
-both vLLM instances are resident can approach or exceed 128 GB.** The coder's
-utilization is cut to **~0.30** (from 0.35) to widen the shared headroom for
-those bursty co-tenants; final values are set from the Phase-3 measurement.
+both vLLM instances are resident can approach or exceed 128 GB.** **Live-tuned
+2026-07-23:** vLLM reports **121.63 GiB** usable (not 128 — ~6 GiB
+system/firmware), and the non-vLLM co-tenants measured **~32 GiB** (more than
+first drafted). `0.42 + 0.35` overshot and the coder failed to init; **driver
+cut to 0.36, coder to 0.28** — the pair (~78 GiB) + co-tenants (~32) leaves
+**~12 GiB** for comfyui bursts.
 
 **Measuring the real number is hard on the GB10** — and that is a first-class
 caveat, not a footnote:

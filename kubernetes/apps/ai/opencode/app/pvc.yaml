@@ -1,13 +1,48 @@
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/persistentvolumeclaim-v1.json
+# Longhorn (not ceph-block): session/chat history + auth.json under
+# /root/.local/share/opencode is irreplaceable accumulated state — the
+# record of what the agent did and potentially the only copy of in-flight
+# work. storage-class.instructions.md rule 3 → Longhorn + recurring backup.
+# Static named-class + pinned-PV pattern per media/jellyfin. Backup coverage
+# comes from Longhorn's auto-`default` recurring-job group (daily snapshot +
+# weekly + monthly backup); do NOT hand-label the PV — Volume-CR labels do
+# not inherit from the PV, and hand-labeling drops the volume out of auto-
+# default (the paperless-data-xfs trap). numberOfReplicas 2 for irreplaceable.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: opencode-state
+  labels:
+    type: longhorn
 spec:
   accessModes:
     - ReadWriteOnce
+  volumeMode: Filesystem
   resources:
     requests:
       storage: 5Gi
-  storageClassName: ceph-block
+  volumeName: opencode-state-pv
+  storageClassName: opencode-state-storage-class
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: opencode-state-pv
+  labels:
+    type: longhorn
+spec:
+  capacity:
+    storage: 5Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: opencode-state-storage-class
+  csi:
+    driver: driver.longhorn.io
+    fsType: xfs
+    volumeAttributes:
+      numberOfReplicas: "2"
+      staleReplicaTimeout: "2880"
+    volumeHandle: opencode-state-xfs

@@ -253,6 +253,23 @@ spec:
             app:
               - path: /root/.config/opencode
                 subPath: config
+      # opencode creates isolated per-session copies natively — its v2
+      # `projectCopy.create` API with `strategy: git_worktree` — rooted at
+      # `<data_dir>/worktree`, i.e. /root/.local/share/opencode/worktree.
+      # That path would otherwise land on the *state* PVC while the parent
+      # repos live on the *workspace* PVC; a git worktree stores an absolute
+      # pointer back into its parent's .git, so a restore of one volume
+      # without the other leaves dangling worktrees. Mount the worktree root
+      # from the workspace claim so a repo and its worktrees always share one
+      # volume (and one backup). Satisfies worktree-isolation.md without any
+      # bespoke worktree machinery.
+      worktrees:
+        existingClaim: opencode-workspace
+        advancedMounts:
+          opencode:
+            app:
+              - path: /root/.local/share/opencode/worktree
+                subPath: .worktrees
       # The entrypoint unconditionally does `mkdir -p /home/node/.local/share`
       # (a vestige of the image's node-user design). /home/node is owned by
       # uid 1000, and root cannot write there because `drop: ALL` removes

@@ -31,8 +31,8 @@ or the inline curl in the README two levels up).
 
 ## Notifications
 
-The watcher workflows (`windmill-failure-watcher`, `workaround-watcher`,
-`smart-home-intent-drift`) notify by **email**. Each speaks plaintext
+The watcher workflows (`windmill-failure-watcher`, `workaround-watcher`)
+notify by **email**. Each speaks plaintext
 SMTP to the in-cluster `smtp-relay` (home ns, maddy) on port 2525,
 which relays out via Mailgun. The small SMTP helper is duplicated inline
 in each workflow (self-contained, per the convention above).

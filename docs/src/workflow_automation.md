@@ -17,13 +17,12 @@
   used to live in the `ai` namespace) was deleted along with its
   Postgres checkpoints database, vault PVCs, and public routes. There
   is no `/inbox`, no `/approval`, no `/admin/tasks`.
-- **Windmill is still deployed and still runs 8 workflows** — none of
+- **Windmill is still deployed and still runs 7 workflows** — none of
   them agent- or approval-related. What's left, all under
   `kubernetes/apps/home/windmill/workflows/`:
   - `paperless-rag-fanout.ts` — unified Paperless → Qdrant **and** LightRAG ingest from a single pull (one watermark, one 15m cron). Supersedes the two split ingests below as of 2026-07-20.
   - `paperless-rag-ingest.ts` / `lightrag-rag-ingest.ts` — the original split Qdrant / graph ingests, now **superseded by the fan-out**; retained on disk with schedules paused for rollback.
   - `paperless-rag-tombstone.ts` / `lightrag-rag-tombstone.ts` — Qdrant + LightRAG tombstone sweeps (still separate)
-  - `smart-home-intent-drift.ts` — HA-native, unrelated to the fleet
   - `windmill-failure-watcher.ts` — Windmill self-introspection
   - `workaround-watcher.ts` — GitHub `workaround`-labeled issue discovery, backs the upstream-watcher convention
 - **The approval flow no longer exists.** There's no Class A–D task

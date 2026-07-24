@@ -56,7 +56,7 @@ spec:
               - /bin/sh
               - -ceu
               - |
-                mkdir -p /data/config/agent
+                mkdir -p /data/config/agent /data/.opencode
                 cp -f /src/config/opencode.json        /data/config/opencode.json
                 cp -f /src/config/oh-my-openagent.json /data/config/oh-my-openagent.json
                 rm -f /data/config/agent/*.md
@@ -160,6 +160,31 @@ spec:
               - path: /data
             app:
               - path: /data
+      # The entrypoint unconditionally does `mkdir -p /home/node/.local/share`
+      # (a vestige of the image's node-user design). /home/node is owned by
+      # uid 1000, and root cannot write there because `drop: ALL` removes
+      # CAP_DAC_OVERRIDE — this is what crashed the pod. A writable emptyDir
+      # satisfies it without granting the capability back. Nothing durable
+      # lands here; the symlink it creates points into /data/.opencode.
+      node-home:
+        type: emptyDir
+        advancedMounts:
+          opencode:
+            app:
+              - path: /home/node/.local
+      # The entrypoint symlinks /home/node/.local/share/opencode but NOT
+      # /root/.local/share/opencode — yet the Dockerfile sets no USER/HOME,
+      # so opencode runs as root with HOME=/root and writes sessions +
+      # auth.json to /root/.local/share/opencode. Without this mount that
+      # state would sit on the ephemeral rootfs and vanish on restart.
+      # Bind the same PVC subdir the entrypoint uses, so both paths agree.
+      state-opencode:
+        existingClaim: opencode-state
+        advancedMounts:
+          opencode:
+            app:
+              - path: /root/.local/share/opencode
+                subPath: .opencode
       # Read-only staging sources — initContainer only, never the app.
       # Mounting these under /root/.config/opencode would block the
       # entrypoint's symlink; they are copied into /data/config instead.

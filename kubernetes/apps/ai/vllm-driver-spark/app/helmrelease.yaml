@@ -69,17 +69,21 @@ spec:
               - 0.0.0.0
               - --port
               - "8000"
-              # Raised 32768 -> 131072 (2026-07-23) at ZERO memory cost. The
-              # coder was dropped (couldn't co-reside), so this is single-tenant
-              # now, and the KV cache was wildly over-provisioned: 27.65 GiB =
-              # 2.38M tokens = 72x concurrency at 32k, on a fleet that runs ~1
-              # request at a time. At 128k that's still ~18x concurrency — fits
-              # the SAME 0.36 util budget with no increase. Fixes opencode's
-              # context overflow (its agent scaffolding is ~24.5k input tokens,
-              # which overflowed the old 32k). Native max is 262144; fall back
-              # to 65536 (36x concurrency) if 128k profiles greedy on-box.
+              # Context raise, tuned on-box (2026-07-24). Started at 131072 but
+              # Qwen3.6's hybrid Gated-DeltaNet (Mamba) layers profiled to only
+              # 1.44x KV concurrency + 95 Mamba cache blocks at 128k — under the
+              # default max_num_seqs (256), so CUDA graph capture failed to init.
+              # 65536 is 2.6x opencode's ~24.5k-token agent scaffolding (fixes
+              # the old 32k overflow) with far more KV + Mamba headroom. Coder
+              # was dropped so this is single-tenant; effectively no memory cost.
+              # Native max is 262144.
               - --max-model-len
-              - "131072"
+              - "65536"
+              # Cap concurrent sequences well under the Mamba cache-block limit
+              # (95 at 128k, more at 65k). 32 is ample for this low-traffic
+              # fleet (~1-3 concurrent) and lets CUDA graph capture proceed.
+              - --max-num-seqs
+              - "32"
               # Explicit cap. TUNED FROM LIVE MEASUREMENT (2026-07-23):
               # vLLM sees 121.63 GiB total; the non-vLLM co-tenants
               # (comfyui, tei x2, pump-cv, av1corrector, bge-m3, CUDA

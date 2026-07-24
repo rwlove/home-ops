@@ -78,6 +78,27 @@ spec:
                 done
                 echo "gonic is up"
 
+          # Fix /data ownership so MA (uid 1113) owns its WebRTC cert files.
+          # MA's remote-access code rewrites and then chmods
+          # /data/webrtc_private_key.pem on every boot. chmod requires the
+          # process to OWN the file (uid match) — group-write is not enough —
+          # so a file left owned by uid 1000 (from an earlier run's UID) makes
+          # MA crash on startup with `PermissionError: Operation not permitted`
+          # on both b6 and b7 (crashlooped 221× on 2026-07-22). fsGroup only
+          # sets the group, not the owner, so a root chown is the durable fix.
+          # Idempotent and cheap (two files); no-ops on a fresh PVC.
+          00-fix-webrtc-ownership:
+            image:
+              repository: docker.io/library/alpine
+              tag: "3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b"
+            command:
+              - sh
+              - -c
+              - chown 1113:1113 /data/webrtc_private_key.pem /data/webrtc_certificate.pem 2>/dev/null || true
+            securityContext:
+              runAsUser: 0
+              runAsNonRoot: false
+
         containers:
           app:
             image:
@@ -88,11 +109,13 @@ spec:
               # FORWARD to the beta where the Settings → Players refactor is
               # complete; do NOT downgrade to stable. Renovate tracks the beta
               # channel (see packageRules.json5).
-              # Reverted b7 → b6 (2026-07-22): 2.10.0b7's new WebRTC remote-access
-              # cert code crashes on startup with `PermissionError: [Errno 1]
-              # Operation not permitted` on os.fchmod against the config volume,
-              # crashlooping the pod. b7 is blocked in packageRules.json5 until
-              # upstream fixes it. b6 is last-known-good.
+              # Reverted b7 → b6 during the 2026-07-22 incident, but the
+              # version was a red herring: BOTH b6 and b7 crashloop on the
+              # WebRTC cert chmod when /data/webrtc_private_key.pem is owned by
+              # the wrong UID (see the 00-fix-webrtc-ownership initContainer).
+              # With that fix in place either beta boots. Staying on b6 for now
+              # to avoid an unnecessary Renee-facing restart; Renovate is free
+              # to roll forward to b7+ on the beta channel again.
               tag: 2.10.0b6@sha256:02e0e2534d5d2d2ac094de637210af2ae3459ea9697a49d143fa1395f0157648
 
             env:

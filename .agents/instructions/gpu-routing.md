@@ -32,10 +32,27 @@ below; nothing was migrated because there was nothing left to migrate.
 
 ## DCGM counters on GB10
 
-- Most DCGM counters are broken on GB10 — `GPU_UTIL` and
-  `MEM_COPY_UTIL` stuck at 0; `GR_ENGINE_ACTIVE` and `FB_USED` empty.
-- Only `POWER_USAGE` and `SM_CLOCK` report.
-- Use power draw as proxy for "is GB10 busy" in dashboards and alerts.
+Re-verified live 2026-07-24 (driver 580.142). The picture improved
+since the original May observation — `GPU_UTIL` now works:
+
+- **Working:** `GPU_UTIL` (tracks load — read 36→96 under comfyui load),
+  `GPU_TEMP`, `POWER_USAGE`, `SM_CLOCK`, `TOTAL_ENERGY_CONSUMPTION`.
+  Prefer `GPU_UTIL` for "is GB10 busy" now; `POWER_USAGE` is a fine
+  secondary (no longer the *only* proxy).
+- **Still dead:** `MEM_COPY_UTIL` and `MEMORY_TEMP` stuck at 0;
+  `GR_ENGINE_ACTIVE` and all `FB_*` (memory) fields **absent** (field
+  not registered).
+- **GPU memory (`FB_USED`) is permanently unavailable** — unified
+  LPDDR5X, no discrete framebuffer, so `nvmlDeviceGetMemoryInfo`
+  returns `NOT_SUPPORTED`. NVIDIA states "no plans to support DCGM on
+  Spark." **No firmware/BIOS/driver fix exists.** Read GPU memory from
+  `/proc/meminfo` on the Spark host (`kubectl top` undercounts CUDA on
+  GB10). The `dcgmi dmon -e 1001` workaround for `GR_ENGINE_ACTIVE`
+  (dcgm-exporter#662) is **not runnable** here — the exporter build is
+  distroless with no `dcgmi`, and the field isn't registered on GB10.
+- The fix for `GPU_UTIL` landed with the driver string unchanged
+  (580.142), so it came from the DCGM-exporter/gpu-operator side or
+  firmware, not the driver.
 
 ## GB10 power-delivery / clock-limit gotcha
 
@@ -45,8 +62,8 @@ independently reproduced on our unit — treat as a lead, not gospel:
 - There's a **power-delivery bug** that sneakily degrades throughput.
   A reboot does **not** clear it; check the NVIDIA dev forum GB10
   category if the Spark feels slow with no obvious cause. Pairs with
-  the DCGM caveat above — since `POWER_USAGE` is one of the few live
-  counters, watch it for anomalies.
+  the DCGM caveat above — `POWER_USAGE` is a live counter, watch it
+  for anomalies.
 - Two operational levers users run to keep it stable:
 
   ```sh

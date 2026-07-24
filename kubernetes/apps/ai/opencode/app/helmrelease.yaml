@@ -79,6 +79,64 @@ spec:
                 drop: ["ALL"]
               seccompProfile:
                 type: RuntimeDefault
+          # Clone/refresh the repos the agents work against. Uses the opencode
+          # image itself (already digest-pinned, already has git 2.39.5) so no
+          # extra image enters the supply chain.
+          #
+          # Deliberately NON-FATAL: a clone failure must never stop the server
+          # from starting. home-ops is public and clones without credentials;
+          # the two private repos are skipped with a message until the
+          # opencode-git-secret exists (optional secretRef below).
+          #
+          # The token is passed as a transient `-c http.extraheader` so it is
+          # never written into .git/config on the PVC — no credential at rest.
+          stage-repos:
+            image:
+              repository: ghcr.io/felixclements/opencode-server-docker
+              tag: upstream-v1.17.4@sha256:daff7a4ea70ea43634640d7303a5cf0731abb7522fd7368d7513025a0b8d8352
+            command:
+              - /bin/bash
+              - -cu
+              - |
+                AUTH=()
+                if [ -n "${GH_TOKEN:-}" ]; then
+                  B64=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+                  AUTH=(-c "http.extraheader=AUTHORIZATION: basic ${B64}")
+                  echo "git credentials: present"
+                else
+                  echo "git credentials: absent — public repos only"
+                fi
+                for r in home-ops lovenet-network-configuration containers; do
+                  if [ -d "/workspace/$r/.git" ]; then
+                    if git "${AUTH[@]}" -C "/workspace/$r" fetch --all --prune --quiet 2>/dev/null; then
+                      echo "  fetched $r"
+                    else
+                      echo "  SKIP $r (fetch failed — credentials?)"
+                    fi
+                  elif git "${AUTH[@]}" clone --quiet "https://github.com/rwlove/$r.git" "/workspace/$r" 2>/dev/null; then
+                    echo "  cloned $r"
+                  else
+                    echo "  SKIP $r (clone failed — private repo needs credentials)"
+                  fi
+                done
+                echo "workspace: $(ls -1 /workspace 2>/dev/null | tr '\n' ' ')"
+                exit 0
+            envFrom:
+              - secretRef:
+                  name: opencode-git-secret
+                  optional: true          # absent until the PAT is created
+            resources:
+              requests:
+                cpu: 50m
+                memory: 128Mi
+              limits:
+                memory: 512Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop: ["ALL"]
+              seccompProfile:
+                type: RuntimeDefault
         containers:
           app:
             image:
@@ -234,11 +292,15 @@ spec:
             stage-config:
               - path: /src/agents
                 readOnly: true
-      # Project workspace the agent operates in. emptyDir scratch for v1;
-      # promote to a git-synced PVC once a target repo/workflow is chosen.
+      # Agent working tree — Longhorn PVC (see workspace-pvc.yaml). Holds the
+      # repo clones plus accumulated in-flight work, which unattended agents
+      # make unreconstructable. Mounted into stage-repos (to clone/fetch) and
+      # the app (to work in).
       workspace:
-        type: emptyDir
+        existingClaim: opencode-workspace
         advancedMounts:
           opencode:
+            stage-repos:
+              - path: /workspace
             app:
               - path: /workspace

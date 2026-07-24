@@ -36,10 +36,19 @@ spec:
             - port: "9621"
               protocol: TCP
   egress:
-    # LLM (graph extraction + query synthesis) and embeddings (bge-m3) are
-    # both served by ollama-spark in this same ns. Baseline
-    # allow-intra-namespace already covers ai→ai; explicit here for
-    # grep-ability (paperless-ai pattern).
+    # LLM (graph extraction + query synthesis) → vllm-driver-spark:8000
+    # (OpenAI /v1) as of the 2026-07-24 cutover. Embeddings (bge-m3) still
+    # → ollama-spark:11434 until the embed cutover to tei-embed-spark.
+    # Baseline allow-intra-namespace already covers ai→ai; explicit here
+    # for grep-ability (paperless-ai pattern).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: vllm-driver-spark
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: ai

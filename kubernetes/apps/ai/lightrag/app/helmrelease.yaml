@@ -57,18 +57,18 @@ spec:
               # survives pod restarts. Without a writable cache dir it
               # re-downloads every cold start (and fails under default-deny).
               TIKTOKEN_CACHE_DIR: /app/data/tiktoken
-              # --- LLM: graph extraction + query synthesis via Ollama-Spark ---
-              # qwen3.5:122b-a10b (MoE, ~10B active) replaced qwen3-next
-              # (~3B active) as the single pinned Spark reasoning model — see
-              # ollama-spark HR. TRADEOFF: ~3x the active compute per token, so
-              # extraction is slower and more ReadTimeout-prone; LLM_TIMEOUT
-              # bumped 600 -> 900 and the tight MAX_ASYNC/INSERT caps below stay.
-              # bge-m3 lives on the same host, so both calls stay on one host
-              # and never touch the P40 (no model-swap churn).
-              LLM_BINDING: ollama
-              LLM_BINDING_HOST: http://ollama-spark.ai.svc.cluster.local:11434
-              LLM_MODEL: qwen3.5:122b-a10b
-              OLLAMA_LLM_NUM_CTX: "32768"
+              # --- LLM: graph extraction + query synthesis via vLLM driver ---
+              # Cut over 2026-07-24 from ollama-spark/qwen3.5:122b-a10b (which
+              # was removed — the dangling ref was breaking ingest) to the vLLM
+              # driver serving Qwen3.6-35B-A3B over the OpenAI API. NOTE: openai
+              # binding, not ollama — vLLM speaks /v1, not the ollama API. The
+              # driver runs 128k context. LLM_TIMEOUT stays 900 (driver ~20
+              # tok/s single-stream); the tight MAX_ASYNC/INSERT caps below stay
+              # to avoid over-subscribing the shared GB10.
+              LLM_BINDING: openai
+              LLM_BINDING_HOST: http://vllm-driver-spark.ai.svc.cluster.local:8000/v1
+              LLM_BINDING_API_KEY: vllm
+              LLM_MODEL: qwen3.6-35b-a3b
               LLM_TIMEOUT: "900"
               # Single GB10 serves ~4 concurrent (ollama-spark
               # OLLAMA_NUM_PARALLEL=4) and each 80b call runs at a fraction of

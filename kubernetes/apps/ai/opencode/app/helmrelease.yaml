@@ -22,11 +22,15 @@ spec:
       opencode:
         annotations:
           reloader.stakater.com/auto: "true"
-        # Community image (ghcr.io/felixclements/opencode-server-docker)
-        # runs as root and reads/writes under /root (.config/opencode,
-        # .local/share/opencode, npm cache for the oh-my-openagent plugin).
-        # Same root fallback as khoj; readOnlyRootFilesystem stays off
-        # because opencode + node + `bash` tool write across the rootfs.
+        # Community image (ghcr.io/felixclements/opencode-server-docker).
+        # Its docker-entrypoint.sh puts EVERYTHING under /data:
+        #   DATA_DIR=/data, CONFIG_DIR=/data/config, OPENCODE_DIR=/data/.opencode
+        # and then symlinks /root/.config/opencode -> /data/config (plus
+        # /home/node/.local/share/opencode -> /data/.opencode). So the PVC
+        # mounts at /data and nothing may be mounted at /root/.config/opencode
+        # — a mount there blocks the symlink the entrypoint needs to create.
+        # Runs as root; readOnlyRootFilesystem stays off because opencode +
+        # node + the `bash` tool write across the rootfs.
         pod:
           securityContext:
             runAsNonRoot: false
@@ -37,6 +41,39 @@ spec:
         type: deployment
         replicas: 1
         strategy: Recreate  # single-replica, RWO PVC
+        initContainers:
+          # ConfigMaps cannot be mounted inside the PVC path, so stage them
+          # from a read-only mount into /data/config, reproducing the exact
+          # layout that works on the workstation (~/.config/opencode/):
+          #   opencode.json, oh-my-openagent.json, agent/*.md
+          # Idempotent: re-copied every start so a ConfigMap change wins
+          # (paired with reloader annotation above).
+          stage-config:
+            image:
+              repository: docker.io/library/busybox
+              tag: 1.37.0@sha256:9532d8c39891ca2ecde4d30d7710e01fb739c87a8b9299685c63704296b16028
+            command:
+              - /bin/sh
+              - -ceu
+              - |
+                mkdir -p /data/config/agent
+                cp -f /src/config/opencode.json        /data/config/opencode.json
+                cp -f /src/config/oh-my-openagent.json /data/config/oh-my-openagent.json
+                rm -f /data/config/agent/*.md
+                cp -f /src/agents/*.md /data/config/agent/
+                echo "staged opencode config + $(ls -1 /data/config/agent/*.md | wc -l) agent personas"
+            resources:
+              requests:
+                cpu: 10m
+                memory: 32Mi
+              limits:
+                memory: 64Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop: ["ALL"]
+              seccompProfile:
+                type: RuntimeDefault
         containers:
           app:
             image:
@@ -112,37 +149,36 @@ spec:
       # history is irreplaceable accumulated state, not regenerable.
       # Backed up via Longhorn's auto-`default` recurring-job group. See
       # pvc.yaml. (storage-operator review, 2026-07-24.)
+      # Mounted at /data — the entrypoint's DATA_DIR. It holds config/
+      # (symlinked to /root/.config/opencode) and .opencode/ (sessions,
+      # auth.json), so this one claim covers all durable state.
       state:
         existingClaim: opencode-state
         advancedMounts:
           opencode:
+            stage-config:
+              - path: /data
             app:
-              - path: /root/.local/share/opencode
-      # Tailored opencode.json (single-file subPath mount).
-      config-file:
+              - path: /data
+      # Read-only staging sources — initContainer only, never the app.
+      # Mounting these under /root/.config/opencode would block the
+      # entrypoint's symlink; they are copied into /data/config instead.
+      config-src:
         type: configMap
         name: opencode-config
         advancedMounts:
           opencode:
-            app:
-              - path: /root/.config/opencode/opencode.json
-                subPath: opencode.json
-      omopenagent:
-        type: configMap
-        name: opencode-config
-        advancedMounts:
-          opencode:
-            app:
-              - path: /root/.config/opencode/oh-my-openagent.json
-                subPath: oh-my-openagent.json
-      # Operator personas -> /root/.config/opencode/agent/*.md
-      agents:
+            stage-config:
+              - path: /src/config
+                readOnly: true
+      agents-src:
         type: configMap
         name: opencode-agents
         advancedMounts:
           opencode:
-            app:
-              - path: /root/.config/opencode/agent
+            stage-config:
+              - path: /src/agents
+                readOnly: true
       # Project workspace the agent operates in. emptyDir scratch for v1;
       # promote to a git-synced PVC once a target repo/workflow is chosen.
       workspace:

@@ -83,6 +83,16 @@ spec:
               # datasource/extractVersion to auto-bump — track as follow-up.
               repository: ghcr.io/felixclements/opencode-server-docker
               tag: upstream-v1.17.4@sha256:daff7a4ea70ea43634640d7303a5cf0731abb7522fd7368d7513025a0b8d8352
+            # The image's entrypoint ends with `exec opencode $COMMAND "$@"`,
+            # where $COMMAND is the flag string it builds from PORT/HOSTNAME
+            # and "$@" is the image CMD (["serve"]). Left alone that yields
+            # `opencode serve --port 4096 --hostname 0.0.0.0 serve` — a
+            # duplicate positional, so opencode printed help and exited.
+            # Setting `command` with no `args` makes Kubernetes ignore the
+            # image CMD, so "$@" is empty. Verified in-cluster: the server
+            # then logs "opencode server listening on http://0.0.0.0:4096".
+            command:
+              - /usr/local/bin/docker-entrypoint.sh
             env:
               PORT: &port "4096"
               HOSTNAME_OVERRIDE: 0.0.0.0

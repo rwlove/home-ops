@@ -1,0 +1,99 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app opencode-oauth2-proxy
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 30m
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+      strategy: rollback
+  values:
+    controllers:
+      opencode-oauth2-proxy:
+        pod:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 2000
+            runAsGroup: 2000
+            fsGroup: 2000
+            fsGroupChangePolicy: OnRootMismatch
+        annotations:
+          reloader.stakater.com/auto: "true"
+        containers:
+          app:
+            image:
+              repository: quay.io/oauth2-proxy/oauth2-proxy
+              tag: v7.15.3
+            args:
+              - --provider=oidc
+              - --oidc-issuer-url=https://auth.${SECRET_DOMAIN}
+              - --client-id=opencode-oauth2-proxy
+              - --redirect-url=https://opencode.${SECRET_DOMAIN}/oauth2/callback
+              - --upstream=http://opencode.ai.svc.cluster.local:4096
+              - --http-address=0.0.0.0:4180
+              - --cookie-name=_oauth2_proxy_opencode
+              - --cookie-secure=true
+              - --cookie-samesite=lax
+              - --email-domain=*
+              - --whitelist-domain=.${SECRET_DOMAIN}
+              - --reverse-proxy=true
+              - --pass-user-headers=true
+              - --set-xauthrequest=true
+              - --skip-provider-button=true
+              - --scope=openid email profile groups
+              - --code-challenge-method=S256
+              # opencode streams responses over SSE; the default 30s
+              # upstream timeout would sever long agent turns. 3600s covers
+              # a long interactive session. NOTE(review): if the opencode
+              # web/SDK client uses websockets for any endpoint, add the
+              # matching --skip-auth-route / upgrade handling.
+              - --upstream-timeout=3600s
+            envFrom:
+              - secretRef:
+                  name: opencode-oauth2-proxy-secret
+            resources:
+              requests:
+                cpu: 10m
+                memory: 64Mi
+              limits:
+                memory: 128Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+              readOnlyRootFilesystem: true
+              seccompProfile:
+                type: RuntimeDefault
+    service:
+      app:
+        controller: opencode-oauth2-proxy
+        ports:
+          http:
+            port: 4180
+    route:
+      app:
+        annotations:
+          glance/name: "opencode"
+          glance/show: "true"
+          glance/id: "AI"
+        hostnames:
+          - opencode.${SECRET_DOMAIN}
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: 4180

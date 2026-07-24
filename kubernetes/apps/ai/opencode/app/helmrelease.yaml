@@ -97,29 +97,34 @@ spec:
             command:
               - /bin/bash
               - -cu
+              # Flux postBuild runs envsubst over this manifest, so EVERY shell
+              # variable must be escaped as $$VAR / $${VAR} to survive as $VAR
+              # in the rendered output. An unescaped ${AUTH[@]} fails the whole
+              # Kustomization build with "missing closing brace" (see the same
+              # warning in mcp-system/mcp-gateway/app/rotator-cronjob.yaml).
               - |
                 AUTH=()
-                if [ -n "${GH_TOKEN:-}" ]; then
-                  B64=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
-                  AUTH=(-c "http.extraheader=AUTHORIZATION: basic ${B64}")
+                if [ -n "$${GH_TOKEN:-}" ]; then
+                  B64=$$(printf 'x-access-token:%s' "$${GH_TOKEN}" | base64 -w0)
+                  AUTH=(-c "http.extraheader=AUTHORIZATION: basic $${B64}")
                   echo "git credentials: present"
                 else
                   echo "git credentials: absent — public repos only"
                 fi
                 for r in home-ops lovenet-network-configuration containers; do
-                  if [ -d "/workspace/$r/.git" ]; then
-                    if git "${AUTH[@]}" -C "/workspace/$r" fetch --all --prune --quiet 2>/dev/null; then
-                      echo "  fetched $r"
+                  if [ -d "/workspace/$${r}/.git" ]; then
+                    if git "$${AUTH[@]}" -C "/workspace/$${r}" fetch --all --prune --quiet 2>/dev/null; then
+                      echo "  fetched $${r}"
                     else
-                      echo "  SKIP $r (fetch failed — credentials?)"
+                      echo "  SKIP $${r} (fetch failed — credentials?)"
                     fi
-                  elif git "${AUTH[@]}" clone --quiet "https://github.com/rwlove/$r.git" "/workspace/$r" 2>/dev/null; then
-                    echo "  cloned $r"
+                  elif git "$${AUTH[@]}" clone --quiet "https://github.com/rwlove/$${r}.git" "/workspace/$${r}" 2>/dev/null; then
+                    echo "  cloned $${r}"
                   else
-                    echo "  SKIP $r (clone failed — private repo needs credentials)"
+                    echo "  SKIP $${r} (clone failed — private repo needs credentials)"
                   fi
                 done
-                echo "workspace: $(ls -1 /workspace 2>/dev/null | tr '\n' ' ')"
+                echo "workspace: $$(ls -1 /workspace 2>/dev/null | tr '\n' ' ')"
                 exit 0
             envFrom:
               - secretRef:

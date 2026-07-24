@@ -57,6 +57,11 @@ spec:
               - -ceu
               - |
                 mkdir -p /data/config/agent /data/.opencode
+                # The entrypoint's `ln -sf /data/config /root/.config/opencode`
+                # lands *inside* the mounted dir, leaving a self-referential
+                # /data/config/config -> /data/config. Harmless but confusing;
+                # clear it each start.
+                rm -f /data/config/config
                 cp -f /src/config/opencode.json        /data/config/opencode.json
                 cp -f /src/config/oh-my-openagent.json /data/config/oh-my-openagent.json
                 rm -f /data/config/agent/*.md
@@ -170,6 +175,21 @@ spec:
               - path: /data
             app:
               - path: /data
+      # /root/.config/opencode is a REAL directory baked into the image (it
+      # ships an opencode.jsonc), so the entrypoint's
+      #   ln -sf /data/config /root/.config/opencode
+      # does not replace it — it creates the symlink *inside*, and opencode
+      # then loads the image's stock opencode.jsonc instead of ours. Mounting
+      # the PVC's config/ subdir directly over that path is what actually
+      # puts our opencode.json + agent/*.md where opencode looks, mirroring
+      # the workstation layout (~/.config/opencode/).
+      state-config:
+        existingClaim: opencode-state
+        advancedMounts:
+          opencode:
+            app:
+              - path: /root/.config/opencode
+                subPath: config
       # The entrypoint unconditionally does `mkdir -p /home/node/.local/share`
       # (a vestige of the image's node-user design). /home/node is owned by
       # uid 1000, and root cannot write there because `drop: ALL` removes

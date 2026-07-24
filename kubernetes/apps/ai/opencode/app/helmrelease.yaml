@@ -1,0 +1,153 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app opencode
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 30m
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+      strategy: rollback
+  values:
+    controllers:
+      opencode:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        # Community image (ghcr.io/felixclements/opencode-server-docker)
+        # runs as root and reads/writes under /root (.config/opencode,
+        # .local/share/opencode, npm cache for the oh-my-openagent plugin).
+        # Same root fallback as khoj; readOnlyRootFilesystem stays off
+        # because opencode + node + `bash` tool write across the rootfs.
+        pod:
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+            runAsGroup: 0
+            fsGroup: 0
+            fsGroupChangePolicy: OnRootMismatch
+        type: deployment
+        replicas: 1
+        strategy: Recreate  # single-replica, RWO PVC
+        containers:
+          app:
+            image:
+              # Community build (no official opencode server image). Tags
+              # mirror upstream opencode as `upstream-v<ver>`, sha-pinned.
+              # NOTE(renovate): the `upstream-v` prefix needs a custom
+              # datasource/extractVersion to auto-bump — track as follow-up.
+              repository: ghcr.io/felixclements/opencode-server-docker
+              tag: upstream-v1.17.4@sha256:daff7a4ea70ea43634640d7303a5cf0731abb7522fd7368d7513025a0b8d8352
+            env:
+              PORT: &port "4096"
+              HOSTNAME_OVERRIDE: 0.0.0.0
+              # Config + agents delivered via ConfigMap mounts below; the
+              # oh-my-openagent plugin self-installs from npm on first run.
+            envFrom:
+              - secretRef:
+                  name: opencode-secret  # OPENCODE_SERVER_PASSWORD
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: 4096
+                  initialDelaySeconds: 30
+                  periodSeconds: 30
+                  timeoutSeconds: 3
+                  failureThreshold: 5
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: 4096
+                  initialDelaySeconds: 15
+                  periodSeconds: 10
+                  timeoutSeconds: 3
+                  failureThreshold: 3
+              # First start runs `npm i` for the oh-my-openagent plugin;
+              # wide startup budget covers the cold cache.
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: 4096
+                  initialDelaySeconds: 15
+                  periodSeconds: 10
+                  timeoutSeconds: 3
+                  failureThreshold: 40
+            resources:
+              requests:
+                cpu: 100m
+                memory: 512Mi
+              limits:
+                memory: 2Gi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+    service:
+      app:
+        controller: opencode
+        ports:
+          http:
+            port: *port
+    persistence:
+      # Durable server state: sessions (chat history) + auth.json.
+      # Longhorn (numberOfReplicas 2) per storage-class rule 3 — session
+      # history is irreplaceable accumulated state, not regenerable.
+      # Backed up via Longhorn's auto-`default` recurring-job group. See
+      # pvc.yaml. (storage-operator review, 2026-07-24.)
+      state:
+        existingClaim: opencode-state
+        advancedMounts:
+          opencode:
+            app:
+              - path: /root/.local/share/opencode
+      # Tailored opencode.json (single-file subPath mount).
+      config-file:
+        type: configMap
+        name: opencode-config
+        advancedMounts:
+          opencode:
+            app:
+              - path: /root/.config/opencode/opencode.json
+                subPath: opencode.json
+      omopenagent:
+        type: configMap
+        name: opencode-config
+        advancedMounts:
+          opencode:
+            app:
+              - path: /root/.config/opencode/oh-my-openagent.json
+                subPath: oh-my-openagent.json
+      # Operator personas -> /root/.config/opencode/agent/*.md
+      agents:
+        type: configMap
+        name: opencode-agents
+        advancedMounts:
+          opencode:
+            app:
+              - path: /root/.config/opencode/agent
+      # Project workspace the agent operates in. emptyDir scratch for v1;
+      # promote to a git-synced PVC once a target repo/workflow is chosen.
+      workspace:
+        type: emptyDir
+        advancedMounts:
+          opencode:
+            app:
+              - path: /workspace

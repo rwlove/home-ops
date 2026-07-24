@@ -1,0 +1,69 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: opencode-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: opencode
+  # Additive — default-deny (ai ns) is what triggers the lockdown; these
+  # rules punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # Internal gateway (envoy) → opencode:4096. Auth is enforced at the
+    # gateway by the extAuth SecurityPolicy (opencode-extauth); opencode's
+    # own basic-auth is the second gate for direct in-cluster callers.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "4096"
+              protocol: TCP
+  # ---- BLAST-RADIUS BOUNDARY ----
+  # The egress to the MCP broker below is the *real* MCP boundary. The
+  # Kuadrant broker's internal svc has no JWT check, so reachability =
+  # network policy. Remove the mcp-gateway rule and the pod cannot reach
+  # ANY aggregated tool. Because the broker fronts mutating backends
+  # (kubectl/omada/ha) with no per-tool authz, allowing it at all grants
+  # the full surface once a session lifts the client-side
+  # `lovenet-gateway_*: false` gate. Accepted under Plan C (interactive,
+  # Rob-only via extAuth). Do not point an unattended loop at this pod
+  # until per-tool authz lands.
+  egress:
+    # Lovenet MCP gateway (Kuadrant broker) — internal svc, no token.
+    # Selector confirmed against mcp-gateway's own mcp-gateway-broker-allow
+    # CNP (network-operator review, 2026-07-24).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+            app.kubernetes.io/name: mcp-gateway
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # Model providers (vllm-driver-spark, vllm-coder-spark, ollama) are
+    # in-cluster Services in THIS namespace — reached via the baseline
+    # allow-intra-namespace rule, so no egress hole is needed here (this
+    # replaced the previous *.thesteamedcrab.com + envoy:10443 path).
+    #
+    # Genuinely-external HTTPS: npm (oh-my-openagent plugin install on
+    # first run) + whatever the `bash` tool legitimately needs (git, pip).
+    # A coding agent needs broad egress to be useful; matchPattern FQDN
+    # pinning is inert (A-only records) per
+    # project_cilium_matchpattern_fqdn_limits.md, so this collapses to
+    # world:443 (repo precedent: khoj, comfyui). This is a broader surface
+    # than khoj/comfyui because the pod runs `bash` — arbitrary outbound
+    # 443, not just registries. Accepted under Plan C (interactive,
+    # Rob-only via extAuth); signed off by Rob 2026-07-24.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

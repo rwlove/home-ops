@@ -1,0 +1,48 @@
+---
+# yaml-language-server: $schema=https://json.schemastore.org/kustomization
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+components:
+  - ../../../../components/repos/app-template
+resources:
+  - ./cnp-allow.yaml
+  - ./externalsecret.yaml
+  - ./helmrelease.yaml
+  - ./httproute.yaml
+  - ./pvc.yaml
+  - ./securitypolicy.yaml
+configMapGenerator:
+  # opencode reads its config from /root/.config/opencode. This is a
+  # cluster-tailored copy of the live workstation config with two deltas:
+  #   1. mcp.lovenet-gateway.url -> internal broker svc (no Authelia JWT
+  #      needed in-cluster; the public mcp.${SECRET_DOMAIN} route is what
+  #      carries the SecurityPolicy JWT check). No Bearer header.
+  #   2. instructions[] omitted: the workstation config loads personal
+  #      vault files (~/.claude-personal/CLAUDE.md, HOMELAB-SPEC.md).
+  #      Committing those to git is a HOMELAB-SPEC L2 #1 concern, so they
+  #      are deferred (see PR notes). MCP scope + agents are carried here.
+  #   3. vllm-coder provider dropped: vllm-coder-spark was PARKED
+  #      2026-07-23 (replicas:0 — Qwen3.6-27B can't co-reside with the
+  #      driver on the GB10, which really holds ~97 GiB). Its Service has
+  #      zero endpoints, so the provider would be dead on arrival. No agent
+  #      in oh-my-openagent.json routed to it. Restore this block if/when
+  #      the coder returns (likely a small model on the P40) — see
+  #      vllm_spark_migration_plan.md.
+  - name: opencode-config
+    files:
+      - opencode.json=./resources/opencode.json
+      - oh-my-openagent.json=./resources/oh-my-openagent.json
+  # The operator personas + quick agent, copied verbatim from the live
+  # opencode config's agent/ dir. data-classification-audit gate before
+  # merge (internal-tier infra personas; home-ops is private).
+  - name: opencode-agents
+    files:
+      - graphic-artist.md=./resources/agent/graphic-artist.md
+      - ml-operator.md=./resources/agent/ml-operator.md
+      - network-operator.md=./resources/agent/network-operator.md
+      - observability-operator.md=./resources/agent/observability-operator.md
+      - quick.md=./resources/agent/quick.md
+      - smart-home-operator.md=./resources/agent/smart-home-operator.md
+      - storage-operator.md=./resources/agent/storage-operator.md
+generatorOptions:
+  disableNameSuffixHash: true

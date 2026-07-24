@@ -31,7 +31,6 @@ flowchart TB
     subgraph Bridges[Bridges — Windmill TS workflows]
         WPaperless[paperless-rag-ingest.ts<br/>paperless-rag-tombstone.ts]
         WLightrag[lightrag-rag-ingest.ts<br/>lightrag-rag-tombstone.ts]
-        WIntent[smart-home-intent-drift.ts]
         WFail[windmill-failure-watcher.ts]
         WWork[workaround-watcher.ts]
     end
@@ -99,7 +98,7 @@ shown above because neither currently does anything.
 | Open WebUI chat | Browser → Authelia OIDC → Open WebUI backend | Routes to ollama-spark (default). The langgraph-agent-as-model registration was removed 2026-07-06 — Open WebUI's only remaining tool surface is the MCP gateway. |
 | Khoj UI | Browser → gateway extAuth (Authelia) → khoj | Khoj's own embedding pipeline; chat via ollama P40 |
 | AlertManager firing alert (`severity=critical`) | Webhook receiver | Pushover directly — no Windmill hop, no AI investigation step (the `windmill-investigate` route/receiver and `alertmanager-holmesgpt-notify.ts` were removed 2026-07-06) |
-| Cron — RAG ingest/tombstone, HA intent drift, self-watch | Windmill scheduled trigger | The 8 surviving `.ts` workflows under `kubernetes/apps/home/windmill/workflows/` (paperless→Qdrant+LightRAG unified in `paperless-rag-fanout` since 2026-07-20) — see [Workflow Automation](workflow_automation.md) |
+| Cron — RAG ingest/tombstone, self-watch | Windmill scheduled trigger | The 7 surviving `.ts` workflows under `kubernetes/apps/home/windmill/workflows/` (paperless→Qdrant+LightRAG unified in `paperless-rag-fanout` since 2026-07-20) — see [Workflow Automation](workflow_automation.md) |
 | Cron — Renovate PR triage / cost commentary | Kubernetes CronJob | `claude-runner` (`kubernetes/apps/automation/claude-runner/app/cronjob-*.yaml`) |
 
 **Removed 2026-07-06, no longer ingress surfaces:** Zulip DM to the

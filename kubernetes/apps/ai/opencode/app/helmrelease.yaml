@@ -103,25 +103,44 @@ spec:
               # Kustomization build with "missing closing brace" (see the same
               # warning in mcp-system/mcp-gateway/app/rotator-cronjob.yaml).
               - |
-                AUTH=()
-                if [ -n "$${GH_TOKEN:-}" ]; then
-                  B64=$$(printf 'x-access-token:%s' "$${GH_TOKEN}" | base64 -w0)
-                  AUTH=(-c "http.extraheader=AUTHORIZATION: basic $${B64}")
-                  echo "git credentials: present"
-                else
-                  echo "git credentials: absent — public repos only"
+                # Deploy keys land in the container's ephemeral /tmp, never on
+                # the workspace PVC — private keys must not end up in a
+                # Longhorn backup.
+                SSHD=/tmp/ssh
+                mkdir -p "$${SSHD}"; chmod 700 "$${SSHD}"
+                [ -n "$${KNOWN_HOSTS:-}" ] && printf '%s\n' "$${KNOWN_HOSTS}" > "$${SSHD}/known_hosts"
+                if [ -n "$${SSH_KEY_LOVENET:-}" ]; then
+                  printf '%s\n' "$${SSH_KEY_LOVENET}" > "$${SSHD}/lovenet"; chmod 600 "$${SSHD}/lovenet"
+                fi
+                if [ -n "$${SSH_KEY_CONTAINERS:-}" ]; then
+                  printf '%s\n' "$${SSH_KEY_CONTAINERS}" > "$${SSHD}/containers"; chmod 600 "$${SSHD}/containers"
                 fi
                 for r in home-ops lovenet-network-configuration containers; do
+                  KEY=""
+                  case "$${r}" in
+                    home-ops) URL="https://github.com/rwlove/$${r}.git" ;;
+                    lovenet-network-configuration) URL="git@github.com:rwlove/$${r}.git"; KEY="$${SSHD}/lovenet" ;;
+                    containers) URL="git@github.com:rwlove/$${r}.git"; KEY="$${SSHD}/containers" ;;
+                  esac
+                  if [ -n "$${KEY}" ] && [ ! -f "$${KEY}" ]; then
+                    echo "  SKIP $${r} (no deploy key)"; continue
+                  fi
+                  if [ -n "$${KEY}" ]; then
+                    export GIT_SSH_COMMAND="ssh -i $${KEY} -o IdentitiesOnly=yes -o UserKnownHostsFile=$${SSHD}/known_hosts -o StrictHostKeyChecking=yes"
+                  else
+                    unset GIT_SSH_COMMAND
+                  fi
                   if [ -d "/workspace/$${r}/.git" ]; then
-                    if git "$${AUTH[@]}" -C "/workspace/$${r}" fetch --all --prune --quiet 2>/dev/null; then
+                    git -C "/workspace/$${r}" remote set-url origin "$${URL}" 2>/dev/null
+                    if git -C "/workspace/$${r}" fetch --all --prune --quiet 2>/dev/null; then
                       echo "  fetched $${r}"
                     else
-                      echo "  SKIP $${r} (fetch failed — credentials?)"
+                      echo "  SKIP $${r} (fetch failed)"
                     fi
-                  elif git "$${AUTH[@]}" clone --quiet "https://github.com/rwlove/$${r}.git" "/workspace/$${r}" 2>/dev/null; then
+                  elif git clone --quiet "$${URL}" "/workspace/$${r}" 2>/dev/null; then
                     echo "  cloned $${r}"
                   else
-                    echo "  SKIP $${r} (clone failed — private repo needs credentials)"
+                    echo "  SKIP $${r} (clone failed)"
                   fi
                 done
                 echo "workspace: $$(ls -1 /workspace 2>/dev/null | tr '\n' ' ')"

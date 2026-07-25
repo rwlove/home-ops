@@ -75,6 +75,23 @@ spec:
                 rm -f /data/config/agent/*.md
                 cp -f /src/agents/*.md /data/config/agent/
                 echo "staged opencode config + $(ls -1 /data/config/agent/*.md | wc -l) agent personas"
+                # Standing rules + skills come from a Secret, not git: this
+                # repo is public and HOMELAB-SPEC names the media-download
+                # stacks (L2 #2). Without these the agents run with no
+                # standing rules and no skills at all.
+                mkdir -p /data/config/instructions /data/config/skills
+                if [ -s /secrets/HOMELAB_SPEC ]; then
+                  cp -f /secrets/HOMELAB_SPEC /data/config/instructions/HOMELAB-SPEC.md
+                fi
+                if [ -s /secrets/PERSONA_BASE ]; then
+                  cp -f /secrets/PERSONA_BASE /data/config/instructions/persona-base.md
+                fi
+                if [ -s /secrets/SKILLS_TGZ_B64 ]; then
+                  base64 -d < /secrets/SKILLS_TGZ_B64 > /tmp/skills.tgz 2>/dev/null &&
+                    tar -xzf /tmp/skills.tgz -C /data/config --strip-components=1 2>/dev/null &&
+                    rm -f /tmp/skills.tgz
+                fi
+                echo "staged $(ls -1 /data/config/instructions 2>/dev/null | wc -l) instruction files, $(ls -1 /data/config/skills 2>/dev/null | wc -l) skills"
             resources:
               requests:
                 cpu: 10m
@@ -372,6 +389,16 @@ spec:
           opencode:
             stage-config:
               - path: /src/agents
+                readOnly: true
+      # Vault-sourced standing rules + skills bundle (see externalsecret).
+      # initContainer only — the app reads the copies staged onto the PVC.
+      instructions-src:
+        type: secret
+        name: opencode-instructions-secret
+        advancedMounts:
+          opencode:
+            stage-config:
+              - path: /secrets
                 readOnly: true
       # Agent working tree — Longhorn PVC (see workspace-pvc.yaml). Holds the
       # repo clones plus accumulated in-flight work, which unattended agents

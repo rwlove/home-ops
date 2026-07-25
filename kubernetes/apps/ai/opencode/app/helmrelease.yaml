@@ -92,12 +92,14 @@ spec:
           # extra image enters the supply chain.
           #
           # Deliberately NON-FATAL: a clone failure must never stop the server
-          # from starting. home-ops is public and clones without credentials;
-          # the two private repos are skipped with a message until the
-          # opencode-git-secret exists (optional secretRef below).
+          # from starting. home-ops is public and clones over HTTPS with no
+          # credential; the two private repos use per-repo read-only deploy
+          # keys and are skipped with a message if opencode-git-secret is
+          # absent (optional secretRef below).
           #
-          # The token is passed as a transient `-c http.extraheader` so it is
-          # never written into .git/config on the PVC — no credential at rest.
+          # SSH goes to ssh.github.com:443, NOT github.com:22 — the CNP only
+          # permits world:443, and opening port 22 for a pod that runs `bash`
+          # buys nothing when GitHub already serves SSH on 443.
           stage-repos:
             image:
               repository: ghcr.io/felixclements/opencode-server-docker
@@ -127,8 +129,8 @@ spec:
                   KEY=""
                   case "$${r}" in
                     home-ops) URL="https://github.com/rwlove/$${r}.git" ;;
-                    lovenet-network-configuration) URL="git@github.com:rwlove/$${r}.git"; KEY="$${SSHD}/lovenet" ;;
-                    containers) URL="git@github.com:rwlove/$${r}.git"; KEY="$${SSHD}/containers" ;;
+                    lovenet-network-configuration) URL="ssh://git@ssh.github.com:443/rwlove/$${r}.git"; KEY="$${SSHD}/lovenet" ;;
+                    containers) URL="ssh://git@ssh.github.com:443/rwlove/$${r}.git"; KEY="$${SSHD}/containers" ;;
                   esac
                   if [ -n "$${KEY}" ] && [ ! -f "$${KEY}" ]; then
                     echo "  SKIP $${r} (no deploy key)"; continue

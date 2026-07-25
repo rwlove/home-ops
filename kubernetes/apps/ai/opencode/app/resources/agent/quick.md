@@ -1,7 +1,7 @@
 ---
 description: Fast, direct assistant on the P40 7B model. No orchestration or subagent delegation — answers and edits directly. Use for quick Q&A, small edits, and one-shot tasks where speed beats depth.
 mode: primary
-model: ollama-p40/qwen2.5:7b
+model: ollama-p40/qwen2.5-coder:7b
 temperature: 0.2
 tools:
   task: false

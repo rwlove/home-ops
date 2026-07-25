@@ -120,9 +120,9 @@ spec:
             - port: "8080"
               protocol: TCP
     # Paperless RAG ingest workflows
-    # (paperless-rag-ingest, paperless-rag-tombstone):
+    # (paperless-rag-fanout, paperless-rag-tombstone):
     # - paperless (collab ns) for doc list + content
-    # - ollama-spark (ai ns) for bge-m3 embeddings
+    # - tei-embed-spark (ai ns) for bge-m3 embeddings
     # - qdrant (databases ns) for point upsert + scroll
     # Each scoped to its specific Service rather than ns-wide.
     - toEndpoints:
@@ -132,6 +132,21 @@ spec:
       toPorts:
         - ports:
             - port: "8000"
+              protocol: TCP
+    # Embeddings moved off ollama-spark to tei-embed-spark (OpenAI /v1)
+    # on 2026-07-25, completing the git-side half of the Phase 2 cutover.
+    # The ollama-spark hole is retained deliberately: the fan-out script
+    # lives in Windmill (no git→workspace sync) and is repointed by a
+    # separate MCP deploy, so this rule must permit BOTH endpoints across
+    # the window where manifest and script disagree. Drop the ollama-spark
+    # entry once the script is confirmed on /v1/embeddings.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: tei-embed-spark
+      toPorts:
+        - ports:
+            - port: "3000"
               protocol: TCP
     - toEndpoints:
         - matchLabels:

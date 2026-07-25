@@ -26,7 +26,7 @@ spec:
           app:
             image:
               repository: ghcr.io/rwlove/memory-mcp
-              tag: v0.2.1@sha256:bc78855b3fa8342b6ba31bfaec2fae44edabd63eee70609de689db4f7ae5c613
+              tag: v0.3.0@sha256:e6af1677dd6a82f0cd6c8779c6088b2316c6b4a4ab3f44fe2056bfb132644c9a
             env:
               # CNPG-generated app Secret reflected from databases ns
               # via emberstack reflector (see langgraph-memory
@@ -36,16 +36,37 @@ spec:
                   secretKeyRef:
                     name: postgres-langgraph-memory-app
                     key: uri
+              # Embeddings cut from ollama-spark to tei-embed-spark
+              # 2026-07-25, the last git-managed consumer of the Spark's
+              # Ollama. Requires v0.3.0, which added the openai dialect
+              # (rwlove/containers#161) — v0.2.1 could only speak
+              # /api/embed, which is why this consumer lagged the others.
+              #
+              # Same bge-m3 weights, so the pgvector column is unaffected:
+              # measured cosine 0.99999941 between the two backends through
+              # the server's own embed(). No re-embed of kg.observations.
+              EMBED_BACKEND: openai
+              EMBED_BASE_URL: http://tei-embed-spark.ai.svc.cluster.local:3000
+              # Informational only — TEI serves one model and ignores the
+              # request's `model` field. Kept so the config is self-describing.
               EMBED_MODEL: bge-m3
               HOST: "0.0.0.0"
-              OLLAMA_BASE_URL: http://ollama-spark.ai.svc.cluster.local:11434
               PORT: "8070"
               TZ: America/New_York
             probes:
-              # v0.1.2 server exposes /healthz (DB ping) and /readyz
-              # (DB + Ollama probe) via FastMCP custom_route. Switch from
-              # TCP-only to httpGet so the kubelet drops us out of
-              # Service rotation if Postgres or Ollama go sideways.
+              # v0.1.2 server exposes /healthz (DB ping) and /readyz via
+              # FastMCP custom_route. Switch from TCP-only to httpGet so the
+              # kubelet drops us out of Service rotation if Postgres or the
+              # embedder go sideways.
+              #
+              # v0.3.0 changed what /readyz checks: it now performs a real
+              # one-token embed instead of Ollama's `GET /api/tags` (TEI has
+              # no equivalent — /api/tags and /v1/models both 404). That
+              # makes readiness STRICTER: an embedder that is reachable but
+              # not serving now drops this pod from the Service, where
+              # before it stayed in. Intended — but if readiness ever flaps
+              # on a cold backend, raise READYZ_EMBED_TIMEOUT (default 5s)
+              # rather than reverting.
               liveness:
                 enabled: true
                 custom: true

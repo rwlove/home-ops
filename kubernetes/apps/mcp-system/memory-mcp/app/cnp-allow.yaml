@@ -24,10 +24,24 @@ spec:
         - ports:
             - port: "5432"
               protocol: TCP
-    # Ollama for embedding generation. Phase A of the
-    # Spark-unblocks-RAG plan picked bge-m3 (1024-dim), which only
-    # lives on ollama-spark. P40 ollama kept in the egress for
-    # rollback (fast env-flip back to nomic-embed-text if needed).
+    # Embeddings → tei-embed-spark (OpenAI /v1) as of the 2026-07-25
+    # cutover. Selector verified against the live pod label rather than
+    # assumed — see rwlove/home-ops#13264 and #13269, where two rules in
+    # this cluster named pods that don't exist and silently dropped all
+    # traffic.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: tei-embed-spark
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+    # Both Ollamas retained purely as a rollback path: reverting this app
+    # to v0.2.1 (or setting EMBED_BACKEND=ollama) must not also require a
+    # CNP change to recover. bge-m3 still lives on ollama-spark, and the
+    # P40 ollama covers a fallback to nomic-embed-text.
+    # Drop these once the TEI path has soaked.
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: ai

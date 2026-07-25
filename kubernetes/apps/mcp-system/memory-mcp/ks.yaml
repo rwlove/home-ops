@@ -18,6 +18,22 @@ spec:
       namespace: mcp-system
     - name: langgraph-memory
       namespace: databases
+  # This path ships a one-shot `memory-mcp-migrate` Job, and a Job's
+  # spec.template is IMMUTABLE. Any image bump to that Job therefore makes
+  # the whole Kustomization fail its dry-run with "field is immutable" —
+  # which is exactly what happened bumping v0.2.1 -> v0.3.0 in #13275, and
+  # it also stalled the two Kustomizations that depend on this one.
+  #
+  # `force` lets Flux delete and recreate a resource when an immutable
+  # field changes, instead of wedging. Safe here specifically because the
+  # migration is idempotent by design — schema.sql is 9 x
+  # `CREATE ... IF NOT EXISTS` with zero destructive statements, and
+  # migrate.py documents that re-running it as a Job is expected.
+  #
+  # Scope check before enabling: this path's other resources (HelmRelease,
+  # CiliumNetworkPolicy, ServiceMonitor) have no immutable fields that
+  # matter, so `force` only ever bites on the Job.
+  force: true
   retryInterval: 2m
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/kustomization-kustomize-v1.json

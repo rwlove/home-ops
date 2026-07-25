@@ -9,10 +9,18 @@ spec:
     kind: OCIRepository
     name: app-template
   interval: 30m
+  # strategy: Recreate on an RWO Longhorn PVC means every rollout is:
+  # terminate old pod -> Longhorn detach -> schedule -> attach -> run two
+  # initContainers (one of which clones three git repos) -> start. That
+  # routinely outruns helm-controller's 5m wait, which failed the upgrade
+  # and rolled back in a loop. disableWait matches the documented repo
+  # pattern (see khoj + project_helmrelease_disablewait.md).
   install:
+    disableWait: true
     remediation:
       retries: 3
   upgrade:
+    disableWait: true
     cleanupOnFail: true
     remediation:
       retries: 3

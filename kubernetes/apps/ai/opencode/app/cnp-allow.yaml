@@ -44,12 +44,21 @@ spec:
     # DNS, which mcp-gateway-istio-allow permits via `fromEntities: cluster`.
     # Namespace-wide selector matches the langgraph-agents precedent (the
     # reference in-cluster MCP client named in that policy's comment).
+    #
+    # 8070 is memory-mcp, addressed DIRECTLY rather than through the broker.
+    # The aggregating gateway returns ~319k tokens of tool schemas against a
+    # 65k-context model, which silently killed every turn; memory-mcp alone
+    # is 14 tools / ~2.9k tokens. Until broker-side filtering exists
+    # (Kuadrant AuthPolicy — see docs/src/mcp_tool_authz_design.md), narrow
+    # direct connections are the only way an agent gets usable MCP tools.
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: mcp-system
       toPorts:
         - ports:
             - port: "8080"
+              protocol: TCP
+            - port: "8070"
               protocol: TCP
     # Model providers (vllm-driver-spark, vllm-coder-spark, ollama) are
     # in-cluster Services in THIS namespace — reached via the baseline

@@ -86,10 +86,19 @@ spec:
                 if [ -s /secrets/PERSONA_BASE ]; then
                   cp -f /secrets/PERSONA_BASE /data/config/instructions/persona-base.md
                 fi
+                # The bundle's root entry is already `skills/`, so extract it
+                # as-is. An earlier --strip-components=1 removed that prefix
+                # and scattered each skill loose into /data/config; the loop
+                # below clears any such strays left by that version.
                 if [ -s /secrets/SKILLS_TGZ_B64 ]; then
-                  base64 -d < /secrets/SKILLS_TGZ_B64 > /tmp/skills.tgz 2>/dev/null &&
-                    tar -xzf /tmp/skills.tgz -C /data/config --strip-components=1 2>/dev/null &&
+                  if base64 -d < /secrets/SKILLS_TGZ_B64 > /tmp/skills.tgz 2>/dev/null; then
+                    for s in $(tar -tzf /tmp/skills.tgz 2>/dev/null | sed -n 's|^skills/\([^/]*\)/$|\1|p'); do
+                      [ -d "/data/config/$${s}" ] && rm -rf "/data/config/$${s}"
+                    done
+                    rm -rf /data/config/skills
+                    tar -xzf /tmp/skills.tgz -C /data/config 2>/dev/null
                     rm -f /tmp/skills.tgz
+                  fi
                 fi
                 echo "staged $(ls -1 /data/config/instructions 2>/dev/null | wc -l) instruction files, $(ls -1 /data/config/skills 2>/dev/null | wc -l) skills"
             resources:

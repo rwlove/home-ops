@@ -56,6 +56,30 @@ spec:
             valid_status_codes: [200]
           prober: http
           timeout: 30s
+        # Synthetic embed prober for tei-embed-spark, the TEI embedder that
+        # took over RAG embeddings from ollama-spark on 2026-07-25. Sister
+        # of ollama_embed, but against the OpenAI surface (/v1/embeddings),
+        # so the success assertion is the OpenAI response shape ("data")
+        # rather than ollama's ("embeddings").
+        #
+        # Shorter timeout than ollama_embed (10s vs 30s): TEI loads its one
+        # model at startup and never evicts it, so there is no cold-load
+        # case to absorb — a slow response here is a real fault, not a
+        # warm-up. Keeping 30s would just delay detection.
+        tei_embed:
+          http:
+            body: |-
+              {"model":"bge-m3","input":"prober heartbeat"}
+            fail_if_body_not_matches_regexp:
+              - "\"data\""
+            headers:
+              Content-Type: application/json
+            method: POST
+            preferred_ip_protocol: "ip4"
+            valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+            valid_status_codes: [200]
+          prober: http
+          timeout: 10s
         tcp_connect:
           prober: tcp
           tcp:

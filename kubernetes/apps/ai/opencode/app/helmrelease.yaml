@@ -125,12 +125,26 @@ spec:
                 if [ -n "$${SSH_KEY_CONTAINERS:-}" ]; then
                   printf '%s\n' "$${SSH_KEY_CONTAINERS}" > "$${SSHD}/containers"; chmod 600 "$${SSHD}/containers"
                 fi
-                for r in home-ops lovenet-network-configuration containers; do
+                if [ -n "$${SSH_KEY_ANSIBLE:-}" ]; then
+                  printf '%s\n' "$${SSH_KEY_ANSIBLE}" > "$${SSHD}/ansible"; chmod 600 "$${SSHD}/ansible"
+                fi
+                if [ -n "$${SSH_KEY_HOME_ASSISTANT_CONFIG:-}" ]; then
+                  printf '%s\n' "$${SSH_KEY_HOME_ASSISTANT_CONFIG}" > "$${SSHD}/home-assistant-config"; chmod 600 "$${SSHD}/home-assistant-config"
+                fi
+                # PUMP and home-ops are public (HTTPS, no credential); the rest
+                # are private and use their own read-only deploy key. A key
+                # cannot be shared across repos, hence one file each.
+                # NOTE: ansible's default branch is `master`, not `main` —
+                # plain `git clone` follows the remote HEAD, so nothing special
+                # is needed, but do not hardcode a branch here.
+                for r in home-ops PUMP lovenet-network-configuration containers ansible home-assistant-config; do
                   KEY=""
                   case "$${r}" in
-                    home-ops) URL="https://github.com/rwlove/$${r}.git" ;;
+                    home-ops|PUMP) URL="https://github.com/rwlove/$${r}.git" ;;
                     lovenet-network-configuration) URL="ssh://git@ssh.github.com:443/rwlove/$${r}.git"; KEY="$${SSHD}/lovenet" ;;
                     containers) URL="ssh://git@ssh.github.com:443/rwlove/$${r}.git"; KEY="$${SSHD}/containers" ;;
+                    ansible) URL="ssh://git@ssh.github.com:443/rwlove/$${r}.git"; KEY="$${SSHD}/ansible" ;;
+                    home-assistant-config) URL="ssh://git@ssh.github.com:443/rwlove/$${r}.git"; KEY="$${SSHD}/home-assistant-config" ;;
                   esac
                   if [ -n "$${KEY}" ] && [ ! -f "$${KEY}" ]; then
                     echo "  SKIP $${r} (no deploy key)"; continue

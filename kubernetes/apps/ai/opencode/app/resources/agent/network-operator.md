@@ -14,9 +14,11 @@ tools:
   todowrite: true
   task: true
   "lovenet-gateway_*": false
+  "lovenet-gateway_memory_*": true
   "lovenet-gateway_omada_*": true
   "lovenet-gateway_kubectl_*": true
   "lovenet-gateway_netbox_*": true
+  "lovenet-gateway_cilium_*": true
   "lovenet-gateway_prom_*": true
   "lovenet-gateway_grafana_*": true
   "lovenet-gateway_chrome_browser_*": true

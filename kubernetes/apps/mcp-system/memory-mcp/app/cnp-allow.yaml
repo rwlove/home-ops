@@ -13,6 +13,21 @@ spec:
   enableDefaultDeny:
     egress: false
     ingress: false
+  ingress:
+    # opencode (ai ns) connects to memory-mcp DIRECTLY rather than through
+    # the broker: the aggregating gateway returns ~319k tokens of tool
+    # schemas, far past the 65k context of the model that agent runs, so a
+    # narrow direct connection is the only way it gets the shared knowledge
+    # graph. Intra-namespace callers (the broker) are covered by the
+    # baseline allow-intra-namespace rule and need nothing here.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: opencode
+      toPorts:
+        - ports:
+            - port: "8070"
+              protocol: TCP
   egress:
     # langgraph-memory CNPG primary in databases ns. Per
     # project_cilium_l4_port_targetport, toPorts matches container port.

@@ -21,8 +21,18 @@ spec:
         # footprint is ~97 GiB (caching allocator), leaving only ~24 GiB free.
         # Confirmed by a reclaim test (stopping the coder freed nothing → no
         # leak, the driver genuinely holds ~97). replicas:0 stops the crashloop
-        # + Flux revert drift. Coder decision pending (drop, or small coder on
-        # the P40's free ~12 GiB) — see vllm_spark_migration_plan.md.
+        # + Flux revert drift.
+        #
+        # CODER DECISION RESOLVED 2026-07-25: small-coder-on-P40 won.
+        # `qwen2.5-coder:7b` (Q4_K_M, ~4.8 GiB) now serves opencode's
+        # small_model + the light agents from ai/ollama on the P40; heavy
+        # coding rides the Spark driver (qwen3.6-35b-a3b), itself a strong
+        # coder. A second GB10 vLLM instance is no longer wanted.
+        #
+        # KEPT at replicas:0 rather than deleted, deliberately: this manifest
+        # carries the tuned FP8 serve flags and the memory math, which is the
+        # expensive part to reconstruct if vLLM's unified-memory accounting on
+        # GB10 improves enough to retry co-residency. Parked costs nothing.
         replicas: 0
         annotations:
           reloader.stakater.com/auto: "true"

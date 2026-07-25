@@ -36,13 +36,17 @@ spec:
   # Rob-only via extAuth). Do not point an unattended loop at this pod
   # until per-tool authz lands.
   egress:
-    # Lovenet MCP gateway (Kuadrant broker) — internal svc, no token.
-    # Selector confirmed against mcp-gateway's own mcp-gateway-broker-allow
-    # CNP (network-operator review, 2026-07-24).
+    # Lovenet MCP gateway — the ISTIO-managed gateway service, not the
+    # broker. The broker (app.kubernetes.io/name: mcp-gateway) accepts
+    # ingress only from the istio gateway pod, so addressing it directly is
+    # dropped by mcp-gateway-broker-allow — which is why MCP was silently
+    # dead here. In-cluster clients hit mcp-gateway-istio.mcp-system:8080 by
+    # DNS, which mcp-gateway-istio-allow permits via `fromEntities: cluster`.
+    # Namespace-wide selector matches the langgraph-agents precedent (the
+    # reference in-cluster MCP client named in that policy's comment).
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: mcp-system
-            app.kubernetes.io/name: mcp-gateway
       toPorts:
         - ports:
             - port: "8080"

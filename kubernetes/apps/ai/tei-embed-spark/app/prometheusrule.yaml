@@ -15,12 +15,11 @@ spec:
     # failure modes we can act on.
     - name: tei-embed-spark.availability
       rules:
-        # Pod-level failure. Until the embedding-cutover PR repoints RAG
-        # traffic here, this is dark capacity and only fires on infra
-        # failure (image-pull, OOM, GPU-bind, node loss). Post-cutover it
-        # covers user-visible RAG degradation: embedding calls from Open
-        # WebUI / LightRAG / memory-mcp / paperless-RAG fail when the pod
-        # is unready.
+        # Pod-level failure. Live as of the 2026-07-25 embedding cutover —
+        # Open WebUI RAG and LightRAG now embed here, so this covers
+        # user-visible RAG degradation, not just infra failure
+        # (image-pull, OOM, GPU-bind, node loss). memory-mcp and the
+        # paperless-RAG Windmill flow follow in the non-git cutover.
         - alert: SparkTeiEmbedPodDown
           annotations:
             summary: tei-embed-spark Pod not Ready (embedding surface unavailable)
@@ -35,6 +34,42 @@ spec:
           expr: |-
             kube_pod_status_ready{namespace="ai",pod=~"tei-embed-spark-.*",condition="true"} == 0
           for: 5m
+          labels:
+            severity: critical
+        # Synthetic-probe wedge detector — the sister of SparkOllamaWedged,
+        # and the reason the cutover doesn't leave the new embedding path
+        # blind. Pod-Ready above cannot distinguish "TEI is serving" from
+        # "TEI is up but failing every request"; the tei-embed-spark-embed
+        # Probe (blackbox-exporter/app/probes.yaml, 1-min cadence) POSTs a
+        # real /v1/embeddings call and asserts the OpenAI response shape.
+        #
+        # Companion alert: the generic BlackboxProbeFailed also fires on
+        # this probe. Same dupe trade as ollama-spark's rule — two
+        # notifications for one root cause, accepted for the runbook
+        # context below.
+        - alert: SparkTeiEmbedWedged
+          annotations:
+            summary: tei-embed-spark synthetic embed probe failing (RAG embedding unavailable)
+            description: |
+              The tei-embed-spark-embed Probe (POST /v1/embeddings) has
+              been failing for ≥3 minutes. The pod may report Ready
+              while TEI is not actually serving. Impact: Open WebUI RAG
+              retrieval and LightRAG ingest/query both stall. Checks:
+              (1) `kubectl -n ai logs deploy/tei-embed-spark --tail=200`
+                  — CUDA OOM is the likeliest cause, the GB10 is shared
+                  with the vLLM driver and comfyui;
+              (2) confirm the model is resident —
+                  `curl tei-embed-spark.ai:3000/info` should return
+                  BAAI/bge-m3;
+              (3) if wedged rather than crashed,
+                  `kubectl -n ai rollout restart deploy/tei-embed-spark`;
+              (4) rollback path — flip RAG_EMBEDDING_ENGINE back to
+                  ollama in open-webui and EMBEDDING_BINDING back to
+                  ollama in lightrag; ollama-spark still hosts bge-m3
+                  and vectors are interchangeable (cosine ≥0.999995).
+          expr: |-
+            probe_success{instance=~"https?://tei-embed-spark.*"} == 0
+          for: 3m
           labels:
             severity: critical
     - name: tei-embed-spark.errors

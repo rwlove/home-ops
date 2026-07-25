@@ -80,12 +80,31 @@ spec:
               # completes cleanly.
               MAX_ASYNC: "2"
               MAX_PARALLEL_INSERT: "1"
-              # --- Embeddings: bge-m3 (1024-dim) on Ollama-Spark ---
-              EMBEDDING_BINDING: ollama
-              EMBEDDING_BINDING_HOST: http://ollama-spark.ai.svc.cluster.local:11434
-              EMBEDDING_MODEL: bge-m3:latest
+              # --- Embeddings: bge-m3 (1024-dim) on TEI ---
+              # Cut over 2026-07-25 from ollama-spark/bge-m3:latest to
+              # tei-embed-spark, the dedicated TEI embedder. NOTE: openai
+              # binding, not ollama — TEI speaks /v1, not the ollama API.
+              # Same weights (BAAI/bge-m3), so EXISTING VECTORS STAY VALID:
+              # a parity check over 5 inputs (incl. multilingual + a single
+              # char) measured cosine ≥0.999995 vs the ollama path, identical
+              # 1024 dim, both L2-normalised, identical retrieval rank order.
+              # No re-embed needed.
+              EMBEDDING_BINDING: openai
+              EMBEDDING_BINDING_HOST: http://tei-embed-spark.ai.svc.cluster.local:3000/v1
+              # TEI serves exactly one model and ignores the request's `model`
+              # field (verified: any string returns BAAI/bge-m3). Kept
+              # descriptive rather than load-bearing.
+              EMBEDDING_MODEL: bge-m3
               EMBEDDING_DIM: "1024"
-              OLLAMA_EMBEDDING_NUM_CTX: "8192"
+              # TEI requires no auth, but the openai binding sends an
+              # Authorization header unconditionally — a placeholder keeps
+              # the client library happy. Same pattern as LLM_BINDING_API_KEY.
+              EMBEDDING_BINDING_API_KEY: tei
+              # TEI hard-rejects client batches >32 with HTTP 422 (Ollama
+              # accepted any size). LightRAG's default is 10, but pin it so
+              # the cutover doesn't silently depend on an upstream default
+              # that could rise past the cap in a future release.
+              EMBEDDING_BATCH_NUM: "16"
             envFrom:
               - secretRef:
                   name: lightrag-secret

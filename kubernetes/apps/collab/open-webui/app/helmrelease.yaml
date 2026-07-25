@@ -86,21 +86,25 @@ spec:
               # is kept aligned for DR / persistent-config-off scenarios.
               DEFAULT_MODELS: qwen3.6-35b-a3b
               ENABLE_RAG_WEB_SEARCH: true
-              RAG_EMBEDDING_ENGINE: ollama
-              # Pin RAG embedding traffic to Spark. Without this,
-              # open-webui v0.9.5 falls back to OLLAMA_BASE_URL
-              # (default '/ollama' → first persisted endpoint in
-              # webui.db), which currently resolves to the P40. That
-              # puts bge-m3 on the P40 chat hot path, where Immich
-              # CLIP and whisper bursts evict it and trigger cold-load
-              # latency on every RAG call. Spark already serves
-              # embedders for memory-mcp and paperless RAG (Windmill)
-              # — this aligns Open WebUI with those consumers. bge-m3
-              # is kept steady-resident on Spark by the blackbox
-              # synthetic embed probe (5-min cadence,
-              # doubles as wedge detector — see ollama-spark
-              # prometheusrule.yaml).
-              RAG_OLLAMA_BASE_URL: http://ollama-spark.ai.svc.cluster.local:11434
+              # Embeddings cut over 2026-07-25 from ollama-spark/bge-m3 to
+              # tei-embed-spark, the dedicated TEI embedder. TEI speaks the
+              # OpenAI embeddings API, so the engine flips ollama → openai
+              # and RAG_OLLAMA_BASE_URL retires.
+              #
+              # Same weights (BAAI/bge-m3) → EXISTING KNOWLEDGE COLLECTIONS
+              # STAY VALID. Parity measured over 5 inputs (incl. multilingual
+              # + a single char): cosine ≥0.999995 vs the ollama path,
+              # identical 1024 dim, both L2-normalised, identical retrieval
+              # rank order. No re-embed needed — unlike the nomic → bge-m3
+              # move below, this one is non-destructive.
+              RAG_EMBEDDING_ENGINE: openai
+              # These RAG_OPENAI_* vars are read only by the RAG embedder;
+              # they do NOT touch the chat OpenAI connection (that lives in
+              # webui.db openai.*, pointed at vllm-driver-spark).
+              RAG_OPENAI_API_BASE_URL: http://tei-embed-spark.ai.svc.cluster.local:3000/v1
+              # TEI requires no auth; Open WebUI sends the header regardless,
+              # so a placeholder satisfies the client.
+              RAG_OPENAI_API_KEY: tei
               # Phase A benchmark (2026-05-20, 50-doc Paperless eval)
               # showed bge-m3 (1024-dim) beats nomic-embed-text (768) by
               # +23 MRR@10 pts. The cluster moves to bge-m3 for new
@@ -110,6 +114,13 @@ spec:
               # need a re-embed from the UI. The first such collection
               # (Paperless) doesn't exist yet, so this PR has no
               # in-flight re-index cost.
+              #
+              # Deliberately UNCHANGED across the 2026-07-25 TEI cutover.
+              # TEI serves one model and ignores the request's `model` field
+              # (verified: any string returns BAAI/bge-m3), so this string is
+              # free to stay `bge-m3` — which matters because Open WebUI
+              # treats a changed RAG_EMBEDDING_MODEL as a re-index trigger
+              # for existing knowledge collections.
               RAG_EMBEDDING_MODEL: bge-m3
               # Cross-encoder reranker — external mode via TEI on Spark
               # (PR-3 of Stream 2). RAG_RERANKING_MODEL is informational;

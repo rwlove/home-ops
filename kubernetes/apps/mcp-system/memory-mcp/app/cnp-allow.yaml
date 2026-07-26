@@ -44,6 +44,14 @@ spec:
     # assumed — see rwlove/home-ops#13264 and #13269, where two rules in
     # this cluster named pods that don't exist and silently dropped all
     # traffic.
+    #
+    # The two transitional Ollama rollback holes that sat below this rule
+    # are RETIRED as of 2026-07-26. Their stated condition ("drop these
+    # once the TEI path has soaked") is met: v0.3.0 has run against
+    # tei-embed-spark with 0 restarts and /readyz — which in v0.3.0
+    # performs a REAL embed rather than a metadata GET — passing
+    # throughout. A rollback would now also require an image revert, so it
+    # is a deliberate operation that can carry its own CNP change.
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: ai
@@ -51,20 +59,4 @@ spec:
       toPorts:
         - ports:
             - port: "3000"
-              protocol: TCP
-    # Both Ollamas retained purely as a rollback path: reverting this app
-    # to v0.2.1 (or setting EMBED_BACKEND=ollama) must not also require a
-    # CNP change to recover. bge-m3 still lives on ollama-spark, and the
-    # P40 ollama covers a fallback to nomic-embed-text.
-    # Drop these once the TEI path has soaked.
-    - toEndpoints:
-        - matchLabels:
-            io.kubernetes.pod.namespace: ai
-            app.kubernetes.io/name: ollama
-        - matchLabels:
-            io.kubernetes.pod.namespace: ai
-            app.kubernetes.io/name: ollama-spark
-      toPorts:
-        - ports:
-            - port: "11434"
               protocol: TCP

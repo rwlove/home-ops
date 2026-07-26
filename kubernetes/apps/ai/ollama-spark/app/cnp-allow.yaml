@@ -24,23 +24,26 @@ spec:
         - ports:
             - port: "11434"
               protocol: TCP
-    # Cross-ns callers (mirrors the existing ollama CNP; both Services
-    # serve the same surface of consumers post-Phase-2 factory cutover).
+    # Cross-ns callers. Trimmed 2026-07-26 to the consumers that actually
+    # reach this Service. Each removal was justified by the SAME asymmetry
+    # test that exposed the frigate bug: an ingress entry whose consumer
+    # has no matching egress rule to this Service can never carry traffic.
+    #   - home-assistant  — its Ollama integration is configured against
+    #                       `ollama.ai:11434` (the P40); no egress here.
+    #   - suggestarr      — egresses to `ai/ollama` only.
+    #   - windmill-workers— egress retired in this PR (fan-out on TEI).
+    #   - mcp-system/*    — egress retired in this PR (memory-mcp on TEI).
+    # Corroborated by traffic: 24h of logs show /api/generate = 0,
+    # /api/chat = 0, and /api/embed = 290 ≈ exactly the 5-min synthetic
+    # probe. No consumer does real inference here.
     - fromEndpoints:
-        - matchLabels:
-            io.kubernetes.pod.namespace: home
-            app.kubernetes.io/name: home-assistant
-        - matchLabels:
-            io.kubernetes.pod.namespace: home
-            app.kubernetes.io/name: windmill-workers
-        - matchLabels:
-            io.kubernetes.pod.namespace: media
-            app.kubernetes.io/name: suggestarr
+        # Model-list polling for OLLAMA_BASE_URLS (2347 /api/tags in 24h).
+        # The last genuine consumer; retire it when ollama-spark is
+        # decommissioned, which also needs ollama-spark dropped from
+        # open-webui's OLLAMA_BASE_URLS or it will poll a dead endpoint.
         - matchLabels:
             io.kubernetes.pod.namespace: collab
             app.kubernetes.io/name: open-webui
-        - matchLabels:
-            io.kubernetes.pod.namespace: mcp-system
         # OllamaWedged synthetic probe (ollama_embed blackbox module
         # against bge-m3). Distinct from the Prometheus scrape allowed
         # by the baseline allow-monitoring-scrape — that one matches

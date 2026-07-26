@@ -1,5 +1,10 @@
 // Cron: every 15 min.
 //
+// MIRROR NOTE: this file is a hand-maintained copy of the script deployed
+// in Windmill; there is no git -> Windmill sync. The live version is hash
+// 7ad0be5d1bbdce5a. Synced 2026-07-26 to match, after the embedding
+// cutover was deployed via MCP on 07-25 and left this copy stale.
+//
 // Unified paperless → RAG ingest. Pulls each modified Paperless document
 // ONCE and fans it out to BOTH retrieval backends:
 //   - Qdrant `paperless` vector store (Open WebUI Knowledge Base) — chunk +
@@ -33,8 +38,8 @@ import * as wmill from "npm:windmill-client@1.527.0";
 
 const QDRANT = Deno.env.get("QDRANT_URL") ??
     "http://qdrant.databases.svc.cluster.local:6333";
-const OLLAMA = Deno.env.get("OLLAMA_URL") ??
-    "http://ollama-spark.ai.svc.cluster.local:11434";
+const EMBED_URL = Deno.env.get("EMBED_URL") ??
+    "http://tei-embed-spark.ai.svc.cluster.local:3000";
 const PAPERLESS = Deno.env.get("PAPERLESS_URL") ??
     "http://paperless.collab.svc.cluster.local:8000";
 const LIGHTRAG = Deno.env.get("LIGHTRAG_URL") ??
@@ -357,15 +362,17 @@ function chunk(text: string, size: number, overlap: number): string[] {
 }
 
 async function embed(text: string): Promise<number[]> {
-    const r = await fetch(`${OLLAMA}/api/embed`, {
+    const r = await fetch(`${EMBED_URL}/v1/embeddings`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model: EMBED_MODEL, input: text }),
         signal: AbortSignal.timeout(120_000),
     });
-    if (!r.ok) throw new Error(`ollama embed ${r.status}: ${await r.text()}`);
-    const body = await r.json() as { embeddings: number[][] };
-    return body.embeddings[0];
+    if (!r.ok) throw new Error(`tei embed ${r.status}: ${await r.text()}`);
+    const body = await r.json() as { data: { embedding: number[] }[] };
+    const vec = body.data?.[0]?.embedding;
+    if (!vec?.length) throw new Error(`tei embed: empty embedding in response`);
+    return vec;
 }
 
 async function upsert(points: QdrantPoint[]): Promise<void> {

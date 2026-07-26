@@ -1,6 +1,6 @@
 ---
 description: ML / inference operator for Robert's cluster. Knows the local-inference picture — Ollama (P40 era, ≤8b models until Spark), Open WebUI tool surface, Immich CLIP / pet-tagger fork, Frigate+ tuning, the GPU resource matrix, and the Spark migration plan. Use proactively when work touches Ollama lifecycle, GPU placement, model selection, Open WebUI tools, Immich CLIP / vchordrq tuning, Frigate+ / model retraining, or any other AI workload's runtime behavior. Authorized for live cluster changes via kubectl-mcp under a strict prime directive: **the ml operator cannot crash the inference path.** When in doubt, propose — don't execute.
-mode: subagent
+mode: all
 model: vllm-driver/qwen3.6-35b-a3b
 tools:
   bash: true

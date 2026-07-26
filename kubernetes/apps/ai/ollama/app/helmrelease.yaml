@@ -70,17 +70,31 @@ spec:
               # bge-m3 08:18 → qwen2.5:7b 09:26 → bge-m3 09:28, each a
               # cold GGUF load, `loaded runners count=1` every time.
               #
-              # 2 lets the embedder and the coder stay co-resident:
-              # bge-m3 (1.1 GiB) + qwen2.5-coder:7b (~4.8 GiB predicted)
-              # = ~5.9 GiB of the ~13.3 GiB the P40 has free after
-              # whisper / immich-ml / pet-tagger, leaving ~7.4 GiB for
-              # Immich CLIP bursts. Deliberately NOT 3 — holding a third
-              # 7b-class model would put ~10.7 GiB resident and cut burst
-              # headroom to ~2.3 GiB, which is how the 2026-05-18 VRAM
-              # exhaustion / CPU-spill incident happened (see
+              # 2 let the embedder and the coder stay co-resident:
+              # bge-m3 (0.62 GiB measured) + qwen2.5-coder:7b (4.58 GiB
+              # measured) = 5.2 GiB of the ~13 GiB the P40 has free after
+              # whisper / immich-ml / pet-tagger, leaving ~7.9 GiB for
+              # Immich CLIP bursts.
+              #
+              # Raised 2→3 on 2026-07-26 to seat Frigate's GenAI VLM.
+              # The earlier "deliberately NOT 3" reasoning was scoped to a
+              # third 7b-class model (~10.7 GiB resident, ~2.3 GiB left —
+              # the 2026-05-18 VRAM-exhaustion zone, see
               # docs/src/audit/post-spark-tool-call-leakage-2026-05-18.md).
+              # That still holds; this third model is far smaller.
+              # MEASURED, not predicted, on this GPU:
+              #   bge-m3        0.62 GiB
+              #   qwen2.5-coder 4.58 GiB
+              #   qwen2.5vl:3b  2.79 GiB   <- the VLM (3.2 GB on disk)
+              #   ------------------------
+              #   total         7.99 GiB   -> ~4.2 GiB left for CLIP bursts
+              # Roughly double the headroom of the incident configuration,
+              # but meaningfully tighter than the 2-model layout. If Immich
+              # CLIP starts spilling to CPU, this is the first thing to
+              # reconsider.
+              #
               # Heavy coding still routes to the Spark vLLM driver.
-              OLLAMA_MAX_LOADED_MODELS: 2
+              OLLAMA_MAX_LOADED_MODELS: 3
 
             resources:
               requests:

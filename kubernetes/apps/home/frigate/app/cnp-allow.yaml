@@ -113,17 +113,28 @@ spec:
             - port: "1935"
               protocol: TCP
     # Frigate genai integration — Ollama VLM descriptions for detection
-    # events (genai.provider=ollama, model=llama3.2-vision:11b,
-    # base_url=ollama-spark.ai.svc.cluster.local). Routed to the Spark
-    # Ollama, NOT the P40 (`ollama`): the P40 is already full (immich-ml +
-    # pet-tagger + comfyui ≈ 16Gi resident) and an 11b VLM would thrash
-    # against the qwen2.5:7b that six local-p40 langgraph agents depend on.
-    # Spark (GB10, 480Gi unified) has the headroom and is the routing-doc
-    # home for larger inference.
+    # events. Retargeted 2026-07-26 from ollama-spark to the P40 `ollama`
+    # (small VLM, ~3.2 GiB) as part of retiring ollama-spark.
+    #
+    # This rule is why GenAI never worked. The policy halves were authored
+    # for DIFFERENT targets at different times and never matched:
+    #   frigate egress → ollama-spark : present     ollama-spark ingress ← frigate : ABSENT
+    #   frigate egress → ollama       : ABSENT      ollama       ingress ← frigate : present
+    # Cilium silently dropped every request, Frigate's provider timed out
+    # at init and never retried, and the DB accumulated 13,017 events with
+    # ZERO descriptions. `ai/ollama`'s ingress has carried a frigate rule
+    # (commented "Frigate genai integration") the whole time — only this
+    # egress side was missing, so this closes the pair.
+    #
+    # The old comment argued the P40 was too full for an 11b VLM. That was
+    # correct for 11b: measured today, the P40 has ~12.7 GiB free and
+    # coder(4.6) + bge-m3(0.6) + an 11b(7.3) leaves ~0 for Immich CLIP
+    # bursts. A ~3 GiB VLM fits with ~5.5 GiB of burst headroom, which is
+    # what makes the P40 viable now where it wasn't before.
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: ai
-            app.kubernetes.io/name: ollama-spark
+            app.kubernetes.io/name: ollama
       toPorts:
         - ports:
             - port: "11434"

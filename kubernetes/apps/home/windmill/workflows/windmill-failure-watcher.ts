@@ -19,9 +19,11 @@
 // invoked via setState/getState helpers from npm:windmill-client).
 //
 // Self-recursion risk: if this watcher itself fails, no one knows.
-// Mitigation: BlackboxProbe on windmill /api/version catches the
-// "Windmill is down" case; the watcher's own failures show up in
-// `wmill flows runs` and the langgraph-dlq-watcher Pushover.
+// Partial mitigation: the BlackboxProbe on windmill /api/version
+// catches the "Windmill is down" case. It does NOT catch "Windmill is
+// up but this script is erroring" — the langgraph-dlq-watcher Pushover
+// that used to cover that was removed with the fleet (2026-07-06), so
+// today that case surfaces only on manual `wmill flows runs` inspection.
 
 import * as wmill from "npm:windmill-client@1.527.0";
 
@@ -44,9 +46,10 @@ const NOTIFY_COOLDOWN_S = 3600;
 // Scripts we expect to fail occasionally (DLQ scans, smoke probes) —
 // surface them only if failure rate stays >90% over the window, to
 // avoid flapping when one bad poll trips the regular threshold.
-const TOLERANT_PATHS = new Set([
-    "f/lovenet/langgraph-dlq-watcher",
-]);
+// Currently empty: the only entry was langgraph-dlq-watcher, removed
+// with the fleet (2026-07-06). Kept as a policy hook — add a path here
+// rather than raising FAILURE_RATE_THRESHOLD for everything.
+const TOLERANT_PATHS = new Set<string>([]);
 const TOLERANT_THRESHOLD = 0.9;
 
 type WatcherState = {

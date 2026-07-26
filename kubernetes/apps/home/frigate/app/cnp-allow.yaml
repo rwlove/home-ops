@@ -139,3 +139,28 @@ spec:
         - ports:
             - port: "11434"
               protocol: TCP
+    # SSH to github.com for the `snapshot` NATIVE SIDECAR that runs inside
+    # frigate-0 (initContainers.snapshot, restartPolicy: Always). It is a
+    # different pod from the nightly CronJob, so it does NOT inherit
+    # frigate-snapshot-allow — that policy selects
+    # `app.kubernetes.io/name: frigate-snapshot`, while the sidecar lives
+    # under `app.kubernetes.io/name: frigate` and lands here.
+    #
+    # Without this the sidecar has never worked. Its git clone was denied,
+    # so there was no .git, so every later git call failed with "not a git
+    # repository" and it gave up after 5 attempts — then slept forever by
+    # design ("so the pod stays Ready"), which is why the pod looked
+    # healthy while the startup snapshot silently did nothing. The feature
+    # it exists for — capturing a version-bump auto-migration the moment
+    # it happens, before the daily CronJob overwrites that state with a
+    # later edit — has therefore never once run.
+    #
+    # Same destination and port the CronJob already reaches, so this
+    # widens frigate-0's egress no further than the snapshot path already
+    # had cluster-wide.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "22"
+              protocol: TCP

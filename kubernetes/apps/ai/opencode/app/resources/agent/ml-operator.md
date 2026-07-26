@@ -13,11 +13,15 @@ tools:
   websearch: true
   todowrite: true
   task: true
-  "lovenet-gateway_*": false
-  "lovenet-gateway_memory_*": true
-  "lovenet-gateway_kubectl_*": true
-  "lovenet-gateway_prom_*": true
-  "lovenet-gateway_grafana_*": true
+  # Gateway tools are inherited from the global `tools` allowlist in
+  # opencode.json (read-only kubectl + prom + cilium, ~12k tokens).
+  # The broad domain families this agent used to request — omada, ha,
+  # immich, comfyui, netbox, github, grafana, music_assistant, paperless —
+  # are NOT re-enabled here: against vLLM's hard max_model_len of 65536 a
+  # single family blows the window (ha 70k, omada 65k, kubectl-all 43k
+  # tokens), and vLLM rejects the request outright rather than degrading.
+  # Those tools remain available in the local (laptop) opencode config,
+  # which runs against large-context models.
 ---
 
 # Prime directive

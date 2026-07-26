@@ -3,7 +3,23 @@
 Status: **Proposal — research only, not implemented.** Prerequisite for
 running any agent unattended against the MCP gateway.
 Owner: home-ops
-Last updated: 2026-07-25
+Last updated: 2026-07-26
+
+> **Update 2026-07-26 — this is no longer a prerequisite for *using* the
+> gateway, only for *enforcing* restrictions on it.**
+>
+> It was previously believed the gateway could not be used at all with a
+> 65k-context model, because its `tools/list` is 1,266 tools / 1.34 MB
+> ≈ 334k tokens. Measurement showed opencode applies its `tools` filter
+> **client-side, before the model call** — an allowlisted agent sends ~12k
+> tokens of schemas, and a filtered agent's request measured 18.8k input
+> tokens with the entire gateway attached. The gateway is therefore enabled
+> for `ai/opencode` as of 2026-07-26 with a read-only allowlist.
+>
+> Nothing in the threat model below changes. The allowlist is a
+> context-budget control that happens to narrow reach; a session can still
+> lift it. Everything this document says about unattended agents still
+> applies, and the in-cluster server remains Plan C (interactive, Rob-only).
 
 ## Problem statement
 

@@ -73,12 +73,29 @@ spec:
               # Qwen3.6's hybrid Gated-DeltaNet (Mamba) layers profiled to only
               # 1.44x KV concurrency + 95 Mamba cache blocks at 128k — under the
               # default max_num_seqs (256), so CUDA graph capture failed to init.
-              # 65536 is 2.6x opencode's ~24.5k-token agent scaffolding (fixes
-              # the old 32k overflow) with far more KV + Mamba headroom. Coder
-              # was dropped so this is single-tenant; effectively no memory cost.
-              # Native max is 262144.
+              # 131072. Native max is 262144, and the KV cache already
+              # allocated at gpu-memory-utilization 0.36 holds 505,563 tokens
+              # (vLLM startup log), so this costs no additional memory — 65536
+              # was leaving 4x on the table.
+              #
+              # Sized from measurement, not guesswork. opencode's in-cluster
+              # baseline is 39,821 tokens with the read-only kubectl MCP set
+              # (49,582 with tools loaded). 65536 leaves ~16k to work in and
+              # cannot fit an operator persona's domain tools at all: ha is
+              # ~57k, omada ~53k. At 131072 the ml-, storage- and
+              # observability-operator personas fit whole (~98-102k each).
+              #
+              # Cost is prefill latency: ~5,070 tok/s measured, so a full
+              # context is ~26s to first token (vs ~13s at 65536). Concurrency
+              # drops 7.71x -> 3.86x, still ample for a ~1-3 concurrent fleet.
+              # max-num-seqs stays 32, under the Mamba cache-block limit of 95
+              # at this length.
+              #
+              # 262144 would additionally fit network- and smart-home-operator
+              # but doubles prefill to ~52s. Not worth it until a persona
+              # actually needs omada_*/ha_* in-cluster.
               - --max-model-len
-              - "65536"
+              - "131072"
               # Cap concurrent sequences well under the Mamba cache-block limit
               # (95 at 128k, more at 65k). 32 is ample for this low-traffic
               # fleet (~1-3 concurrent) and lets CUDA graph capture proceed.

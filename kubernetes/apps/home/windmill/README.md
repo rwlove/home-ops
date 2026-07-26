@@ -140,18 +140,30 @@ Alerting is `./app/prometheusrule.yaml`, keyed on
 `kube_job_failed` (which sticks at 1 until the failed Job is GC'd).
 `WindmillWatchdogMissing` covers the CronJob itself disappearing.
 
-### The workspace error handler does not work — do not re-add it
+### Windmill error handlers do not work — do not re-add them
 
-Windmill's native **workspace error handler is inert on CE v1.771.0**.
-Tested 2026-07-26 with a correct configuration: handler script deployed and
-locked, `g/error_handler` group present, `ws_error_handler_muted: false` on
-every schedule, setting persisted (tried both `script/f/...` and bare
-`f/...` path forms). Result: **5 scheduled failures, 0 handler invocations**,
-nothing in the server logs. The workspace setting was reverted to unset — a
-handler that claims coverage but never fires is worse than none.
+**Both** of Windmill's error-handler mechanisms are inert on CE v1.771.0.
+Tested 2026-07-26; neither is a config mistake, and neither is a viable
+fallback for the watchdog.
 
-Per-schedule `on_failure` was not tested and may work; it is a different
-code path. Verify it actually fires before relying on it.
+| mechanism | configuration | result |
+|---|---|---|
+| workspace error handler | script deployed + locked, `g/error_handler` group present, `ws_error_handler_muted: false` on every schedule, setting persisted (tried `script/f/...` and bare `f/...`) | 5 scheduled failures, **0** handler invocations |
+| per-schedule `on_failure` | set to `script/f/...` at schedule creation, accepted with HTTP 200 | 12 scheduled failures, **0** handler invocations |
+
+Neither produced any error-handler activity in the server logs. Because two
+independent code paths behave identically, this is almost certainly gated or
+broken in this build rather than misconfigured — do not spend time
+re-deriving it. The workspace setting was reverted to unset: a handler that
+claims coverage but never fires is worse than none.
+
+An early workspace-handler run was discarded as contaminated (Windmill was
+mid-upgrade 1.770.0 -> 1.771.0) and re-run clean on the settled version.
+
+This is the entire reason `windmill-watchdog` lives outside Windmill. If a
+future Windmill version fixes error dispatch, the handlers become a nice
+per-failure detail layer — but the switch should stay regardless, because it
+is the only thing that does not depend on Windmill working.
 
 ### Editing the watchdog script
 

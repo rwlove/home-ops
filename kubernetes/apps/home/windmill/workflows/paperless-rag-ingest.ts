@@ -1,3 +1,12 @@
+// SUPERSEDED 2026-07-20 by paperless-rag-fanout. Its Windmill schedule is
+// paused (paused_until 2035) and it is kept only as a rollback reference.
+//
+// That rollback is NO LONGER VIABLE AS WRITTEN: the ollama-spark endpoint
+// below was decommissioned 2026-07-26, and embeddings now live on
+// tei-embed-spark, which serves the OpenAI /v1/embeddings shape rather
+// than ollama's /api/embed. Reviving this script means porting embed()
+// the same way paperless-rag-fanout was, not just changing the URL.
+//
 // Cron: every 15 min.
 //
 // Streams modified Paperless documents into Qdrant `paperless` so the

@@ -37,7 +37,7 @@ flowchart TB
 
     subgraph Inference[Inference]
         OllamaP40[(ollama / P40<br/>qwen2.5:7b · gte-small)]
-        OllamaSpark[(ollama-spark / GB10<br/>qwen3-next:80b-a3b-instruct-q4_K_M · bge-m3)]
+        VllmDriver[(vllm-driver-spark / GB10<br/>Qwen3.6-35B-A3B-FP8 · OpenAI /v1)]
     end
 
     subgraph Tools[Tool surfaces]
@@ -95,7 +95,7 @@ shown above because neither currently does anything.
 | Surface | Transport | Lands at |
 |---|---|---|
 | HA voice ("inbox …") | Whisper STT → ollama_voice conversation → HA `rest_command` → Authelia-JWT POST | **Broken, not yet fixed.** The `rest_command` (in the separate `home-assistant-config` repo) still POSTs toward the Windmill `langgraph-inbox.ts` webhook, which was deleted 2026-07-06 along with the fleet it forwarded to. |
-| Open WebUI chat | Browser → Authelia OIDC → Open WebUI backend | Routes to ollama-spark (default). The langgraph-agent-as-model registration was removed 2026-07-06 — Open WebUI's only remaining tool surface is the MCP gateway. |
+| Open WebUI chat | Browser → Authelia OIDC → Open WebUI backend | Routes to vllm-driver-spark (default, OpenAI /v1) as of 2026-07-24. The langgraph-agent-as-model registration was removed 2026-07-06 — Open WebUI's only remaining tool surface is the MCP gateway. |
 | Khoj UI | Browser → gateway extAuth (Authelia) → khoj | Khoj's own embedding pipeline; chat via ollama P40 |
 | AlertManager firing alert (`severity=critical`) | Webhook receiver | Pushover directly — no Windmill hop, no AI investigation step (the `windmill-investigate` route/receiver and `alertmanager-holmesgpt-notify.ts` were removed 2026-07-06) |
 | Cron — RAG ingest/tombstone, self-watch | Windmill scheduled trigger | The 7 surviving `.ts` workflows under `kubernetes/apps/home/windmill/workflows/` (paperless→Qdrant+LightRAG unified in `paperless-rag-fanout` since 2026-07-20) — see [Workflow Automation](workflow_automation.md) |
@@ -119,7 +119,8 @@ with schedules paused for rollback); they're all under
 | Backend | Hardware | Service URL | Models | Notes |
 |---|---|---|---|---|
 | `ollama` | P40 (Pascal, 24 GB) on worker8 | `http://ollama.ai.svc.cluster.local:11434` | qwen2.5:7b, qwen3:8b (voice), bge-m3 (memory rebuild), gte-small/nomic-embed-text (khoj) | The pre-Spark generation. ≤8b chat, embeddings, voice STT/TTS pipeline support. |
-| `ollama-spark` | GB10 (Grace-Blackwell, 128 GB unified) | `http://ollama-spark.ai.svc.cluster.local:11434` | qwen3-next:80b-a3b-instruct-q4_K_M (chat default), bge-m3 (1024-dim embeds) | The post-Spark workhorse. Open WebUI default; memory-mcp's default for knowledge-graph embeds. |
+| `vllm-driver-spark` | GB10 (Grace-Blackwell, 128 GB unified) | `http://vllm-driver-spark.ai.svc.cluster.local:8000/v1` | Qwen3.6-35B-A3B-FP8 (chat default) | Replaced `ollama-spark`, which was decommissioned 2026-07-26. Runs single-tenant — a co-resident coder did not fit (see `vllm_spark_migration_plan.md`). |
+| `tei-embed-spark` | GB10 | `http://tei-embed-spark.ai.svc.cluster.local:3000` | bge-m3 (1024-dim embeds) | Took over all embeddings from `ollama-spark` 2026-07-25. Open WebUI RAG, LightRAG, memory-mcp, paperless fan-out. |
 | Claude Code | Anthropic-hosted, CLI | `claude-runner` only | per-task | `claude` CLI baked into `ghcr.io/rwlove/claude-runner:0.1.1`; called from CronJobs with `--max-turns 20`. |
 
 **Removed 2026-07-06:** the langgraph-gated Claude API escalation lane
@@ -144,7 +145,7 @@ embedder (bge-m3) but otherwise don't overlap.
 User-facing chat with retrieval over Open WebUI's own collections,
 plus web search.
 
-- **Embedder**: bge-m3 via ollama-spark (`kubernetes/apps/collab/open-webui/app/helmrelease.yaml:58`).
+- **Embedder**: bge-m3 via tei-embed-spark (`kubernetes/apps/collab/open-webui/app/helmrelease.yaml`, `RAG_EMBEDDING_ENGINE: openai`).
 - **Reranker**: BGE reranker-v2-m3 in-process, sentence-transformers on CPU (line 66). Adds ~2.5 GiB to the pod's resident set.
 - **Vector DB**: Qdrant at `http://qdrant.databases.svc.cluster.local:6333` (line 69).
 - **Web search**: SearXNG (`collab.svc.cluster.local:8080`) via `RAG_WEB_SEARCH_ENGINE=searxng` (line 68).
@@ -179,7 +180,7 @@ agent.
 - **Source**: paperless-ngx via API token (`PAPERLESS_TOKEN` whitelisted
   for Windmill workers at `kubernetes/apps/home/windmill/app/helmrelease.yaml:77`).
 - **Ingest**: `paperless-rag-ingest.ts` pulls new/changed docs, embeds
-  via ollama-spark bge-m3, writes to Qdrant.
+  via tei-embed-spark bge-m3, writes to Qdrant.
 - **Tombstone**: `paperless-rag-tombstone.ts` removes vectors for
   deleted docs.
 - **Vector DB**: Qdrant — same instance Open WebUI uses, with separate
@@ -201,7 +202,7 @@ backend, not langgraph's.
   memory-mcp's database today, confirmed via `DATABASE_URL`,
   CNP egress, and the schema-init Job all referencing it
   independently of the now-deleted langgraph-agents.
-- **Embedder**: bge-m3 via ollama-spark
+- **Embedder**: bge-m3 via tei-embed-spark
   (`kubernetes/apps/mcp-system/memory-mcp/app/helmrelease.yaml:39-41`).
 - **Surface**: `memory-mcp` MCP server (`kubernetes/apps/mcp-system/memory-mcp/`),
   exposed through the gateway.
@@ -342,7 +343,8 @@ the app itself. Nothing else in the cluster depended on any of it.
 - **khoj extAuth** — `SecurityPolicy` in `kubernetes/apps/ai/khoj/` (oauth2-proxy retired 2026-07-01, #12767)
 - **memory-mcp** — `kubernetes/apps/mcp-system/memory-mcp/app/helmrelease.yaml` (backed by CNPG `postgres-langgraph-memory`, still live)
 - **ollama** (P40) — `kubernetes/apps/ai/ollama/app/`
-- **ollama-spark** (GB10) — `kubernetes/apps/ai/ollama-spark/app/`
+- **vllm-driver-spark** (GB10) — `kubernetes/apps/ai/vllm-driver-spark/app/`
+- **tei-embed-spark** (GB10) — `kubernetes/apps/ai/tei-embed-spark/app/`
 - **paperless-ai** — `kubernetes/apps/ai/paperless-ai/app/helmrelease.yaml`
 - **tei-spark** — `kubernetes/apps/ai/tei-spark/` (unsuspended 2026-05-21, PR #11893; PrometheusRule added in PR #11906)
 - **open-webui** — `kubernetes/apps/collab/open-webui/app/helmrelease.yaml`

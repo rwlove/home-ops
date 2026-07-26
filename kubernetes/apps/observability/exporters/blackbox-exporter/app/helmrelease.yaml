@@ -140,15 +140,19 @@ spec:
         # Infrastructure reachability — storage NFS path (brain/beast/
         # security-storage:2049) and the two ollama embed heartbeats.
         # These are genuinely page-worthy: a sustained failure means a
-        # storage or inference-path outage. The ollama embed probes are
-        # intentionally covered here at critical (the OllamaWedged /
-        # SparkOllamaWedged rules in kubernetes/apps/ai/ollama* add
-        # runbook context on top of this one).
+        # storage or inference-path outage. The ollama embed probe is
+        # intentionally covered here at critical (the OllamaWedged rule in
+        # kubernetes/apps/ai/ollama adds runbook context on top of this).
+        #
+        # ollama-spark-embed removed 2026-07-26 with the service. A
+        # decommissioned job left in this matcher would NOT error — its
+        # series simply stops existing and the regex quietly matches
+        # nothing — so it rots silently. Prune matchers with the workload.
         - alert: BlackboxProbeFailed
           annotations:
             description: |-
               The host {{ $labels.instance }} is currently unreachable
-          expr: probe_success{job=~"probe/observability/(nfs|ollama-embed|ollama-spark-embed)"} == 0
+          expr: probe_success{job=~"probe/observability/(nfs|ollama-embed)"} == 0
           for: 5m
           labels:
             severity: critical

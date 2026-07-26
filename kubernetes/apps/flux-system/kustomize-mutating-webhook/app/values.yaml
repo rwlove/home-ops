@@ -11,20 +11,34 @@ image:
 #    requests and has asked us to try again later"
 # and each halting cluster-apps until it happened to succeed on retry.
 #
-# Measured before changing anything, so this is not a guess:
-#   702 mutations / 30 min, median 0.70s, max 4.92s (timeout is 10s)
-#   CPU usage 2.7 millicores, CFS throttling 0.14%
-# Near-zero CPU at 0.7s latency means it is blocked on I/O, not compute —
-# so more CPU would have done nothing. The webhook reads cluster-config
-# and cluster-secrets per mutation, and client-go's default rate limiter
-# (QPS 5 / burst 10) is per-process. Under a ~167-Kustomization reconcile
-# wave, requests queue behind that limiter until they pass the 10s
-# webhook timeout.
+# ROOT CAUSE — corrected. #13292 originally claimed this was latency:
+# client-go's rate limiter queueing requests past the 10s webhook timeout,
+# inferred from the pod's own debug logs (median 0.70s, max 4.92s).
+# THAT WAS WRONG, and the apiserver's own instrumentation disproves it:
 #
-# Replicas are therefore the correct lever: each pod carries its own
-# client-go limiter and its own informer cache, so N replicas multiply
-# the aggregate ceiling. 3 also means a node drain or rolling update no
-# longer takes the whole admission path down.
+#   apiserver_admission_webhook_admission_duration_seconds p95
+#     before the change: 0.0219s      after: 0.0226s
+#
+# Admission latency is ~22ms, unchanged, and never remotely near the 10s
+# timeout. The 0.70s figure was an artefact of LOG_LEVEL=debug, which
+# serialises the entire generated patch on every request — the logging
+# was most of the measured "latency", so the instrument was the problem.
+#
+# What actually happened is explicit rejections, per
+# apiserver_admission_webhook_rejection_count:
+#   rejection_code 503 = 107     rejection_code 429 = 93
+# 503 is "no ready endpoint" — with ONE replica, any restart, eviction or
+# momentary unreadiness returns 503 to every Kustomization apply in
+# flight. 429 is the webhook's own overload response under burst.
+#
+# Replicas remain the correct fix, but for that reason rather than the
+# one first given: 3 pods mean a single pod restarting never empties the
+# endpoint list, and burst capacity is 3x. Latency was never the issue,
+# so CPU/memory tuning would have achieved nothing.
+#
+# Lesson worth keeping: measure admission webhooks from the APISERVER
+# side (apiserver_admission_webhook_*), not from the webhook's own logs.
+# The apiserver sees rejections and timeouts the pod does not log at all.
 replicas: 3
 certManager:
   enabled: true

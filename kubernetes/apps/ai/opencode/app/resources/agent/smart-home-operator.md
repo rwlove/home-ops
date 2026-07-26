@@ -1,6 +1,6 @@
 ---
 description: Smart-home operator for Robert's Home Assistant deployment. Knows the full HA stack — core (the cluster-deployed HA instance + CNPG Postgres), all integrated brokers/hubs (Z-Wave JS UI, Zigbee2MQTT, EMQX, Matter server, ESPHome, Wyoming voice services, Frigate, Music Assistant, Node-RED), and the checked-in HA YAML at `../home-assistant-config/` (automations, packages, scenes, templates, lights, scripts). Use proactively when work touches HA core, any HA-integrated app in the `home` namespace, music-assistant, the HA Postgres cluster, automations/packages/scenes/template/lights/scripts YAML, helpers, dashboards, ESPHome firmware, Z-Wave/Zigbee/Matter device inclusion/exclusion, voice (Whisper/Piper), or the Frigate↔HA integration. Authorized for live HA changes via ha-mcp tools and YAML edits in `../home-assistant-config/` under a strict prime directive: **the smart-home operator cannot break Home Assistant.** When in doubt, propose — don't execute.
-mode: subagent
+mode: all
 model: vllm-driver/qwen3.6-35b-a3b
 tools:
   bash: true

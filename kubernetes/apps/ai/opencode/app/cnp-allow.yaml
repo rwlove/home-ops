@@ -46,11 +46,28 @@ spec:
     # reference in-cluster MCP client named in that policy's comment).
     #
     # 8070 is memory-mcp, addressed DIRECTLY rather than through the broker.
-    # The aggregating gateway returns ~319k tokens of tool schemas against a
-    # 65k-context model, which silently killed every turn; memory-mcp alone
-    # is 14 tools / ~2.9k tokens. Until broker-side filtering exists
-    # (Kuadrant AuthPolicy — see docs/src/mcp_tool_authz_design.md), narrow
-    # direct connections are the only way an agent gets usable MCP tools.
+    # It predates the gateway being usable and is kept because it is cheap
+    # (14 tools / ~3.2k tokens) and avoids paying the broker's full
+    # tools/list fetch just to reach memory.
+    #
+    # The gateway is now ENABLED (2026-07-26). Its tools/list is 1,266 tools
+    # / 1.34 MB ≈ 334k tokens, far past vLLM's hard max_model_len of 65536 —
+    # which is what silently killed every turn when it was last on. The fix
+    # is opencode's own tools filter: it is applied CLIENT-SIDE BEFORE the
+    # model call, so an allowlisted agent sends ~12k tokens of schemas, not
+    # 334k. Measured: a filtered agent's request was 18.8k input tokens with
+    # the whole gateway attached.
+    #
+    # This means broker-side filtering (Kuadrant AuthPolicy — see
+    # docs/src/mcp_tool_authz_design.md) is NOT required to make the gateway
+    # usable; it is still required to make the restriction *enforceable*.
+    # The allowlist in opencode.json is a context-budget control that also
+    # happens to narrow reach — it is not a security boundary, because the
+    # session could lift it. That is why the blast-radius note above still
+    # stands and why this remains Plan C (interactive, Rob-only).
+    #
+    # Caveat: the filter saves context, not bandwidth. The pod still fetches
+    # the full 1.34 MB tools/list on every session start.
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: mcp-system

@@ -1,0 +1,117 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: admission-webhooks
+spec:
+  groups:
+    # Admission-webhook availability. Nothing watched this before
+    # 2026-07-26, and the gap was expensive: kustomize-mutating-webhook
+    # accumulated 200 rejections (503 x 107, 429 x 93) while silently
+    # halting cluster-apps FOUR separate times over two days — tempo,
+    # goldilocks, memory-mcp and vector-agent. Each was diagnosed
+    # individually, from scratch, as "GitOps is stuck again". The counter
+    # had the answer the whole time; nothing was reading it.
+    #
+    # Metric: `apiserver_admission_webhook_rejection_count`, emitted by
+    # kube-apiserver. Two properties make it the right signal:
+    #   - it is APISERVER-side, so it records rejections and timeouts the
+    #     webhook pod itself never logs (see
+    #     reference_measure_admission_webhooks_from_apiserver);
+    #   - `error_type` separates infrastructure failure from policy.
+    #
+    # `error_type="calling_webhook_error"` is the whole reason this alert
+    # is not noisy. It means the apiserver could not get a usable answer —
+    # unreachable, 5xx, throttled, timed out. A validating webhook
+    # *correctly* denying a bad resource does NOT carry this error_type,
+    # so ordinary policy enforcement never fires this.
+    #
+    # Emitted per-apiserver instance, hence the sum by (name).
+    - name: admission-webhooks.availability
+      rules:
+        # Any webhook failing calls. Warning rather than critical because
+        # the blast radius depends on failurePolicy, which the metric does
+        # not expose: with Ignore the request proceeds unmutated (bad, but
+        # not an outage), with Fail the request is rejected outright.
+        # The runbook says to check that first.
+        - alert: AdmissionWebhookRejectingRequests
+          annotations:
+            summary: >-
+              Admission webhook {{ $labels.name }} is failing calls
+              ({{ $labels.rejection_code }})
+            description: |
+              kube-apiserver could not get a usable response from
+              admission webhook {{ $labels.name }} — rejection_code
+              {{ $labels.rejection_code }}, error_type
+              calling_webhook_error. Requests to the resources it
+              intercepts are being rejected or passed through unmutated.
+
+              First question, because it decides the severity:
+                `kubectl get mutatingwebhookconfiguration,validatingwebhookconfiguration
+                 -o custom-columns=NAME:.metadata.name,POLICY:.webhooks[*].failurePolicy`
+              failurePolicy=Fail means the intercepted operations are
+              hard-failing right now.
+
+              Common causes, in the order they actually occur here:
+                (1) 503 = no ready endpoint. A single-replica webhook
+                    returns this on every restart, eviction or brief
+                    unreadiness. Check replica count FIRST — this is
+                    exactly what bit kustomize-mutating-webhook.
+                (2) 429 = the webhook shedding load under burst; scale it
+                    out rather than up (latency is rarely the axis).
+                (3) cert expiry / SNI mismatch — check the webhook's
+                    Certificate and its caBundle.
+
+              Do NOT diagnose from the webhook pod's own logs alone; they
+              routinely omit the rejections the apiserver is counting.
+          expr: |-
+            sum by (name, rejection_code) (
+              increase(apiserver_admission_webhook_rejection_count{error_type="calling_webhook_error"}[10m])
+            ) > 0
+          for: 5m
+          labels:
+            severity: warning
+        # kustomize-mutating-webhook specifically, at critical. It gates
+        # EVERY Flux Kustomization apply (rules: kustomizations
+        # CREATE/UPDATE) with failurePolicy: Fail, so when it fails the
+        # entire GitOps reconcile loop stops — which is a different class
+        # of problem from one app's webhook misbehaving.
+        #
+        # Deliberately duplicates the generic alert above for this one
+        # webhook, matching the pattern used elsewhere in this repo
+        # (generic BlackboxProbeFailed plus app-specific wedge alerts with
+        # richer runbook). One root cause, two notifications, accepted.
+        - alert: FluxAdmissionWebhookDown
+          annotations:
+            summary: kustomize-mutating-webhook is rejecting Flux Kustomization applies
+            description: |
+              The webhook that injects postBuild substitutions into every
+              Flux Kustomization is failing calls
+              ({{ $labels.rejection_code }}). Because its failurePolicy is
+              Fail, GitOps reconciliation is stopped cluster-wide —
+              expect `flux get ks -A` to show a growing not-ready list and
+              cluster-apps stuck ReconciliationFailed.
+
+              Checks:
+              (1) `kubectl -n flux-system get deploy kustomize-mutating-webhook`
+                  — should be 3/3. At 1 replica any restart causes this.
+              (2) `kubectl -n flux-system get pdb` — minAvailable 1 should
+                  prevent a drain emptying the endpoint list.
+              (3) latency is usually NOT the cause; confirm with
+                  `apiserver_admission_webhook_admission_duration_seconds`
+                  before tuning resources (p95 is normally ~22ms).
+              (4) emergency only, with Rob: removing the
+                  MutatingWebhookConfiguration opens the admission path
+                  and lets Flux self-heal, at the cost of unsubstituted
+                  Kustomizations until it is restored.
+          expr: |-
+            sum by (rejection_code) (
+              increase(apiserver_admission_webhook_rejection_count{
+                name="kustomize-mutating-webhook.xunholy.com",
+                error_type="calling_webhook_error"
+              }[10m])
+            ) > 0
+          for: 5m
+          labels:
+            severity: critical

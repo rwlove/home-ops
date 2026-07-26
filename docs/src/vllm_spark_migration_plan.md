@@ -1,22 +1,41 @@
-# vLLM on Spark — reasoning/driver serving migration (plan)
+# vLLM on Spark — reasoning/driver serving migration
 
-**Status:** Proposal — not yet approved or executed. Nothing in the running
-inference path changes until Rob signs off phase-by-phase.
+**Status: COMPLETE — 2026-07-23 → 2026-07-26.** `ollama-spark` was
+decommissioned in [#13295]; the vLLM fleet and TEI own the GB10.
+
+This began as a proposal and is retained as the **record of what was actually
+done**, because several of its original conclusions turned out to be wrong in
+instructive ways. Where a section's plan and its outcome differ, the outcome is
+called out inline rather than the section being rewritten — the wrong
+predictions are the useful part.
+
+**The one-line correction to the original plan:** the premise that two FP8
+models fit co-resident in 128 GB was **false in practice**. The driver alone
+holds ~97 GiB. There is one vLLM instance on the Spark, not two, and the coder
+moved to the P40 as a small GGUF.
+
+| Outcome | Where it landed |
+|---|---|
+| Reasoning/driver | `vllm-driver-spark`, Qwen3.6-35B-A3B-FP8, **single-tenant** |
+| Coder | ❌ not on the Spark — `qwen2.5-coder:7b` on the **P40** |
+| Embeddings | `tei-embed-spark` (bge-m3) — Open WebUI, LightRAG, memory-mcp, Windmill |
+| Vision (Frigate) | `qwen2.5vl:3b` on the **P40** |
+| `ollama-spark` | **deleted**, ~258 GiB ceph reclaimed, GPU slices 7/8 → 6/8 |
 
 ## Summary
 
-Move the Spark's **LLM serving** from Ollama (llama.cpp/GGUF) to a **two-model
-vLLM fleet (FP8)** — the reasoning/driver model and the coder model both kept
-hot and co-resident in the GB10's 128 GB unified memory — plus TEI for
-embeddings and reranking. Ollama serves this model class inefficiently on the
-GB10; vLLM roughly **doubles single-stream throughput** and adds **continuous
-batching** for the Spark's several concurrent consumers.
+Move the Spark's **LLM serving** from Ollama (llama.cpp/GGUF) to a vLLM fleet
+(FP8) plus TEI for embeddings and reranking. Ollama serves this model class
+inefficiently on the GB10; vLLM roughly **doubles single-stream throughput** and
+adds **continuous batching** for the Spark's several concurrent consumers. That
+part held up — the throughput case was correct.
 
-Because the GB10 has 128 GB unified memory (not a 24 GB discrete card), two
-FP8 vLLM instances fit concurrently — so this **fully replaces** Ollama's
-production role rather than trading away its multi-model juggling. Ollama is
-decommissioned (kept parked briefly for rollback). Embeddings/vision move to
-TEI/P40.
+> **Superseded as written.** The original text claimed that because the GB10 has
+> 128 GB unified memory, "two FP8 vLLM instances fit concurrently". They do not.
+> See [Memory budget](#memory-budget-does-it-fit-in-128-gb) for the measured
+> numbers and [D5](#d5--coder-model) for where the coder actually went.
+
+[#13295]: https://github.com/rwlove/home-ops/pull/13295
 
 ## Motivation
 
@@ -86,6 +105,10 @@ later upside.**
           └─────────────▶└──────────────────────────────────────────┘
 ```
 
+> **The diagram above is the PLANNED end state, not the actual one.**
+> `vllm-coder-spark` never ran; the coder lives on the P40. Everything else
+> landed as drawn.
+
 Two vLLM instances — driver and coder — run concurrently, each an
 OpenAI-compatible `/v1` endpoint, each with its own memory slice of the 128 GB.
 GPU *compute* is time-shared between them (fine for a low-traffic fleet where
@@ -123,6 +146,32 @@ first drafted). `0.42 + 0.35` overshot and the coder failed to init; **driver
 cut to 0.36, coder to 0.28** — the pair (~78 GiB) + co-tenants (~32) leaves
 **~12 GiB** for comfyui bursts.
 
+> ### ⚠️ OUTCOME: the table above is wrong, and co-residency failed
+>
+> Even at the retuned `0.36 / 0.28`, the coder could not start. The reason the
+> whole budget was wrong is that **`--gpu-memory-utilization` does not bound
+> what the process actually holds.** The driver's real resident footprint is
+> **~97 GiB**, not the ~44 GiB its 0.36 setting implies, because vLLM's caching
+> allocator keeps what it touches.
+>
+> Confirmed by a reclaim test: stopping the coder **freed nothing**, so this was
+> not a leak — the driver genuinely holds ~97 GiB.
+>
+> ```text
+> driver resident   ~97 GiB   (0.36 util "should" be ~44 GiB)
+> free for coder    ~24 GiB   vs the ~34 GiB it needs
+> ```
+>
+> `vllm-coder-spark` was parked at `replicas: 0` in
+> [#13222](https://github.com/rwlove/home-ops/pull/13222) and the coder moved to
+> the P40 (see [D5](#d5--coder-model)). Its manifest is kept parked rather than
+> deleted — the tuned FP8 flags are the expensive part to reconstruct if vLLM's
+> unified-memory accounting on GB10 ever improves.
+>
+> **Transferable lesson:** on GB10, budget from *measured resident footprint*
+> (`/proc/meminfo` on the host), never from the sum of `gpu-memory-utilization`
+> settings. The flag is a request, not a cap.
+
 **Measuring the real number is hard on the GB10** — and that is a first-class
 caveat, not a footnote:
 
@@ -141,7 +190,7 @@ scaling to 0 at cutover frees its ~13–50 GB back — but note the **transition
 window** (Phase 3, ollama *still resident* while the fleet loads) is the tightest
 moment: scale ollama down before bringing the fleet up.
 
-## Key decisions (recommendations inline — Rob confirms)
+## Key decisions (as made — outcomes noted where they diverged)
 
 ### D1 — Decommission `ollama-spark`; the vLLM fleet takes the GPU
 
@@ -154,7 +203,27 @@ stability window. Keep it *only* if you decide the experimentation escape hatch
 (easy `ollama pull` of arbitrary new models) is worth a parked deployment —
 that is the single remaining reason to retain it (see Open questions).
 
-### D5 — Coder model (DECIDED: Qwen3.6-27B-FP8)
+### D5 — Coder model
+
+> **OUTCOME (2026-07-26): the decision below was reversed.** Qwen3.6-27B-FP8
+> never ran — it could not fit alongside the driver (see the memory-budget
+> outcome above). The coder is **`qwen2.5-coder:7b` (Q4_K_M, 4.58 GiB measured)
+> on the P40**, served by the existing `ai/ollama`, in
+> [#13267](https://github.com/rwlove/home-ops/pull/13267).
+>
+> Pascal (sm_61) has no FP8 and modern vLLM dropped the arch, so GGUF via the
+> ollama already on that GPU was the only route — and it added no new component.
+> It **replaced** `qwen2.5:7b` rather than being added beside it, keeping the
+> P40's resident set at two models; a third 7b-class model would have cut Immich
+> CLIP burst headroom to ~2.3 GiB, which is how the 2026-05-18 VRAM-exhaustion
+> incident happened.
+>
+> The "validate it meaningfully beats the driver at coding" caveat below was
+> never tested — the memory constraint decided it first.
+
+The original decision follows, for context on why 27B was chosen.
+
+#### D5 (original) — DECIDED: Qwen3.6-27B-FP8
 
 Keeping the coder hot costs a permanent ~27 GB + a second instance.
 `qwen3.6-35b-a3b` is itself a strong coder, so this was a deliberate choice, not
@@ -208,6 +277,36 @@ the community; best agentic tool-calling in its class. One model serves
 open-webui + LightRAG + opencode.
 
 ## Migration phases
+
+> **All phases closed 2026-07-26.** Actual outcome per phase, since several
+> diverged from the plan and two ran out of order:
+>
+> | Phase | Planned | What happened |
+> |---|---|---|
+> | 0 Prereqs | pin image + weights | ✅ as planned |
+> | 1 TEI embeddings up | additive | ✅ as planned ([#13218]) |
+> | 2 Cut embedding consumers | all at once | ✅ but **spread over 3 days** — LightRAG + Open WebUI ([#13263]), Windmill via MCP, memory-mcp last ([#13275]) because it needed an upstream code change first |
+> | 3 Deploy driver **+ coder** | both co-resident | ⚠️ **driver only.** Coder could not fit; parked ([#13222]) |
+> | 4 Flip GPU + cut LLM consumers | after phase 3 | ⚠️ ran **partly before phase 2** — LightRAG's LLM was cut on 07-24 because a dangling `qwen3.5` reference was breaking ingest |
+> | 5 Decommission ollama-spark | after a 1–2 week soak | ✅ done 07-26, **without the soak** — by then it served 0 generate / 0 chat calls in 24h, so there was nothing left to soak |
+>
+> **Phase ordering was not respected and that was correct.** The plan assumed a
+> clean sequence; reality interleaved 2 and 4 because a production breakage
+> forced the LLM cut early. Worth remembering that phase numbering in a plan is
+> a dependency hint, not a schedule.
+>
+> Two things the plan never anticipated, both found only by testing:
+>
+> - **`llama3.2-vision:11b` cannot load on the Spark at all** — `unknown model
+>   architecture: 'mllama'` on the arm64/GB10 ollama build. The vision workload
+>   that appeared to block decommissioning had in fact never run there.
+> - **Frigate GenAI had never worked**, for an unrelated CNP reason, so "migrate
+>   vision" turned out to mean "make it work for the first time".
+>
+> [#13218]: https://github.com/rwlove/home-ops/pull/13218
+> [#13222]: https://github.com/rwlove/home-ops/pull/13222
+> [#13263]: https://github.com/rwlove/home-ops/pull/13263
+> [#13275]: https://github.com/rwlove/home-ops/pull/13275
 
 Each phase has a validation gate; do not proceed until it passes. Disruptive
 steps run in a **routine maintenance window (02:00–05:00 ET)** — the affected
@@ -332,19 +431,52 @@ Each phase is independently reversible:
   consumers back. vLLM manifests stay in Git, scaled to 0.
 - Phase 5: only delete after the parking period.
 
-## Open questions for Rob
+## Open questions for Rob — ALL RESOLVED
 
-1. **D5 — which coder model** stays hot: keep `qwen2.5-coder:32b`, upgrade to a
-   current-gen Qwen coder (FP8), or drop the coder and let the driver do both
-   (if it benchmarks close)? Decided: *coder stays hot* — model TBD.
-2. **Experimentation hatch** — is easy `ollama pull` of arbitrary new models
-   worth keeping `ollama-spark` parked (scale-0) indefinitely, or fully remove
-   it once the fleet is stable? This is now the *only* reason to retain Ollama.
-3. **Memory split** — the ~0.40 / 0.35 utilization split is a starting point;
-   tune toward whichever instance (driver vs coder) carries more load.
-4. **Vision** (`llama3.2-vision`) — move to P40, or drop until needed?
-5. **Concurrency target** — size the driver for peak concurrent consumers, or
-   optimize single-stream latency first?
+Kept with their answers; the reasoning is more useful than the questions.
+
+1. **Which coder model stays hot?** → *Neither of the options offered.* The
+   memory constraint decided it before quality could be benchmarked:
+   `qwen2.5-coder:7b` on the **P40**, replacing `qwen2.5:7b`
+   ([#13267](https://github.com/rwlove/home-ops/pull/13267)). Heavy coding
+   rides the driver, which is itself a strong coder.
+2. **Keep `ollama-spark` parked as an experimentation hatch?** → **No, removed**
+   ([#13295](https://github.com/rwlove/home-ops/pull/13295)). The hatch argument
+   lost to evidence: in its final 24h it served 0 `/api/generate`, 0 `/api/chat`
+   and 290 `/api/embed` — almost exactly the 288 calls its own monitoring probe
+   made. The P40 `ollama` still provides `ollama pull` experimentation.
+3. **Memory split tuning (0.40 / 0.35)?** → **Moot.** There is one instance.
+   Driver sits at `0.36`; the number is nearly cosmetic given the allocator
+   holds ~97 GiB regardless.
+4. **Vision — move to P40 or drop?** → **Moved to the P40**, but not as planned:
+   `llama3.2-vision:11b` proved **unloadable on the Spark entirely**
+   (`unknown model architecture: 'mllama'` on the arm64/GB10 build), so it was
+   replaced by `qwen2.5vl:3b` rather than relocated. Separately, Frigate's GenAI
+   had **never worked** due to an asymmetric CNP — so this became "make it work
+   for the first time", not "migrate it".
+5. **Concurrency vs single-stream sizing?** → **Single-stream, implicitly.**
+   `max-num-seqs 32` and 64k context were chosen to make CUDA-graph capture
+   succeed
+   ([#13226](https://github.com/rwlove/home-ops/pull/13226)), not from a
+   concurrency target. Revisit if the driver ever sees real parallel load.
+
+## What this migration actually taught
+
+Worth carrying to the next GPU-capacity plan:
+
+- **`--gpu-memory-utilization` is a request, not a cap.** Budget from measured
+  resident footprint on the host, never from the sum of the settings. The gap
+  here was ~44 GiB predicted vs ~97 GiB actual.
+- **Unified memory means every co-tenant counts.** The first draft omitted
+  comfyui/pump-cv/av1corrector entirely and was wrong by ~32 GiB.
+- **Phase numbers are a dependency graph, not a schedule.** Phase 4 ran before
+  phase 2 because a production breakage forced it, and that was the right call.
+- **Test the thing you are migrating before planning around it.** Two workloads
+  (`llama3.2-vision`, Frigate GenAI) turned out to be non-functional *before*
+  the migration touched them. Both were treated as constraints for days.
+- **A workload whose only traffic is its own monitoring probe is already dead.**
+  That single measurement retired a service the plan had allocated a two-week
+  soak to.
 
 ## Data classification
 

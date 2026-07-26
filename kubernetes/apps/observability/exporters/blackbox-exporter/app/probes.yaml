@@ -170,6 +170,35 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: Probe
 metadata:
+  name: ollama-vlm-warm
+spec:
+  # Frigate's GenAI VLM (qwen2.5vl:3b) on the P40. Wedge detector AND
+  # keep-warm heartbeat, the same dual role ollama-embed plays for bge-m3.
+  #
+  # 5m is chosen against OLLAMA_KEEP_ALIVE=30m, not independently: the
+  # probe only holds the model resident while its cadence stays well
+  # inside the TTL. If either value is changed, re-check the pair —
+  # cadence > TTL means the model ages out between probes and every
+  # Frigate description pays the ~38s cold load again.
+  #
+  # 50s scrapeTimeout against the module's 45s: the module must be the
+  # thing that times out, so a cold load surfaces as a slow success
+  # rather than a scrape error.
+  interval: 5m
+  scrapeTimeout: 50s
+  module: ollama_generate
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - http://ollama.ai.svc.cluster.local:11434/api/generate
+
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/monitoring.coreos.com/probe_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
   name: tei-embed-spark-embed
 spec:
   # Wedge detector for tei-embed-spark, which took over RAG embeddings

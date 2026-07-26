@@ -53,6 +53,25 @@ spec:
               # https://github.com/ollama/ollama/blob/main/docs/faq.md#how-can-i-set-the-quantization-type-for-the-kv-cache
               OLLAMA_KV_CACHE_TYPE: q8_0
               OLLAMA_FLASH_ATTENTION: 1
+              # Raised from ollama's 5m default on 2026-07-26. Frigate's
+              # GenAI VLM was aging out between detections, so real
+              # descriptions paid ~38s of cold load (vision projector
+              # included) against ~1.5s warm.
+              #
+              # This is GLOBAL — ollama has no per-model TTL — so it also
+              # pins bge-m3 and qwen2.5-coder for longer. That is the real
+              # cost: the resident FLOOR rises, where previously models
+              # decayed between bursts, and that floor eats Immich CLIP
+              # burst headroom on a GPU that also serves Renee's whisper.
+              # The measured ceiling is unchanged at 7.99 GiB.
+              #
+              # 30m rather than infinite: long enough that the 5-min
+              # ollama-vlm-warm probe always lands inside the window, short
+              # enough that a genuinely idle stretch still releases VRAM.
+              # The two are a PAIR — changing the probe cadence or this TTL
+              # without re-checking the other reintroduces the cold-load
+              # penalty (cadence must stay well inside TTL).
+              OLLAMA_KEEP_ALIVE: 30m
               # Tightened 2026-05-18 (Phase 0d audit caught CPU-spill from
               # P40 VRAM exhaustion): NUM_PARALLEL=4 × KV cache at 16384
               # context blew past 24 GiB VRAM headroom after immich-ml

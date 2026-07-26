@@ -2478,7 +2478,7 @@ decommission detail.</p>
 
     subgraph Inference[Inference]
         OllamaP40[(ollama / P40&lt;br/&gt;qwen2.5:7b · gte-small)]
-        OllamaSpark[(ollama-spark / GB10&lt;br/&gt;qwen3-next:80b-a3b-instruct-q4_K_M · bge-m3)]
+        VllmDriver[(vllm-driver-spark / GB10&lt;br/&gt;Qwen3.6-35B-A3B-FP8 · OpenAI /v1)]
     end
 
     subgraph Tools[Tool surfaces]
@@ -2544,7 +2544,7 @@ shown above because neither currently does anything.</p>
 <tr>
 <td>Open WebUI chat</td>
 <td>Browser → Authelia OIDC → Open WebUI backend</td>
-<td>Routes to ollama-spark (default). The langgraph-agent-as-model registration was removed 2026-07-06 — Open WebUI's only remaining tool surface is the MCP gateway.</td>
+<td>Routes to vllm-driver-spark (default, OpenAI /v1) as of 2026-07-24. The langgraph-agent-as-model registration was removed 2026-07-06 — Open WebUI's only remaining tool surface is the MCP gateway.</td>
 </tr>
 <tr>
 <td>Khoj UI</td>
@@ -2599,11 +2599,18 @@ with schedules paused for rollback); they're all under
 <td>The pre-Spark generation. ≤8b chat, embeddings, voice STT/TTS pipeline support.</td>
 </tr>
 <tr>
-<td><code>ollama-spark</code></td>
+<td><code>vllm-driver-spark</code></td>
 <td>GB10 (Grace-Blackwell, 128 GB unified)</td>
-<td><code>http://ollama-spark.ai.svc.cluster.local:11434</code></td>
-<td>qwen3-next:80b-a3b-instruct-q4_K_M (chat default), bge-m3 (1024-dim embeds)</td>
-<td>The post-Spark workhorse. Open WebUI default; memory-mcp's default for knowledge-graph embeds.</td>
+<td><code>http://vllm-driver-spark.ai.svc.cluster.local:8000/v1</code></td>
+<td>Qwen3.6-35B-A3B-FP8 (chat default)</td>
+<td>Replaced <code>ollama-spark</code>, which was decommissioned 2026-07-26. Runs single-tenant — a co-resident coder did not fit (see <code>vllm_spark_migration_plan.md</code>).</td>
+</tr>
+<tr>
+<td><code>tei-embed-spark</code></td>
+<td>GB10</td>
+<td><code>http://tei-embed-spark.ai.svc.cluster.local:3000</code></td>
+<td>bge-m3 (1024-dim embeds)</td>
+<td>Took over all embeddings from <code>ollama-spark</code> 2026-07-25. Open WebUI RAG, LightRAG, memory-mcp, paperless fan-out.</td>
 </tr>
 <tr>
 <td>Claude Code</td>
@@ -2631,7 +2638,7 @@ embedder (bge-m3) but otherwise don't overlap.</p>
 <p>User-facing chat with retrieval over Open WebUI's own collections,
 plus web search.</p>
 <ul>
-<li><strong>Embedder</strong>: bge-m3 via ollama-spark (<code>kubernetes/apps/collab/open-webui/app/helmrelease.yaml:58</code>).</li>
+<li><strong>Embedder</strong>: bge-m3 via tei-embed-spark (<code>kubernetes/apps/collab/open-webui/app/helmrelease.yaml</code>, <code>RAG_EMBEDDING_ENGINE: openai</code>).</li>
 <li><strong>Reranker</strong>: BGE reranker-v2-m3 in-process, sentence-transformers on CPU (line 66). Adds ~2.5 GiB to the pod's resident set.</li>
 <li><strong>Vector DB</strong>: Qdrant at <code>http://qdrant.databases.svc.cluster.local:6333</code> (line 69).</li>
 <li><strong>Web search</strong>: SearXNG (<code>collab.svc.cluster.local:8080</code>) via <code>RAG_WEB_SEARCH_ENGINE=searxng</code> (line 68).</li>
@@ -2662,7 +2669,7 @@ agent.</p>
 <li><strong>Source</strong>: paperless-ngx via API token (<code>PAPERLESS_TOKEN</code> whitelisted
   for Windmill workers at <code>kubernetes/apps/home/windmill/app/helmrelease.yaml:77</code>).</li>
 <li><strong>Ingest</strong>: <code>paperless-rag-ingest.ts</code> pulls new/changed docs, embeds
-  via ollama-spark bge-m3, writes to Qdrant.</li>
+  via tei-embed-spark bge-m3, writes to Qdrant.</li>
 <li><strong>Tombstone</strong>: <code>paperless-rag-tombstone.ts</code> removes vectors for
   deleted docs.</li>
 <li><strong>Vector DB</strong>: Qdrant — same instance Open WebUI uses, with separate
@@ -2682,7 +2689,7 @@ backend, not langgraph's.</p>
   memory-mcp's database today, confirmed via <code>DATABASE_URL</code>,
   CNP egress, and the schema-init Job all referencing it
   independently of the now-deleted langgraph-agents.</li>
-<li><strong>Embedder</strong>: bge-m3 via ollama-spark
+<li><strong>Embedder</strong>: bge-m3 via tei-embed-spark
   (<code>kubernetes/apps/mcp-system/memory-mcp/app/helmrelease.yaml:39-41</code>).</li>
 <li><strong>Surface</strong>: <code>memory-mcp</code> MCP server (<code>kubernetes/apps/mcp-system/memory-mcp/</code>),
   exposed through the gateway.</li>
@@ -3003,7 +3010,8 @@ the app itself. Nothing else in the cluster depended on any of it.</p>
 <li><strong>khoj extAuth</strong> — <code>SecurityPolicy</code> in <code>kubernetes/apps/ai/khoj/</code> (oauth2-proxy retired 2026-07-01, #12767)</li>
 <li><strong>memory-mcp</strong> — <code>kubernetes/apps/mcp-system/memory-mcp/app/helmrelease.yaml</code> (backed by CNPG <code>postgres-langgraph-memory</code>, still live)</li>
 <li><strong>ollama</strong> (P40) — <code>kubernetes/apps/ai/ollama/app/</code></li>
-<li><strong>ollama-spark</strong> (GB10) — <code>kubernetes/apps/ai/ollama-spark/app/</code></li>
+<li><strong>vllm-driver-spark</strong> (GB10) — <code>kubernetes/apps/ai/vllm-driver-spark/app/</code></li>
+<li><strong>tei-embed-spark</strong> (GB10) — <code>kubernetes/apps/ai/tei-embed-spark/app/</code></li>
 <li><strong>paperless-ai</strong> — <code>kubernetes/apps/ai/paperless-ai/app/helmrelease.yaml</code></li>
 <li><strong>tei-spark</strong> — <code>kubernetes/apps/ai/tei-spark/</code> (unsuspended 2026-05-21, PR #11893; PrometheusRule added in PR #11906)</li>
 <li><strong>open-webui</strong> — <code>kubernetes/apps/collab/open-webui/app/helmrelease.yaml</code></li>

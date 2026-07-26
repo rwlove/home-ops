@@ -30,15 +30,11 @@ spec:
       opencode:
         annotations:
           reloader.stakater.com/auto: "true"
-        # Community image (ghcr.io/felixclements/opencode-server-docker).
-        # Its docker-entrypoint.sh puts EVERYTHING under /data:
-        #   DATA_DIR=/data, CONFIG_DIR=/data/config, OPENCODE_DIR=/data/.opencode
-        # and then symlinks /root/.config/opencode -> /data/config (plus
-        # /home/node/.local/share/opencode -> /data/.opencode). So the PVC
-        # mounts at /data and nothing may be mounted at /root/.config/opencode
-        # — a mount there blocks the symlink the entrypoint needs to create.
-        # Runs as root; readOnlyRootFilesystem stays off because opencode +
-        # node + the `bash` tool write across the rootfs.
+        # Our own image (containers repo, opencode-server) leaves opencode's native
+        # paths alone — config at $HOME/.config/opencode, data at
+        # $HOME/.local/share/opencode — so volumes mount directly with no /data
+        # indirection and no symlinks. Runs as root; readOnlyRootFilesystem stays
+        # off because opencode, node and the `bash` tool write across the rootfs.
         pod:
           securityContext:
             runAsNonRoot: false
@@ -50,12 +46,12 @@ spec:
         replicas: 1
         strategy: Recreate  # single-replica, RWO PVC
         initContainers:
-          # ConfigMaps cannot be mounted inside the PVC path, so stage them
-          # from a read-only mount into /data/config, reproducing the exact
-          # layout that works on the workstation (~/.config/opencode/):
-          #   opencode.json, oh-my-openagent.json, agent/*.md
-          # Idempotent: re-copied every start so a ConfigMap change wins
-          # (paired with reloader annotation above).
+          # ConfigMaps cannot be mounted inside a PVC path, so stage them from a
+          # read-only mount into the config volume (mounted here at /stage, and at
+          # $HOME/.config/opencode in the app container). Reproduces the layout that
+          # works on the workstation: opencode.json, oh-my-openagent.json, agent/*.md.
+          # Idempotent — re-copied each start so a ConfigMap change wins, paired with
+          # the reloader annotation above.
           stage-config:
             image:
               repository: docker.io/library/busybox
@@ -64,43 +60,38 @@ spec:
               - /bin/sh
               - -ceu
               - |
-                mkdir -p /data/config/agent /data/.opencode
-                # The entrypoint's `ln -sf /data/config /root/.config/opencode`
-                # lands *inside* the mounted dir, leaving a self-referential
-                # /data/config/config -> /data/config. Harmless but confusing;
-                # clear it each start.
-                rm -f /data/config/config
-                cp -f /src/config/opencode.json        /data/config/opencode.json
-                cp -f /src/config/oh-my-openagent.json /data/config/oh-my-openagent.json
-                rm -f /data/config/agent/*.md
-                cp -f /src/agents/*.md /data/config/agent/
-                echo "staged opencode config + $(ls -1 /data/config/agent/*.md | wc -l) agent personas"
+                mkdir -p /stage/agent
+                cp -f /src/config/opencode.json        /stage/opencode.json
+                cp -f /src/config/oh-my-openagent.json /stage/oh-my-openagent.json
+                rm -f /stage/agent/*.md
+                cp -f /src/agents/*.md /stage/agent/
+                echo "staged opencode config + $(ls -1 /stage/agent/*.md | wc -l) agent personas"
                 # Standing rules + skills come from a Secret, not git: this
                 # repo is public and HOMELAB-SPEC names the media-download
                 # stacks (L2 #2). Without these the agents run with no
                 # standing rules and no skills at all.
-                mkdir -p /data/config/instructions /data/config/skills
+                mkdir -p /stage/instructions /stage/skills
                 if [ -s /secrets/HOMELAB_SPEC ]; then
-                  cp -f /secrets/HOMELAB_SPEC /data/config/instructions/HOMELAB-SPEC.md
+                  cp -f /secrets/HOMELAB_SPEC /stage/instructions/HOMELAB-SPEC.md
                 fi
                 if [ -s /secrets/PERSONA_BASE ]; then
-                  cp -f /secrets/PERSONA_BASE /data/config/instructions/persona-base.md
+                  cp -f /secrets/PERSONA_BASE /stage/instructions/persona-base.md
                 fi
                 # The bundle's root entry is already `skills/`, so extract it
                 # as-is. An earlier --strip-components=1 removed that prefix
-                # and scattered each skill loose into /data/config; the loop
+                # and scattered each skill loose into /stage; the loop
                 # below clears any such strays left by that version.
                 if [ -s /secrets/SKILLS_TGZ_B64 ]; then
                   if base64 -d < /secrets/SKILLS_TGZ_B64 > /tmp/skills.tgz 2>/dev/null; then
                     for s in $(tar -tzf /tmp/skills.tgz 2>/dev/null | sed -n 's|^skills/\([^/]*\)/$|\1|p'); do
-                      [ -d "/data/config/$${s}" ] && rm -rf "/data/config/$${s}"
+                      [ -d "/stage/$${s}" ] && rm -rf "/stage/$${s}"
                     done
-                    rm -rf /data/config/skills
-                    tar -xzf /tmp/skills.tgz -C /data/config 2>/dev/null
+                    rm -rf /stage/skills
+                    tar -xzf /tmp/skills.tgz -C /stage 2>/dev/null
                     rm -f /tmp/skills.tgz
                   fi
                 fi
-                echo "staged $(ls -1 /data/config/instructions 2>/dev/null | wc -l) instruction files, $(ls -1 /data/config/skills 2>/dev/null | wc -l) skills"
+                echo "staged $(ls -1 /stage/instructions 2>/dev/null | wc -l) instruction files, $(ls -1 /stage/skills 2>/dev/null | wc -l) skills"
             resources:
               requests:
                 cpu: 10m
@@ -128,8 +119,8 @@ spec:
           # buys nothing when GitHub already serves SSH on 443.
           stage-repos:
             image:
-              repository: ghcr.io/felixclements/opencode-server-docker
-              tag: upstream-v1.17.4@sha256:daff7a4ea70ea43634640d7303a5cf0731abb7522fd7368d7513025a0b8d8352
+              repository: ghcr.io/rwlove/opencode-server
+              tag: 1.18.5
             command:
               - /bin/bash
               - -cu
@@ -221,25 +212,18 @@ spec:
         containers:
           app:
             image:
-              # Community build (no official opencode server image). Tags
-              # mirror upstream opencode as `upstream-v<ver>`, sha-pinned.
-              # NOTE(renovate): the `upstream-v` prefix needs a custom
-              # datasource/extractVersion to auto-bump — track as follow-up.
-              repository: ghcr.io/felixclements/opencode-server-docker
-              tag: upstream-v1.17.4@sha256:daff7a4ea70ea43634640d7303a5cf0731abb7522fd7368d7513025a0b8d8352
-            # The image's entrypoint ends with `exec opencode $COMMAND "$@"`,
-            # where $COMMAND is the flag string it builds from PORT/HOSTNAME
-            # and "$@" is the image CMD (["serve"]). Left alone that yields
-            # `opencode serve --port 4096 --hostname 0.0.0.0 serve` — a
-            # duplicate positional, so opencode printed help and exited.
-            # Setting `command` with no `args` makes Kubernetes ignore the
-            # image CMD, so "$@" is empty. Verified in-cluster: the server
-            # then logs "opencode server listening on http://0.0.0.0:4096".
-            command:
-              - /usr/local/bin/docker-entrypoint.sh
+              # Our own build (containers repo, opencode-server). Replaces the
+              # community image, whose newest tag was upstream-v1.17.4: on that
+              # version the server accepted prompts and never executed a turn —
+              # zero model calls, zero messages — and there was no newer tag to
+              # bump to. Verified by A/B against a local 1.18.4 server, which
+              # answered the identical prompt in ~20s.
+              repository: ghcr.io/rwlove/opencode-server
+              tag: 1.18.5
             env:
-              PORT: &port "4096"
-              HOSTNAME_OVERRIDE: 0.0.0.0
+              # No PORT/HOSTNAME_OVERRIDE: those were the community
+              # entrypoint's contract. Our image has an explicit CMD binding
+              # 0.0.0.0:4096, so nothing needs to be assembled at runtime.
               # Agents could not commit at all without an identity. Kept
               # deliberately distinct from Rob's so agent-authored commits
               # are identifiable in history rather than indistinguishable
@@ -305,36 +289,33 @@ spec:
         controller: opencode
         ports:
           http:
-            port: *port
+            # Matches the port in the image's CMD.
+            port: 4096
     persistence:
       # Durable server state: sessions (chat history) + auth.json.
       # Longhorn (numberOfReplicas 2) per storage-class rule 3 — session
       # history is irreplaceable accumulated state, not regenerable.
       # Backed up via Longhorn's auto-`default` recurring-job group. See
       # pvc.yaml. (storage-operator review, 2026-07-24.)
-      # Mounted at /data — the entrypoint's DATA_DIR. It holds config/
-      # (symlinked to /root/.config/opencode) and .opencode/ (sessions,
-      # auth.json), so this one claim covers all durable state.
-      state:
-        existingClaim: opencode-state
-        advancedMounts:
-          opencode:
-            stage-config:
-              - path: /data
-            app:
-              - path: /data
       # /root/.config/opencode is a REAL directory baked into the image (it
       # ships an opencode.jsonc), so the entrypoint's
-      #   ln -sf /data/config /root/.config/opencode
+      #   ln -sf /stage /root/.config/opencode
       # does not replace it — it creates the symlink *inside*, and opencode
       # then loads the image's stock opencode.jsonc instead of ours. Mounting
       # the PVC's config/ subdir directly over that path is what actually
       # puts our opencode.json + agent/*.md where opencode looks, mirroring
       # the workstation layout (~/.config/opencode/).
+      # One volume, two views: stage-config writes it at /stage, the app reads
+      # it at opencode's native config path. subPath `config` is the same
+      # directory the previous /data-mounted layout used, so existing content
+      # carries over untouched.
       state-config:
         existingClaim: opencode-state
         advancedMounts:
           opencode:
+            stage-config:
+              - path: /stage
+                subPath: config
             app:
               - path: /root/.config/opencode
                 subPath: config
@@ -355,18 +336,6 @@ spec:
             app:
               - path: /root/.local/share/opencode/worktree
                 subPath: .worktrees
-      # The entrypoint unconditionally does `mkdir -p /home/node/.local/share`
-      # (a vestige of the image's node-user design). /home/node is owned by
-      # uid 1000, and root cannot write there because `drop: ALL` removes
-      # CAP_DAC_OVERRIDE — this is what crashed the pod. A writable emptyDir
-      # satisfies it without granting the capability back. Nothing durable
-      # lands here; the symlink it creates points into /data/.opencode.
-      node-home:
-        type: emptyDir
-        advancedMounts:
-          opencode:
-            app:
-              - path: /home/node/.local
       # The entrypoint symlinks /home/node/.local/share/opencode but NOT
       # /root/.local/share/opencode — yet the Dockerfile sets no USER/HOME,
       # so opencode runs as root with HOME=/root and writes sessions +
@@ -382,7 +351,7 @@ spec:
                 subPath: .opencode
       # Read-only staging sources — initContainer only, never the app.
       # Mounting these under /root/.config/opencode would block the
-      # entrypoint's symlink; they are copied into /data/config instead.
+      # entrypoint's symlink; they are copied into /stage instead.
       config-src:
         type: configMap
         name: opencode-config

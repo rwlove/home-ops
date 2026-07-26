@@ -13,8 +13,15 @@ Last updated: 2026-07-26
 > ≈ 334k tokens. Measurement showed opencode applies its `tools` filter
 > **client-side, before the model call** — an allowlisted agent sends ~12k
 > tokens of schemas, and a filtered agent's request measured 18.8k input
-> tokens with the entire gateway attached. The gateway is therefore enabled
-> for `ai/opencode` as of 2026-07-26 with a read-only allowlist.
+> tokens with the entire gateway attached.
+>
+> **However, enabling it in-cluster on 2026-07-26 still failed** and was
+> reverted the same day. The 18.8k figure came from a local `--pure` run
+> with plugins disabled. In-cluster the `oh-my-openagent` plugin injects
+> six further MCP servers, and the baseline was already 53-57k input tokens
+> before any gateway tools; ~12k of allowlisted kubectl pushed it past
+> `max_model_len` and vLLM returned 400. The context budget must be cut at
+> the baseline before the gateway can be enabled at any allowlist size.
 >
 > Nothing in the threat model below changes. The allowlist is a
 > context-budget control that happens to narrow reach; a session can still

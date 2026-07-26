@@ -80,6 +80,35 @@ spec:
             valid_status_codes: [200]
           prober: http
           timeout: 10s
+        # Generation prober for Frigate's GenAI VLM on the P40. Serves two
+        # purposes at once, exactly as ollama_embed does for bge-m3: it is
+        # the wedge detector AND the keep-warm heartbeat that holds
+        # qwen2.5vl:3b resident, so Frigate's descriptions run at ~1.5s
+        # instead of the ~38s cold-load path.
+        #
+        # Deliberately TEXT-ONLY. A vision request would mean inlining a
+        # ~95 KB base64 image into these chart values, and it buys nothing:
+        # ollama loads the vision projector as part of the runner
+        # (`load_hparams: projector: qwen2.5vl_merger` appears even on a
+        # text-only load), so a text prompt keeps the whole model warm.
+        #
+        # 45s timeout absorbs a genuine cold load; warm calls return in
+        # about a second. num_predict=1 keeps the generated work trivial —
+        # the point is residency, not output.
+        ollama_generate:
+          http:
+            body: |-
+              {"model":"qwen2.5vl:3b","prompt":"ping","stream":false,"options":{"num_predict":1}}
+            fail_if_body_not_matches_regexp:
+              - "\"response\""
+            headers:
+              Content-Type: application/json
+            method: POST
+            preferred_ip_protocol: "ip4"
+            valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+            valid_status_codes: [200]
+          prober: http
+          timeout: 45s
         tcp_connect:
           prober: tcp
           tcp:

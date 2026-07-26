@@ -50,7 +50,44 @@ spec:
               (4) probe payload changed / model removed — check the
                   ollama-embed Probe + ollama_embed module definition.
           expr: |-
-            probe_success{instance=~"https?://ollama\\.ai\\.svc.*"} == 0
+            probe_success{instance=~"https?://ollama\\.ai\\.svc.*/api/embed"} == 0
           for: 5m
           labels:
             severity: critical
+        # Frigate's GenAI VLM path. Separate from the embed probe above
+        # because they fail independently — the embedder can be fine while
+        # the VLM is evicted, unloadable, or mid-cold-load — and because
+        # the runbooks differ.
+        #
+        # NOTE the embed alert's matcher was narrowed to `/api/embed` when
+        # this was added. It previously matched any probe against
+        # ollama.ai.svc, so this VLM probe would have fired it with
+        # embed-specific runbook text.
+        #
+        # The probe doubles as the keep-warm heartbeat: at a 5-min cadence
+        # inside a 30-min OLLAMA_KEEP_ALIVE it holds qwen2.5vl:3b resident,
+        # which is what keeps Frigate's descriptions at ~1.5s instead of
+        # the ~38s cold-load path. So a sustained failure here means both
+        # "no wedge detection" AND "descriptions have gone slow".
+        - alert: OllamaVlmWedged
+          annotations:
+            summary: ollama (P40) VLM probe failing (Frigate GenAI degraded)
+            description: |
+              The ollama-vlm-warm Probe (POST /api/generate against
+              qwen2.5vl:3b) has been failing for ≥10 minutes. Frigate
+              event descriptions will be missing or very slow. Checks:
+              (1) model present — `kubectl -n ai exec ollama-0 -c main --
+                  ollama list | grep qwen2.5vl`;
+              (2) VRAM pressure — three models plus Immich CLIP share the
+                  P40; `nvidia-smi` and see
+                  reference_p40_ollama_model_thrash_and_vram_budget;
+              (3) ollama worker hung — `kubectl -n ai rollout restart
+                  sts ollama`;
+              (4) if only latency degraded, confirm OLLAMA_KEEP_ALIVE is
+                  still longer than the probe interval, otherwise the
+                  model ages out between probes and every call cold-loads.
+          expr: |-
+            probe_success{instance=~"https?://ollama\\.ai\\.svc.*/api/generate"} == 0
+          for: 10m
+          labels:
+            severity: warning

@@ -50,6 +50,13 @@ spec:
               command:
                 - /bin/sh
                 - -c
+                # NOTE: every `$` below is doubled. Flux postBuild envsubst
+                # runs in STRICT mode over this manifest, so a bare ${VAR}
+                # is read as a Flux substitution variable and fails the
+                # whole Kustomization with "variable not set". `$$` survives
+                # as a literal `$` for the shell. Same convention as
+                # ai/opencode/app/helmrelease.yaml. Verified the hard way on
+                # 2026-07-26: unescaped ${WINDMILL_TOKEN} broke reconcile.
                 - |
                   set -eu
 
@@ -60,48 +67,48 @@ spec:
                   # watcher's own */5 schedule before we call it stale.
                   WINDOW_S=900
 
-                  NOW="$(date -u +%s)"
-                  SINCE="$(date -u -d "@$((NOW - WINDOW_S))" +%Y-%m-%dT%H:%M:%SZ)"
+                  NOW="$$(date -u +%s)"
+                  SINCE="$$(date -u -d "@$$((NOW - WINDOW_S))" +%Y-%m-%dT%H:%M:%SZ)"
                   # Guard: an empty SINCE would drop the started_after
                   # filter and return the full job history, making this
                   # check pass unconditionally — a silently dead switch.
-                  case "$SINCE" in
+                  case "$$SINCE" in
                     ????-??-??T??:??:??Z) ;;
-                    *) echo "FATAL: bad window start '$SINCE'"; exit 1 ;;
+                    *) echo "FATAL: bad window start '$$SINCE'"; exit 1 ;;
                   esac
 
                   # Each step is checked separately and on its own line.
-                  # Do NOT collapse this into `N="$(curl ... | jq ...)"`:
-                  # the assignment would take its status from jq, which
-                  # succeeds on the empty input a failed curl produces, so
-                  # `set -e` never fires and N ends up empty. The empty
-                  # comparison then errors inside an `if` condition — which
-                  # `set -e` also exempts — and the script falls through to
-                  # OK. Verified 2026-07-26: that shape reported healthy
-                  # while the API was unreachable.
-                  RESP="$(curl -sSf --max-time 20 \
-                            -H "Authorization: Bearer ${WINDMILL_TOKEN}" \
-                            "${BASE}/api/w/${WS}/jobs/completed/list?per_page=100&started_after=${SINCE}")" || {
+                  # Do NOT collapse this into one piped assignment: the
+                  # assignment would take its status from jq, which succeeds
+                  # on the empty input a failed curl produces, so `set -e`
+                  # never fires and N ends up empty. The empty comparison
+                  # then errors inside an `if` condition — which `set -e`
+                  # also exempts — and the script falls through to OK.
+                  # Verified 2026-07-26: that shape reported healthy while
+                  # the API was unreachable.
+                  RESP="$$(curl -sSf --max-time 20 \
+                            -H "Authorization: Bearer $${WINDMILL_TOKEN}" \
+                            "$${BASE}/api/w/$${WS}/jobs/completed/list?per_page=100&started_after=$${SINCE}")" || {
                     echo "FATAL: Windmill API query failed — cannot verify detection health"
                     exit 1
                   }
 
-                  N="$(printf '%s' "$RESP" | jq --arg p "$WATCHED" \
-                        '[.[] | select(.script_path == $p and .success == true)] | length')" || {
+                  N="$$(printf '%s' "$$RESP" | jq --arg p "$$WATCHED" \
+                        '[.[] | select(.script_path == $$p and .success == true)] | length')" || {
                     echo "FATAL: could not parse Windmill API response"
                     exit 1
                   }
 
                   # A non-integer here means the response shape changed.
                   # Treat "I do not understand the answer" as unhealthy.
-                  case "$N" in
-                    ''|*[!0-9]*) echo "FATAL: non-numeric run count '$N'"; exit 1 ;;
+                  case "$$N" in
+                    ''|*[!0-9]*) echo "FATAL: non-numeric run count '$$N'"; exit 1 ;;
                   esac
 
-                  echo "successful ${WATCHED} runs since ${SINCE}: ${N}"
+                  echo "successful $${WATCHED} runs since $${SINCE}: $${N}"
 
-                  if [ "$N" -lt 1 ]; then
-                    echo "STALE: no successful run in the last ${WINDOW_S}s — Windmill failure detection is blind"
+                  if [ "$$N" -lt 1 ]; then
+                    echo "STALE: no successful run in the last $${WINDOW_S}s — Windmill failure detection is blind"
                     exit 1
                   fi
                   echo "OK"

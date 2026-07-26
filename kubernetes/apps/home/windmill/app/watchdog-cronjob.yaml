@@ -1,0 +1,113 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/cronjob-batch-v1.json
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: windmill-watchdog
+spec:
+  # Dead-man's switch for the Windmill failure-detection layer.
+  #
+  # Why this exists outside Windmill: on 2026-07-26 a custom workspace
+  # error handler was configured correctly (script deployed, g/error_handler
+  # present, no schedule muted) and never fired — 5 scheduled failures, 0
+  # handler invocations, nothing in the server logs. Windmill's error
+  # dispatch can be silently inert, so anything that depends on it is not
+  # a safety net. This job only READS the jobs API; it needs no dispatch,
+  # no scheduler, and no error handler to work.
+  #
+  # It asserts presence-of-success, not absence-of-failure. That is the
+  # only signal that catches silent death: if windmill-failure-watcher
+  # stops running at all, a failure-triggered alert has nothing to fire on.
+  #
+  # k8tz transparently injects timeZone: America/New_York on this cluster,
+  # so the schedule below is local time (irrelevant here — it is a fixed
+  # interval, not a wall-clock time).
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      # No retries: a retry would let a transient blip mask a real outage
+      # by refreshing last_successful_time. One shot, pass or fail.
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: watchdog
+              # Same image as the other home-ns maintenance jobs; carries
+              # curl + jq. NOTE: its `date` is busybox, which rejects
+              # `-d "15 minutes ago"` but accepts `-d @<epoch>`. The epoch
+              # arithmetic below is deliberate, not incidental.
+              image: docker.io/alpine/k8s:1.36.2@sha256:44ef4942e171939b9c665a4a84beb80e2dcdb9a24330d4651cfdfd2e9deecc47
+              env:
+                - name: WINDMILL_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: windmill-workflows-secret
+                      key: WINDMILL_TOKEN
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+
+                  BASE="http://windmill-app.home.svc.cluster.local:8000"
+                  WS="lovenet"
+                  WATCHED="f/lovenet/windmill-failure-watcher"
+                  # 15 min tolerates two consecutive misses of the
+                  # watcher's own */5 schedule before we call it stale.
+                  WINDOW_S=900
+
+                  NOW="$(date -u +%s)"
+                  SINCE="$(date -u -d "@$((NOW - WINDOW_S))" +%Y-%m-%dT%H:%M:%SZ)"
+                  # Guard: an empty SINCE would drop the started_after
+                  # filter and return the full job history, making this
+                  # check pass unconditionally — a silently dead switch.
+                  case "$SINCE" in
+                    ????-??-??T??:??:??Z) ;;
+                    *) echo "FATAL: bad window start '$SINCE'"; exit 1 ;;
+                  esac
+
+                  # Each step is checked separately and on its own line.
+                  # Do NOT collapse this into `N="$(curl ... | jq ...)"`:
+                  # the assignment would take its status from jq, which
+                  # succeeds on the empty input a failed curl produces, so
+                  # `set -e` never fires and N ends up empty. The empty
+                  # comparison then errors inside an `if` condition — which
+                  # `set -e` also exempts — and the script falls through to
+                  # OK. Verified 2026-07-26: that shape reported healthy
+                  # while the API was unreachable.
+                  RESP="$(curl -sSf --max-time 20 \
+                            -H "Authorization: Bearer ${WINDMILL_TOKEN}" \
+                            "${BASE}/api/w/${WS}/jobs/completed/list?per_page=100&started_after=${SINCE}")" || {
+                    echo "FATAL: Windmill API query failed — cannot verify detection health"
+                    exit 1
+                  }
+
+                  N="$(printf '%s' "$RESP" | jq --arg p "$WATCHED" \
+                        '[.[] | select(.script_path == $p and .success == true)] | length')" || {
+                    echo "FATAL: could not parse Windmill API response"
+                    exit 1
+                  }
+
+                  # A non-integer here means the response shape changed.
+                  # Treat "I do not understand the answer" as unhealthy.
+                  case "$N" in
+                    ''|*[!0-9]*) echo "FATAL: non-numeric run count '$N'"; exit 1 ;;
+                  esac
+
+                  echo "successful ${WATCHED} runs since ${SINCE}: ${N}"
+
+                  if [ "$N" -lt 1 ]; then
+                    echo "STALE: no successful run in the last ${WINDOW_S}s — Windmill failure detection is blind"
+                    exit 1
+                  fi
+                  echo "OK"
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 128Mi

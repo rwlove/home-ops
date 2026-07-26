@@ -74,6 +74,54 @@ spec:
           for: 5m
           labels:
             severity: warning
+        # WALArchivingStalled — catches a stopped/stuck archiver that the CR's
+        # ContinuousArchiving condition cannot: that condition is a "has ever
+        # worked" flag, set True on first success and never re-evaluated for
+        # freshness (postgres-netbox has shown True since 2026-05-08 with no
+        # bearing on current state).
+        #
+        # DELIBERATELY NOT time-since-last-archive. An idle database (no
+        # writes) legitimately stops archiving forever: with nothing to flush,
+        # Postgres never forces a WAL segment switch even with archive_timeout
+        # set (confirmed on postgres-netbox: 0 writes since ~2026-06-23,
+        # archive_timeout=300s, failed_count=0, pg_current_wal_lsn() sitting
+        # exactly on a segment boundary — this is correct, healthy behaviour,
+        # not staleness). A "last_archived_time older than N hours" alert
+        # fires permanently on every quiet cluster and trains the pager to be
+        # ignored. DO NOT convert this alert to that shape.
+        #
+        # Instead we watch cnpg_collector_pg_wal_archive_status{value="ready"}
+        # — the count of WAL segments sitting in pg_wal/archive_status marked
+        # .ready (produced, not yet archived). An idle cluster always reports
+        # 0 here: there's nothing pending, so there's nothing to fall behind
+        # on. A cluster whose archiver has genuinely stopped keeps producing
+        # segments under any write load and the backlog grows monotonically.
+        # max by (job, namespace) collapses per-pod series (each replica in
+        # the Cluster reports its own value; only the primary actually
+        # archives, but this is agnostic to which pod is currently primary,
+        # including across a failover).
+        #
+        # Threshold and for: are set from a live 7d replay across all 22
+        # clusters (2026-07-26): every cluster's ready-count sits at 0
+        # almost always, with brief single-digit blips (max observed: 7,
+        # on postgres-home-assistant, the highest-write-volume cluster in
+        # the fleet) lasting on the order of one to a few 1-minute scrapes
+        # while the archiver catches up under burst load. Threshold of 10
+        # sits above that observed ceiling; for: 15m requires the backlog
+        # to stay elevated across ~15 consecutive scrapes, which a transient
+        # catch-up blip never does but a stopped archiver always will
+        # (segments keep accumulating instead of draining).
+        - alert: WALArchivingStalled
+          annotations:
+            description: Cluster {{ $labels.job }} in {{ $labels.namespace }} has 10+ WAL segments pending archival, sustained for 15+ minutes. This is a backlog under active write load, not an idle database (idle clusters report 0 pending). Check pg_stat_archiver and the archive command/plugin target.
+            summary: CNPG WAL archiver has a growing unarchived backlog.
+          expr: |-
+            max by (job, namespace) (
+              cnpg_collector_pg_wal_archive_status{value="ready"}
+            ) >= 10
+          for: 15m
+          labels:
+            severity: warning
         # BackupStale — no successful backup in too long, complementary to
         # BackupFailed (which catches recent explicit failures). Signal is
         # kube-state-metrics CRSM over Cluster.status.conditions: the metric

@@ -1,0 +1,54 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: postgres-recovery-jobs-allow
+spec:
+  # CNPG bootstrap jobs (Job pods, not the long-running instance pods) do
+  # NOT carry cnpg.io/podRole=instance, so they never match
+  # postgres-instances-allow. Verified empirically 2026-07-26 against the
+  # running operator (ghcr.io/cloudnative-pg/cloudnative-pg:1.30.0) by
+  # launching a real recovery cluster and reading the job pod's labels
+  # before it terminated, and cross-checked against operator source at
+  # the matching commit (4b5e244a7, tag v1.30.0):
+  # pkg/specs/jobs.go / pkg/utils/labels_annotations.go.
+  #
+  # The operator sets cnpg.io/jobRole to one of six values. Only two
+  # actually invoke barman-cloud against the object store configured in
+  # the cluster's ObjectStore/externalCluster (`instance restore` /
+  # `instance restoresnapshot` — both wire in the barman endpoint CA in
+  # pkg/specs/jobs.go):
+  #   - full-recovery      bootstrap.recovery (S3 base backup + WAL replay)
+  #   - snapshot-recovery  bootstrap from VolumeSnapshot + WAL PITR replay
+  # The other four (import, initdb, pgbasebackup, join) never touch
+  # barman-cloud/S3 and are intentionally excluded to keep this rule
+  # scoped to what actually needs the object store.
+  endpointSelector:
+    matchExpressions:
+      - key: cnpg.io/jobRole
+        operator: In
+        values:
+          - full-recovery
+          - snapshot-recovery
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  # kube-apiserver (job pod's instance-manager watches/status) is
+  # covered by baseline allow-apiserver. DNS by allow-dns. Nothing else
+  # needed beyond the object-store egress below.
+  egress:
+    # Same destination as postgres-instances-allow: barman-cloud in the
+    # job pod talks S3 directly to Garage (recovery jobs don't go
+    # through the plugin-barman-cloud sidecar — that sidecar only runs
+    # alongside live instance pods).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: storage
+            app.kubernetes.io/name: garage
+      toPorts:
+        - ports:
+            - port: "3900"
+              protocol: TCP

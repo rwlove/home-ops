@@ -118,3 +118,57 @@ Workspace `lovenet` already created via API for this purpose.
 Source-of-truth workflows (to be migrated) live at
 
 namespace go away (Phase 3).
+
+## Failure detection
+
+Two layers, deliberately independent:
+
+1. **`windmill-failure-watcher`** (Windmill script, `*/5` cron) — polls the
+   jobs API and emails when a script exceeds its failure-rate threshold.
+   Rate-driven: catches flapping and sustained breakage.
+2. **`windmill-watchdog`** (k8s CronJob, `*/5`, `./app/watchdog-cronjob.yaml`)
+   — asserts layer 1 has *succeeded* recently. Presence-of-success, not
+   absence-of-failure: if the watcher stops running entirely there are no
+   failures for it to report, and nothing else would notice.
+
+Layer 2 lives outside Windmill on purpose. It only reads the jobs API and
+needs no Windmill scheduler, dispatch, or error handler to function — so it
+stays true when Windmill itself is the thing that broke.
+
+Alerting is `./app/prometheusrule.yaml`, keyed on
+`kube_cronjob_status_last_successful_time` (self-clearing) rather than
+`kube_job_failed` (which sticks at 1 until the failed Job is GC'd).
+`WindmillWatchdogMissing` covers the CronJob itself disappearing.
+
+### The workspace error handler does not work — do not re-add it
+
+Windmill's native **workspace error handler is inert on CE v1.771.0**.
+Tested 2026-07-26 with a correct configuration: handler script deployed and
+locked, `g/error_handler` group present, `ws_error_handler_muted: false` on
+every schedule, setting persisted (tried both `script/f/...` and bare
+`f/...` path forms). Result: **5 scheduled failures, 0 handler invocations**,
+nothing in the server logs. The workspace setting was reverted to unset — a
+handler that claims coverage but never fires is worse than none.
+
+Per-schedule `on_failure` was not tested and may work; it is a different
+code path. Verify it actually fires before relying on it.
+
+### Editing the watchdog script
+
+The container image's `date` is **busybox**: `-d "15 minutes ago"` is
+rejected, `-d @<epoch>` works. The epoch arithmetic is deliberate.
+
+Do not collapse the curl/jq steps into a single pipeline assignment.
+`set -e` does not fire there — the assignment inherits `jq`'s status, and
+`jq` succeeds on the empty input a failed `curl` produces. That shape was
+verified on 2026-07-26 to report `OK` while the API was unreachable.
+
+Exercise all four paths after any edit (extract the script from the
+manifest, mount it via ConfigMap, run it in-namespace):
+
+| case | expected |
+|---|---|
+| watcher healthy | exit 0 |
+| watcher stale / never ran | exit 1 |
+| Windmill API unreachable | exit 1 |
+| bad token (401) | exit 1 |

@@ -1,0 +1,63 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: windmill-watchdog-rules
+spec:
+  groups:
+    - name: windmill.watchdog
+      rules:
+        # Dead-man's switch. windmill-watchdog succeeds only when
+        # windmill-failure-watcher has had a successful run recently, so a
+        # stale last_successful_time means one of:
+        #   - the watcher stopped running or is erroring
+        #   - Windmill's scheduler is wedged
+        #   - the watchdog itself cannot reach the Windmill API
+        # All three mean the same thing operationally: Windmill failure
+        # detection is blind and nothing else will tell you.
+        #
+        # Alerting on absence-of-success rather than kube_job_failed is
+        # deliberate — a retained failed Job keeps kube_job_failed at 1
+        # after recovery, so that alert would stick until GC. This one
+        # self-clears on the next successful run.
+        - alert: WindmillFailureDetectionStale
+          annotations:
+            summary: Windmill failure detection is blind (watchdog stale {{ $value | humanizeDuration }})
+            description: |
+              windmill-watchdog has not completed successfully recently. Windmill
+              job failures are currently going undetected — the failure-watcher is
+              the only thing that surfaces them, and this alert means it is not
+              confirmed running.
+
+              Check in order:
+                kubectl -n home get cronjob windmill-watchdog
+                kubectl -n home logs job/$(kubectl -n home get job -o name | grep windmill-watchdog | tail -1 | cut -d/ -f2)
+                kubectl -n home get pods -l app.kubernetes.io/name=windmill
+
+              Note: the workspace error handler is NOT a fallback here. It was
+              tested on 2026-07-26 against Windmill CE v1.771.0 and does not fire.
+          expr: |
+            time() - kube_cronjob_status_last_successful_time{namespace="home",cronjob="windmill-watchdog"} > 900
+          for: 10m
+          labels:
+            severity: warning
+        # A dead-man's switch that can itself vanish silently is not a
+        # switch. This fires if the CronJob stops being reported at all
+        # (deleted, namespace pruned, kube-state-metrics not scraping it).
+        # Expected to fire briefly on first deploy until the first run
+        # succeeds — the 15m `for` covers three */5 attempts.
+        - alert: WindmillWatchdogMissing
+          annotations:
+            summary: windmill-watchdog CronJob is not reporting to kube-state-metrics
+            description: |
+              No kube_cronjob_status_last_successful_time series exists for
+              home/windmill-watchdog. The dead-man's switch guarding Windmill
+              failure detection is itself absent, so WindmillFailureDetectionStale
+              cannot fire. Verify the CronJob exists and has run at least once:
+                kubectl -n home get cronjob windmill-watchdog
+          expr: |
+            absent(kube_cronjob_status_last_successful_time{namespace="home",cronjob="windmill-watchdog"})
+          for: 15m
+          labels:
+            severity: warning

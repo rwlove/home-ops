@@ -18,6 +18,32 @@ always-load diet HOMELAB-SPEC applies to its own Layers 4-7.
 
 ---
 
+## Inspecting the live cluster — use the kubectl MCP tools, not `bash`
+
+When you need to see cluster state, call the `kubectl_*` MCP tools directly.
+Do **not** shell out to `kubectl` via `bash`. The MCP path is the intended
+one: it is the surface that is allowlisted, auditable, and read-only by
+construction. A `bash` call bypasses all of that, and in the in-cluster
+server there is no kubectl binary on PATH anyway.
+
+Reach for these first:
+
+| Need | Tool |
+|---|---|
+| What is running / failing | `kubectl_get_pods`, `kubectl_get_events`, `kubectl_get_pod_events` |
+| Why a pod is unhealthy | `kubectl_diagnose_pod_crash`, `kubectl_check_pod_health`, `kubectl_get_logs`, `kubectl_get_previous_logs` |
+| Node / capacity | `kubectl_get_nodes`, `kubectl_get_nodes_summary`, `kubectl_get_node_metrics` |
+| Storage | `kubectl_get_pvcs`, `kubectl_get_persistent_volumes`, `kubectl_get_storage_classes` |
+| Flux / GitOps state | `kubectl_gitops_apps_list_tool`, `kubectl_gitops_app_status_tool`, `kubectl_gitops_sources_list_tool` |
+| Metrics | `prom_execute_query`, `prom_execute_range_query` |
+| Network policy | `cilium_*`, `kubectl_analyze_network_policies` |
+
+The allowlist is **read-only**. There is no apply/patch/delete/scale/rollout,
+and `kubectl_get_secrets` / `kubectl_kubeconfig_view` are deliberately absent.
+If a task seems to need a mutating or credential tool, that is a signal to
+stop and propose the change as a Flux commit — not to look for a way around
+the gate. Git is canonical for cluster state.
+
 ## Repository guide
 
 This is a **Home Kubernetes cluster monorepo** managed with GitOps (Flux, Renovate, GitHub Actions).

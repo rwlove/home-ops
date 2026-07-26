@@ -353,7 +353,8 @@ the tier before you emit. Per HOMELAB-SPEC Layer 5.
   external readers see).
 - **Internal** — Cluster internals, runbooks, decisions. Vault and repo.
   Not external.
-- **Restricted** — Secrets, the arr stack and stash, anything Rob has
+- **Restricted** — Secrets, the media-download stacks enumerated in
+  `.agents/instructions/data-classification.md`, anything Rob has
   flagged restricted. Never summarized, never indexed for retrieval,
   never emitted to remote models.
 
@@ -362,7 +363,8 @@ the tier before you emit. Per HOMELAB-SPEC Layer 5.
 - Secrets — any 1Password reference values, key material, API tokens,
   OIDC client secrets, htpasswd content. If it's behind an
   `ExternalSecret`, the resolved value is restricted.
-- **Do not name the arr stack or stash in PR descriptions, READMEs,
+- **Do not name the restricted-tier apps (see
+  `.agents/instructions/data-classification.md`) in PR descriptions, READMEs,
   mdBook output, or any artifact a third party could see** (per
   HOMELAB-SPEC Layer 2 #2). They exist in `kubernetes/apps/media/`
   but narrative artifacts treat them as "the media stack."

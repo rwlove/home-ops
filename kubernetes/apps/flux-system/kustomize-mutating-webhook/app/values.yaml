@@ -2,7 +2,30 @@
 image:
   repository: ghcr.io/xunholy/kustomize-mutating-webhook
   tag: 0.12.0@sha256:004c1d33626891260ded4d826848a3451792bbcd02824250d7a1fbda08192c20
-replicas: 1
+# Raised 1 -> 3 on 2026-07-26. This webhook is a hard dependency of every
+# Flux Kustomization apply (rules: kustomizations CREATE/UPDATE, and
+# failurePolicy: Fail), so a single replica made it a single point of
+# failure for ALL GitOps. It failed four separate times on 2026-07-25/26
+# — tempo, goldilocks, memory-mcp, vector-agent — each surfacing as
+#   "failed calling webhook ...: the server has received too many
+#    requests and has asked us to try again later"
+# and each halting cluster-apps until it happened to succeed on retry.
+#
+# Measured before changing anything, so this is not a guess:
+#   702 mutations / 30 min, median 0.70s, max 4.92s (timeout is 10s)
+#   CPU usage 2.7 millicores, CFS throttling 0.14%
+# Near-zero CPU at 0.7s latency means it is blocked on I/O, not compute —
+# so more CPU would have done nothing. The webhook reads cluster-config
+# and cluster-secrets per mutation, and client-go's default rate limiter
+# (QPS 5 / burst 10) is per-process. Under a ~167-Kustomization reconcile
+# wave, requests queue behind that limiter until they pass the 10s
+# webhook timeout.
+#
+# Replicas are therefore the correct lever: each pod carries its own
+# client-go limiter and its own informer cache, so N replicas multiply
+# the aggregate ceiling. 3 also means a node drain or rolling update no
+# longer takes the whole admission path down.
+replicas: 3
 certManager:
   enabled: true
 configMaps:
@@ -12,15 +35,28 @@ secrets:
   - create: false
     name: cluster-secrets
 env:
-  LOG_LEVEL: debug
+  # debug -> info on 2026-07-26. At debug this logs the ENTIRE generated
+  # patch on every mutation — a ~2 KB JSON blob, 702 times per 30 min —
+  # which is both latency on the hot path and a large amount of Loki
+  # ingestion for no steady-state value. Raise it back temporarily when
+  # actually debugging substitution behaviour.
+  LOG_LEVEL: info
 # Chart NP egress uses ipBlock 0.0.0.0/0 for 443/6443, which Cilium does
 # not match against the kube-apiserver (host-network identity, separate
 # from `world`). With it enabled, the 0.11.0 informer hangs on its
 # initial LIST/WATCH and /ready never returns 200.
 networkpolicy:
   create: false
+# Re-enabled 2026-07-26, restoring the chart default (enabled,
+# minAvailable: 1). It was almost certainly disabled *because* replicas
+# was 1: minAvailable 1 against a single replica makes that node
+# permanently undrainable, which is worse than having no PDB. At 3
+# replicas the same setting is correct — it allows draining two at once
+# while guaranteeing the admission path never reaches zero pods, which
+# matters a lot here because failurePolicy is Fail.
 podDisruptionBudget:
-  enabled: false
+  enabled: true
+  minAvailable: 1
 resources:
   requests:
     cpu: 25m

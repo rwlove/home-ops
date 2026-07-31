@@ -55,6 +55,14 @@ spec:
               #   bump deliberately, validate on-box before merging.
               # Base image has no entrypoint (Cmd=bash), so `command`
               # below invokes vLLM explicitly.
+              #
+              # NOTE: the tag says v0.25.1 but the engine inside reports
+              # v0.25.2.dev0+g752a3a504 — the community image ships a dev
+              # build, not the tagged release. The digest below is the real
+              # pin; treat the tag as a label, not a version. Confirmed
+              # 2026-07-31 from the running EngineCore banner. Relevant when
+              # correlating behaviour against upstream issues: match on the
+              # dev SHA, not on v0.25.1.
               repository: ghcr.io/timothystewart6/vllm-gb10
               tag: v0.25.1-cu13.2-torch2.11-gb10.3@sha256:30e70a376ff076f4dc3e1e5fd5ee5f99f36a8ba274f6f590fa1d7894045a66d8
 
@@ -193,6 +201,21 @@ spec:
               allowPrivilegeEscalation: false
               capabilities:
                 drop: ["ALL"]
+                # workaround: https://github.com/vllm-project/vllm/issues/41725
+                #   — remove when the GB10 (sm_121) CUDA kernel hang is fixed
+                #   upstream and py-spy is no longer needed to diagnose it.
+                #   py-spy ships in the image but needs ptrace to attach.
+                #   Without it a wedged EngineCore can't be introspected: on
+                #   2026-07-31 the engine held two requests with the GPU pinned
+                #   at 96%, all 130 threads sleeping and every token counter
+                #   frozen, and `py-spy dump` failed with EPERM — leaving the
+                #   hang unpinned and a pod restart as the only recourse.
+                #   #41725 is the closest upstream match (same platform, same
+                #   GPU-pinned-96%-no-error signature) but is NOT confirmed to
+                #   be the same bug: that repro is 2-node TP=2 NVFP4/marlin,
+                #   ours is single-node TP=1 FP8 with CUDA graphs enabled.
+                #   Scoped to ptrace only; allowPrivilegeEscalation stays false.
+                add: ["SYS_PTRACE"]
               seccompProfile:
                 type: RuntimeDefault
 

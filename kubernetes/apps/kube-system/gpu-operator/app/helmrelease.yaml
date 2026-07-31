@@ -15,10 +15,25 @@ spec:
   interval: 30m
   install:
     crds: CreateReplace
-    disableWait: true
+    # Was disableWait: true, which contradicted ks.yaml's `wait: true`.
+    #
+    # Eight GPU workloads declare dependsOn gpu-operator: comfyui,
+    # comfyui-spark, ollama, tei-spark, tei-embed-spark, vllm-coder-spark,
+    # vllm-driver-spark, wyoming-services. That gate only means something if
+    # the Kustomization goes Ready when the operator is actually serving.
+    # disableWait made it Ready as soon as Helm finished applying, so
+    # dependents could start before the device plugin had registered
+    # nvidia.com/gpu -- the gate was decorative.
+    #
+    # A generous timeout keeps the readiness signal while tolerating the slow
+    # part of a gpu-operator upgrade (driver / container-toolkit / validator
+    # DaemonSet rollouts). Verified 2026-07-31 that every gpu-operator
+    # DaemonSet is desired==ready in steady state, including the
+    # zero-scheduled mps-control-daemon, so Helm's wait passes today.
+    timeout: 20m
   upgrade:
     crds: CreateReplace
-    disableWait: true
+    timeout: 20m
   values:
     operator:
       cleanupCRD: false

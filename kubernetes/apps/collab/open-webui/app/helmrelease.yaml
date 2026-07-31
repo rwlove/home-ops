@@ -10,13 +10,35 @@ spec:
     name: app-template
   interval: 30m
   install:
+    timeout: 20m
     remediation:
       retries: 3
   upgrade:
+    # Open WebUI runs forward-only Alembic migrations at startup against the
+    # SQLite DB in open-webui-data-pvc, so rolling back the *image* cannot
+    # un-migrate the *schema*. Combined with Helm's 5m default timeout (this
+    # release does not set disableWait), a slow image pull is enough to fail
+    # the upgrade, trigger remediation, and leave an older image running
+    # against a newer schema.
+    #
+    # That is exactly how romm wedged on 2026-07-31: the 5.0.0 -> 5.1.0 bump
+    # timed out behind a queued image pull, Flux rolled back, and 5.0.0 could
+    # not locate the Alembic revision 5.1.0 had already written. Every
+    # subsequent remediation re-applied the same unstartable version. See
+    # #13383.
+    #
+    # timeout: 20m stops a slow pull from being read as a failure.
+    # retries: 0 disables reversion -- for forward-only migrations, failing
+    # forward and surfacing Ready=False is strictly safer than returning to a
+    # version that can no longer read its own schema.
+    #
+    # Note: immich, khoj and prowlarr also pair rollback remediation with a
+    # database, but all three set disableWait: true, so Helm never waits, never
+    # times out, and remediation cannot trip. They are deliberately unchanged.
+    timeout: 20m
     cleanupOnFail: true
     remediation:
-      retries: 3
-      strategy: rollback
+      retries: 0
   values:
     controllers:
       open-webui:

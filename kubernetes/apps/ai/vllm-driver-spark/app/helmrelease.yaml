@@ -118,10 +118,31 @@ spec:
               # memory and the coder failed to init.
               - --gpu-memory-utilization
               - "0.36"
-              # FP8 KV cache — halves KV footprint, key to fitting two
-              # instances (per the vLLM Qwen3.6 recipe).
-              - --kv-cache-dtype
-              - fp8
+              # FP8 KV cache REMOVED 2026-07-31. It halved the KV footprint to
+              # fit two instances, but vllm-coder-spark has been parked at
+              # replicas:0 since 2026-07-23 (Qwen3.6-27B cannot co-reside with
+              # the driver on the GB10) — so there is no second instance and
+              # the footprint saving buys nothing. Measured KV cache usage on
+              # a live agentic session was 2.4–9.5%.
+              #
+              # What it cost: fp8 kv-cache is incompatible with prefix caching,
+              # so vLLM silently set enable_prefix_caching=False and every
+              # request reported "Prefix cache hit rate: 0.0%". The driver's
+              # workload is an agentic tool-calling loop that re-sends an
+              # ~85k-token prefix on every step, which is the best possible
+              # case for prefix caching; instead each step re-prefilled the
+              # whole context (observed: +95,993 prompt tokens per step at
+              # ~9.9k tok/s, so ~10s of pure prefill before any output).
+              #
+              # It also silenced correctness: the engine warned "Using
+              # uncalibrated q_scale 1.0 and/or prob_scale 1.0 with fp8
+              # attention. This may cause accuracy issues" because the
+              # checkpoint ships no q/prob scaling factors. Removing this
+              # drops that risk too, and is a suspect (unproven) in the
+              # decode-hang tracked in #13342.
+              #
+              # Restore ONLY if a second instance is genuinely co-scheduled
+              # here, and re-measure prefix hit rate before accepting it.
               # Reasoning + tool-calling parsers (vLLM Qwen3.6 recipe).
               # tool-call support is the whole point of the driver role —
               # opencode/LightRAG drive tools through it.

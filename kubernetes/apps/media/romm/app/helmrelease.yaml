@@ -11,13 +11,32 @@ spec:
 
   interval: 1h
   install:
+    timeout: 20m
     remediation:
       retries: 3
   upgrade:
+    # RomM runs forward-only Alembic migrations at startup, so a rollback of
+    # the *image* cannot un-migrate the *database*. On 2026-07-31 the 5.0.0 ->
+    # 5.1.0 bump exceeded Helm's 5m default timeout (image pulls were queued
+    # behind a 40-PR Renovate wave), Flux remediated with strategy: rollback,
+    # and 5.0.0 came back up against a DB already stamped at 5.1.0's revision
+    # `0103_roms_facets_provider_ids`. It could not locate that revision, so it
+    # crashlooped -- and every subsequent rollback attempt re-applied the same
+    # unstartable version. The release wedged permanently and needed a spec
+    # change to escape.
+    #
+    # timeout: 20m gives the pull + migration room so remediation is not
+    # triggered by slowness alone.
+    #
+    # retries: 0 disables remediation entirely. For an app with forward-only
+    # migrations, failing forward and staying on the new version is strictly
+    # safer than rolling back to a version that can no longer read its own
+    # database. A failed upgrade stays visible as Ready=False instead of
+    # silently reverting into an unrecoverable state.
+    timeout: 20m
     cleanupOnFail: true
     remediation:
-      retries: 3
-      strategy: rollback
+      retries: 0
   values:
     defaultPodOptions:
       securityContext:

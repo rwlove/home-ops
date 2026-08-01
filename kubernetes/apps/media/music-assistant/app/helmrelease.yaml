@@ -162,24 +162,44 @@ spec:
                   timeoutSeconds: 5
                   failureThreshold: 60
 
+            # ┌───────────────────────────────────────────────────────────┐
+            # │ DO NOT RIGHT-SIZE THESE FROM OBSERVED USAGE.              │
+            # │ The memory limit is a FEATURE GATE, not a sizing figure.  │
+            # └───────────────────────────────────────────────────────────┘
+            #
+            # Smart Fades (the smart-crossfade audio analysis provider)
+            # refuses to load below 4GB, reading the container's cgroup
+            # limit at startup:
+            #
+            #   "Provider(instance) Smart Fades can not run on this system:
+            #    at least 4GB of RAM is required (3.0GB detected)"
+            #
+            # It is in ACTIVE USE: the player_queues core config sets
+            # `crossfade_mode: smart_crossfade` with `crossfade_duration: 8`
+            # globally, so every queue (incl. the synced wiim-deck/wiim-pool
+            # pair and wiim-yard) depends on the provider being loaded.
+            #
+            # THE FAILURE IS SILENT. `StreamsController.get_crossfade_mode()`
+            # falls back to `CrossfadeMode.STANDARD_CROSSFADE` whenever
+            # `smart_fades_available` is false. Nothing errors at playback
+            # time and the setting still reads `smart_crossfade` in the UI --
+            # you just quietly stop getting beat-aligned crossfades. That is
+            # exactly how this went unnoticed under the old 3Gi limit.
+            #
+            # Idle usage is ~553Mi (~9% of the limit) because the Beat This!
+            # model is only exercised during track-transition analysis, so
+            # Goldilocks/VPA will look at this pod and recommend cutting the
+            # limit by an order of magnitude. Ignore it. Anything under 4GB
+            # silently disables the feature; 6Gi keeps headroom for the model
+            # rather than sitting on the threshold. See #13390.
             resources:
               requests:
                 cpu: 15m
-                # Raised 1536Mi -> 2Gi alongside the limit bump below: Smart
-                # Fades loads the Beat This! beat-tracking model, so steady
-                # state is no longer ~535Mi. A request far below real usage
-                # makes this pod the first eviction candidate under node
-                # memory pressure (worker3 requests sit ~78%).
+                # 2Gi (not the old 1536Mi) so the pod is not the first
+                # eviction candidate once the model is resident -- its node's
+                # memory requests sit ~78%.
                 memory: 2Gi
               limits:
-                # Smart Fades gates itself on total available RAM and refuses
-                # to load below 4GB, reading the container's cgroup limit:
-                #   "Provider(instance) Smart Fades can not run on this system:
-                #    at least 4GB of RAM is required (3.0GB detected)"
-                # The old 3Gi limit was reported as 3.0GB, so the provider was
-                # permanently disabled -- not an upstream bug, just the cap.
-                # 6Gi clears the 4GB gate with headroom for the model rather
-                # than sitting exactly on the threshold.
                 memory: 6Gi
 
     service:

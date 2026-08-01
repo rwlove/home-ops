@@ -165,9 +165,22 @@ spec:
             resources:
               requests:
                 cpu: 15m
-                memory: 1536Mi
+                # Raised 1536Mi -> 2Gi alongside the limit bump below: Smart
+                # Fades loads the Beat This! beat-tracking model, so steady
+                # state is no longer ~535Mi. A request far below real usage
+                # makes this pod the first eviction candidate under node
+                # memory pressure (worker3 requests sit ~78%).
+                memory: 2Gi
               limits:
-                memory: 3Gi
+                # Smart Fades gates itself on total available RAM and refuses
+                # to load below 4GB, reading the container's cgroup limit:
+                #   "Provider(instance) Smart Fades can not run on this system:
+                #    at least 4GB of RAM is required (3.0GB detected)"
+                # The old 3Gi limit was reported as 3.0GB, so the provider was
+                # permanently disabled -- not an upstream bug, just the cap.
+                # 6Gi clears the 4GB gate with headroom for the model rather
+                # than sitting exactly on the threshold.
+                memory: 6Gi
 
     service:
       app:

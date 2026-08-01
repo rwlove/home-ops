@@ -63,6 +63,17 @@ jobs:
 
       - name: Setup flate
         uses: home-operations/flate/action@bf3405a189626478b0aa6ec98dc4d6f7d419df17 # v0.4.12
+        with:
+          # Restore/save flate's XDG cache (sources, helm charts, git mirrors,
+          # blobs) between runs. Without it every run re-fetches all 52 chart
+          # OCIRepositories cold from upstream registries, and GitHub-hosted
+          # runners share an egress pool, so anonymous ghcr.io pulls hit
+          # `429 toomanyrequests`. That failed main twice on 2026-07-31 --
+          # both times on ghcr.io/immich-app/immich-charts, both times with
+          # the tree itself valid (`flate test all` passed locally, 475/475).
+          # Chart refs are digest-pinned and change rarely, so the cache hits
+          # on nearly every run; requests not made can't be rate-limited.
+          cache: true
 
       # `test all` reconciles every Kustomization + HelmRelease (Helm rendering
       # is on by default) starting from the Flux entrypoint and following each
@@ -110,6 +121,12 @@ jobs:
 
       - name: Setup flate
         uses: home-operations/flate/action@bf3405a189626478b0aa6ec98dc4d6f7d419df17 # v0.4.12
+        with:
+          # Same rationale as the `test` job above -- cache chart blobs between
+          # runs so anonymous ghcr.io pulls from shared GitHub egress IPs stop
+          # tripping 429s. This job renders twice (PR tree + default-branch
+          # baseline), so it fetches roughly double and benefits more.
+          cache: true
 
       # flate's changed-only mode (--path-orig baseline = the default-branch
       # checkout) reconciles just the subtree the PR touches. FLATE_BASE="" so

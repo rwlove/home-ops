@@ -12,7 +12,17 @@ spec:
   volumeMode: Filesystem
   resources:
     requests:
-      storage: 10Gi
+      # Grown 10Gi -> 20Gi on 2026-08-02: KubePersistentVolumeFillingUp fired
+      # with 12.94% free and a ~4-day projection. Effectively all of it is
+      # /romm/resources (8.7G) -- romm's downloaded box art / metadata assets,
+      # which grow with the library. /romm/library is NFS and unaffected.
+      #
+      # Online expansion works because romm-config-storage-class exists
+      # in-cluster with allowVolumeExpansion=true; a static-volumeHandle PV
+      # cannot be resized without that (see memory
+      # feedback_longhorn_static_pv_resize). Both the PVC request AND the PV
+      # capacity below must move together for a statically-bound pair.
+      storage: 20Gi
   volumeName: romm-config-pv
   storageClassName: romm-config-storage-class
 ---
@@ -27,7 +37,7 @@ metadata:
     recurring-job-group.longhorn.io/weekly-backup: enabled
 spec:
   capacity:
-    storage: 10Gi
+    storage: 20Gi
   volumeMode: Filesystem
   accessModes:
     - ReadWriteOnce

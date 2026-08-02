@@ -99,7 +99,52 @@ spec:
             envFrom: *envFrom
 
             probes:
-              liveness: &probes
+              # Liveness is DELIBERATELY far more forgiving than readiness.
+              # It previously shared one YAML anchor with readiness — period
+              # 10s, timeout 5s, failureThreshold 3 — so 30 seconds of slow
+              # responses killed the container. That is well inside normal
+              # behaviour for this instance: HA's post-startup phase blocks
+              # the event loop while setting up 400+ devices, so `/` can take
+              # longer than 5s for a minute at a time.
+              #
+              # The startup probe does NOT cover that window. It passes as
+              # soon as 8123 accepts connections (~40s, "Home Assistant
+              # initialized in 39.42s"), which is long before integration
+              # setup finishes — so liveness takes over during the single
+              # heaviest phase of the boot and kills it mid-work.
+              #
+              # Observed 2026-07-31: 3 restarts inside ~2 minutes, each
+              # "Liveness probe failed: context deadline exceeded" -> Killing
+              # -> exit 143. NOT OOM: memory was 946Mi against the 2Gi limit
+              # below (46%), and lastState reason was Error/143, not
+              # OOMKilled. Every restart flaps every Z-Wave / BLE / MQTT
+              # entity in the house `unavailable -> unknown -> off` for ~12s,
+              # so a spurious restart is a household-visible event.
+              #
+              # Now 120s of *sustained* unresponsiveness (12 x 10s) with a
+              # 10s per-probe timeout before a kill. A genuine hang still
+              # gets restarted; a busy event loop no longer does.
+              #
+              # Raising the timeout rather than switching to a lighter path
+              # is deliberate — the bottleneck is the blocked asyncio event
+              # loop, not response size, so no endpoint would answer faster.
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /
+                    port: 8123
+                  initialDelaySeconds: 0
+                  periodSeconds: 10
+                  timeoutSeconds: 10
+                  failureThreshold: 12
+              # Readiness stays tight on purpose. Pulling a genuinely
+              # unresponsive pod out of the LoadBalancer is cheap and
+              # reversible; restarting it is neither. Only the restart
+              # decision needed loosening, which is why the shared anchor
+              # had to go.
+              readiness:
                 enabled: true
                 custom: true
                 spec:
@@ -110,7 +155,6 @@ spec:
                   periodSeconds: 10
                   timeoutSeconds: 5
                   failureThreshold: 3
-              readiness: *probes
               startup:
                 enabled: true
                 custom: true

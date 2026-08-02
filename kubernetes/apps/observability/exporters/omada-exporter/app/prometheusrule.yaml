@@ -1,0 +1,45 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: omada-exporter-rules
+spec:
+  groups:
+    - name: omada-exporter.rules
+      rules:
+        # The generic TargetDown rule already catches this, and it DID page
+        # (only Watchdog + InfoInhibitor are null-routed; everything else
+        # reaches pushover on a 6h repeat). The 2026-08-01 outage went
+        # unactioned for ~22h anyway, because "TargetDown / omada-exporter"
+        # does not tell you the controller is wedged or what to do about it.
+        # This alert exists for the annotation, not for the signal.
+        - alert: OmadaControllerUnreachable
+          annotations:
+            summary: Omada controller management plane is unreachable — restart it on brain.
+            description: >-
+              omada-exporter cannot reach the Omada controller at brain:8043.
+              The controller process is usually still ALIVE when this fires —
+              APs and switches keep forwarding and stay adopted — but its web
+              connectors have deadlocked, so the UI, API, exporter and MCP
+              tooling are all dead. Confirm with `ss -lnt | grep :8043` on
+              brain: a full accept queue (Recv-Q at or above the backlog of
+              100) is the signature. Fix is a restart, NOT a rebuild:
+              back up first with
+              `tar czf /root/omada-backups/pre-hang-restart-$(date +%Y%m%d-%H%M%S).tgz -C /opt/omada data`,
+              then `systemctl restart omada.service`, then wait ~60s for
+              Java+Mongo. Runbook and history:
+              rwlove/lovenet-network-configuration#51
+          # up==0 rather than absent(): the exporter pod stays Running and
+          # serving, but it collects on scrape, so a hung upstream makes
+          # Prometheus' scrape time out. That is what actually flipped on
+          # 2026-08-01 14:00 and it is the earliest available signal —
+          # the accept-queue depth that would lead it is not exported.
+          expr: up{job="omada-exporter"} == 0
+          # 10m: longer than a controller restart (~60-120s for Java+Mongo,
+          # plus image pull on a version bump) so a planned restart or the
+          # omada-upgrade skill does not page, short enough to catch a wedge
+          # within the hour rather than the next day.
+          for: 10m
+          labels:
+            severity: critical

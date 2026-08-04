@@ -1,0 +1,40 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: pump-voltra-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: pump-voltra
+  # Additive — collab's default-deny is what triggers the lockdown; this
+  # rule punches the one hole through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # Intra-ns pump-api:8851 (PUMP_API_BASE_URL, and the /api/sets/stream SSE
+    # subscription) is covered by baseline allow-intra-namespace, so the one
+    # rule below is the whole of this sidecar's external reach.
+    #
+    # The ESPHome native API on bluetooth-proxy-gym (M5Stack ATOM Lite,
+    # 10.10.20.69, IoT VLAN), Noise-encrypted, TCP 6053. This is the whole
+    # of the sidecar's external reach.
+    #
+    # Pinned to a /32 rather than the VLAN /24 that pump-cv uses for the
+    # camera pair: this path can open a GATT session that commands a motor,
+    # so the blast radius stays one host. If the DHCP reservation ever
+    # moves, this and VOLTRA_PROXY_HOST in the HelmRelease change together.
+    #
+    # Routed egress via the pod network, not macvlan. The other IoT-VLAN
+    # consumers (home-assistant, esphome, matter-server) take net-attach
+    # because they need multicast/mDNS discovery and inbound connections;
+    # this is a plain outbound TCP dial to a known address, so it needs
+    # neither, and skipping macvlan avoids burning a static IP.
+    - toCIDR:
+        - 10.10.20.69/32
+      toPorts:
+        - ports:
+            - port: "6053"
+              protocol: TCP

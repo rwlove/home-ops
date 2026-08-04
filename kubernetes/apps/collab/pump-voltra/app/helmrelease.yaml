@@ -1,0 +1,94 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app pump-voltra
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+
+  interval: 30m
+  install:
+    disableWait: true
+  upgrade:
+    disableWait: true
+  values:
+    controllers:
+      pump-voltra:
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        # The Voltra accepts exactly ONE BLE central. Two replicas — or a
+        # RollingUpdate that briefly runs old and new together — would fight
+        # over the connection and neither would log reliably. Recreate is
+        # load-bearing, not a preference.
+        replicas: 1
+        strategy: Recreate
+
+        pod:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+
+        containers:
+          pump-voltra:
+            image:
+              repository: ghcr.io/rwlove/pump-voltra
+              tag: v0.1.0@sha256:c6397f340332c47627de2b57a075e755b7437dc1f6a4a53cfa425a400765367d
+
+            env:
+              VOLTRA_ENABLED: "true"
+              # The ESPHome bluetooth_proxy bridging gym-BLE to LAN-TCP
+              # (M5Stack ATOM Lite, bluetooth-proxy-gym, IoT VLAN). Addressed
+              # by IP rather than hostname so the pod needs no egress to
+              # brain's DNS — the cnp-allow rule pins the same /32.
+              VOLTRA_PROXY_HOST: 10.10.20.69
+              PUMP_API_BASE_URL: http://pump-api:8851
+              # Written on sets logged before the athlete has logged any set
+              # for a Voltra-flagged exercise that day. Such sets are marked
+              # pending so the name gets corrected in the UI; normally the
+              # name is inherited and this is unused.
+              VOLTRA_DEFAULT_EXERCISE: Voltra
+
+            envFrom:
+              - secretRef:
+                  name: pump-voltra-secret
+
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /healthz
+                    port: 8080
+                  initialDelaySeconds: 15
+                  periodSeconds: 30
+                  failureThreshold: 3
+              # Readiness is deliberately DISABLED. /readyz reports 503
+              # whenever the trainer isn't connected, which is the normal
+              # state of an empty gym — wiring it would leave the pod
+              # NotReady most of the day and make a healthy service look
+              # broken. Nothing routes traffic to this pod, so readiness
+              # buys nothing. Connection state is observable on /metrics
+              # (pump_voltra_connected).
+              readiness:
+                enabled: false
+
+            resources:
+              requests:
+                cpu: 25m
+                memory: 64Mi
+              limits:
+                memory: 256Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault

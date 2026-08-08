@@ -12,6 +12,15 @@ Whenever requested to fix or correct schemas, follow these instructions:
 - remove incorrect schemas and replace them with the correct schema comment
 - a `kind: Component` (apiVersion `kustomize.config.k8s.io/v1alpha1`)
   uses the same kustomization schema as `kind: Kustomization`
+- **verify a schema URL by its body, not its status code.** Some mirrors
+  serve their SPA index with HTTP 200 for *any* path, so a status check
+  says a schema exists when it does not — `kubernetes-schemas.pages.dev`
+  does exactly this. Confirm the response starts with `{`, and run a
+  known-bogus path as a negative control before trusting a new host.
+- known-dead hosts, do not reintroduce: `kube-schemas.pages.dev` (whole
+  host 404s) and `raw.githubusercontent.com/ishioni/CRDs-catalog`.
+  Prefer canonical `raw.githubusercontent.com/datreeio/CRDs-catalog/main/…`
+  over `github.com/datreeio/CRDs-catalog/raw/refs/heads/main/…`.
 
 ## apiVersion + kind to schema mappings
 
@@ -71,7 +80,7 @@ Whenever requested to fix or correct schemas, follow these instructions:
 |------------|------|--------|
 | `external-secrets.io/v1` | `ExternalSecret` | `https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/external-secrets.io/externalsecret_v1.json` |
 | `external-secrets.io/v1` | `ClusterSecretStore` | `https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/external-secrets.io/clustersecretstore_v1.json` |
-| `generators.external-secrets.io/v1alpha1` | `GithubAccessToken` | (no upstream JSON schema yet — append `# TODO: apply schema`) |
+| `generators.external-secrets.io/v1alpha1` | `GithubAccessToken` | `https://k8s-schemas.bjw-s.dev/generators.external-secrets.io/githubaccesstoken_v1alpha1.json` |
 
 ### Gateway API + Envoy Gateway
 
@@ -96,7 +105,7 @@ Whenever requested to fix or correct schemas, follow these instructions:
 | `monitoring.coreos.com/v1` | `PrometheusRule` | `https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json` |
 | `monitoring.coreos.com/v1alpha1` | `AlertmanagerConfig` | `https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/alertmanagerconfig_v1alpha1.json` |
 | `monitoring.coreos.com/v1alpha1` | `ScrapeConfig` | `https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/scrapeconfig_v1alpha1.json` |
-| `observability.giantswarm.io/v1alpha2` | `Silence` | (no upstream JSON schema yet — append `# TODO: apply schema`) |
+| `observability.giantswarm.io/v1alpha2` | `Silence` | `https://kubernetes-schemas.pages.dev/observability.giantswarm.io/silence_v1alpha2.json` |
 
 ### Storage / Database
 
@@ -162,4 +171,4 @@ Whenever requested to fix or correct schemas, follow these instructions:
 
 | apiVersion | kind | schema |
 |------------|------|--------|
-| `renovate-operator.mogenius.com/v1alpha1` | `RenovateJob` | (no upstream JSON schema yet — append `# TODO: apply schema`) |
+| `renovate-operator.mogenius.com/v1alpha1` | `RenovateJob` | `https://k8s-schemas.bjw-s.dev/renovate-operator.mogenius.com/renovatejob_v1alpha1.json` |

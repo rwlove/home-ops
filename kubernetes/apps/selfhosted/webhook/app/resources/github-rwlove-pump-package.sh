@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Triggers the rwlove-pump RenovateJob, which is scoped to
-# kubernetes/apps/collab/pump/app/helmrelease.yaml only.
+# Triggers the rwlove-pump RenovateJob, which is scoped to the three PUMP
+# HelmReleases (pump, pump-cv, pump-voltra).
+#
+# Fired by the github-rwlove-pump-package hook on a `release: published`
+# event from rwlove/PUMP. That repo now creates a GitHub Release
+# automatically once an image is in GHCR (.github/workflows/release.yml);
+# before 2026-08-08 releases were made by hand, the habit lapsed on
+# 2026-07-03, and this chain went silent — every deploy since was manual.
 JOB="rwlove-pump"
 NAMESPACE="renovate"
 PROJECT="rwlove/home-ops"

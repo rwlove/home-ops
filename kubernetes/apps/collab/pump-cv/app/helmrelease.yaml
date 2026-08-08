@@ -110,18 +110,23 @@ spec:
             env:
               PYTHONPATH: /app
               PUMP_API_BASE_URL: http://pump-api:8851
-              # VOLTRA_ENABLED is deliberately NOT set yet.
+              # pump-cv writes no sets for exercises flagged "Uses Voltra
+              # trainer" in PUMP — pump-voltra owns them, and its numbers are
+              # the trainer's own rather than inferred from plate detection,
+              # which cannot see electronic resistance at all.
               #
-              # Setting it makes pump-cv stop writing sets for exercises
-              # flagged "Uses Voltra trainer" in PUMP, on the basis that
-              # pump-voltra owns them. Until that sidecar is confirmed logging
-              # a real set, turning this on means those sets get written by
-              # nobody. v0.6.2 already reads the flag from GET /api/exercises,
-              # so with this unset it just keeps the existing opaque-load
-              # behaviour (pending, weight=0) as the fallback.
+              # Held unset until the sidecar was confirmed logging a real set
+              # from the trainer, because with it on and the sidecar silent
+              # those sets get written by nobody. That happened 2026-08-04
+              # (device_set=1 reps=2 weight_lb=5, closed on the device's own
+              # end-of-set summary), so the condition is met.
               #
-              # Flip it to "true" once pump-voltra has logged a set from the
-              # trainer for real.
+              # The tradeoff is now live: while pump-voltra is down — proxy
+              # unplugged, trainer asleep, pod restarting — flagged exercises
+              # are logged by nobody instead of falling back to pump-cv's
+              # opaque-load pending set. Four exercises are flagged today
+              # (2 Deltoids, 2 Legs cable movements).
+              VOLTRA_ENABLED: "true"
               # Read the rendered config that the init container produced.
               PUMP_CV_CONFIG: /config/default.yaml
               # Per-set clip mp4s land here (shared with pump via the

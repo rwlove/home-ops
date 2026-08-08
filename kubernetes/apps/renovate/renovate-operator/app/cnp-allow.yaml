@@ -16,10 +16,13 @@ spec:
     ingress: false
   ingress:
     # HTTPRoute on internal gateway → renovate-operator:8081 (named
-    # "http"). renovate.${SECRET_DOMAIN} is the webhook endpoint used
-    # by GitHub repository webhook deliveries that arrive via
-    # cloudflared → envoy → here. Port 8082 is the operator's metrics
-    # port; the baseline allow-monitoring-scrape covers Prometheus.
+    # "http"). renovate.${SECRET_DOMAIN} is the endpoint GitHub repository
+    # webhook deliveries reach via cloudflared → envoy → here.
+    #
+    # Port numbering, since a previous version of this comment had it wrong
+    # and the mistake cost a working deploy chain: the container exposes
+    # metrics=8080, http=8081, webhook=8082. 8082 is NOT metrics. The
+    # baseline allow-monitoring-scrape covers Prometheus on 8080.
     - fromEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: network
@@ -27,6 +30,18 @@ spec:
       toPorts:
         - ports:
             - port: "8081"
+              protocol: TCP
+    # The in-cluster webhook app POSTs /webhook/v1/schedule on 8082 to
+    # trigger a RenovateJob — that is how a PUMP release becomes a
+    # HelmRelease digest-bump PR. Nothing allowed it, so the call was
+    # silently dropped and the chain had never worked end to end.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: selfhosted
+            app.kubernetes.io/name: webhook
+      toPorts:
+        - ports:
+            - port: "8082"
               protocol: TCP
   egress:
     # GitHub API: operator polls api.github.com for repo discovery and

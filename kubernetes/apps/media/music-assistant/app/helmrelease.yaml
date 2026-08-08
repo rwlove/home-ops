@@ -194,12 +194,31 @@ spec:
             # rather than sitting on the threshold. See #13390.
             resources:
               requests:
-                cpu: 15m
+                # 150m (not the old 15m). The same "silent degradation"
+                # argument as the memory gate above applies to CPU: Beat
+                # This! bursts hard during per-track analysis, and at a 15m
+                # request the scheduler placed this pod as though it were
+                # idle. Under node CPU contention the analysis burst then
+                # loses the race, transitions miss their deadline, and you
+                # fall back to a dumb crossfade with nothing logged.
+                #
+                # Measured 2026-08-08 under live playback (wiim-deck +
+                # wiim-pool synced), 2m resolution:
+                #   idle                    ~3m
+                #   sustained analysis   340-370m
+                #   peak burst              376m   (25x the old request)
+                # RSS over the same window climbed 560Mi -> 927Mi as the
+                # model loaded and stayed resident.
+                cpu: 150m
                 # 2Gi (not the old 1536Mi) so the pod is not the first
                 # eviction candidate once the model is resident -- its node's
                 # memory requests sit ~78%.
                 memory: 2Gi
               limits:
+                # Deliberately NO cpu limit. A limit sized near the request
+                # would throttle exactly the analysis burst this request
+                # exists to protect, reintroducing the silent degradation
+                # from the other direction.
                 memory: 6Gi
 
     service:

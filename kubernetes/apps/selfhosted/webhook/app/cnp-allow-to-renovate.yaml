@@ -1,0 +1,40 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: webhook-allow-to-renovate-operator
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: webhook
+  # Additive — the default-deny CNP from network-policy/default-deny is what
+  # triggers the lockdown; this punches one hole through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # Both hook scripts POST to the renovate-operator's schedule endpoint to
+    # trigger a RenovateJob:
+    #
+    #   github-renovate-operator.sh      → dependency-dashboard checkbox flow
+    #   github-rwlove-pump-package.sh    → PUMP release → HelmRelease digest bump
+    #
+    # The webhook pod had no egress rule at all, so both calls were dropped:
+    # a POST from here to renovate-operator:8082 timed out rather than being
+    # refused, which is why nothing surfaced in any log. The hook reported
+    # "triggered successfully" — that only means the script was executed, not
+    # that its curl reached anything.
+    #
+    # Port 8082 is the operator's *webhook* port, not metrics. The container
+    # exposes http=8081, metrics=8080, webhook=8082, and the service maps
+    # webhook→8082. The matching ingress rule (and a comment that had this
+    # wrong) live in renovate/renovate-operator/app/cnp-allow.yaml.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: renovate
+            app: renovate-operator
+      toPorts:
+        - ports:
+            - port: "8082"
+              protocol: TCP

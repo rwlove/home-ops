@@ -31,6 +31,19 @@ spec:
       # No retries: a retry would let a transient blip mask a real outage
       # by refreshing last_successful_time. One shot, pass or fail.
       backoffLimit: 0
+      # Without a TTL, KubeJobFailed latches forever. That alert is just
+      # `kube_job_failed{condition="true"} > 0` with no time bound, so it
+      # fires for as long as a failed Job object exists — and with
+      # failedJobsHistoryLimit: 3, a failed Job is only evicted by three
+      # *more* failures. Because backoffLimit is 0, a single transient
+      # blip creates a failed Job; on 2026-08-02 one did, and the alert
+      # was still firing 6 days later while every run since had passed.
+      #
+      # 24h keeps a full day of forensics (the job runs every 5m, so
+      # that is ~288 runs of context) and re-scopes the alert to "failed
+      # recently" instead of "failed ever". A real outage still fires:
+      # each new failure creates a new Job and re-arms the alert.
+      ttlSecondsAfterFinished: 86400
       template:
         spec:
           restartPolicy: Never

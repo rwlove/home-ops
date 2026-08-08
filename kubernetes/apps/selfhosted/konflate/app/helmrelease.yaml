@@ -60,9 +60,28 @@ spec:
       enabled: false
     networkPolicy:
       enabled: false
+    # The memory limit is konflate's real tuning knob: it derives
+    # GOMEMLIMIT (90% of it) so the GC compresses render bursts before
+    # the kernel OOM-kills them. Render peaks legitimately allocate far
+    # above the ceiling — upstream measured ~2.7GiB uncapped on a
+    # routine PR set (home-operations/konflate#331) — so the limit has
+    # to leave the GC room to work, not just cover steady state.
+    #
+    # The chart default is 1Gi and its values.yaml says to raise it for
+    # very large clusters; this repo is ~170 HelmReleases. #12803's bulk
+    # resource backfill instead *halved* the default to 512Mi. That held
+    # on 0.4.3 (138Mi steady, 207Mi peak) but OOMKilled 0.5.0 75 times in
+    # 9h while rendering the repo-wide cilium 1.19.6→1.20.0 bump (#13381)
+    # — a sweeping render that fans out across every app in the repo.
+    #
+    # 2Gi is upstream's burst-headroom recommendation for exactly this
+    # PR class. If it ever recurs, the next levers are config
+    # `maxDiffConcurrency` (concurrent PR renders, auto-capped at 4) and
+    # `renderConcurrency` (reconcile goroutines *within* one render, auto
+    # = NumCPU*4 = 40 on a 10-core node, since no CPU limit is set here).
     resources:
       requests:
         cpu: 50m
         memory: 256Mi
       limits:
-        memory: 512Mi
+        memory: 2Gi

@@ -1,0 +1,65 @@
+---
+# yaml-language-server: $schema=https://k8s-schemas.bjw-s.dev/renovate-operator.mogenius.com/renovatejob_v1alpha1.json
+#
+# Renovate against the PUMP *source* repository.
+#
+# Not to be confused with jobs/pump.yaml, which despite its name watches
+# rwlove/home-ops and only bumps the pump HelmRelease digest here. That is the
+# deploy side. This is the source side: Go modules, Python deps for both
+# sidecars, Dockerfile base images, and above all the GitHub Actions pins.
+#
+# Every `uses:` in rwlove/PUMP is pinned to a 40-character commit SHA with a
+# `# vX.Y.Z` comment. Pinning is what stops a hijacked mutable tag executing in
+# a job that holds packages: write against a public registry — but a pin nobody
+# updates is just an old version with extra steps, and that is the job this
+# runs. The repo carries its own .github/renovate.json5.
+#
+# PREREQUISITE: the Renovate GitHub App must be installed on rwlove/PUMP.
+# Autodiscover only returns repositories the App can see — as of writing that
+# is home-ops, lovenet-network-configuration and containers, so PUMP was
+# invisible and this job will discover nothing until the installation is
+# widened. github.com/settings/installations → Renovate → Repository access.
+apiVersion: renovate-operator.mogenius.com/v1alpha1
+kind: RenovateJob
+metadata:
+  name: rwlove-pump-repo
+  namespace: renovate
+spec:
+  discoveryFilters:
+    - "rwlove/PUMP"
+  extraEnv:
+    - name: LOG_LEVEL
+      value: "info"
+    - name: RENOVATE_ENDPOINT
+      value: https://api.github.com/
+    - name: RENOVATE_PLATFORM
+      value: github
+    - name: RENOVATE_PLATFORM_COMMIT
+      value: disabled  # Matches rwlove-home-ops; enabled trips a repo-changed abort.
+    - name: RENOVATE_REDIS_URL
+      value: redis://dragonfly.databases.svc.cluster.local:6379
+    - name: RENOVATE_REPOSITORY_CACHE
+      value: enabled
+    - name: RENOVATE_CACHE_PRIVATE_PACKAGES
+      value: "true"
+    # The three release lines (pump-v*, pump-cv-v*, pump-voltra-v*) are tagged
+    # by hand after a pre-tag ritual, so Renovate opens PRs and never pushes.
+    - name: RENOVATE_DEPENDENCY_DASHBOARD
+      value: "true"
+  image: ghcr.io/renovatebot/renovate:44.14.12@sha256:160125831b82ae05c734870b9f65094e0f8699a0e44f3274bacc7b36a9041047
+  parallelism: 1
+  provider:
+    name: github
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  # Daily rather than hourly: this repo's dependencies move far more slowly
+  # than the cluster's container images, and action-digest churn is noise if
+  # it arrives every hour.
+  schedule: 30 6 * * *
+  secretRef: github-auth-token-secret
+  webhook:
+    enabled: true
+    authentication:
+      enabled: false

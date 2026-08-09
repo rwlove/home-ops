@@ -20,7 +20,15 @@ Whenever asked to sort these files, follow these instructions:
 
 ## HelmReleases based on app-template
 
-This section gives instructions specifically for HelmReleases that are based on the `app-template` chart. These can be identified by the presence of a sidecar `ocirepository.yaml` file that references `oci://ghcr.io/bjw-s-labs/helm/app-template` in the `url` field.
+This section gives instructions specifically for HelmReleases that are based on the `app-template` chart. Identify them by `spec.chartRef.name == app-template`.
+
+Do **not** identify them by a sidecar `ocirepository.yaml` referencing
+`oci://ghcr.io/bjw-s-labs/helm/app-template` — that rule was wrong for
+109 of the 110 app-template HelmReleases in this repo. The chart is
+delivered through one shared `OCIRepository` supplied by the
+`kubernetes/components/repos/app-template` kustomize Component, so only
+`onepassword-connect` has a sidecar of its own. An agent following the
+old rule concludes the repo has a single app-template HelmRelease.
 
 ### Sorting rules
 

@@ -74,11 +74,20 @@ spec:
     # 9h while rendering the repo-wide cilium 1.19.6→1.20.0 bump (#13381)
     # — a sweeping render that fans out across every app in the repo.
     #
-    # 2Gi is upstream's burst-headroom recommendation for exactly this
-    # PR class. If it ever recurs, the next levers are config
-    # `maxDiffConcurrency` (concurrent PR renders, auto-capped at 4) and
-    # `renderConcurrency` (reconcile goroutines *within* one render, auto
-    # = NumCPU*4 = 40 on a 10-core node, since no CPU limit is set here).
+    # Going back to the chart's 1Gi default is plain sizing — that part
+    # just undoes #12803. The headroom ABOVE 1Gi is the workaround: at
+    # 2Gi the render burst measured 1120MiB working set / 833MiB heap
+    # before reclaiming to 360MiB, so 0.5.0 no longer renders a sweeping
+    # PR inside the shipped default. Caveat kept deliberately: GOMEMLIMIT
+    # scales with the limit, so that burst is partly Go spending headroom
+    # it was handed. It does NOT prove 1Gi would fail — only that we have
+    # not risked it while the upstream question is open.
+    # workaround: https://github.com/home-operations/konflate/issues/434 — remove when a konflate release renders a sweeping PR within the chart's 1Gi default
+    #
+    # If it recurs, the next levers are config `maxDiffConcurrency`
+    # (concurrent PR renders, auto-capped at 4) and `renderConcurrency`
+    # (reconcile goroutines *within* one render, auto = NumCPU*4 = 40 on
+    # a 10-core node, since no CPU limit is set here).
     resources:
       requests:
         cpu: 50m

@@ -43,10 +43,15 @@ spec:
   deletionPolicy: WaitForTermination
   patches:
     # Inject sourceRef and prune defaults into every child Kustomization.
-    # Strategic-merge sets these on KSes that omit them; for KSes that
-    # already carry the same values the patch is a no-op.  wait/interval/
-    # timeout are intentionally NOT included here — they vary per-KS
-    # (e.g. 79 KSes have wait:true, interval splits 30m/1h, timeout 3m/5m).
+    #
+    # NOTE: strategic-merge is patch-WINS, not fill-in-the-blanks. A value
+    # set here OVERRIDES whatever the child KS declares — it is not "a
+    # no-op for KSes that already carry the same values". Anything this
+    # patch sets can no longer be overridden per-KS, so keep the list
+    # minimal and add an explicit exclusion below when a KS must differ.
+    # wait/interval/timeout are deliberately NOT set here — they vary
+    # per-KS (79 KSes have wait:true, interval splits 30m/1h, timeout
+    # 3m/5m) and would all be flattened.
     - patch: |-
         apiVersion: kustomize.toolkit.fluxcd.io/v1
         kind: Kustomization
@@ -61,6 +66,23 @@ spec:
       target:
         group: kustomize.toolkit.fluxcd.io
         kind: Kustomization
+    # Exclusion: these two opt out of pruning. Both carry `prune: false`
+    # in their own ks.yaml with a "never delete this" comment, but the
+    # blanket patch above was silently flipping them back to true —
+    # leaving cluster DNS and CSR approval exposed to garbage collection
+    # if a refactor ever dropped a resource from their path. Patches
+    # apply in order, so this one wins.
+    - patch: |-
+        apiVersion: kustomize.toolkit.fluxcd.io/v1
+        kind: Kustomization
+        metadata:
+          name: _
+        spec:
+          prune: false
+      target:
+        group: kustomize.toolkit.fluxcd.io
+        kind: Kustomization
+        name: (coredns|kubelet-csr-approver)
     # Add Kustomization defaults for all child Kustomizations
     - patch: |-
         apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -94,6 +116,27 @@ spec:
               target:
                 group: helm.toolkit.fluxcd.io
                 kind: HelmRelease
+            # Exclusion: apps whose startup runs forward-only DB
+            # migrations. Rolling the *image* back cannot un-migrate the
+            # *database*, so remediation turns a slow upgrade into an
+            # unrecoverable one — this is the #13383 romm outage. Both
+            # HelmReleases already declare `retries: 0` with a comment
+            # explaining why, but the blanket patch above was overriding
+            # it back to 2, so only the `timeout: 20m` half of that fix
+            # was ever live. Patches apply in order; this one wins.
+            - patch: |-
+                apiVersion: helm.toolkit.fluxcd.io/v2
+                kind: HelmRelease
+                metadata:
+                  name: _
+                spec:
+                  upgrade:
+                    remediation:
+                      retries: 0
+              target:
+                group: helm.toolkit.fluxcd.io
+                kind: HelmRelease
+                name: (romm|open-webui)
       target:
         group: kustomize.toolkit.fluxcd.io
         kind: Kustomization

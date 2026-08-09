@@ -12,10 +12,29 @@ spec:
           annotations:
             description: APC UPS SNMP exporter has disappeared from Prometheus target discovery.
             summary: APC UPS SNMP exporter is down.
-          expr: absent(up{job=~".*snmp-exporter-apc-ups.*"} == 1)
+          # `absent(up{...})` — the whole job is gone from discovery,
+          # which is what the description above actually claims. The
+          # previous form, `absent(up{...} == 1)`, only fired when NO
+          # target reported up==1, i.e. when BOTH UPSes were down; a
+          # single UPS dropping out left it silent. Per-target coverage
+          # is the rule below.
+          expr: absent(up{job=~".*snmp-exporter-apc-ups.*"})
           for: 5m
           labels:
             severity: critical
+        - alert: SnmpExporterApcUpsTargetDown
+          annotations:
+            description: SNMP polling of UPS {{ $labels.instance }} has been failing for 10m; that UPS's battery, load and on-battery state are all unreadable.
+            summary: APC UPS SNMP target is not responding.
+          # Per-instance, so the firing alert names WHICH UPS. Both
+          # targets share job="snmp-exporter-apc-ups", so the absent()
+          # rule above cannot distinguish them. The chart-shipped
+          # TargetDown rule does catch this case, but only with generic
+          # text and no pointer to the UPS runbook.
+          expr: up{job=~".*snmp-exporter-apc-ups.*"} == 0
+          for: 10m
+          labels:
+            severity: warning
         - alert: UPSOnBattery
           annotations:
             description: UPS {{ $labels.target }} has lost power and is running on battery.

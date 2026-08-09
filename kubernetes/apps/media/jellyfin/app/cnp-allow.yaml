@@ -37,10 +37,20 @@ spec:
               protocol: TCP
     # 3) In-cluster callers (janitorr → /Users/MediaSegments, etc.)
     #    reach jellyfin via cluster-DNS Service.
+    #
+    #    janitorr was split into janitorr-radarr + janitorr-sonarr, so
+    #    the old `app.kubernetes.io/name: janitorr` selector matched
+    #    zero live pods. Same-namespace traffic still flowed — the
+    #    baseline `allow-intra-namespace` CNP covers media internally
+    #    and Cilium rules are additive — so this was dead config, not an
+    #    outage. It still documented an intent it no longer enforced.
     - fromEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: media
-            app.kubernetes.io/name: janitorr
+          matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values: ["janitorr-radarr", "janitorr-sonarr"]
       toPorts:
         - ports:
             - port: "8096"
@@ -51,6 +61,19 @@ spec:
         - matchLabels:
             io.kubernetes.pod.namespace: home
             app.kubernetes.io/name: home-assistant
+      toPorts:
+        - ports:
+            - port: "8096"
+              protocol: TCP
+    # 5) swiparr (collab ns) reaches jellyfin via
+    #    JELLYFIN_URL=http://jellyfin.media:8096. This one IS
+    #    cross-namespace, so allow-intra-namespace does not cover it —
+    #    swiparr declares the egress but there was no matching ingress
+    #    here, making it a genuine silent drop.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: collab
+            app.kubernetes.io/name: swiparr
       toPorts:
         - ports:
             - port: "8096"

@@ -100,10 +100,20 @@ spec:
     tempoQuery:
       enabled: false
 
-    # Pod-level security context.
-    podSecurityContext:
+    # Pod-level security context. The key is `securityContext`, NOT
+    # `podSecurityContext` — that is what this block used, and the chart
+    # has no such key, so it was silently ignored. (The chart's own
+    # values comment labels this one "securityContext for container",
+    # which is wrong: the template renders it at pod scope.)
+    #
+    # UID/GID stay at the chart's 10001 rather than the 1000 the ignored
+    # block asked for — tempo's PVC is already owned by 10001, so
+    # changing it would break ownership on an existing volume. The one
+    # real addition is fsGroupChangePolicy, which skips the recursive
+    # chown when the volume root already matches.
+    securityContext:
       runAsNonRoot: true
-      runAsUser: 1000
-      runAsGroup: 1000
-      fsGroup: 1000
+      runAsUser: 10001
+      runAsGroup: 10001
+      fsGroup: 10001
       fsGroupChangePolicy: OnRootMismatch

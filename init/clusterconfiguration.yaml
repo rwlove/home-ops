@@ -55,10 +55,55 @@ dns: {}
 encryptionAlgorithm: RSA-2048
 etcd:
   local:
+    # Raise etcd's raft timers. The leader cannot meet the default
+    # 100ms heartbeat deadline under this cluster's write load.
+    #
+    # Evidence (6h window):
+    #   etcd_server_heartbeat_send_failures_total  master2 (leader) 499
+    #   etcd_server_slow_apply_total               m1 7784 / m2 5740 / m3 3731
+    #   etcd_network_peer_sent_failures_total      0 on every peer pair
+    #
+    # So this is NOT packet loss — peer delivery never fails. It is the
+    # leader missing its own heartbeat deadline, plus every member
+    # applying slowly. Followers then hit the 1000ms election timeout
+    # and campaign.
+    #
+    # Why master1 looks like the sick one: it has seen 284 leader
+    # changes against 24 on master2 and master3 (etcd uptime 53d, no
+    # restart, so the counter is real). It is the member that times out
+    # first — busiest disk (84.6% io_time vs 53-58%, the only master
+    # carrying Longhorn replicas, 8 of them) and the only member on
+    # 192.168.1.x. It campaigns, loses to the stable 192.168.4.x pair,
+    # and rejoins, incrementing only its own counter. master1 is the
+    # symptom, not the cause.
+    #
+    # Ruled out: fragmentation (348MB total / 261MB in use, far under
+    # quota) and CPU on master1 (23.5%, the lowest of the three).
+    # NOT ruled out: disk latency — etcd's fsync histogram buckets are
+    # powers of two, so p99 reads ~31ms and p99.9 ~234ms IDENTICALLY on
+    # all three members and cannot discriminate at that resolution.
+    #
+    # etcd guidance is heartbeat ~= peer RTT, election = 10x heartbeat.
+    # Measured peer RTT p99 is 25-47ms across every pair, so 250ms gives
+    # the leader ~2.5x its current budget.
+    #
+    # This is mitigation. The structural questions are whether two
+    # 3-CPU/10Gi control-plane VMs are big enough to carry the etcd
+    # leader for 233 Kustomizations + 170 HelmReleases, and whether
+    # Longhorn replicas belong on the same disk as an etcd member.
+    #
+    # Applied live via the kubeadm-config ConfigMap + `kubeadm init phase
+    # etcd local` per node, restarting one etcd at a time and waiting for
+    # the member to rejoin before moving on; this file is bootstrap-only
+    # (not Flux-reconciled).
     dataDir: /var/lib/etcd
     extraArgs:
     - name: listen-metrics-urls
       value: http://0.0.0.0:2381
+    - name: heartbeat-interval
+      value: "250"
+    - name: election-timeout
+      value: "2500"
 imageRepository: registry.k8s.io
 kind: ClusterConfiguration
 kubernetesVersion: v1.35.4

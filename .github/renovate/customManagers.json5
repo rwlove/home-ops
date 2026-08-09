@@ -11,6 +11,32 @@
         "oci://(?<depName>[^:]+):(?<currentValue>\\S+)",
       ],
       datasourceTemplate: "docker",
-    }
+    },
+    {
+      // Handles the inline annotation form:
+      //   # renovate: datasource=github-releases depName=owner/repo
+      //   someKey: v1.2.3
+      //
+      // Without this manager the annotation is inert — Renovate simply
+      // does not see the dependency, and there is no warning anywhere.
+      // That is exactly how immich-server froze at v3.0.2 for 10 days
+      // while immich-machine-learning kept auto-bumping (#13480). That
+      // fix worked around the hole by setting `repository:` explicitly;
+      // this closes it, so the next annotation anyone writes works.
+      //
+      // Regex is the one from home-operations/renovate-presets: it
+      // covers YAML values, quoted values, anchors, and KEY=value env
+      // lines.
+      customType: "regex",
+      description: "Process annotated dependencies",
+      managerFilePatterns: [
+        "/(^|/).+\\.ya?ml(?:\\.j2)?$/",
+      ],
+      matchStrings: [
+        "datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)( versioning=(?<versioning>\\S+))?\\n.+(:\\s|=)(&\\S+\\s)?[\"']?(?<currentValue>[^\"'\\s]+)[\"']?",
+      ],
+      datasourceTemplate: "{{#if datasource}}{{{datasource}}}{{else}}github-releases{{/if}}",
+      versioningTemplate: "{{#if versioning}}{{{versioning}}}{{else}}semver{{/if}}",
+    },
   ]
 }

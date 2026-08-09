@@ -43,13 +43,31 @@ spec:
   targetNamespace: rook-ceph
   path: ./kubernetes/apps/rook-ceph/rook-ceph/cluster
   interval: 30m
-  timeout: 5m
-  wait: true
+  # Raised 5m -> 15m: the gate below now actually waits on Ceph coming
+  # up, and a cold boot takes longer than 5m to reach HEALTH_OK.
+  timeout: 15m
+  # `wait` MUST stay false here. Upstream: "when .spec.wait is enabled,
+  # .spec.healthChecks is ignored." The CephCluster is created by the
+  # HelmRelease, so it is not in this Kustomization's inventory and
+  # `wait: true` never looked at it — the healthCheckExprs below could
+  # not trip, and this KS went Ready as soon as the HelmRelease did.
+  # Listing the objects explicitly is the only way to health-check a
+  # resource the Kustomization does not own.
+  wait: false
   dependsOn:
     - name: rook-ceph
       namespace: rook-ceph
     - name: prometheus-operator-crds
       namespace: observability
+  healthChecks:
+    - apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      name: rook-ceph-cluster
+      namespace: rook-ceph
+    - apiVersion: ceph.rook.io/v1
+      kind: CephCluster
+      name: rook-ceph
+      namespace: rook-ceph
   healthCheckExprs:
     - apiVersion: ceph.rook.io/v1
       kind: CephCluster

@@ -143,6 +143,50 @@ spec:
             - apiGroups: ["barmancloud.cnpg.io"]
               resources: ["objectstores"]
               verbs: ["get", "list", "watch"]
+            # Added 2026-08-09. Each of these blocked a verification
+            # during the repo-wide audit, forcing findings to be reasoned
+            # about from YAML instead of confirmed against live state —
+            # which is exactly how this cluster's three silent-drop
+            # incidents went unnoticed in the first place. All read-only.
+            #
+            # cilium.io: resolve a CNP endpointSelector against real
+            # endpoints. A selector matching zero pods is a silent drop
+            # with nothing in any log; it cannot be caught by reading
+            # the manifest.
+            - apiGroups: ["cilium.io"]
+              resources: ["ciliumnetworkpolicies", "ciliumclusterwidenetworkpolicies", "ciliumendpoints", "ciliumidentities", "ciliumnodes"]
+              verbs: ["get", "list", "watch"]
+            # ceph.rook.io: read CephCluster health. Needed to confirm
+            # the rook-ceph-cluster health gate; had to be inferred by
+            # rendering the chart instead.
+            - apiGroups: ["ceph.rook.io"]
+              resources: ["cephclusters", "cephblockpools", "cephfilesystems", "cephobjectstores"]
+              verbs: ["get", "list", "watch"]
+            # longhorn.io: recurring-job coverage lives on the Volume CR,
+            # NOT the PV — the PV's labels never propagate. Without this
+            # there is no way to tell a backed-up volume from an
+            # unprotected one.
+            - apiGroups: ["longhorn.io"]
+              resources: ["volumes", "backups", "snapshots", "recurringjobs", "nodes"]
+              verbs: ["get", "list", "watch"]
+            # monitoring.coreos.com: confirm a ServiceMonitor/Probe
+            # actually selects something, and that a PrometheusRule is
+            # loaded rather than merely present in Git.
+            - apiGroups: ["monitoring.coreos.com"]
+              resources: ["servicemonitors", "podmonitors", "probes", "prometheusrules", "scrapeconfigs", "alertmanagerconfigs"]
+              verbs: ["get", "list", "watch"]
+            # source.toolkit.fluxcd.io: the other half of Flux state —
+            # kustomizations/helmreleases above are useless for
+            # diagnosing a stalled source without these.
+            - apiGroups: ["source.toolkit.fluxcd.io"]
+              resources: ["ocirepositories", "gitrepositories", "helmrepositories", "helmcharts", "buckets"]
+              verbs: ["get", "list", "watch"]
+            # admissionregistration.k8s.io: a failurePolicy:Fail webhook
+            # gates every apply in the cluster (#13292). Reading the
+            # configs is how you find out which one.
+            - apiGroups: ["admissionregistration.k8s.io"]
+              resources: ["validatingwebhookconfigurations", "mutatingwebhookconfigurations"]
+              verbs: ["get", "list", "watch"]
         kubectl-mcp-write-restricted:
           type: Role
           rules:

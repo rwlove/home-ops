@@ -158,12 +158,34 @@ spec:
           sha: df67ff1dc7094940e9d62e9bc318b02e4e35f539893dec5cc6b72d4fee4d8f21
         podMonitorSelectorNilUsesHelmValues: false
         probeSelectorNilUsesHelmValues: false
+        # Sized from measured behaviour rather than round numbers.
+        #
+        # Memory: the 7d peak was 2.64Gi against the old 3G (2.79Gi)
+        # ceiling — 94%. That held across three separate container
+        # generations (2.34 / 2.36 / 2.64Gi), so it was a routine
+        # near-miss, not one spike. p95 is only ~1.7Gi, so what needs
+        # covering is query/compaction burst, not steady state. 4G puts
+        # the observed peak at ~71%. Revisit if peak/limit climbs back
+        # over ~80% — Prometheus memory tracks active series, so this
+        # moves with cluster growth.
+        #
+        # Keeping memory request == limit is deliberate: kubelet ranks
+        # eviction by usage *above request*, so a pod that can never
+        # exceed its request sits at the bottom of the kill list. That
+        # matters here — everything else's alerting depends on this pod.
+        #
+        # CPU request follows measured 248m sustained; the previous 100m
+        # under-requested by 2.5x, which both misinforms the scheduler
+        # and weakens the CFS share under node contention. Still NO cpu
+        # limit, deliberately: throttling bursty rule evaluation would be
+        # worse than the contention it avoids, and matches the repo norm
+        # (only 23 of 158 HelmReleases set one).
         resources:
           limits:
-            memory: 3G
+            memory: 4G
           requests:
-            cpu: 100m
-            memory: 3G
+            cpu: 300m
+            memory: 4G
         retention: 14d
         retentionSize: 100GB
         ruleSelectorNilUsesHelmValues: false

@@ -1,0 +1,48 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: longhorn-backup-rules
+spec:
+  groups:
+    - name: longhorn-backup.rules
+      rules:
+        # Longhorn is the cluster's durable-through-cluster-destruction
+        # tier (see .agents/instructions/storage-class.instructions.md),
+        # but nothing watched whether a backup actually happened. On
+        # 2026-08-09 four volumes were found with no recovery point —
+        # three of them 86 days old — and no alert had ever fired:
+        #
+        #   mealie-config-xfs      85.9d   detached
+        #   beets-config-xfs       85.9d   detached
+        #   n8n-data-xfs           85.9d   detached
+        #   comfyui-workspace-xfs  22.9d   detached
+        #
+        # The cause is structural, not a misconfiguration: Longhorn
+        # cannot back up a DETACHED volume — there is no engine to read
+        # from. Any CronJob-driven or scaled-to-zero workload therefore
+        # misses its backup window silently, and the recurring job
+        # reports nothing wrong because it never had a volume to act on.
+        #
+        # 14d threshold = two missed weekly cycles (weekly-backups runs
+        # Sat 00:00), so a single skipped run does not page.
+        #
+        # `longhorn_volume_last_backup_at > 0` guards the false positive
+        # a naive version would have: a freshly created volume reports 0
+        # until its first backup, which would otherwise read as ~56
+        # years stale and fire immediately.
+        - alert: LonghornVolumeBackupStale
+          annotations:
+            summary: Longhorn volume has no recent backup.
+            description: >-
+              Volume {{ $labels.volume }} (pvc {{ $labels.pvc_namespace }}/{{ $labels.pvc }})
+              last completed a backup {{ $value | humanizeDuration }} ago. If the volume is
+              detached it cannot be backed up at all — check whether its workload is a CronJob
+              or scaled to zero, in which case this will not self-resolve.
+          expr: |
+            (time() - longhorn_volume_last_backup_at) > 14 * 86400
+              and longhorn_volume_last_backup_at > 0
+          for: 1h
+          labels:
+            severity: warning

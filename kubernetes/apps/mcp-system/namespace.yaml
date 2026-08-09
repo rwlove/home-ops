@@ -7,6 +7,33 @@ metadata:
   labels:
     goldilocks.fairwinds.com/enabled: "true"
     kustomize.toolkit.fluxcd.io/prune: disabled
+    # ISTIO INJECTION IS OFF FOR THIS NAMESPACE, AND THE PER-POD
+    # OPT-IN DOES NOT WORK.
+    #
+    # 70bf391dde removed `istio-injection: enabled` from here (the
+    # Kuadrant broker's sidecar drops the ext_proc gRPC stream and every
+    # MCP request 500s) and added `sidecar.istio.io/inject: "true"` to
+    # individual workloads, intending per-pod opt-in.
+    #
+    # That inversion cannot work. Istio's injector webhook selects on
+    # the NAMESPACE label; with no label here, pods in this namespace
+    # are never sent to the webhook at all and the pod annotation is
+    # never read. Confirmed live 2026-08-09: 18 HelmReleases carry
+    # `sidecar.istio.io/inject: "true"` and 0 of the running MCP pods
+    # have an istio-proxy container. The only istio-proxy in the
+    # namespace is the mcp-gateway-istio Gateway itself, which is not
+    # an injected sidecar.
+    #
+    # Consequence: all MCP tool-call traffic is unencrypted with no
+    # mTLS, while 18 manifests assert otherwise.
+    #
+    # The working shape is the inverse — label the namespace and opt the
+    # broker OUT with `sidecar.istio.io/inject: "false"` — but that
+    # re-runs the exact 500s of 70bf391dde unless the exclusion reliably
+    # lands on the controller-created broker pod, so it needs a
+    # deliberate retest rather than a flip. Not changed here; this note
+    # exists so the annotations are not mistaken for working config.
+    #
     # PSA: audit-only restricted (see docs/src/pod_security_audit.md).
     # mcp-gateway, jwt-rotator, immich-mcp are stateless services;
     # should be reachable at audit-restricted with light hardening.

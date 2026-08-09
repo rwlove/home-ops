@@ -15,8 +15,15 @@ Whenever requested to fix or correct schemas, follow these instructions:
 - **verify a schema URL by its body, not its status code.** Some mirrors
   serve their SPA index with HTTP 200 for *any* path, so a status check
   says a schema exists when it does not — `kubernetes-schemas.pages.dev`
-  does exactly this. Confirm the response starts with `{`, and run a
-  known-bogus path as a negative control before trusting a new host.
+  does exactly this (re-measured 2026-08-09: a bogus path returns HTTP
+  200 with 68 KB of HTML). Confirm the response starts with `{`, and run
+  a known-bogus path as a negative control before trusting a new host.
+- **prefer `k8s-schemas.home-operations.com` for CRD schemas.** It
+  returns a real 404 for a missing path, so a typo is detectable. The
+  repo migrated off `kubernetes-schemas.pages.dev` for exactly that
+  reason. `k8s-schemas.bjw-s.dev` also 404s correctly and is fine where
+  already used; canonical `raw.githubusercontent.com/datreeio/...` and
+  `yannh/...` URLs stay as they are.
 - known-dead hosts, do not reintroduce: `kube-schemas.pages.dev` (whole
   host 404s) and `raw.githubusercontent.com/ishioni/CRDs-catalog`.
   Prefer canonical `raw.githubusercontent.com/datreeio/CRDs-catalog/main/…`
@@ -105,7 +112,7 @@ Whenever requested to fix or correct schemas, follow these instructions:
 | `monitoring.coreos.com/v1` | `PrometheusRule` | `https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json` |
 | `monitoring.coreos.com/v1alpha1` | `AlertmanagerConfig` | `https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/alertmanagerconfig_v1alpha1.json` |
 | `monitoring.coreos.com/v1alpha1` | `ScrapeConfig` | `https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/scrapeconfig_v1alpha1.json` |
-| `observability.giantswarm.io/v1alpha2` | `Silence` | `https://kubernetes-schemas.pages.dev/observability.giantswarm.io/silence_v1alpha2.json` |
+| `observability.giantswarm.io/v1alpha2` | `Silence` | `https://k8s-schemas.home-operations.com/observability.giantswarm.io/silence_v1alpha2.json` |
 
 ### Storage / Database
 

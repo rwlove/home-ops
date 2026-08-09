@@ -10,6 +10,27 @@ spec:
     name: app-template
 
   interval: 1h
+  # Home Assistant runs forward-only recorder schema migrations at
+  # startup, so rolling the image back cannot un-migrate the database —
+  # the same shape that wedged romm for ~2h (#13383). This HelmRelease
+  # previously declared no install/upgrade block at all and inherited
+  # Helm's 5m default while waiting, with rollback remediation.
+  #
+  # The recorder DB measures 8.5 GiB live (the 120Gi elsewhere is the
+  # provisioned PVC, not the data). An ALTER TABLE on states/events at
+  # that size can still run past 5m, and this is Renee-facing — lights,
+  # locks and climate — so failing forward and staying visible as
+  # Ready=False beats reverting into a version that cannot read its own
+  # schema.
+  #
+  # retries: 0 is set in the cluster-apps exclusion patch, not here: the
+  # cluster-wide HelmRelease patch overrides any retries value declared
+  # at this level (see kubernetes/flux/cluster/ks.yaml).
+  install:
+    timeout: 30m
+  upgrade:
+    timeout: 30m
+    cleanupOnFail: true
   values:
     controllers:
       home-assistant:

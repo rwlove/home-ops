@@ -290,6 +290,33 @@ spec:
         check_for_plugin_updates: false
         check_for_updates: false
         reporting_enabled: false
+      # SECURITY POSTURE — read before changing any of the three
+      # settings below; they are load-bearing together.
+      #
+      # Grafana on the internal gateway has no SecurityPolicy, no login
+      # form and no OIDC, and anonymous users are Admin. So any device
+      # on the LAN has full Grafana admin — datasources, users, the lot.
+      # That is a real privilege gap, but neither obvious fix is safe on
+      # its own, which is why this is a comment and not a change:
+      #
+      #   * Adding an extAuth SecurityPolicy WOULD BREAK Home Assistant.
+      #     ../home-assistant-config/dashboards/gpu.yaml iframes
+      #     grafana.${SECRET_DOMAIN}/d/Oxed_c6Wz/...?kiosk — an Authelia
+      #     redirect inside that iframe renders a broken panel. This is
+      #     also why GF_SECURITY_ALLOW_EMBEDDING is true.
+      #
+      #   * Dropping org_role to Viewer WOULD LOCK ADMIN OUT ENTIRELY.
+      #     disable_login_form is true, no OAuth/OIDC provider is
+      #     configured, and grafana-secret carries only Postgres
+      #     credentials — no admin user/password. Anonymous Admin IS the
+      #     administration path today.
+      #
+      # The safe order is therefore two steps, not one: first establish
+      # an authenticated admin path (re-enable the login form with an
+      # admin credential in the ExternalSecret, or wire Authelia OIDC),
+      # verify you can administer Grafana with it, and only then drop
+      # anonymous to Viewer — which keeps the HA iframe working, since
+      # viewing a dashboard needs Viewer, not Admin.
       auth:
         disable_login_form: true
       auth.anonymous:

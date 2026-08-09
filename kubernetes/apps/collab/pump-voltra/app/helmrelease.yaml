@@ -98,3 +98,35 @@ spec:
                   - ALL
               seccompProfile:
                 type: RuntimeDefault
+
+    # This app exposes /metrics (pump_voltra_connected) but had no
+    # Service at all, so nothing could reach it — the only signal for a
+    # sidecar that commands a motor under a physical load clamp was its
+    # liveness probe. Port 8080 is the same HTTP server the liveness
+    # probe hits (/healthz); the container declares no ports and the
+    # image is private, so this is inferred rather than read from
+    # source. Blast radius is nil (nothing routes here), and a wrong
+    # port shows up immediately as a down scrape target.
+    service:
+      app:
+        controller: pump-voltra
+        ports:
+          metrics:
+            port: 8080
+
+    serviceMonitor:
+      app:
+        endpoints:
+          - port: metrics
+            scheme: http
+            path: /metrics
+            interval: 1m
+            scrapeTimeout: 10s
+        serviceName: pump-voltra
+
+    # Deliberately NO alert on `pump_voltra_connected == 0`. Disconnected
+    # is the NORMAL state of an empty gym — the readiness probe is
+    # disabled for exactly that reason — so alerting on it would fire
+    # most of the day. The metric is for dashboards and post-hoc
+    # debugging; a useful alert would need to key off an active session,
+    # which there is no signal for yet.

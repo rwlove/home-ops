@@ -16,10 +16,18 @@ independent agent).
 
 ## Checks
 
-1. **Flux render diff** — run `flux-local diff` (or the repo's
-   wrapper) against `main` and verify the rendered manifest changes
-   match what you expect. Unexpected diffs usually mean an upstream
-   chart bumped under you.
+1. **Flux render + diff** — run `flate test all --path kubernetes/flux`
+   and confirm it passes, then `flate diff` against `main` and verify
+   the rendered manifest changes match what you expect. Unexpected
+   diffs usually mean an upstream chart bumped under you.
+
+   `flate test` also reports "values not used by the chart", which is
+   how a HelmRelease tells you a values block is being silently
+   ignored — treat any new warning there as a failure.
+
+   (This step used to say `flux-local diff`. CI has rendered with flate
+   since #12962; validating locally with the retired engine is not the
+   same gate.)
 2. **YAML schema validation** — every YAML in `kubernetes/` should
    have the right `# yaml-language-server: $schema=` comment on line
    2 per `.agents/instructions/schema.correction.md`. Open each

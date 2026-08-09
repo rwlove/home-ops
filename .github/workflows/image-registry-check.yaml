@@ -151,7 +151,16 @@ jobs:
 
   image-registry-check-success:
     if: ${{ !cancelled() }}
+    # `check-new-images` alone is not enough. If `filter-changes` or
+    # `extract-images` fails, this job is SKIPPED — result "skipped",
+    # not "failure" — so `contains(needs.*.result, 'failure')` stayed
+    # false and the gate went green with the registry policy never
+    # having run. Depending on all three closes that hole while still
+    # allowing the legitimate skip (no image changes on the PR), where
+    # the upstream jobs succeed and nothing reports failure.
     needs:
+      - filter-changes
+      - extract-images
       - check-new-images
     name: Image registry check successful
     runs-on: ubuntu-latest

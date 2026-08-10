@@ -151,6 +151,33 @@ spec:
               - --tool-call-parser
               - qwen3_xml
               - --enable-auto-tool-choice
+              # OTLP traces → the collector in observability. One
+              # `llm_request` span per request, backdated to arrival time,
+              # carrying time_to_first_token / time_in_queue /
+              # time_in_model_prefill / time_in_model_decode and prompt +
+              # completion token counts. That queue-vs-prefill-vs-decode
+              # split is the whole reason to trace this hop: it is the
+              # difference between "the model is slow" and "the request
+              # waited". Inbound W3C traceparent is honoured, so an
+              # open-webui span links straight through to this one.
+              #
+              # `grpc://` per vLLM's own examples. The exporter hardcodes
+              # insecure=True on the gRPC path, so no TLS opt-out is
+              # needed here (unlike open-webui).
+              #
+              # VERIFIED BEFORE ENABLING: this flag is startup-FATAL if
+              # the OTel packages are missing —
+              # ObservabilityConfig._validate_otlp_traces_endpoint raises
+              # rather than degrading. Upstream bundles them in
+              # requirements/common.txt, but this image is a third-party
+              # GB10 rebuild, so it was checked in-container:
+              # opentelemetry-exporter-otlp 1.42.0, Required-by: vllm.
+              # Re-check on any image bump that changes the base.
+              #
+              # NOT adding --collect-detailed-traces: upstream warns it
+              # involves "possibly costly and or blocking operations".
+              - --otlp-traces-endpoint
+              - grpc://opentelemetry-collector.observability.svc.cluster.local:4317
 
             env:
               # HF Hub cache on the PVC so the ~35 GB FP8 download survives
@@ -158,6 +185,11 @@ spec:
               # default-deny without the world:443 egress in cnp-allow).
               HF_HOME: &cachePath /data
               VLLM_LOGGING_LEVEL: INFO
+              # Read by the OTel SDK itself, not by vLLM — vLLM sets no
+              # service name of its own, so without this every span lands
+              # in Tempo as `unknown_service` and cannot be told apart
+              # from any other uninstrumented producer.
+              OTEL_SERVICE_NAME: vllm-driver-spark
 
             probes:
               # /health returns 200 once the engine is up and the model is

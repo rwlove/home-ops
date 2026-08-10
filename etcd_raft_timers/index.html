@@ -2538,11 +2538,20 @@ change.</p>
   is per-member and resets when etcd restarts. Check
   <code>process_start_time_seconds</code> before drawing conclusions from a total,
   and compare <em>rates</em> after any rollout.</li>
-<li><strong>The fsync histogram uses power-of-two buckets.</strong> <code>p99</code> can read
-  identically on every member simply because they all land in the same
-  bucket. Identical values are <em>not</em> evidence the disks are equal. Use a
-  10 m window and compare against a known-good baseline, and cross-check
-  with <code>etcd_disk_backend_commit_duration_seconds</code>.</li>
+<li><strong>Never judge disk latency from an instant query.</strong> Two failure modes
+  bite here. First, the fsync histogram uses power-of-two buckets, so
+  <code>p99</code> can read identically on every member simply because they all
+  land in the same bucket — identical values are <em>not</em> evidence the
+  disks are equal. Second, a single sample is easily unrepresentative:
+  a member that has just restarted looks fast because it is idle. Use a
+  median over hours, and cross-check <code>wal_fsync</code> against
+  <code>backend_commit</code>:</li>
+</ul>
+<div class="language-promql highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kr">quantile_over_time</span><span class="o">(</span><span class="mf">0.5</span><span class="p">,</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="o">(</span><span class="kr">histogram_quantile</span><span class="o">(</span><span class="mf">0.99</span><span class="p">,</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="k">sum</span><span class="w"> </span><span class="k">by</span><span class="w"> </span><span class="o">(</span><span class="nv">instance</span><span class="p">,</span><span class="nv">le</span><span class="o">)</span><span class="w"> </span><span class="o">(</span><span class="kr">rate</span><span class="o">(</span><span class="nv">etcd_disk_wal_fsync_duration_seconds_bucket</span><span class="p">[</span><span class="s">10m</span><span class="p">]</span><span class="o">))))</span><span class="p">[</span><span class="s">9h</span><span class="err">:</span><span class="s">15m</span><span class="p">]</span><span class="o">)</span>
+</span></code></pre></div>
+<ul>
 <li><strong>The etcd image is distroless.</strong> <code>kubectl exec … -- env ETCDCTL_API=3
   etcdctl</code> fails with <code>executable file `env` not found</code>. Call
   <code>etcdctl</code> directly; API v3 is the default since etcd 3.4.</li>
@@ -2560,34 +2569,34 @@ during rollout — do all three back to back.</p>
 source is the <code>kubeadm-config</code> ConfigMap, and <code>kubeadm upgrade</code>
 re-renders static pod manifests from it — which is why the change must
 live there, not in a hand-edited manifest. Keep both in sync.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span>get<span class="w"> </span>cm<span class="w"> </span>kubeadm-config<span class="w"> </span>-o<span class="w"> </span>yaml<span class="w"> </span>&gt;<span class="w"> </span>~/kubeadm-config.pre.yaml<span class="w">   </span><span class="c1"># rollback</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span>edit<span class="w"> </span>cm<span class="w"> </span>kubeadm-config
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="c1">#   under etcd.local.extraArgs:</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1">#     - name: heartbeat-interval</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="c1">#       value: &quot;250&quot;</span>
-</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="c1">#     - name: election-timeout</span>
-</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="c1">#       value: &quot;2500&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span>get<span class="w"> </span>cm<span class="w"> </span>kubeadm-config<span class="w"> </span>-o<span class="w"> </span>yaml<span class="w"> </span>&gt;<span class="w"> </span>~/kubeadm-config.pre.yaml<span class="w">   </span><span class="c1"># rollback</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span>edit<span class="w"> </span>cm<span class="w"> </span>kubeadm-config
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="c1">#   under etcd.local.extraArgs:</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="c1">#     - name: heartbeat-interval</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="c1">#       value: &quot;250&quot;</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="c1">#     - name: election-timeout</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="c1">#       value: &quot;2500&quot;</span>
 </span></code></pre></div>
 <h3 id="2-roll-the-nodes--followers-first-leader-last">2. Roll the nodes — followers first, leader last<a class="headerlink" href="#2-roll-the-nodes--followers-first-leader-last" title="Permanent link">&para;</a></h3>
 <p>Leader last means exactly one leadership transfer instead of up to three.
 Find the leader:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>etcd-&lt;node&gt;<span class="w"> </span>--<span class="w"> </span>etcdctl<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>--endpoints<span class="o">=</span>https://127.0.0.1:2379<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span>--cacert<span class="o">=</span>/etc/kubernetes/pki/etcd/ca.crt<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span>--cert<span class="o">=</span>/etc/kubernetes/pki/etcd/server.crt<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span>--key<span class="o">=</span>/etc/kubernetes/pki/etcd/server.key<span class="w"> </span>endpoint<span class="w"> </span>status<span class="w"> </span>--cluster<span class="w"> </span>-w<span class="w"> </span>table
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>etcd-&lt;node&gt;<span class="w"> </span>--<span class="w"> </span>etcdctl<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span>--endpoints<span class="o">=</span>https://127.0.0.1:2379<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>--cacert<span class="o">=</span>/etc/kubernetes/pki/etcd/ca.crt<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span>--cert<span class="o">=</span>/etc/kubernetes/pki/etcd/server.crt<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">  </span>--key<span class="o">=</span>/etc/kubernetes/pki/etcd/server.key<span class="w"> </span>endpoint<span class="w"> </span>status<span class="w"> </span>--cluster<span class="w"> </span>-w<span class="w"> </span>table
 </span></code></pre></div>
 <p>Then, on each node in turn:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>kubectl<span class="w"> </span>--kubeconfig<span class="o">=</span>/etc/kubernetes/admin.conf<span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span>get<span class="w"> </span>cm<span class="w"> </span>kubeadm-config<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.data.ClusterConfiguration}&#39;</span><span class="w"> </span>&gt;<span class="w"> </span>/tmp/cc.yaml
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>cp<span class="w"> </span>-a<span class="w"> </span>/etc/kubernetes/manifests/etcd.yaml<span class="w"> </span>/var/backups/etcd-timers/etcd.yaml.pre<span class="w">   </span><span class="c1"># rollback</span>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="c1"># Verify BEFORE applying: the diff must be exactly the flags you added.</span>
-</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>kubeadm<span class="w"> </span>init<span class="w"> </span>phase<span class="w"> </span>etcd<span class="w"> </span><span class="nb">local</span><span class="w"> </span>--config<span class="w"> </span>/tmp/cc.yaml<span class="w"> </span>--dry-run<span class="w"> </span><span class="m">2</span>&gt;/dev/null<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>sed<span class="w"> </span>-n<span class="w"> </span><span class="s1">&#39;/^apiVersion: v1/,$p&#39;</span><span class="w"> </span>&gt;<span class="w"> </span>/tmp/etcd-new.yaml
-</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>diff<span class="w"> </span>-u<span class="w"> </span>/etc/kubernetes/manifests/etcd.yaml<span class="w"> </span>/tmp/etcd-new.yaml
-</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>
-</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>kubeadm<span class="w"> </span>init<span class="w"> </span>phase<span class="w"> </span>etcd<span class="w"> </span><span class="nb">local</span><span class="w"> </span>--config<span class="w"> </span>/tmp/cc.yaml
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>kubectl<span class="w"> </span>--kubeconfig<span class="o">=</span>/etc/kubernetes/admin.conf<span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span>get<span class="w"> </span>cm<span class="w"> </span>kubeadm-config<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.data.ClusterConfiguration}&#39;</span><span class="w"> </span>&gt;<span class="w"> </span>/tmp/cc.yaml
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>cp<span class="w"> </span>-a<span class="w"> </span>/etc/kubernetes/manifests/etcd.yaml<span class="w"> </span>/var/backups/etcd-timers/etcd.yaml.pre<span class="w">   </span><span class="c1"># rollback</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="c1"># Verify BEFORE applying: the diff must be exactly the flags you added.</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>kubeadm<span class="w"> </span>init<span class="w"> </span>phase<span class="w"> </span>etcd<span class="w"> </span><span class="nb">local</span><span class="w"> </span>--config<span class="w"> </span>/tmp/cc.yaml<span class="w"> </span>--dry-run<span class="w"> </span><span class="m">2</span>&gt;/dev/null<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>sed<span class="w"> </span>-n<span class="w"> </span><span class="s1">&#39;/^apiVersion: v1/,$p&#39;</span><span class="w"> </span>&gt;<span class="w"> </span>/tmp/etcd-new.yaml
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>diff<span class="w"> </span>-u<span class="w"> </span>/etc/kubernetes/manifests/etcd.yaml<span class="w"> </span>/tmp/etcd-new.yaml
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>
+</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>kubeadm<span class="w"> </span>init<span class="w"> </span>phase<span class="w"> </span>etcd<span class="w"> </span><span class="nb">local</span><span class="w"> </span>--config<span class="w"> </span>/tmp/cc.yaml
 </span></code></pre></div>
 <p><code>kubeadm</code> reproduces the manifest <strong>byte-for-byte</strong> apart from the flags
 you added — verified with <code>--dry-run</code> on this cluster. It does not
@@ -2597,11 +2606,11 @@ member.</p>
 <h3 id="3-gate-on-health-between-nodes">3. Gate on health between nodes<a class="headerlink" href="#3-gate-on-health-between-nodes" title="Permanent link">&para;</a></h3>
 <p>This is the step that protects quorum. All three must report healthy
 before touching the next node:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>etcd-&lt;any-running-node&gt;<span class="w"> </span>--<span class="w"> </span>etcdctl<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>--endpoints<span class="o">=</span>https://127.0.0.1:2379<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span>--cacert<span class="o">=</span>/etc/kubernetes/pki/etcd/ca.crt<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span>--cert<span class="o">=</span>/etc/kubernetes/pki/etcd/server.crt<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">  </span>--key<span class="o">=</span>/etc/kubernetes/pki/etcd/server.key<span class="w"> </span>endpoint<span class="w"> </span>health<span class="w"> </span>--cluster
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>etcd-&lt;any-running-node&gt;<span class="w"> </span>--<span class="w"> </span>etcdctl<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>--endpoints<span class="o">=</span>https://127.0.0.1:2379<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span>--cacert<span class="o">=</span>/etc/kubernetes/pki/etcd/ca.crt<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span>--cert<span class="o">=</span>/etc/kubernetes/pki/etcd/server.crt<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">  </span>--key<span class="o">=</span>/etc/kubernetes/pki/etcd/server.key<span class="w"> </span>endpoint<span class="w"> </span>health<span class="w"> </span>--cluster
 </span></code></pre></div>
 <p>Expect a brief blip when the <strong>leader</strong> restarts: <code>/healthz</code> may report
 <code>poststarthook/rbac/bootstrap-roles failed</code> and Flux Kustomizations may
@@ -2609,16 +2618,16 @@ go not-Ready for a few minutes. Both self-resolve; confirm each apiserver
 returns <code>ok</code> individually before worrying.</p>
 <h2 id="rollback">Rollback<a class="headerlink" href="#rollback" title="Permanent link">&para;</a></h2>
 <p>Per node — the kubelet reloads the static pod within seconds:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>cp<span class="w"> </span>-a<span class="w"> </span>/var/backups/etcd-timers/etcd.yaml.pre<span class="w"> </span>/etc/kubernetes/manifests/etcd.yaml
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>cp<span class="w"> </span>-a<span class="w"> </span>/var/backups/etcd-timers/etcd.yaml.pre<span class="w"> </span>/etc/kubernetes/manifests/etcd.yaml
 </span></code></pre></div>
 <p>Roll back <strong>every</strong> node, not just one; a mixed-timer cluster is worse
 than either uniform state. Then restore the ConfigMap, or the next
 <code>kubeadm upgrade</code> will reintroduce the timers:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># strip resourceVersion/uid/creationTimestamp first, or apply will conflict</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>~/kubeadm-config.pre.yaml
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># strip resourceVersion/uid/creationTimestamp first, or apply will conflict</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>~/kubeadm-config.pre.yaml
 </span></code></pre></div>
 <p>A data-level etcd snapshot is worth taking before any of this:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>etcd-&lt;node&gt;<span class="w"> </span>--<span class="w"> </span>etcdctl<span class="w"> </span>…<span class="w"> </span>snapshot<span class="w"> </span>save<span class="w"> </span>/var/lib/etcd/snapshot-pre.db
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>etcd-&lt;node&gt;<span class="w"> </span>--<span class="w"> </span>etcdctl<span class="w"> </span>…<span class="w"> </span>snapshot<span class="w"> </span>save<span class="w"> </span>/var/lib/etcd/snapshot-pre.db
 </span></code></pre></div>
 <p>Note it lands on the same disk whose latency is under suspicion (~364 MB
 at time of writing), and it is the only writable path inside the
@@ -2648,19 +2657,20 @@ beat, from before the change:</p>
 </tr>
 </tbody>
 </table>
-<div class="language-promql highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="kr">increase</span><span class="o">(</span><span class="nv">etcd_server_heartbeat_send_failures_total</span><span class="p">[</span><span class="s">1h</span><span class="p">]</span><span class="o">)</span>
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="kr">increase</span><span class="o">(</span><span class="nv">etcd_server_leader_changes_seen_total</span><span class="p">[</span><span class="s">1h</span><span class="p">]</span><span class="o">)</span>
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="kr">increase</span><span class="o">(</span><span class="nv">etcd_server_slow_apply_total</span><span class="p">[</span><span class="s">1h</span><span class="p">]</span><span class="o">)</span>
+<div class="language-promql highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="kr">increase</span><span class="o">(</span><span class="nv">etcd_server_heartbeat_send_failures_total</span><span class="p">[</span><span class="s">1h</span><span class="p">]</span><span class="o">)</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="kr">increase</span><span class="o">(</span><span class="nv">etcd_server_leader_changes_seen_total</span><span class="p">[</span><span class="s">1h</span><span class="p">]</span><span class="o">)</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="kr">increase</span><span class="o">(</span><span class="nv">etcd_server_slow_apply_total</span><span class="p">[</span><span class="s">1h</span><span class="p">]</span><span class="o">)</span>
 </span></code></pre></div>
 <p>If they do not improve, raft timing was not the binding constraint.</p>
 <h2 id="where-the-real-problem-is">Where the real problem is<a class="headerlink" href="#where-the-real-problem-is" title="Permanent link">&para;</a></h2>
-<p>Raising the timers buys headroom; it does not make the disks faster. The
-disk picture has <strong>inverted</strong> since the 2026-05-05 measurements in
+<p>Raising the timers buys headroom; it does not make the disks faster.
+master1 remains the slow voter, essentially unchanged since the
+2026-05-05 measurements in
 <a href="../master1_etcd_disk_swap/">master1 etcd-Disk Swap Plan</a>:</p>
 <table>
 <thead>
 <tr>
-<th>p99 over 10 m</th>
+<th>p99, median over 9 h</th>
 <th>master1</th>
 <th>master2</th>
 <th>master3</th>
@@ -2675,9 +2685,9 @@ disk picture has <strong>inverted</strong> since the 2026-05-05 measurements in
 </tr>
 <tr>
 <td><code>wal_fsync</code> — Aug</td>
-<td>29 ms</td>
-<td>28 ms</td>
-<td>29 ms</td>
+<td><strong>30.5 ms</strong></td>
+<td>15.6 ms</td>
+<td>15.6 ms</td>
 </tr>
 <tr>
 <td><code>backend_commit</code> — May</td>
@@ -2687,39 +2697,75 @@ disk picture has <strong>inverted</strong> since the 2026-05-05 measurements in
 </tr>
 <tr>
 <td><code>backend_commit</code> — Aug</td>
-<td><strong>32 ms</strong></td>
-<td>54 ms</td>
-<td><strong>62 ms</strong></td>
+<td><strong>97 ms</strong></td>
+<td>24 ms</td>
+<td>26 ms</td>
 </tr>
 </tbody>
 </table>
-<p>Two things follow:</p>
-<ol>
-<li><strong>master1 is no longer the slow voter.</strong> It is now the <em>fastest</em> on
-   <code>backend_commit</code>. The disk-swap plan targeting it is no longer the
-   highest-value fix.</li>
-<li><strong>The whole control plane degraded.</strong> <code>wal_fsync</code> p99 converged
-   upward to ~29 ms on all three — etcd wants this well under 10 ms.
-   master2 and master3 roughly doubled.</li>
-</ol>
-<p>The structural difference: master1 runs on bare-metal NVMe
-(<code>/dev/nvme0n1p3</code>, non-rotational), while <strong>master2 and master3 are QEMU
-VMs on virtio disks</strong> (<code>/dev/vda2</code>, 200 GB, reported rotational). They
-are also the smaller nodes at 3 CPU / 10 GiB each — and one of them holds
-the etcd leader, which is precisely the member that was missing its
-heartbeats.</p>
-<p>That points at the plan already recorded in the disk-swap runbook: retire
-the control-plane VMs in favour of bare-metal nodes, per
-<a href="../promote_worker_to_control_plane/">Promote Worker to Control Plane</a>.
-Timer tuning is the stopgap until then.</p>
+<p>master1's sync-write path is roughly <strong>2× slower on fsync and 4× slower
+on commit</strong> than the other two voters, and has been for months. etcd
+wants <code>wal_fsync</code> p99 well under 10 ms; none of the three meet that, but
+master1 is the outlier.</p>
+<p>So the conclusion of the disk-swap plan stands: <strong>replacing master1's
+root NVMe is still the highest-value fix.</strong> Timer tuning is the stopgap
+that stops the flapping in the meantime.</p>
+<blockquote>
+<p><strong>Measure over a representative window.</strong> An earlier revision of this
+page claimed the disk picture had "inverted" and that master1 was now
+the <em>fastest</em> voter. That was wrong. It came from a single 10-minute
+sample taken minutes after the etcd restarts, when master1 had just
+come up idle and the other two were still catching up. A 9-hour median
+at 15-minute resolution shows the opposite, and matches May almost
+exactly. Use <code>quantile_over_time(0.5, (…)[9h:15m])</code>, not a bare
+instant query, before concluding anything about disk latency.</p>
+</blockquote>
 <h2 id="change-log">Change log<a class="headerlink" href="#change-log" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>2026-08-09</strong> — <code>heartbeat-interval</code> 100 → 250 ms,
+<li>
+<p><strong>2026-08-09</strong> — <code>heartbeat-interval</code> 100 → 250 ms,
   <code>election-timeout</code> 1000 → 2500 ms on all three control-plane nodes.
   Rolled followers first, leader last; each node diff-gated with
   <code>kubeadm --dry-run</code> and health-gated between nodes. Recorded in
-  <code>init/clusterconfiguration.yaml</code>.</li>
+  <code>init/clusterconfiguration.yaml</code>.</p>
+</li>
+<li>
+<p><strong>2026-08-10, +10 h</strong> — result measured:</p>
+</li>
 </ul>
+<table>
+<thead>
+<tr>
+<th>metric</th>
+<th>before</th>
+<th>after 10 h</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>leader changes</td>
+<td>~11.6/day on master1</td>
+<td><strong>0</strong> since the rollout</td>
+</tr>
+<tr>
+<td><code>heartbeat_send_failures</code> (leader)</td>
+<td>~83/h</td>
+<td><strong>7.6/h</strong> (−91 %)</td>
+</tr>
+<tr>
+<td><code>slow_apply</code></td>
+<td>~1 297/h on master1</td>
+<td>~1 890/h on master1</td>
+</tr>
+</tbody>
+</table>
+<p><code>etcdHighNumberOfLeaderChanges</code> cleared and has not re-fired. The
+  flapping stopped outright — the two leader changes master1 shows are
+  the rollout's own restarts, and there have been none since.</p>
+<p><code>slow_apply</code> did not improve, which is the expected result: it is
+  bound by disk, not by raft timing, and master1's disk is unchanged.
+  Note master1 is now the leader, so it is doing more work than it was
+  as a follower — the comparison is not like-for-like.</p>
 
 
 

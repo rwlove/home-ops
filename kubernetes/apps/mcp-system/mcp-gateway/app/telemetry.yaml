@@ -1,0 +1,49 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/telemetry.istio.io/telemetry_v1.json
+apiVersion: telemetry.istio.io/v1
+kind: Telemetry
+metadata:
+  name: otel-tracing
+spec:
+  tracing:
+    # Must string-match an `extensionProviders[].name` declared in the
+    # istiod meshConfig (istio-system/istio/app/istiod/helmrelease.yaml).
+    # Only ONE provider may be listed per tracing rule.
+    - providers:
+        - name: otel-tracing
+      # Set EXPLICITLY. The published API reference claims unset means
+      # 0%, which is wrong: the field is a DoubleValue wrapper, so unset
+      # falls back through meshConfig to PILOT_TRACE_SAMPLING, whose
+      # registered default is 1%. Relying on the default would silently
+      # sample 1 request in 100 and look like a broken pipeline.
+      #
+      # 100% is right for this namespace: mcp-system carries interactive
+      # tool calls at human rates, not bulk traffic, and a sampled-away
+      # trace is exactly the one being investigated. Revisit if span
+      # volume becomes a problem.
+      randomSamplingPercentage: 100
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: mcp-system-allow-otlp-export
+spec:
+  # Namespace-wide on purpose: every pod here carries a sidecar, and it
+  # is the SIDECAR that exports spans, not the app container. Scoping
+  # this to mcp-gateway alone would trace one pod and silently drop the
+  # other twenty backends — which is precisely the fan-out this exists
+  # to make visible.
+  endpointSelector: {}
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: opentelemetry-collector
+      toPorts:
+        - ports:
+            - port: "4317"
+              protocol: TCP

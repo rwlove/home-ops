@@ -15,6 +15,33 @@ spec:
   values:
     # https://artifacthub.io/packages/helm/istio-official/istiod
     # https://github.com/istio/istio/blob/master/manifests/charts/istio-control/istio-discovery/values.yaml
+    #
+    # Declares the OTLP trace sink. This only makes the provider
+    # AVAILABLE — nothing is traced until a Telemetry CR selects it,
+    # which happens in mcp-system only (mcp-gateway/app/telemetry.yaml).
+    # Config ships over xDS, so no pod restart or re-injection.
+    meshConfig:
+      enableTracing: true
+      extensionProviders:
+        - name: otel-tracing
+          opentelemetry:
+            # Must be an FQDN that resolves in Istio's service registry.
+            # An ordinary in-cluster Service qualifies — the observability
+            # namespace does NOT need to be meshed, and no ServiceEntry
+            # is required.
+            #
+            # Lookup failure here is SILENT: no error, no log at default
+            # level. The tell is istiod's
+            # `provider_lookup_cluster_failures{provider="opentelemetry"}`
+            # counter, not anything in the sidecar.
+            service: opentelemetry-collector.observability.svc.cluster.local
+            port: 4317
+            # gRPC is the default transport when `http` is omitted. The
+            # collector Service already carries `appProtocol: grpc` on
+            # 4317 (chart default), which is what lets Istio negotiate
+            # HTTP/2 for the export cluster.
+            resourceDetectors:
+              environment: {}
     pilot:
       autoscaleMin: 2
       resources:

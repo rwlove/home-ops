@@ -162,6 +162,38 @@ spec:
               VECTOR_DB: qdrant
               AUDIO_OPENAI_API_BASE_URL: https://piper.${SECRET_DOMAIN}/v1
               AUDIO_OPENAI_API_KEY: sk-111111111111 # fake key needed to make ui happy
+              # OpenTelemetry traces → the collector in observability,
+              # which batches and forwards to Tempo. Tempo and the
+              # collector have been deployed and idle since they landed;
+              # this is the first real trace producer in the cluster.
+              #
+              # BOTH gates are required. ENABLE_OTEL only gates the
+              # import in main.py; ENABLE_OTEL_TRACES separately gates
+              # tracer setup. Setting one alone silently produces no
+              # spans and logs nothing.
+              ENABLE_OTEL: true
+              ENABLE_OTEL_TRACES: true
+              OTEL_EXPORTER_OTLP_ENDPOINT: http://opentelemetry-collector.observability.svc.cluster.local:4317
+              # MANDATORY for a plaintext collector — the `http://` above
+              # is NOT sufficient on its own. Open WebUI always passes
+              # `insecure=` to the SDK as a real bool, which dead-codes
+              # the SDK's own scheme-based auto-detection. Left at its
+              # default of false, the exporter opens a TLS channel
+              # against a cleartext listener and every export fails.
+              OTEL_EXPORTER_OTLP_INSECURE: true
+              # Protocol selector. NOT the standard
+              # OTEL_EXPORTER_OTLP_PROTOCOL — Open WebUI never reads
+              # that one. If ever switched to `http`, the endpoint above
+              # must also gain an explicit `/v1/traces` path: Open WebUI
+              # passes `endpoint=` straight through, which makes the SDK
+              # skip appending the signal path, and a bare host 404s.
+              OTEL_OTLP_SPAN_EXPORTER: grpc
+              OTEL_SERVICE_NAME: open-webui
+              # Metrics and logs deliberately left off — Prometheus
+              # already scrapes this pod and logs reach Loki via Vector.
+              # ENABLE_OTEL_LOGS in particular builds its exporter at
+              # import time, so a bad endpoint there surfaces at first
+              # log write rather than at startup.
               # OIDC SSO via Authelia
               ENABLE_OAUTH_SIGNUP: true
               OAUTH_MERGE_ACCOUNTS_BY_EMAIL: true

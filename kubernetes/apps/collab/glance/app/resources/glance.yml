@@ -20,6 +20,69 @@ pages:
             search-engine: https://search.${SECRET_DOMAIN}/search?q={QUERY}
             autofocus: true
 
+          # Cluster vitals from kromgo, which fronts a curated set of
+          # PromQL queries (kromgo/app/resources/config.yaml) so glance
+          # never needs Prometheus credentials or PromQL of its own.
+          #
+          # kromgo v0.10.0 serves `GET /<metric>` as shields.io endpoint
+          # JSON: `message` is the already-formatted value (the config's
+          # suffix is applied server-side) and `color` is the threshold
+          # bucket. So the template only formats — it never does math.
+          #
+          # The top-level `url` populates `.JSON`; the rest come from
+          # `newRequest`, which glance issues concurrently. Widen this by
+          # adding a metric to kromgo's config first, then a tile here.
+          #
+          # NOTE: kromgo's `cluster_alert_count` is deliberately NOT
+          # surfaced — its query reads grafana_alerting_alertmanager_alerts,
+          # which counts Grafana-managed alerts, not the kube-prometheus-stack
+          # Alertmanager that actually pages. It would render a confident
+          # "0" while alerts are firing. See the PR notes.
+          - type: custom-api
+            title: Cluster
+            cache: 1m
+            url: http://kromgo.observability.svc.cluster.local:8080/cluster_node_count
+            template: |
+              {{ $base := "http://kromgo.observability.svc.cluster.local:8080/" }}
+              {{ $pods := newRequest (concat $base "cluster_pod_count") | getResponse }}
+              {{ $cpu := newRequest (concat $base "cluster_cpu_usage") | getResponse }}
+              {{ $mem := newRequest (concat $base "cluster_memory_usage") | getResponse }}
+              {{ $power := newRequest (concat $base "cluster_power_usage") | getResponse }}
+              {{ $age := newRequest (concat $base "cluster_age_days") | getResponse }}
+              {{ $version := newRequest (concat $base "kubernetes_version") | getResponse }}
+              {{ $cpuColor := $cpu.JSON.String "color" }}
+              {{ $memColor := $mem.JSON.String "color" }}
+              {{ $powerColor := $power.JSON.String "color" }}
+              <div class="flex justify-between text-center">
+                <div>
+                  <div class="color-highlight size-h3">{{ .JSON.String "message" }}</div>
+                  <div class="size-h6 uppercase">Nodes</div>
+                </div>
+                <div>
+                  <div class="color-highlight size-h3">{{ $pods.JSON.String "message" }}</div>
+                  <div class="size-h6 uppercase">Pods</div>
+                </div>
+                <div>
+                  <div class="size-h3 {{ if eq $cpuColor "green" }}color-positive{{ else }}color-negative{{ end }}">{{ $cpu.JSON.String "message" }}</div>
+                  <div class="size-h6 uppercase">CPU</div>
+                </div>
+                <div>
+                  <div class="size-h3 {{ if eq $memColor "green" }}color-positive{{ else }}color-negative{{ end }}">{{ $mem.JSON.String "message" }}</div>
+                  <div class="size-h6 uppercase">Memory</div>
+                </div>
+                <div>
+                  <div class="size-h3 {{ if eq $powerColor "green" }}color-positive{{ else }}color-negative{{ end }}">{{ $power.JSON.String "message" }}</div>
+                  <div class="size-h6 uppercase">Power</div>
+                </div>
+                <div>
+                  <div class="color-highlight size-h3">{{ $age.JSON.String "message" }}</div>
+                  <div class="size-h6 uppercase">Uptime</div>
+                </div>
+              </div>
+              <div class="size-h6 color-subdue text-center margin-top-10">
+                Kubernetes {{ $version.JSON.String "message" }}
+              </div>
+
           # Auto-discovered apps split into one widget per glance/id
           # category. Each block renders as its own card on the page so
           # every link is visible without tabbing. Add a category by

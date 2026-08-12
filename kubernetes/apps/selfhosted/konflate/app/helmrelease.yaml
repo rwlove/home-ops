@@ -40,6 +40,27 @@ spec:
     # Token supplied by the konflate ExternalSecret (key KONFLATE_TOKEN).
     secret:
       existingSecret: konflate-secret
+    # The chart wires existingSecret in via `envFrom`, and environment
+    # variables are fixed for the life of a pod. The GithubAccessToken
+    # generator mints a GitHub App *installation* token, which GitHub
+    # expires after 1 hour — so konflate authenticated for the first hour
+    # after each start and then 401'd forever, while ESO rotated the
+    # Secret underneath it (182 "secret updated" events over 2d17h, all
+    # into a void). Nothing looked wrong: probes are process-level, the
+    # pod never restarted, and ESO reported Ready=True the whole time.
+    # Only konflate's own counters showed it — 148 of 150 diff jobs
+    # erroring, both successes inside the first 20 minutes of uptime.
+    #
+    # renovate-operator shares this exact App (2931213) and is unaffected
+    # because it runs a Job per cycle: every run gets a fresh pod that
+    # reads the current Secret at startup. konflate is a long-lived
+    # Deployment, so it never re-reads.
+    #
+    # Reloader rolls the pod when konflate-secret changes, which is the
+    # remedy the chart itself documents on this value. Restart cadence
+    # therefore equals the ExternalSecret's 30m refreshInterval.
+    deploymentAnnotations:
+      reloader.stakater.com/auto: "true"
     service:
       port: 8080
     # State (flate caches + git mirror + rendered diffs) is regenerable

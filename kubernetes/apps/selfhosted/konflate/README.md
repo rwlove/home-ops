@@ -32,6 +32,25 @@ PAT. The App's PEM comes from the 1Password `Github` item
 `github-app-pem` secret. konflate stays read-only (`prComments`/`statusChecks`
 off), so the App's write scope is unused.
 
+**The token expires after 1 hour, and the pod must be rolled to pick up a new
+one.** The chart wires `secret.existingSecret` in through `envFrom`, and a
+pod's environment variables are fixed at start — so konflate cannot re-read a
+rotated Secret in place. `deploymentAnnotations` therefore carries
+`reloader.stakater.com/auto: "true"`, and Reloader (kube-system) rolls the
+Deployment each time `konflate-secret` changes. Restart cadence equals the
+ExternalSecret's 30m `refreshInterval`.
+
+Without that annotation konflate authenticates for exactly one hour after
+each start and then 401s indefinitely, which is how it sat broken for 3.7
+days from 2026-08-08: probes are process-level and kept passing, the pod
+never restarted, and ESO reported `Ready=True` because minting the token
+had in fact succeeded. `app/prometheusrule.yaml` alerts on the two counters
+that did show it (`konflate_forge_list_errors_total`,
+`konflate_diff_jobs_total{result="error"}`).
+
+renovate-operator shares the same App and never hit this: it runs a Job per
+cycle, so each run starts a fresh pod that reads the current Secret.
+
 ## Provisioning (done)
 
 The out-of-Git secrets and the Authelia client were created on 2026-06-24:
@@ -67,3 +86,10 @@ No further manual 1Password steps are needed to deploy this app.
 - Swap the shared renovate App token for a dedicated read-only PAT or a
   konflate-scoped GitHub App (least privilege; the current token can write
   though konflate never does).
+- Ask upstream to support App auth on the **read** path. konflate already
+  mints and refreshes installation tokens internally when given
+  `config.appClientId` + `secret.appPrivateKey`, but the chart documents that
+  pair as the *write* identity — a read-only instance like this one can't use
+  it, which is why the read token has to arrive through a Secret and be
+  reloaded. Native read-path App auth would remove the expiry problem, and
+  with it the 30m restart cadence, entirely.

@@ -1,0 +1,94 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: konflate-rules
+spec:
+  groups:
+    - name: konflate.forge
+      rules:
+        # konflate can fail completely while every conventional signal stays
+        # green: /healthz and /readyz are process-level and keep passing, the
+        # pod never restarts so KubePodCrashLooping is quiet, and ESO reports
+        # Ready=True because minting the token succeeded — the token just
+        # never reaches the running process. That combination hid a total
+        # outage for 3.7 days (see the deploymentAnnotations comment in
+        # helmrelease.yaml). These counters were in Prometheus the whole
+        # time; nothing consumed them. That gap is what this file closes.
+        #
+        # 401 Bad credentials is the expected shape here, but any forge-side
+        # failure (rate limit, network, repo renamed) lands in this counter
+        # and means the same thing operationally: konflate no longer knows
+        # what PRs exist, so it is reviewing nothing.
+        - alert: KonflateForgeListFailing
+          annotations:
+            summary: konflate cannot list PRs from the forge ({{ $value | printf "%.1f" }}/h failing)
+            description: |
+              konflate's periodic refresh is failing to enumerate open PRs, so
+              it is not reviewing anything new. The UI keeps serving whatever
+              it last rendered, which makes this invisible from the browser.
+
+              Check the error first — the log line carries the HTTP status:
+                kubectl -n selfhosted logs deploy/konflate | grep 'list PRs failed'
+
+              "401 Bad credentials" means the installation token is stale.
+              That token is minted by the GithubAccessToken generator and
+              expires 1h after issue, so the pod must be rolled whenever the
+              Secret rotates — verify Reloader is doing that:
+                kubectl -n selfhosted get externalsecret konflate
+                kubectl -n selfhosted describe deploy konflate | grep -i reloader
+                kubectl -n kube-system get pods -l app=reloader-reloader
+          # Scaled to per-hour so $value reads as "2.0/h" rather than the
+          # raw per-second rate (0.0006), which rounds to 0.0 in the summary.
+          expr: |
+            sum(rate(konflate_forge_list_errors_total{namespace="selfhosted"}[1h])) * 3600 > 0
+          for: 1h
+          labels:
+            severity: warning
+        # The render path fails independently of the list path — a valid
+        # token still enumerates PRs while every render errors (bad manifest,
+        # unreachable chart source, OOM mid-render). Ratio rather than a raw
+        # count so an occasional broken PR doesn't page. If no jobs run at
+        # all the denominator is 0, the expression is NaN, and this stays
+        # silent by design; KonflateForgeListFailing covers that case.
+        - alert: KonflateDiffJobsFailing
+          annotations:
+            summary: konflate is failing most render jobs ({{ $value | humanizePercentage }} erroring)
+            description: |
+              More than half of konflate's diff jobs are erroring, so its PR
+              diffs are stale or absent even though the service is up.
+
+                kubectl -n selfhosted logs deploy/konflate | grep -i error
+
+              Check whether renders are being killed rather than failing —
+              konflate's peak memory is workload-dependent and a sweeping PR
+              renders far more than a narrow one:
+                kubectl -n selfhosted describe pod -l app.kubernetes.io/name=konflate | grep -A3 'Last State'
+          expr: |
+            sum(rate(konflate_diff_jobs_total{namespace="selfhosted",result="error"}[1h]))
+              /
+            sum(rate(konflate_diff_jobs_total{namespace="selfhosted"}[1h]))
+              > 0.5
+          for: 1h
+          labels:
+            severity: warning
+        # Both alerts above are evaluated against konflate's own metrics, so
+        # they go silent precisely when konflate stops being scraped. Without
+        # this guard the failure mode that started all of it — everything
+        # green, nothing reporting — would still be undetectable.
+        - alert: KonflateMetricsMissing
+          annotations:
+            summary: konflate is not reporting metrics to Prometheus
+            description: |
+              No `up` series exists for the konflate ServiceMonitor target, so
+              KonflateForgeListFailing and KonflateDiffJobsFailing cannot fire.
+              konflate may be down, or its ServiceMonitor may have been
+              dropped or mislabelled.
+                kubectl -n selfhosted get pods -l app.kubernetes.io/name=konflate
+                kubectl -n selfhosted get servicemonitor konflate
+          expr: |
+            absent(up{job="konflate",namespace="selfhosted"})
+          for: 30m
+          labels:
+            severity: warning

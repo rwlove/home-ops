@@ -32,13 +32,18 @@ spec:
               Check the error first — the log line carries the HTTP status:
                 kubectl -n selfhosted logs deploy/konflate | grep 'list PRs failed'
 
-              "401 Bad credentials" means the installation token is stale.
-              That token is minted by the GithubAccessToken generator and
-              expires 1h after issue, so the pod must be rolled whenever the
-              Secret rotates — verify Reloader is doing that:
+              "401 Bad credentials" means the App credential is not working.
+              konflate authenticates as the GitHub App and mints its own
+              installation tokens from KONFLATE_APP_PRIVATE_KEY, re-minting
+              before each expires — so this is a bad/rotated PEM, a wrong
+              config.appClientId, or the App losing access to the repo, NOT an
+              expired token. Confirm the Secret carries the PEM and that the
+              App still has an installation on this repo:
                 kubectl -n selfhosted get externalsecret konflate
-                kubectl -n selfhosted describe deploy konflate | grep -i reloader
-                kubectl -n kube-system get pods -l app=reloader-reloader
+                kubectl -n selfhosted logs deploy/konflate | grep -i 'App installation\|private key'
+
+              A "find App installation" error means the App was uninstalled or
+              lost repository access — fix that on github.com, not in-cluster.
           # Scaled to per-hour so $value reads as "2.0/h" rather than the
           # raw per-second rate (0.0006), which rounds to 0.0 in the summary.
           expr: |

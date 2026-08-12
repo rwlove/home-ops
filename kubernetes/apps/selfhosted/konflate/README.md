@@ -24,29 +24,47 @@ konflate ──renders──▶ ZOT (kube-system/zot:5000) + api.github.com + ch
 
 ## GitHub auth
 
-konflate authenticates to GitHub with a **short-lived App installation token**,
-minted by a `GithubAccessToken` generator from the same GitHub App
-(`2931213`) renovate-operator uses — see `app/externalsecret.yaml`. No standing
-PAT. The App's PEM comes from the 1Password `Github` item
-(`renovate_app_private_key`), replicated into this namespace as the
-`github-app-pem` secret. konflate stays read-only (`prComments`/`statusChecks`
-off), so the App's write scope is unused.
+konflate authenticates to GitHub **as the App itself**, using the same App
+(`2931213`) renovate-operator uses. `config.appClientId` is set in the
+HelmRelease and the PEM arrives as `KONFLATE_APP_PRIVATE_KEY` from the
+1Password `Github` item (`renovate_app_private_key`) — see
+`app/externalsecret.yaml`. No standing PAT.
 
-**The token expires after 1 hour, and the pod must be rolled to pick up a new
-one.** The chart wires `secret.existingSecret` in through `envFrom`, and a
-pod's environment variables are fixed at start — so konflate cannot re-read a
-rotated Secret in place. `deploymentAnnotations` therefore carries
-`reloader.stakater.com/auto: "true"`, and Reloader (kube-system) rolls the
-Deployment each time `konflate-secret` changes. Restart cadence equals the
-ExternalSecret's 30m `refreshInterval`.
+konflate mints its own installation tokens from that key and re-mints them a
+minute before each expires, so **no credential has to reach the running
+process after startup**. The installation is auto-detected from the repo, so
+no installation id is configured. A configured App is konflate's identity for
+reads as well as writes (`newGitHubReadClient` precedence: App →
+`KONFLATE_TOKEN` → anonymous), which is why no token is supplied at all.
 
-Without that annotation konflate authenticates for exactly one hour after
-each start and then 401s indefinitely, which is how it sat broken for 3.7
-days from 2026-08-08: probes are process-level and kept passing, the pod
-never restarted, and ESO reported `Ready=True` because minting the token
-had in fact succeeded. `app/prometheusrule.yaml` alerts on the two counters
-that did show it (`konflate_forge_list_errors_total`,
-`konflate_diff_jobs_total{result="error"}`).
+konflate stays read-only (`prComments`/`statusChecks` off), so the App's write
+scope is unused; upstream AND-gates both features on those flags
+(`StatusChecksEnabled` / `PRCommentsEnabled`), so supplying the PEM does not
+by itself enable write-back.
+
+### Why not the installation token
+
+The original design minted the installation token *outside* the pod, via a
+`GithubAccessToken` generator. That token expires after 1 hour, and the chart
+delivers `secret.existingSecret` through `envFrom` — a pod's environment is
+fixed at start, so konflate could never see a rotated value. It authenticated
+for one hour after each start and then 401'd for 3.7 days from 2026-08-08,
+while ESO rotated the Secret 182 times into a void.
+
+Nothing caught it: probes are process-level and kept passing, the pod never
+restarted, and ESO reported `Ready=True` because minting the token had in
+fact succeeded. Only konflate's own counters showed it — 148 of 150 diff jobs
+erroring. `app/prometheusrule.yaml` now alerts on them
+(`konflate_forge_list_errors_total`, `konflate_diff_jobs_total{result="error"}`),
+plus an `absent()` guard so that pair cannot go quiet by vanishing.
+
+`deploymentAnnotations` still carries `reloader.stakater.com/auto: "true"`,
+now as a safety net rather than the fix: the PEM does not expire, so it fires
+approximately never, but a manual key rotation still needs a pod restart to
+take effect.
+
+renovate-operator shares the same App and never hit any of this — it runs a
+Job per cycle, so each run starts a fresh pod that reads the current Secret.
 
 renovate-operator shares the same App and never hit this: it runs a Job per
 cycle, so each run starts a fresh pod that reads the current Secret.
@@ -83,13 +101,14 @@ No further manual 1Password steps are needed to deploy this app.
 
 ## Hardening follow-ups
 
-- Swap the shared renovate App token for a dedicated read-only PAT or a
-  konflate-scoped GitHub App (least privilege; the current token can write
-  though konflate never does).
-- Ask upstream to support App auth on the **read** path. konflate already
-  mints and refreshes installation tokens internally when given
-  `config.appClientId` + `secret.appPrivateKey`, but the chart documents that
-  pair as the *write* identity — a read-only instance like this one can't use
-  it, which is why the read token has to arrive through a Secret and be
-  reloaded. Native read-path App auth would remove the expiry problem, and
-  with it the 30m restart cadence, entirely.
+- Swap the shared renovate App for a konflate-scoped one (least privilege —
+  konflate now holds the same PEM renovate does, which carries write scope it
+  never uses). This is the remaining over-grant; the credential's *lifecycle*
+  is no longer a problem.
+- Consider enabling `statusChecks` — **not** to duplicate CI, which already
+  posts the diff as a sticky comment and gates merges on the required
+  `flate successful` check, but because konflate surfaces blast-radius and
+  danger-lint signals CI does not, and those currently live only in an
+  SSO-gated UI someone has to remember to open. If added, leave it
+  *non-required*: konflate is a single-instance in-cluster service, and a
+  required check would couple merging to cluster health.

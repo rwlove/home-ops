@@ -29,36 +29,38 @@ spec:
       logLevel: info
       # Periodic re-render backstop (no inbound webhook wired yet).
       refreshInterval: 30m
+      # GitHub App client id, paired with KONFLATE_APP_PRIVATE_KEY from the
+      # ExternalSecret. konflate treats a configured App as its forge identity
+      # for *reads* as well as writes — newGitHubReadClient's precedence is
+      # App, then KONFLATE_TOKEN, then anonymous — and re-mints the
+      # installation token a minute before expiry, in process. That is what
+      # makes the credential self-sustaining; the token path could not be,
+      # because envFrom freezes the environment at pod start.
+      #
+      # Not a secret: a client id is a public identifier (the PEM is the
+      # secret), and the App/installation ids were already committed here.
+      appClientId: Iv23li1DTAALxhOLqbEx
       # Read-only toward GitHub: no PR comments, no commit-status
-      # write-back (Rob's choice — flate already posts the CI diff).
+      # write-back (Rob's choice — flate already posts the CI diff, as a
+      # sticky comment plus the required "flate successful" check).
       prComments: false
       statusChecks: false
       # Fork PRs run untrusted code through flate; keep off. With forks
       # off, konflate's SSRF egress guard also stays off so it can reach
       # the in-cluster ZOT (a private address) to render.
       renderForkPrs: false
-    # Token supplied by the konflate ExternalSecret (key KONFLATE_TOKEN).
+    # App PEM supplied by the konflate ExternalSecret (key
+    # KONFLATE_APP_PRIVATE_KEY). No KONFLATE_TOKEN — see appClientId above.
     secret:
       existingSecret: konflate-secret
-    # The chart wires existingSecret in via `envFrom`, and environment
-    # variables are fixed for the life of a pod. The GithubAccessToken
-    # generator mints a GitHub App *installation* token, which GitHub
-    # expires after 1 hour — so konflate authenticated for the first hour
-    # after each start and then 401'd forever, while ESO rotated the
-    # Secret underneath it (182 "secret updated" events over 2d17h, all
-    # into a void). Nothing looked wrong: probes are process-level, the
-    # pod never restarted, and ESO reported Ready=True the whole time.
-    # Only konflate's own counters showed it — 148 of 150 diff jobs
-    # erroring, both successes inside the first 20 minutes of uptime.
+    # Retained as a safety net, not as the fix. konflate-secret now holds
+    # only the non-expiring PEM, so this fires approximately never — but if
+    # the key is ever rotated in 1Password, the pod still has to restart to
+    # read it, because the chart delivers the Secret through envFrom.
     #
-    # renovate-operator shares this exact App (2931213) and is unaffected
-    # because it runs a Job per cycle: every run gets a fresh pod that
-    # reads the current Secret at startup. konflate is a long-lived
-    # Deployment, so it never re-reads.
-    #
-    # Reloader rolls the pod when konflate-secret changes, which is the
-    # remedy the chart itself documents on this value. Restart cadence
-    # therefore equals the ExternalSecret's 30m refreshInterval.
+    # It *was* the fix in #13541, rolling the pod every 30m to chase an
+    # expiring installation token. Moving to App auth removed the expiry, and
+    # with it that restart cadence.
     deploymentAnnotations:
       reloader.stakater.com/auto: "true"
     service:

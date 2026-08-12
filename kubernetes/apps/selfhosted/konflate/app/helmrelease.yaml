@@ -90,22 +90,25 @@ spec:
     # routine PR set (home-operations/konflate#331) — so the limit has
     # to leave the GC room to work, not just cover steady state.
     #
-    # The chart default is 1Gi and its values.yaml says to raise it for
-    # very large clusters; this repo is ~170 HelmReleases. #12803's bulk
-    # resource backfill instead *halved* the default to 512Mi. That held
-    # on 0.4.3 (138Mi steady, 207Mi peak) but OOMKilled 0.5.0 75 times in
-    # 9h while rendering the repo-wide cilium 1.19.6→1.20.0 bump (#13381)
-    # — a sweeping render that fans out across every app in the repo.
+    # Back to the chart default. The 2Gi that preceded this was a
+    # workaround for OOMKills that upstream root-caused to something else
+    # entirely (home-operations/konflate#434): flate #871 taught a
+    # `spec.path: ./` Kustomization to match every changed file, so this
+    # repo's old bootstrap KS pulled a FULL-CLUSTER render (~170 HRs) into
+    # every PR diff. Upstream measured 531MiB peak that way vs 194MiB for
+    # the same PR's real scope. #13502 deleted that Kustomization, so the
+    # trigger is gone — the sizing problem went with it.
     #
-    # Going back to the chart's 1Gi default is plain sizing — that part
-    # just undoes #12803. The headroom ABOVE 1Gi is the workaround: at
-    # 2Gi the render burst measured 1120MiB working set / 833MiB heap
-    # before reclaiming to 360MiB, so 0.5.0 no longer renders a sweeping
-    # PR inside the shipped default. Caveat kept deliberately: GOMEMLIMIT
-    # scales with the limit, so that burst is partly Go spending headroom
-    # it was handed. It does NOT prove 1Gi would fail — only that we have
-    # not risked it while the upstream question is open.
-    # workaround: https://github.com/home-operations/konflate/issues/434 — remove when a konflate release renders a sweeping PR within the chart's 1Gi default
+    # Deliberately NOT measured first: GOMEMLIMIT scales with the limit,
+    # so at 2Gi Go simply spends the headroom it is handed and the true
+    # floor is unobservable from up there. Lowering the ceiling IS the
+    # measurement. Observed after the drop-in: ~264MiB working set for a
+    # scoped render. If a sweeping PR OOMKills this, raise it back —
+    # KubePodOOMKilled and the konflate alerts in prometheusrule.yaml both
+    # cover the failure, and the blast radius is one internal review UI.
+    #
+    # Do not "restore" 512Mi: that was #12803's bulk backfill halving the
+    # chart default, and it is what OOMKilled 0.5.0 75 times in 9h.
     #
     # If it recurs, the next levers are config `maxDiffConcurrency`
     # (concurrent PR renders, auto-capped at 4) and `renderConcurrency`
@@ -116,4 +119,4 @@ spec:
         cpu: 50m
         memory: 256Mi
       limits:
-        memory: 2Gi
+        memory: 1Gi

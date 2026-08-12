@@ -11,6 +11,21 @@ spec:
   interval: 30m
   values:
     defaultSettings:
+      # Longhorn cannot back up a DETACHED volume on its own — there is
+      # no engine to read from — so CronJob-driven and scaled-to-zero
+      # workloads missed their window silently, and the recurring job
+      # reported nothing wrong because it never had a volume to act on.
+      # `beets` sat 88 days with no recovery point this way: its CronJob
+      # carries timeZone America/New_York, so "0 */12 * * *" is
+      # 04:00/16:00 UTC and never overlapped the 00:00 UTC recurring
+      # window. Not a race — 0 of ~88 daily snapshots.
+      #
+      # With this enabled Longhorn auto-attaches such a volume, runs the
+      # job, then detaches again. Upstream caveat: while auto-attached
+      # the volume is unavailable to workloads, so one starting mid-job
+      # waits for it. That only applies to volumes that were ALREADY
+      # detached, so no running workload is interrupted.
+      allowRecurringJobWhileVolumeDetached: true
       backupTarget: "nfs://beast:/mnt/mass_storage/longhorn-backups"
       createDefaultDiskLabeledNodes: true
       defaultDataLocality: best-effort

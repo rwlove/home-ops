@@ -98,11 +98,22 @@ New Longhorn volumes need:
   is silently un-backed-up. This bit `paperless-data-xfs` after its
   2026-06-19 restore — see
   [[reference_longhorn_snapshot_not_crash_consistent_use_backup]].
-- A **detached** volume cannot be backed up (no engine to read from).
-  CronJob-only or scaled-to-zero workloads (e.g. `beets`) whose volume
-  is detached during the Saturday 00:00 UTC backup window silently miss
-  weekly backups — their DR floor is whenever the volume last happened
-  to be attached at backup time.
+- A **detached** volume cannot be backed up by itself (no engine to
+  read from), so CronJob-only or scaled-to-zero workloads used to miss
+  their window silently. **Fixed cluster-wide 2026-08-12** by setting
+  `allowRecurringJobWhileVolumeDetached: true` in the Longhorn
+  HelmRelease `defaultSettings`: Longhorn now auto-attaches a detached
+  volume, runs the recurring job, and detaches again. Do **not** design
+  around the old limitation, and do not build per-app backup glue for
+  it. Upstream caveat: while auto-attached the volume is unavailable to
+  workloads, so a workload starting mid-job waits for it to finish —
+  only ever an issue for a volume that was already detached.
+  `beets` was the volume that exposed this. Its CronJob carries
+  `timeZone: America/New_York`, so `0 */12 * * *` is 04:00/16:00 **UTC**
+  (~3h20m per run) and never overlapped the 00:00 UTC recurring window —
+  0 of ~88 daily snapshots, not an intermittent race. **When reasoning
+  about whether a volume is attached at job time, resolve the CronJob's
+  `timeZone` first — the schedule string alone will mislead you.**
 - `unmapMarkSnapChainRemoved=enabled` set per-Volume to prevent
   snapshot-pinned slack.
 - `chmod 755` on `lost+found` if the app runs non-root — fresh ext4

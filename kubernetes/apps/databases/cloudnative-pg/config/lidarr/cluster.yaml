@@ -22,6 +22,18 @@ spec:
       timezone: "America/New_York"
       max_slot_wal_keep_size: 10GB
       shared_buffers: 256MB
+      # Out-of-Git DB state (documented 2026-08-13). The application database is
+      # "lidarr-main" (the CNPG default "app" DB is empty/unused). Tables
+      # "Tracks", "TrackFiles" and "AlbumReleases" in lidarr-main carry per-table
+      # autovacuum reloptions applied directly via psql — CNPG has no declarative
+      # field for per-table reloptions:
+      #   ALTER TABLE "Tracks"        SET (autovacuum_analyze_scale_factor=0.02, autovacuum_analyze_threshold=500);
+      #   ALTER TABLE "TrackFiles"    SET (autovacuum_analyze_scale_factor=0.02, autovacuum_analyze_threshold=200);
+      #   ALTER TABLE "AlbumReleases" SET (autovacuum_analyze_scale_factor=0.02, autovacuum_analyze_threshold=100);
+      # They keep planner stats fresh enough to avoid intermittent read timeouts
+      # on the ArtistStatistics aggregate (a million-row three-way join). These
+      # reloptions do NOT survive a bootstrap.recovery onto a fresh cluster —
+      # reapply them after any restore.
 
   storage:
     size: 20Gi

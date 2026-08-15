@@ -128,6 +128,49 @@ spec:
                 name: pump-frontend
                 port: 8080
 
+      # Public PWA carve-out. The rest of this hostname is behind Authelia
+      # extAuth (securitypolicy.yaml, admin-only). But the Android/Brave
+      # WebAPK icon minter fetches the manifest and icons from a REMOTE
+      # Brave/Google service that has no Authelia session — so it was bounced
+      # to the login page and fell back to a generic monogram instead of the
+      # PUMP logo on the installed home-screen shortcut. These static files
+      # (the manifest + brand images — no user data) are served without
+      # extAuth so the minter can read them. Exact-path matches take Gateway
+      # API precedence over the frontend route's "/" PathPrefix, and the
+      # SecurityPolicy targets the pump-frontend route only, so this route is
+      # naturally unauthenticated. Everything else stays admin-only.
+      pwa:
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - matches:
+              - path:
+                  type: Exact
+                  value: /manifest.json
+              - path:
+                  type: Exact
+                  value: /fs/public/manifest.json
+              - path:
+                  type: Exact
+                  value: /fs/public/icon-192.png
+              - path:
+                  type: Exact
+                  value: /fs/public/icon-maskable.png
+              - path:
+                  type: Exact
+                  value: /fs/public/favicon.png
+              - path:
+                  type: Exact
+                  value: /fs/public/favicon.svg
+            backendRefs:
+              - kind: Service
+                name: pump-frontend
+                port: 8080
+
       # Off-cluster ingest path. Bypasses gateway extAuth and goes straight
       # to pump-api:8851. Scoped by path match to /api/weight and POST
       # /api/health — all other /api/* endpoints on this hostname 404.

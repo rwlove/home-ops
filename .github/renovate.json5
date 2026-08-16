@@ -3,7 +3,6 @@
   extends: [
     'config:recommended',
     'docker:enableMajor',
-    ':disableRateLimiting',
     ':dependencyDashboard',
     ':semanticCommits',
     ':enablePreCommit',
@@ -30,6 +29,15 @@
   ],
   timezone: 'America/New_York',
   rebaseWhen: 'auto',
+  // Pace merges so a dependency-dashboard flush can't avalanche. Ticking the
+  // dashboard checkboxes force-creates PRs and bypasses minimumReleaseAge;
+  // with automerge on and no rate limit (the removed ':disableRateLimiting'),
+  // a 27-PR flush merged within ~10 minutes on 2026-08-16 → a concurrent
+  // reconcile storm that saturated image pulls and took authelia (the
+  // ext-authz SPOF) down. These caps bound concurrent open PRs (== concurrent
+  // automerges/reconciles) and the creation rate, so a flush trickles instead.
+  prConcurrentLimit: 5,
+  prHourlyLimit: 3,
   commitBodyTable: true,
   // 'disabled' = plain git push. 'enabled' (Contents API) appears to
   // interact badly with Renovate's "Repository has changed during

@@ -2,8 +2,11 @@
 #
 # The mcp-gateway broker delivers MCP traffic to this proxy at /mcp.
 # We rewrite to Windmill's workspace-scoped MCP endpoint and inject
-# the Authorization: Bearer header from $WINDMILL_TOKEN (set via env
-# from the windmill-mcp-secret ExternalSecret).
+# the Authorization: Bearer header from the WINDMILL_TOKEN env var (set
+# from the windmill-mcp-secret ExternalSecret). NOTE: never write the
+# variable in $-form inside a comment — nginx's envsubst expands ${...}
+# and $NAME anywhere in this file, including comments, which would bake the
+# real token into the rendered conf. Only the proxy_set_header below uses it.
 #
 # Windmill's MCP route is HTTP streamable + SSE. Disable proxy
 # buffering and set generous timeouts so long-running tool calls
@@ -29,9 +32,10 @@ server {
         proxy_set_header Host windmill-app.home.svc.cluster.local;
         proxy_set_header Connection "";
         # Flux postBuild substitution is disabled on this generated CM (see the
-        # kustomization's generatorOptions.annotations), so `${WINDMILL_TOKEN}`
-        # passes through literally for nginx's envsubst to expand from the
-        # WINDMILL_TOKEN env var at startup.
+        # kustomization's generatorOptions.annotations), so the token
+        # placeholder below passes through literally for nginx's envsubst to
+        # expand from the WINDMILL_TOKEN env var at startup. (Do not repeat the
+        # placeholder in $-form in comments — envsubst would expand it here too.)
         proxy_set_header Authorization "Bearer ${WINDMILL_TOKEN}";
 
         # SSE / streamable-HTTP friendliness — Windmill MCP streams.

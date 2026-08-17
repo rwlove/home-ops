@@ -2233,24 +2233,24 @@
 <ol>
 <li><strong>Create the target database</strong>:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>kubectl<span class="w"> </span>cnpg<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>psql<span class="w"> </span>&lt;cluster-name&gt;<span class="w"> </span>--<span class="w"> </span>-c<span class="w"> </span><span class="s1">&#39;CREATE DATABASE immich;&#39;</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>kubectl<span class="w"> </span>cnpg<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>psql<span class="w"> </span>&lt;cluster-name&gt;<span class="w"> </span>--<span class="w"> </span>-c<span class="w"> </span><span class="s1">'CREATE DATABASE immich;'</span>
 </span></code></pre></div>
 <ol>
 <li><strong>Confirm you're against the primary</strong> (writes go to the primary; replicas are read-only):</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>kubectl<span class="w"> </span>cnpg<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>status<span class="w"> </span>&lt;cluster-name&gt;<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span><span class="s1">&#39;Primary instance:&#39;</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>kubectl<span class="w"> </span>cnpg<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>status<span class="w"> </span>&lt;cluster-name&gt;<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span><span class="s1">'Primary instance:'</span>
 </span></code></pre></div>
 <ol>
 <li><strong>Stream the dump in</strong> via the <a href="https://immich.app/docs/administration/backup-and-restore">Immich restore command</a>. The <code>sed</code> rewrite is required because Immich uses extensions whose <code>search_path</code> needs to be set explicitly during restore:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>gunzip<span class="w"> </span>&lt;<span class="w"> </span><span class="s2">&quot;immich-db-backup-1735455600013.sql.gz&quot;</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>sed<span class="w"> </span><span class="s2">&quot;s/SELECT pg_catalog.set_config(&#39;search_path&#39;, &#39;&#39;, false);/SELECT pg_catalog.set_config(&#39;search_path&#39;, &#39;public, pg_catalog&#39;, true);/g&quot;</span><span class="w"> </span><span class="se">\</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>gunzip<span class="w"> </span>&lt;<span class="w"> </span><span class="s2">"immich-db-backup-1735455600013.sql.gz"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>sed<span class="w"> </span><span class="s2">"s/SELECT pg_catalog.set_config('search_path', '', false);/SELECT pg_catalog.set_config('search_path', 'public, pg_catalog', true);/g"</span><span class="w"> </span><span class="se">\</span>
 </span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>kubectl<span class="w"> </span>cnpg<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>psql<span class="w"> </span>&lt;cluster-name&gt;<span class="w"> </span>--
 </span></code></pre></div>
 <ol>
 <li><strong>Verify</strong> the row counts after restore (replace <code>&lt;dump-row-count&gt;</code> with what you'd expect from the source):</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>kubectl<span class="w"> </span>cnpg<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>psql<span class="w"> </span>&lt;cluster-name&gt;<span class="w"> </span>--<span class="w"> </span>-d<span class="w"> </span>immich<span class="w"> </span>-c<span class="w"> </span><span class="s1">&#39;SELECT COUNT(*) FROM assets;&#39;</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>kubectl<span class="w"> </span>cnpg<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>psql<span class="w"> </span>&lt;cluster-name&gt;<span class="w"> </span>--<span class="w"> </span>-d<span class="w"> </span>immich<span class="w"> </span>-c<span class="w"> </span><span class="s1">'SELECT COUNT(*) FROM assets;'</span>
 </span></code></pre></div>
 <h2 id="when-to-use-this-vs-the-barman-path">When to use this vs the Barman path<a class="headerlink" href="#when-to-use-this-vs-the-barman-path" title="Permanent link">&para;</a></h2>
 <table>

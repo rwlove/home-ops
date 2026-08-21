@@ -1,0 +1,41 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cilium-config-drift
+spec:
+  groups:
+    # Cilium config-drift visibility. We drive Cilium's config entirely via
+    # `valuesFrom` into the cilium-config ConfigMap. A ConfigMap change only
+    # takes effect once the agents pick it up (many settings are read at
+    # startup, so they need `rollOutCiliumPods` / an agent restart). Until
+    # then the agent runs stale config silently — the exact failure mode
+    # that makes a "merged the PR but nothing changed" bug hard to spot.
+    #
+    # Metric: `cilium_drift_checker_config_delta` (cilium-agent, port 9962)
+    # is the count of config keys where the agent's active setting differs
+    # from the cilium-config ConfigMap. Shipped by the drift checker that is
+    # enabled by default as of Cilium 1.20 (`configDriftDetection.driftChecker`).
+    # 0 = agent matches ConfigMap. Verified live 2026-08-21: all 11 agents 0.
+    #
+    # A non-zero delta is expected briefly while a config rollout is in
+    # flight; the 30m `for` tolerates a normal rollout while catching config
+    # that is stuck unapplied (e.g. a change that needed a pod roll that
+    # never happened).
+    - name: cilium-config-drift
+      rules:
+        - alert: CiliumConfigDrift
+          annotations:
+            description: >-
+              cilium-agent on {{ $labels.node }} ({{ $labels.pod }}) has
+              {{ $value | humanize }} config key(s) that differ from the
+              cilium-config ConfigMap for 30m+. A cilium-config change has
+              not been applied to this agent — roll the Cilium DaemonSet
+              (rollOutCiliumPods) or restart the agent to converge.
+            summary: Cilium agent config drift on {{ $labels.node }}.
+          expr: |
+            max by (node, pod) (cilium_drift_checker_config_delta) > 0
+          for: 30m
+          labels:
+            severity: warning

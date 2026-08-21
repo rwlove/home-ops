@@ -1,0 +1,36 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: envoy-gateway-xds
+spec:
+  groups:
+    # Envoy Gateway xDS push health. `xds_nack_total` (added in Envoy
+    # Gateway 1.9.0, exposed by the controller on :19001/metrics) counts
+    # config pushes the data-plane Envoys REJECTED. A NACK means a
+    # translated resource (HTTPRoute / SecurityPolicy / *Policy) was
+    # invalid and the running Envoys kept their old config — a change that
+    # looks merged in Git but never took effect on the data plane. This is
+    # otherwise invisible: EG's own resources can look healthy while the
+    # push silently fails.
+    #
+    # Requires the `envoy-gateway` PodMonitor (this dir) scraping the
+    # controller. `xds_nack_total` does not exist until the controller is
+    # scraped; the alert stays inactive while the series is absent/zero.
+    - name: envoy-gateway-xds
+      rules:
+        - alert: EnvoyGatewayXdsNACK
+          annotations:
+            description: >-
+              Envoy Gateway received {{ $value | humanize }} xDS NACK(s) from
+              the data-plane Envoys in the last 10m — a translated resource
+              was rejected and the proxies are running stale config. Check
+              the envoy-gateway controller logs and the most recent
+              HTTPRoute / SecurityPolicy / *Policy change.
+            summary: Envoy Gateway xDS config push is being NACKed.
+          expr: |
+            sum(increase(xds_nack_total[10m])) > 0
+          for: 10m
+          labels:
+            severity: warning

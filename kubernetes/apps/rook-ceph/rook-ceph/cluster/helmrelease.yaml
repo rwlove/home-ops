@@ -9,6 +9,20 @@ spec:
     kind: OCIRepository
     name: rook-ceph-cluster
   interval: 1h
+  # A Ceph point-release bump rolls all OSDs one at a time; on this 8-OSD
+  # cluster that can exceed 15m. The default 15m timeout expiring mid-upgrade
+  # is what wedged the v1.20.6 bump (#13662): Helm rolled the CephCluster spec
+  # back to the old cephVersion while Rook kept the daemons on the new one,
+  # leaving Rook stuck "waiting for upgrade to finish" indefinitely. Give the
+  # upgrade room, and do NOT auto-rollback the terminal failure — a chart
+  # rollback that reverts cephVersion is never safe on a live cluster.
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+      remediateLastFailure: false
   postRenderers:
     # The rook-ceph cluster chart ships CephNodeDiskspaceWarning with
     # `device=~"/.*"` — which matches every block device on the node,
@@ -279,4 +293,4 @@ spec:
           - name: internal
             namespace: network
             sectionName: https
-  timeout: 15m
+  timeout: 30m

@@ -1,0 +1,55 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/nfd.k8s-sigs.io/nodefeaturerule_v1alpha1.json
+apiVersion: nfd.k8s-sigs.io/v1alpha1
+kind: NodeFeatureRule
+metadata:
+  name: gpu-operator-pascal-validator-skip
+spec:
+  # workaround: https://github.com/NVIDIA/gpu-operator/issues/389 — remove when gpu-operator makes cuda-validation architecture-aware (skips GPUs the bundled CUDA can't target) OR restores a per-validation disable toggle
+  # Tracking: home-ops#13689
+  #
+  # gpu-operator's `nvidia-operator-validator` runs a `cuda-validation`
+  # initContainer (`vectorAdd`) built against the operator image's CUDA
+  # toolkit. As of v26.7.0 that is CUDA 13, which dropped code generation
+  # for Pascal (sm_61). The Tesla P40 (compute capability 6.1) therefore
+  # has no kernel image in the sample and the validation fails:
+  #
+  #   Failed to launch vectorAdd kernel (error code named symbol not found)!
+  #
+  # The validator pod stays Init:Error, so the DaemonSet is perpetually
+  # not-ready on the P40 node (desired=2, ready=1 — the Spark / Blackwell
+  # node validates fine), firing KubeDaemonSetRolloutStuck +
+  # KubeContainerWaiting + KubePodNotReady forever.
+  #
+  # This is a FALSE NEGATIVE, not a real fault: the device-plugin is
+  # healthy, nvidia.com/gpu:8 (time-sliced) is allocatable, the HelmRelease
+  # is Ready, and real CUDA-12 workloads (ollama etc.) run on the P40. The
+  # validator is testing the card with a CUDA version that cannot target it.
+  #
+  # The gpu-operator chart exposes no per-check disable (validator values
+  # cover only env/args/plugin.env/image), and pinning the operator is a
+  # dead end — CUDA 13 dropped Pascal permanently and R580 is NVIDIA's last
+  # driver branch to support it, so every future version fails identically.
+  #
+  # Fix: opt the P40 out of the operator-validator DaemonSet via the
+  # documented gpu-operator label `nvidia.com/gpu.deploy.operator-validator
+  # =false`. The operator honors an externally-set deploy label and stops
+  # scheduling the operand there — the same mechanism this repo already uses
+  # to skip the container-toolkit DS on CRI-O nodes
+  # (gpu-operator-runtime-override.yaml). The DaemonSet's desired count
+  # drops to 1 (Spark only), goes fully ready, and the alerts clear at the
+  # source. The device-plugin, GFD, DCGM and node-status-exporter operands
+  # are unaffected — none depend on the validator, and P40 serving is
+  # already independently monitored (device-plugin health + ollama probe).
+  #
+  # Scoped precisely to the P40 by PCI id (10de:1b38) rather than by runtime
+  # so a future non-Pascal GPU on any node still gets validated normally.
+  rules:
+    - name: gpu-operator-pascal-validator-skip
+      labels:
+        nvidia.com/gpu.deploy.operator-validator: "false"
+      matchFeatures:
+        - feature: pci.device
+          matchExpressions:
+            vendor: {op: In, value: ["10de"]}
+            device: {op: In, value: ["1b38"]}

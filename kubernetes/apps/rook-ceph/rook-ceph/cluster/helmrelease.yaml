@@ -133,6 +133,20 @@ spec:
             cpu: 100m
             memory: 4Gi
 
+      # Rotate CephX daemon keys (mon/mgr/osd/mds, RGW, and Rook's admin key)
+      # from legacy AES to the aes256k cipher — the fix for CVE-2025-30156. This
+      # clears the AUTH_INSECURE_SERVICE_KEY_TYPE + AUTH_INSECURE_SERVICE_TICKETS
+      # HEALTH_ERR. Rook drives the rotation and the OSD bluestore-label + keyring
+      # Secret sync; it triggers a rolling daemon restart (PVCs stay active). CSI
+      # and other client keys stay on AES for now (aes256k needs node kernel
+      # >= 7.0) — that residual is HEALTH_WARN only and tracked separately. Bump
+      # keyGeneration to rotate again in the future.
+      security:
+        cephx:
+          daemon:
+            keyRotationPolicy: KeyGeneration
+            keyGeneration: 2
+
       storage:
         config:
           osdsPerDevice: "1"

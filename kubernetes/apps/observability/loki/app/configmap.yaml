@@ -101,3 +101,28 @@ data:
               category: logs
             annotations:
               summary: "Node-Red is unable to connect to Home Assistant"
+
+      # Kuadrant mcp-gateway per-tool-call audit trail (broker v0.9.0+ emits
+      # `level=INFO msg="tool call" ... audit=true ... status=<code>`). A
+      # sustained burst of non-200 tool calls means an MCP backend is down /
+      # erroring, or the tool surface is being probed. Line-filter style (not
+      # `| logfmt`) mirrors the other rules here and is robust to the Loki
+      # sink's json event encoding. status=200 is the success case; anything
+      # else is a failed call. Verified live 2026-08-21: broker on v0.9.0,
+      # stream is {app="mcp-gateway", namespace="mcp-system"}.
+      - name: mcp-gateway
+        rules:
+          - alert: MCPGatewayToolCallFailures
+            expr: |
+              sum(count_over_time({app="mcp-gateway", namespace="mcp-system"} |= "audit=true" != "status=200" [5m])) > 5
+            for: 5m
+            labels:
+              severity: warning
+              category: logs
+            annotations:
+              summary: "mcp-gateway: sustained failed MCP tool calls"
+              description: >-
+                {{ $value | humanize }} MCP tool calls returned a non-200
+                status in the last 5m. Check the mcp-gateway broker logs
+                (audit=true lines) for the failing tool/server/status — a
+                backend MCP server is likely down or erroring.

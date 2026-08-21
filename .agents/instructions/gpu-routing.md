@@ -10,13 +10,23 @@ below; nothing was migrated because there was nothing left to migrate.
 
 ## Local cluster GPU inventory
 
-- **P40** (Pascal, 24GB VRAM) — currently on a worker node. Used for
-  ≤8b-class inference; bge-m3 + nomic embedders; Ollama-served.
-  Pre-Spark generation.
+- **P40** (Pascal, sm_61, 24GB VRAM) — on worker8 (CRI-O). Used for
+  ≤8b-class inference; bge-m3 + nomic embedders; Ollama-served. **A
+  permanent cluster member, not a transitional one** — it coexists with
+  the Spark long term. Serving longevity is bounded by the NVIDIA **R580**
+  driver branch (NVIDIA's last to support Pascal; host-managed via
+  `driver.enabled: false`): keep worker8's host driver on 580.x, never
+  bump to 590+ or the card drops off the cluster. gpu-operator's
+  `cuda-validation` can't validate Pascal under CUDA 13 (a false
+  negative), so the `operator-validator` DaemonSet is disabled on this
+  node by PCI id via
+  `node-feature-discovery/rules/gpu-operator-pascal-validator-skip.yaml`
+  (home-ops#13689).
 - **DGX Spark** (NVIDIA GB10, Grace-Blackwell) — on its own host
   running Ubuntu 24.04 / containerd (the lone non-CRI-O node — see
   `reference_cluster_runtime_inventory` in memory). Used for larger
-  inference; the Spark migration is in progress.
+  inference. It **adds** big-model capacity alongside the P40; it does
+  not replace it.
 
 ## Runtime split matters for gpu-operator
 
@@ -100,8 +110,8 @@ Benchmarks aggregator: <https://spark-arena.com>.
 
 ## Routing decisions
 
-- Rule of thumb: ≤8b → P40; larger → Spark (until the Spark migration
-  is documented as complete).
+- Rule of thumb: ≤8b → P40; larger → Spark. Both are permanent — this
+  is a stable capacity split, not a transition.
 
 ## What this is NOT
 

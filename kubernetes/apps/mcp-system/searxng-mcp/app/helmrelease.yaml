@@ -26,7 +26,10 @@ spec:
           app:
             image:
               repository: docker.io/isokoliuk/mcp-searxng
-              # workaround: https://github.com/ihor-sokoliuk/mcp-searxng/issues/256 — 2.0.0 CANARY testing MCP_HTTP_STATELESS=true, the maintainer's suggested compat mode for the Kuadrant mcp-gateway broker's session-less request (bare ping). Stateless mode is POST-only: no legacy GET/DELETE /mcp, cross-request subscriptions, resumability, or server->client notifications — acceptable for a request/response search tool. Remove the env + this note once 2.0.0 federates cleanly (or the broker ships the stateful 2026-07-28 handshake, Kuadrant/mcp-gateway#1419). Renovate still pinned <2.0.0 in .github/renovate/packageRules.json5.
+              # 2.0.0 needs MCP_HTTP_STATELESS=true to federate through the
+              # Kuadrant mcp-gateway broker (workaround annotation is on that
+              # env below). Renovate <2.0.0 pin removed 2026-08-22 — 2.0.0
+              # verified working with stateless mode (mcp-searxng#256).
               tag: "2.0.0@sha256:485544ea18394c8c971f3db0f4f75d61422f7a95aae64fc72ca86118f4f05ce4"
             env:
               SEARXNG_URL: http://searxng.collab.svc.cluster.local:8080
@@ -35,10 +38,7 @@ spec:
               # interfaces for cluster traffic to reach it.
               MCP_HTTP_HOST: "0.0.0.0"
               MCP_HTTP_PORT: "3000"
-              # CANARY (mcp-searxng#256): POST-only stateless mode so 2.0.0
-              # accepts the broker's session-less request instead of rejecting
-              # it (hasInitializeRequest=false, sessionId=undefined). Remove
-              # with the 1.16.0 pin if the canary is reverted.
+              # workaround: https://github.com/Kuadrant/mcp-gateway/issues/1419 — remove when the mcp-gateway broker carries the session-ID/protocol-version for the stateful 2026-07-28 handshake instead of sending a session-less request. Until then 2.0.0's strict streamable-HTTP layer rejects the broker POST as `hasInitializeRequest=false, sessionId=undefined`; POST-only stateless mode accepts it. Dropping this env restores legacy GET/DELETE /mcp + subscriptions + server->client notifications, none of which a request/response search tool needs. Verified working 2026-08-22 (mcp-searxng#256). Tracking issue #13682.
               MCP_HTTP_STATELESS: "true"
             resources:
               requests:

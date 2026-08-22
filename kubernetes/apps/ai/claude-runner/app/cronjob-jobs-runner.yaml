@@ -112,10 +112,29 @@ spec:
                   ran=0
                   for f in "$DIR"/*.md; do
                     [ -e "$f" ] || continue
-                    echo "=== job: $(basename "$f") ==="
-                    claude --print --allowedTools "Bash(curl:*)" --max-turns 25 < "$f" \
-                      || echo "job $(basename "$f") failed (continuing)"
+                    name=$(basename "$f" .md)
+                    echo "=== job: $name ==="
+                    # Claude READS Prometheus (curl, no secret → allowed) and
+                    # REASONS, printing the digest (or the word CLEAN) to stdout.
+                    # It does NOT send Pushover itself: claude --print auto-denies
+                    # a Bash command that reads a secret env var AND hits the
+                    # network. So the RUNNER SHELL delivers the digest below —
+                    # PUSHOVER_TOKEN never touches a Claude tool call.
+                    OUT=$(claude --print --allowedTools "Bash(curl:*)" --max-turns 25 < "$f" 2>&1) || {
+                      echo "job $name: claude run failed (continuing)"; continue; }
                     ran=$((ran + 1))
+                    SIG=$(printf '%s' "$OUT" | tr -d '[:space:]')
+                    if [ -z "$SIG" ] || [ "$SIG" = "CLEAN" ]; then
+                      echo "job $name: nothing to report"; continue
+                    fi
+                    MSG=$(printf '%s' "$OUT" | cut -c1-1000)
+                    H=$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' \
+                          --form-string "token=$PUSHOVER_TOKEN" \
+                          --form-string "user=$PUSHOVER_USER" \
+                          --form-string "title=$name $(date -u +%Y-%m-%d)" \
+                          --form-string "message=$MSG" \
+                          https://api.pushover.net/1/messages.json) || { echo "job $name: pushover errored"; continue; }
+                    echo "job $name: pushover HTTP $H"
                   done
                   echo "ran $ran job(s)"
                   [ "$ran" -gt 0 ] || echo "NOTE: no job notes found in $DIR"

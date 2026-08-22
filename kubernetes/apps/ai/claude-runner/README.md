@@ -68,6 +68,62 @@ transcripts + scratch clones survive pod restarts. Needs the tmux-bearing image
 repo). Egress is the same CNP as the cron workflows (read-only Prometheus +
 world:443); attach is via `kubectl exec`, no route.
 
+## Vault bridge — the Obsidian vault as files in the pod (Phase 3)
+
+`deployment-shell.yaml` runs a **`vault-bridge` sidecar** next to the `shell`
+container so the in-cluster Claude sees the same `~/vaults/claude` files as the
+laptop. It mounts into the shell at **`/home/node/vaults/claude`**.
+
+**How it works.** The laptop's Obsidian syncs the vault into CouchDB
+(`obsidian.${SECRET_DOMAIN}`) via the Self-hosted LiveSync plugin. The sidecar
+runs the plugin author's **official** headless CLI — `ghcr.io/vrtmrz/livesync-cli`,
+same repo and core as the plugin — in its `daemon` mode: an initial mirror scan
+then continuous bidirectional replication between CouchDB and the local
+filesystem (CouchDB → files via the `_changes` feed; files → CouchDB via a file
+watcher). It talks to CouchDB over the **in-cluster** Service
+`obsidian-couchdb.collab.svc.cluster.local:5984` (not the public route).
+
+**Topology: sidecar, not standalone.** The bridge and the shell share one RWO
+`ceph-block` PVC (`claude-vault-data`) inside a single pod — `/db` (the CLI's
+PouchDB database) and `/vault` (the materialised `.md` files) are subPaths of
+it. A standalone bridge Deployment would need the vault PVC to be RWX, and this
+cluster's only RWX pattern is direct-NFS (not ceph/Longhorn), so the sidecar is
+the deliberate choice. The vault is regenerable from CouchDB, so `ceph-block`
+(rule 2) is correct; CouchDB stays the source of truth.
+
+**⚠ CouchDB is canonical; the pod is a SECONDARY writer.** LiveSync is
+eventually-consistent. If pod-Claude and the laptop edit the *same note* at the
+same time, LiveSync records **conflict revisions** rather than losing data —
+resolve them from Obsidian on the laptop (the conflict-resolution UI). Treat the
+in-cluster copy as a working mirror, not the primary.
+
+### Verify (comes up on merge)
+
+No extra activation step: the db name (`claude`) and `encrypt: false` are inline
+in `externalsecret-vault-bridge.yaml` — the `claude` vault is **not** E2E-encrypted
+(verified against the live db, plaintext docs) — and the CouchDB creds
+(`couchdb_username`/`couchdb_password`) are already in the 1P `obsidian` item. On
+merge the shell pod rolls once (Recreate) and the `vault-bridge` sidecar connects
+and materialises the vault. Confirm:
+
+```sh
+kubectl -n ai logs deploy/claude-runner-shell -c vault-bridge
+kubectl -n ai exec deploy/claude-runner-shell -c shell -- ls /home/node/vaults/claude
+```
+
+> **Merge disruption:** the shell Deployment is `strategy: Recreate`, so merging
+> this Phase-3 change replaces the pod once — the running tmux session is lost
+> (start it fresh after the roll). Land it in a routine window.
+
+### Network
+
+- `cnp-allow.yaml` (ai ns) adds an egress hole to `obsidian-couchdb:5984` in
+  `collab`. Both containers share the pod's Cilium identity
+  (`app.kubernetes.io/name: claude-runner`), so the hole covers the sidecar.
+- `obsidian-couchdb/app/cnp-allow.yaml` (collab ns) adds the matching ingress
+  rule from `ai`/`claude-runner`. Both namespaces are default-deny; DNS is
+  already granted by the baseline component.
+
 ## Add a Claude-tier workflow
 
 Copy `cronjob-flux-longhorn-drift-digest.yaml`, then:

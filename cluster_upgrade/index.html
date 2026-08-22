@@ -1007,6 +1007,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#optimizations--lessons-from-the-136-run--reuse-these-next-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Optimizations &amp; lessons from the 1.36 run — reuse these next time
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2485,6 +2496,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#optimizations--lessons-from-the-136-run--reuse-these-next-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Optimizations &amp; lessons from the 1.36 run — reuse these next time
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2811,6 +2833,54 @@ auto-on — audit <code>seLinuxChangePolicy</code> first), pod-level in-place re
 (beta), HPA scale-to-zero (beta), user namespaces (GA), node log query
 (GA), CSI volume group snapshots (GA). Verify each against the <em>deployed</em>
 chart/arch before implementing.</p>
+<h3 id="optimizations--lessons-from-the-136-run--reuse-these-next-time">Optimizations &amp; lessons from the 1.36 run — reuse these next time<a class="headerlink" href="#optimizations--lessons-from-the-136-run--reuse-these-next-time" title="Permanent link">&para;</a></h3>
+<p>The 1.36 run was hand-driven and iterated on live; the distilled, reusable
+automation now lives in <strong><a href="https://github.com/rwlove/home-ops/tree/main/tools/cluster-upgrade"><code>tools/cluster-upgrade/</code></a></strong>
+(<code>predownload.sh</code>, <code>rolling-upgrade.sh</code>, and a README). Start there next time.
+The per-node critical path dropped from ~40 min to ~7–10 min once these were in.</p>
+<p><strong>Speed optimizations (each safe; #2 needs an explicit "reduced-redundancy-OK"):</strong></p>
+<ol>
+<li><strong>Pre-download packages in parallel first.</strong> <code>dnf/apt --downloadonly
+   --setopt=keepcache=1</code> across every node warms the cache so the real
+   <code>dnf upgrade</code> installs from disk. Removes ~10 min of download per node.</li>
+<li><strong>Clear Longhorn nodes by DELETE, not eviction.</strong> <code>evictionRequested</code>
+   rebuilds every replica off the node <em>before</em> removing it (~12–25 min/node).
+   Instead, <strong>delete</strong> each replica that has a healthy copy on another node
+   (instant) and only evict a replica that is its volume's <em>last</em> healthy copy.
+   Longhorn re-replenishes the deleted replicas in the background afterward.
+   Trades temporary redundancy for speed — get operator sign-off. worker4
+   cleared in ~43 s this way vs. ~12–25 min by eviction.</li>
+<li><strong>Faulted-only health gate.</strong> Don't gate drains on full Longhorn health
+   (that waits for rebuild-back churn). Block only if a volume is <em>faulted</em>
+   (0 replicas). Degraded / reduced-redundancy proceeds.</li>
+<li><strong>Idempotent orchestrator.</strong> Skip nodes already at the target version →
+   the run is safe to stop and relaunch (which happened repeatedly). The skip
+   path also re-uncordons, so a node left cordoned by an abort self-heals.</li>
+</ol>
+<p><strong>Failure modes hit in 1.36 (added to the table below):</strong></p>
+<ul>
+<li><strong>Longhorn dual instance-managers block the drain.</strong> The 1.12.0→1.12.1 chart
+  bump upgraded Longhorn's control plane but <strong>not the data plane</strong> — the engine
+  image page showed the old engine holding <em>all</em> replica references, so every
+  node ran an old + new IM, each with a <code>disruptionsAllowed:0</code> PDB that blocks
+  <code>kubectl drain</code>. Workaround: after clearing replicas, <strong>delete the node's now-
+  empty IM pods</strong> (<code>kubectl delete</code> bypasses the PDB). Real fix: a Longhorn
+  <strong>engine live-upgrade of all volumes</strong>, done as separate maintenance <em>after</em>
+  the k8s upgrade — never stacked on it.</li>
+<li><strong>Cordoned node + deleted OSD deadlock.</strong> A drain's OSD-delete fallback plus an
+  aborted run leaves the node cordoned with its OSD <code>Pending</code> → ceph stuck at
+  N-1/N → the next <code>ceph_gate</code> hangs. <strong>Uncordon</strong> the node so the OSD
+  reschedules.</li>
+<li><strong>Stalled replica rebuild.</strong> A replica rebuilding from a source that was on an
+  evicted node freezes (progress static, 0 MB/s). <strong>Delete the stuck replica</strong>
+  so it re-rebuilds from a healthy source. (Clearing by delete avoids this.)</li>
+<li><strong>CoreDNS preflight (see 1.36 deltas above):</strong> <code>--ignore-preflight-errors=
+  CoreDNSUnsupportedPlugins,CoreDNSMigration --skip-phases=addon</code>.</li>
+</ul>
+<p><strong>Phase-5 restore list (settings toggled live for the run):</strong>
+<code>node-drain-policy</code> → <code>block-if-contains-last-replica</code>;
+<code>replica-replenishment-wait-interval</code> → <code>600</code>; resume descheduler; etcd defrag;
+then the deferred Longhorn engine upgrade + old-IM GC.</p>
 <h2 id="state-at-the-start-of-the-upgrade">State at the start of the upgrade<a class="headerlink" href="#state-at-the-start-of-the-upgrade" title="Permanent link">&para;</a></h2>
 <table>
 <thead>

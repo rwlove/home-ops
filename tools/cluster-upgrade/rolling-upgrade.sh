@@ -166,7 +166,7 @@ pkg_upgrade_reboot(){ # CentOS/cri-o RPM node. $2 optional dnf exclude (e.g. GPU
   nssh $w "set -e
     dnf install -y kubeadm-$KVER kubelet-$KVER kubectl-$KVER
     kubeadm upgrade node --ignore-preflight-errors=CoreDNSUnsupportedPlugins,CoreDNSMigration
-    if [ -n \"$excl\" ]; then ( set -f; dnf upgrade -y $excl ); else dnf upgrade -y; fi
+    if [ -n \"$excl\" ]; then ( set -o noglob; dnf upgrade -y $excl ); else dnf upgrade -y; fi  # portable noglob (nodes run zsh; bash 'set -f' != noglob in zsh)
     LK=\$(ls -1 /boot/vmlinuz-* | grep -v rescue | sort -V | tail -1 | sed 's|/boot/vmlinuz-||')
     [ -f /boot/initramfs-\${LK}.img ] || dracut -f /boot/initramfs-\${LK}.img \$LK
     systemctl enable crio kubelet

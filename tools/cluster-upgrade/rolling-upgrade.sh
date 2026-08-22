@@ -48,14 +48,14 @@ VER="v$KVER"
 KHOST="${KHOST:-master1}"   # healthy master used as kubectl proxy (never the target)
 ETCDHOST="${ETCDHOST:-master1}"
 
-kc(){ local a q=""; for a in "$@"; do q+=" $(printf '%q' "$a")"; done; ssh -o ConnectTimeout=8 -o BatchMode=yes root@$KHOST.$D "kubectl$q"; }
+kc(){ local a q=""; for a in "$@"; do q+=" $(printf '%q' "$a")"; done; ssh -o ConnectTimeout=8 -o BatchMode=yes root@$KHOST.$D "kubectl --kubeconfig=/etc/kubernetes/admin.conf$q"; }  # admin.conf: not every CP node's root has a default kubeconfig
 nssh(){ local h=$1; shift; ssh -o ConnectTimeout=8 -o BatchMode=yes root@$h.$D "$@"; }
 die(){ echo "!!!!! ABORT: $* !!!!!"; exit 1; }
 ts(){ date '+%H:%M:%S'; }
 
 verify_quorum(){ # require 3/3 etcd members healthy (adjust count for your CP size)
   local out h
-  out=$(nssh $ETCDHOST "kubectl -n kube-system exec etcd-$ETCDHOST.$D -- etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key endpoint health --cluster" 2>&1)
+  out=$(nssh $ETCDHOST "kubectl --kubeconfig=/etc/kubernetes/admin.conf -n kube-system exec etcd-$ETCDHOST.$D -- etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key endpoint health --cluster" 2>&1)
   h=$(echo "$out" | grep -c "is healthy")
   echo "  [$(ts)] etcd quorum: $h/3 healthy"
   [ "$h" -eq 3 ] || die "etcd quorum $h/3 (need 3): $out"

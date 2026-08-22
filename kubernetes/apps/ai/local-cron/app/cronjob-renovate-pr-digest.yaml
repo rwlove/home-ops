@@ -1,0 +1,185 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/cronjob-batch-v1.json
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: local-cron-renovate-pr-digest
+  labels:
+    app.kubernetes.io/name: local-cron
+spec:
+  # SHIPPED SUSPENDED (see ./README.md → Activation). Even with the ks
+  # unsuspended, this CronJob does not fire until `spec.suspend` is removed.
+  suspend: true
+  # 30 12 * * * UTC = 08:30 EDT / 07:30 EST, daily — 30 min after the
+  # loki-error-skim (0 12) so the two don't share a P40 model-load spike,
+  # and off the mcp-gateway 04:30 rotation. Daily is justified here: this
+  # cluster runs Renovate automerge, so the open queue turns over fast (see
+  # the 27-PR-storm incident in memory) — a daily read of what is currently
+  # pending/stuck is fresh, not repetitive. Silent on an empty queue, so a
+  # quiet day costs no notification.
+  schedule: "30 12 * * *"
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      # 15 min hard cap: one GitHub REST call + a qwen2.5:7b generation.
+      activeDeadlineSeconds: 900
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: local-cron
+          annotations:
+            k8tz.io/inject: "false"
+        spec:
+          # amd64 image; ai ns also has arm64 Spark nodes — pin so the pod
+          # can't land on Spark and hit an exec-format error.
+          nodeSelector:
+            kubernetes.io/arch: amd64
+          serviceAccountName: local-cron
+          automountServiceAccountToken: false
+          restartPolicy: OnFailure
+          containers:
+            - name: digest
+              # Carries curl + jq (same image as loki-error-skim). NOTE:
+              # `date` is busybox — the PR-age math is done in jq (which has
+              # `now` + `fromdateiso8601`), not with `date -d`.
+              image: docker.io/alpine/k8s:1.36.2@sha256:44ef4942e171939b9c665a4a84beb80e2dcdb9a24330d4651cfdfd2e9deecc47
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -ceu
+                # Flux postBuild runs envsubst in STRICT mode over this
+                # manifest: a bare ${VAR} is read as a Flux substitution and
+                # fails the whole Kustomization with "variable not set".
+                # Every shell `$` is doubled (`$$`) so the rendered manifest
+                # carries a literal `$` for /bin/sh. Same convention as
+                # cronjob-loki-error-skim.yaml.
+                - |
+                  GITHUB_API="https://api.github.com/repos/rwlove/home-ops/pulls"
+                  OLLAMA="http://ollama.ai.svc.cluster.local:11434"
+                  MODEL="qwen2.5:7b"
+                  DAY="$$(date -u +%Y-%m-%d)"
+
+                  # (1) Fetch open PRs. home-ops is a PUBLIC repo, so this is
+                  # UNAUTHENTICATED — no token, no secret. Unauth GitHub REST
+                  # is 60 req/hr, far above one daily call. api.github.com is
+                  # reached over the existing world:443 egress (shared with
+                  # Pushover); no CNP change was needed.
+                  PRS="$$(curl -sSG --max-time 60 \
+                            -H 'Accept: application/vnd.github+json' \
+                            -H 'X-GitHub-Api-Version: 2022-11-28' \
+                            "$$GITHUB_API" \
+                            --data-urlencode "state=open" \
+                            --data-urlencode "per_page=100")" || {
+                    echo "FATAL: GitHub API request failed"
+                    exit 1
+                  }
+
+                  # Hard-fail on a non-array payload (rate-limit / error
+                  # object) so a broken job is VISIBLE instead of looking
+                  # like an empty queue.
+                  if ! printf '%s' "$$PRS" | jq -e 'type=="array"' >/dev/null 2>&1; then
+                    echo "FATAL: GitHub API did not return a PR array"
+                    printf '%s' "$$PRS" | head -c 300
+                    exit 1
+                  fi
+
+                  # (2) Keep only Renovate-authored PRs; format
+                  # "#<num> [<age>d] <title>", oldest first. jq computes age
+                  # from created_at.
+                  LIST="$$(printf '%s' "$$PRS" | jq -r '
+                    [ .[] | select(.user.login | test("renovate"; "i")) ]
+                    | sort_by(.created_at)
+                    | .[]
+                    | "#\(.number) [\(((now - (.created_at | fromdateiso8601)) / 86400) | floor)d] \(.title)"
+                  ')"
+
+                  if [ -z "$$LIST" ]; then
+                    echo "No open Renovate PRs. Nothing to report."
+                    exit 0
+                  fi
+
+                  COUNT="$$(printf '%s\n' "$$LIST" | grep -c '^#' || true)"
+                  echo "Open Renovate PRs ($$COUNT):"
+                  printf '%s\n' "$$LIST"
+
+                  # (3) Summarize with the LOCAL model (Ollama, P40) — never
+                  # Claude. Build the /api/generate body with jq so the PR
+                  # titles are safely JSON-escaped.
+                  PROMPT="You are a release-hygiene assistant for a home Kubernetes GitOps repo. Below are the currently-open Renovate dependency-update PRs (number, age in days, title). Produce a terse digest (max 10 short lines, plain text, no markdown): the total count; flag any likely MAJOR version bumps (a jump in the leading version number in the title) as needing manual review; call out any PR older than 7 days as stuck; group the rest briefly by kind (container images, Helm charts, GitHub Actions). Do not invent PRs that are not listed. Data:\n\n$${LIST}"
+
+                  REQ="$$(jq -n --arg m "$$MODEL" --arg p "$$PROMPT" \
+                          '{model:$$m, prompt:$$p, stream:false, options:{num_predict:400, temperature:0.2}}')"
+
+                  SUMMARY="$$(curl -sSf --max-time 300 \
+                              -H 'Content-Type: application/json' \
+                              -d "$$REQ" \
+                              "$${OLLAMA}/api/generate" \
+                            | jq -r '.response // empty')" || {
+                    echo "FATAL: Ollama summarization failed"
+                    exit 1
+                  }
+
+                  if [ -z "$$SUMMARY" ]; then
+                    echo "FATAL: Ollama returned an empty summary"
+                    exit 1
+                  fi
+
+                  echo "----- local-model digest -----"
+                  printf '%s\n' "$$SUMMARY"
+
+                  # (4) Send ONE Pushover notification (private channel).
+                  # Pushover message limit is 1024 chars; truncate to be safe.
+                  MSG="$$(printf '%s' "$$SUMMARY" | cut -c1-1000)"
+                  HTTP="$$(curl -sS --max-time 30 -o /tmp/pushover.out -w '%{http_code}' \
+                            --form-string "token=$${PUSHOVER_TOKEN}" \
+                            --form-string "user=$${PUSHOVER_USER}" \
+                            --form-string "title=renovate-pr-digest $${DAY}" \
+                            --form-string "message=$${MSG}" \
+                            https://api.pushover.net/1/messages.json)" || {
+                    echo "FATAL: Pushover request errored"
+                    exit 1
+                  }
+                  case "$$HTTP" in
+                    2??) echo "Pushover digest sent (HTTP $$HTTP)";;
+                    *) echo "FATAL: Pushover returned HTTP $$HTTP"; cat /tmp/pushover.out; exit 1;;
+                  esac
+              env:
+                - name: HOME
+                  value: /tmp
+                - name: TZ
+                  value: America/New_York
+              envFrom:
+                - secretRef:
+                    name: local-cron-secret
+                    optional: false
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir:
+                medium: Memory
+                sizeLimit: 64Mi

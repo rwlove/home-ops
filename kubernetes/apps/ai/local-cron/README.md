@@ -29,18 +29,25 @@ The load-bearing design points:
 | Workflow | Schedule (UTC) | Tier | What |
 |---|---|---|---|
 | `loki-error-skim` | `0 12 * * *` (08:00 EDT / 07:00 EST, daily) | Local (Ollama) | LogQL-rank the top error/panic/fatal log producers in Loki over 24h, pull a small sample of lines from the top 5, have the local model distill them into a terse pattern digest, send ONE Pushover message. Silent (exit 0, no push) when there are no error lines. |
+| `renovate-pr-digest` | `30 12 * * *` (08:30 EDT / 07:30 EST, daily) | Local (Ollama) | List the open Renovate PRs (unauthenticated GitHub REST — the repo is public), have the local model produce a terse digest that flags likely major bumps + PRs stuck > 7 days and groups the rest by kind, send ONE Pushover message. Silent (exit 0, no push) when the queue is empty. |
 
 Query path: `topk(15, sum by (namespace, app) (count_over_time({namespace=~".+"} |~ "(?i)(error|panic|fatal|traceback|exception)" [24h])))`
 against `loki:3100` (Loki stream labels here are `app` / `namespace` /
 `node`, set by the Vector aggregator sink).
 
-## Why Loki (not the PR-summary fallback)
+## Why Loki first, PR digest second
 
-Loki was the clean wire: `auth_enabled: false`, monolithic SingleBinary,
-one Service (`loki.observability:3100`), and a real LogQL metric API that
-does the ranking server-side. The PR-summary fallback would have needed a
-`gh` token + world egress to `api.github.com` for a weaker signal. Loki
-gives a genuine ops-triage digest with no extra credential.
+Loki was the clean first wire: `auth_enabled: false`, monolithic
+SingleBinary, one Service (`loki.observability:3100`), and a real LogQL
+metric API that does the ranking server-side — a genuine ops-triage
+digest with no extra credential.
+
+The PR digest was originally deferred because a PR summary was assumed to
+need a `gh` token. It doesn't: **home-ops is a public repo**, so the
+Renovate-queue read is unauthenticated GitHub REST (60 req/hr unauth ≫ one
+daily call) and rides the same `world:443` egress Pushover already uses —
+no token, no secret, no CNP change. That removed the only reason it was
+held back, so it now ships alongside the log skim.
 
 ## Network policy
 
@@ -48,8 +55,10 @@ The `ai` namespace is default-deny; `observability` is default-deny
 ingress. Two holes were punched:
 
 - **`ai/local-cron/app/cnp-allow.yaml`** (egress): `loki.observability:3100`
-  plus `world:443` (Pushover). Ollama is **intra-ns** (both in `ai`), so it
-  rides the baseline `allow-intra-namespace` — no rule needed.
+  plus `world:443` (Pushover **and** `api.github.com` for the PR digest —
+  both external HTTPS, one rule). Ollama is **intra-ns** (both in `ai`), so
+  it rides the baseline `allow-intra-namespace` — no rule needed. The PR
+  digest added **no** new egress.
 - **`observability/loki/app/cnp-allow.yaml`** (ingress): added
   `ai/local-cron` as a cross-ns source on `loki:3100`. Loki previously had
   no ingress rules (only intra-ns Grafana/Vector via baseline), so this
@@ -70,14 +79,19 @@ order:
    (`local-cron-secret`), the CNP, the RBAC, and the CronJob object. The
    CronJob is still `suspend: true`, so nothing fires yet. Verify:
    `kubectl -n ai get externalsecret local-cron` shows `SecretSynced`.
-3. **Test once, out of band.** With the CronJob still suspended:
-   `kubectl -n ai create job --from=cronjob/local-cron-loki-error-skim skim-test`
-   then `kubectl -n ai logs job/skim-test -f`. Expect the ranked list, the
-   `----- local-model digest -----` block, and `Pushover digest sent`. If
-   Loki returns no error lines it exits 0 with "Nothing to report" and
-   sends nothing — that is success, not failure.
-4. **Unsuspend the CronJob** — remove `spec.suspend: true` from
-   `cronjob-loki-error-skim.yaml`. It now runs daily at 12:00 UTC.
+3. **Test once, out of band.** With the CronJobs still suspended, test each:
+   - `kubectl -n ai create job --from=cronjob/local-cron-loki-error-skim skim-test`
+   - `kubectl -n ai create job --from=cronjob/local-cron-renovate-pr-digest renovate-test`
+
+   then `kubectl -n ai logs job/<name> -f`. Expect (for the skim) the
+   ranked list, or (for the digest) `Open Renovate PRs (N):` + the list,
+   then the `----- local-model digest -----` block and `Pushover digest
+   sent`. Empty-input is success, not failure: the skim prints "Nothing to
+   report" and the digest prints "No open Renovate PRs" — both exit 0 and
+   send nothing.
+4. **Unsuspend the CronJob(s)** — remove `spec.suspend: true` from
+   `cronjob-loki-error-skim.yaml` and/or `cronjob-renovate-pr-digest.yaml`.
+   They then run daily at 12:00 / 12:30 UTC respectively.
 
 To pause again: re-add `spec.suspend: true` to the CronJob (fast, keeps
 objects) or to the ks (full teardown of the app's objects on next prune).

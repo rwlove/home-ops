@@ -16,11 +16,11 @@ _Production-grade Kubernetes for a household._
 
 <br/>
 
-![apps](https://img.shields.io/badge/apps-162-blue?style=for-the-badge)
-![helmreleases](https://img.shields.io/badge/HelmReleases-173-326CE5?style=for-the-badge&logo=helm&logoColor=white)
+![apps](https://img.shields.io/badge/apps-161-blue?style=for-the-badge)
+![helmreleases](https://img.shields.io/badge/HelmReleases-172-326CE5?style=for-the-badge&logo=helm&logoColor=white)
 ![nodes](https://img.shields.io/badge/k8s_nodes-11-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white)
 ![cnpg](https://img.shields.io/badge/Postgres_clusters-22-336791?style=for-the-badge&logo=postgresql&logoColor=white)
-![secrets](https://img.shields.io/badge/secrets-94-0572EC?style=for-the-badge&logo=1password&logoColor=white)
+![secrets](https://img.shields.io/badge/secrets-93-0572EC?style=for-the-badge&logo=1password&logoColor=white)
 ![age](https://img.shields.io/badge/cluster_age-5%2B_years-success?style=for-the-badge)
 
 </div>
@@ -273,7 +273,7 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 </details>
 
 <details>
-<summary>🔌 <b>MCP Servers</b> — 20 Model Context Protocol servers behind an Authelia-gated gateway</summary>
+<summary>🔌 <b>MCP Servers</b> — 19 Model Context Protocol servers behind an Authelia-gated gateway</summary>
 
 | Server | Exposes |
 |--------|---------|
@@ -295,7 +295,6 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 | **memory-mcp** | Cross-agent knowledge graph backed by Postgres + pgvector (bge-m3 1024-dim) |
 | **cilium-mcp** | Read-only Cilium / Hubble introspection (kubectl-mcp-style, Cilium-scoped) |
 | **windmill-mcp** | Aggregated Windmill workspace tools (script run, flow trigger) |
-| **reddit-mcp** | Reddit thread reads by URL + discussion/opinion/trend search |
 
 </details>
 
@@ -332,7 +331,7 @@ flowchart TB
     end
 
     subgraph Tools[Tools + retrieval]
-        Gw[MCP Gateway<br/>20 servers]
+        Gw[MCP Gateway<br/>19 servers]
         Q[(Qdrant<br/>vector DB)]
         Mem[(memory-mcp<br/>pgvector KG)]
     end

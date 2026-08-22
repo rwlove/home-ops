@@ -1,0 +1,179 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/cronjob-batch-v1.json
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: claude-runner-jobs
+  labels:
+    app.kubernetes.io/name: claude-runner
+spec:
+  # Shipped SUSPENDED (trial). This is the vault-driven runner: the JOBS live
+  # as private notes in the Obsidian vault (never in this public repo) under
+  # `automation/jobs/claude/`; this CronJob is only the reviewed CAGE. See
+  # .agents/instructions/claude-runner-routing.md.
+  suspend: true
+  # 0 13 * * 1 UTC = Mon 09:00 EDT / 08:00 EST. Weekly — every note in the
+  # folder runs on this cadence (finer cadence = a second runner).
+  schedule: "0 13 * * 1"
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      # 40 min: a vault mirror (~few min) + N caged claude jobs.
+      activeDeadlineSeconds: 2400
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: claude-runner
+          annotations:
+            k8tz.io/inject: "false"
+        spec:
+          nodeSelector:
+            kubernetes.io/arch: amd64
+          serviceAccountName: claude-runner
+          automountServiceAccountToken: false
+          restartPolicy: OnFailure
+          initContainers:
+            # NATIVE SIDECAR (restartPolicy: Always) — the official
+            # livesync-cli daemon materialises the private `claude` vault into
+            # the shared scratch dir. It runs for the life of the main
+            # container and is terminated by the kubelet once the Job
+            # completes (native-sidecar semantics, k8s >= 1.29). Reuses the
+            # claude-vault-bridge secret (in-cluster CouchDB, db `claude`,
+            # encrypt:false). CouchDB stays canonical; this mount is read-only
+            # to the runner, so nothing is written back.
+            - name: vault-bridge
+              image: ghcr.io/vrtmrz/livesync-cli:1.0.16-cli
+              restartPolicy: Always
+              imagePullPolicy: IfNotPresent
+              args:
+                - --settings
+                - /config/settings.json
+                - --vault
+                - /vault
+                - daemon
+              env:
+                - name: LIVESYNC_DB_PATH
+                  value: /db
+                - name: TZ
+                  value: America/New_York
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                seccompProfile:
+                  type: RuntimeDefault
+              resources:
+                requests:
+                  cpu: 25m
+                  memory: 256Mi
+                limits:
+                  memory: 512Mi
+              volumeMounts:
+                - name: vault-scratch
+                  mountPath: /db
+                  subPath: db
+                - name: vault-scratch
+                  mountPath: /vault
+                  subPath: vault
+                - name: bridge-config
+                  mountPath: /config
+                  readOnly: true
+                - name: bridge-tmp
+                  mountPath: /tmp
+          containers:
+            - name: runner
+              image: ghcr.io/rwlove/claude-runner:v2.1.239
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -ceu
+                - |
+                  DIR=/vault/automation/jobs/claude
+                  echo "waiting for the vault-bridge sidecar to materialise $DIR ..."
+                  i=0
+                  while [ ! -d "$DIR" ] && [ "$i" -lt 72 ]; do
+                    i=$((i + 1)); sleep 5
+                  done
+                  if [ ! -d "$DIR" ]; then
+                    echo "FATAL: vault jobs folder not materialised in time"; exit 1
+                  fi
+                  # let the mirror scan settle so all notes in the folder land.
+                  sleep 30
+                  ran=0
+                  for f in "$DIR"/*.md; do
+                    [ -e "$f" ] || continue
+                    echo "=== job: $(basename "$f") ==="
+                    claude --print --allowedTools "Bash(curl:*)" --max-turns 25 < "$f" \
+                      || echo "job $(basename "$f") failed (continuing)"
+                    ran=$((ran + 1))
+                  done
+                  echo "ran $ran job(s)"
+                  [ "$ran" -gt 0 ] || echo "NOTE: no job notes found in $DIR"
+              env:
+                - name: HOME
+                  value: /workspace
+                - name: TZ
+                  value: America/New_York
+              # Subscription token (CLAUDE_CODE_OAUTH_TOKEN) + Pushover.
+              envFrom:
+                - secretRef:
+                    name: claude-runner-secret
+                    optional: false
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                seccompProfile:
+                  type: RuntimeDefault
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: "1"
+                  memory: 1Gi
+              volumeMounts:
+                - name: vault-scratch
+                  mountPath: /vault
+                  subPath: vault
+                  readOnly: true
+                - name: workspace
+                  mountPath: /workspace
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            # Per-run scratch (disk, not tmpfs — ~80 MB: PouchDB /db + the
+            # materialised /vault files). Discarded when the Job pod ends.
+            - name: vault-scratch
+              emptyDir:
+                sizeLimit: 1Gi
+            - name: bridge-config
+              secret:
+                secretName: claude-vault-bridge-secret
+            - name: bridge-tmp
+              emptyDir:
+                medium: Memory
+                sizeLimit: 128Mi
+            - name: workspace
+              emptyDir:
+                medium: Memory
+                sizeLimit: 256Mi
+            - name: tmp
+              emptyDir:
+                medium: Memory
+                sizeLimit: 64Mi

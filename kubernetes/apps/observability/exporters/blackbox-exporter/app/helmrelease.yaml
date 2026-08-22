@@ -160,23 +160,41 @@ spec:
           for: 5m
           labels:
             severity: critical
-        # IoT / device reachability (the ICMP `devices` probe + the HTTP
-        # `http` probe — WLED, Kodi, presence sensors, ratgdo, frame
-        # displays, UPS/iDRAC ICMP, cameras, pool/pump/water ESP devices,
-        # WiiM). These targets legitimately
-        # sleep or power-cycle, so a critical/5m page floods the surface
-        # (14 distinct devices fired criticals in one day). warning +
-        # for:15m absorbs the transient blips and routes to Pushover
-        # only. Storage reachability stays critical via the nfs TCP
-        # probe above, and node-down is covered by the
-        # Kube*NodeNotReady rules, so nothing genuinely page-worthy is
-        # lost by demoting these.
+        # Device reachability, split into two tiers by how each device
+        # legitimately behaves (target lists live in probes.yaml):
+        #
+        #   strict  — infra that must page fast: UPS/iDRAC/workers, cameras,
+        #             ratgdo, konnected, pool/radon/salt ESP devices,
+        #             hass-voice, printer. `devices` probe, for:15m.
+        #   sleepy  — nap-prone by design: Aqara WiFi presence (radio
+        #             power-save), Kodi, Frameo, WiiM, roborock, WLED strips.
+        #             `devices-sleepy` + `http` probes, for:12h — long enough
+        #             to clear any normal off-cycle so a nap doesn't page,
+        #             short enough to still catch a genuinely dead device.
+        #
+        # Both are warning (demoted from the old critical/5m that flooded the
+        # surface — 14 devices fired criticals in one day). Storage stays
+        # critical via the nfs TCP probe above; node-down is covered by the
+        # Kube*NodeNotReady rules; and a sleepy device that truly dies is
+        # also visible in Home Assistant, which tracks those entities more
+        # accurately than ICMP. So nothing genuinely page-worthy is lost.
         - alert: BlackboxIoTDeviceUnreachable
           annotations:
             description: |-
               IoT/device {{ $labels.instance }} has been unreachable for 15m
-          expr: probe_success{job=~"probe/observability/(devices|http)"} == 0
+          expr: probe_success{job="probe/observability/devices"} == 0
           for: 15m
+          labels:
+            severity: warning
+        - alert: BlackboxSleepyDeviceUnreachable
+          annotations:
+            description: |-
+              Sleepy device {{ $labels.instance }} has been unreachable for
+              12h — longer than any normal sleep/off-cycle, so likely a real
+              outage rather than a nap. HA entity availability is the
+              authoritative liveness signal for these.
+          expr: probe_success{job=~"probe/observability/(devices-sleepy|http)"} == 0
+          for: 12h
           labels:
             severity: warning
     securityContext:

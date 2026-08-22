@@ -22,9 +22,6 @@ spec:
         - idrac
         - ecowitt
         - thermostat
-        - roborock-mainfloor
-        - roborock-upstairs
-        - roborock-basement
         - worker2-iot
         - worker3-iot
         - worker4-iot
@@ -45,9 +42,6 @@ spec:
         - reolink-bush
         - amcrest-pool
         - reolink-backyard
-        - aquara-presense-office
-        - aquara-presense-server-room
-        - aquara-presense-kitchen
         - hass-voice-familyroom
         - hass-voice-bedroom
         - hass-voice-gym
@@ -56,12 +50,7 @@ spec:
         - bluetooth-proxy-wifi-1
         - bluetooth-proxy-wifi-2
         # - bt-scale
-        - kodi-familyroom
-        - kodi-gym
-        - kodi-bedroom
         # - birdcam
-        - frameo-familyroom
-        - frameo-basement
         # IOT VLAN 20 smart devices — ICMP reachability. HTTP servers are
         # probed via ICMP here (not the http_2xx probe) because most don't
         # return a clean 2xx on `/`; ICMP avoids false-down alerts.
@@ -72,10 +61,48 @@ spec:
         - pool-light
         - konnected
         - pool-controller
+        - bathroom-mmwave
+
+---
+# yaml-language-server: $schema=https://k8s-schemas.home-operations.com/monitoring.coreos.com/probe_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: devices-sleepy
+spec:
+  # Nap-prone devices split out of `devices` so a long for:12h alert can
+  # tolerate normal sleep instead of paging on it. These legitimately go
+  # dark for minutes-to-hours as designed:
+  #   - Aqara WiFi presence sensors power-save their radio when a room is
+  #     idle (kitchen flapped 2727x over 14d — ICMP down ~48% of the time,
+  #     yet presence detection works fine). ICMP is the wrong liveness
+  #     signal for them; HA entity availability is authoritative.
+  #   - Kodi boxes, Frameo frames, WiiM audio, and roborock vacuums power
+  #     off / dock / roam.
+  # The BlackboxSleepyDeviceUnreachable alert (for:12h) fires only when one
+  # is dark longer than any normal off-cycle. Infra that must page fast
+  # stays in `devices` (for:15m). Alert rules live in helmrelease.yaml.
+  interval: 2m
+  module: icmp
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - aquara-presense-kitchen
+        - aquara-presense-office
+        - aquara-presense-server-room
+        - kodi-familyroom
+        - kodi-gym
+        - kodi-bedroom
+        - frameo-familyroom
+        - frameo-basement
         - wiim-pool
         - wiim-deck
         - wiim-yard
-        - bathroom-mmwave
+        - roborock-mainfloor
+        - roborock-upstairs
+        - roborock-basement
 
 ---
 # yaml-language-server: $schema=https://k8s-schemas.home-operations.com/monitoring.coreos.com/probe_v1.json
@@ -102,6 +129,9 @@ metadata:
   name: http
 spec:
   # 2m cadence — same rationale as the `devices` probe above.
+  # WLED strips get switched off in normal use, so this whole job rides the
+  # sleepy alert tier (BlackboxSleepyDeviceUnreachable, for:12h), not the
+  # strict 15m one. See helmrelease.yaml alert rules.
   interval: 2m
   module: http_2xx
   prober:

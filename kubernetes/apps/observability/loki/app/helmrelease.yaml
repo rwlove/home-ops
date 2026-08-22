@@ -19,20 +19,15 @@ spec:
   uninstall:
     keepHistory: false
   values:
-    deploymentMode: SingleBinary
+    deploymentMode: Monolithic
 
     loki:
       auth_enabled: false
       analytics:
         reporting_enabled: false
-      image:
-        # Chart 7.3.0 is the FINAL OSS release of the grafana/loki chart —
-        # it went GEL-maintenance-only on 2026-03-16 (grafana/loki#20705)
-        # and defaults to a stale Loki 3.6.11. Pin the OSS image to a
-        # current 3.7.x explicitly until we migrate to the actively
-        # maintained grafana-community fork chart.
-        # renovate: datasource=docker depName=docker.io/grafana/loki
-        tag: 3.7.6
+      # No explicit image pin: the grafana-community fork chart is actively
+      # maintained, so its appVersion drives the Loki image (currently
+      # 3.7.6). Renovate bumps the OCIRepository chart tag → image follows.
       podAnnotations:
         configmap.reloader.stakater.com/reload: loki-chunks-bucket-v1
       commonConfig:
@@ -134,12 +129,6 @@ spec:
         enabled: false
       serviceMonitor:
         enabled: true
-        metricsInstance:
-          enabled: false
-      selfMonitoring:
-        enabled: false
-        grafanaAgent:
-          installOperator: false
     lokiCanary:
       enabled: false
     test:
@@ -148,7 +137,10 @@ spec:
     # Sidecar still needed for ruler config discovery
     sidecar:
       image:
-        repository: ghcr.io/kiwigrid/k8s-sidecar
+        # The fork chart splits registry from repository; a full-path
+        # repository would render as docker.io/ghcr.io/... — set both.
+        registry: ghcr.io
+        repository: kiwigrid/k8s-sidecar
       rules:
         searchNamespace: ALL
         folder: /rules/fake

@@ -92,6 +92,57 @@ auto-on — audit `seLinuxChangePolicy` first), pod-level in-place resize
 (GA), CSI volume group snapshots (GA). Verify each against the *deployed*
 chart/arch before implementing.
 
+### Optimizations & lessons from the 1.36 run — reuse these next time
+
+The 1.36 run was hand-driven and iterated on live; the distilled, reusable
+automation now lives in **[`tools/cluster-upgrade/`](https://github.com/rwlove/home-ops/tree/main/tools/cluster-upgrade)**
+(`predownload.sh`, `rolling-upgrade.sh`, and a README). Start there next time.
+The per-node critical path dropped from ~40 min to ~7–10 min once these were in.
+
+**Speed optimizations (each safe; #2 needs an explicit "reduced-redundancy-OK"):**
+
+1. **Pre-download packages in parallel first.** `dnf/apt --downloadonly
+   --setopt=keepcache=1` across every node warms the cache so the real
+   `dnf upgrade` installs from disk. Removes ~10 min of download per node.
+2. **Clear Longhorn nodes by DELETE, not eviction.** `evictionRequested`
+   rebuilds every replica off the node *before* removing it (~12–25 min/node).
+   Instead, **delete** each replica that has a healthy copy on another node
+   (instant) and only evict a replica that is its volume's *last* healthy copy.
+   Longhorn re-replenishes the deleted replicas in the background afterward.
+   Trades temporary redundancy for speed — get operator sign-off. worker4
+   cleared in ~43 s this way vs. ~12–25 min by eviction.
+3. **Faulted-only health gate.** Don't gate drains on full Longhorn health
+   (that waits for rebuild-back churn). Block only if a volume is *faulted*
+   (0 replicas). Degraded / reduced-redundancy proceeds.
+4. **Idempotent orchestrator.** Skip nodes already at the target version →
+   the run is safe to stop and relaunch (which happened repeatedly). The skip
+   path also re-uncordons, so a node left cordoned by an abort self-heals.
+
+**Failure modes hit in 1.36 (added to the table below):**
+
+- **Longhorn dual instance-managers block the drain.** The 1.12.0→1.12.1 chart
+  bump upgraded Longhorn's control plane but **not the data plane** — the engine
+  image page showed the old engine holding *all* replica references, so every
+  node ran an old + new IM, each with a `disruptionsAllowed:0` PDB that blocks
+  `kubectl drain`. Workaround: after clearing replicas, **delete the node's now-
+  empty IM pods** (`kubectl delete` bypasses the PDB). Real fix: a Longhorn
+  **engine live-upgrade of all volumes**, done as separate maintenance *after*
+  the k8s upgrade — never stacked on it.
+- **Cordoned node + deleted OSD deadlock.** A drain's OSD-delete fallback plus an
+  aborted run leaves the node cordoned with its OSD `Pending` → ceph stuck at
+  N-1/N → the next `ceph_gate` hangs. **Uncordon** the node so the OSD
+  reschedules.
+- **Stalled replica rebuild.** A replica rebuilding from a source that was on an
+  evicted node freezes (progress static, 0 MB/s). **Delete the stuck replica**
+  so it re-rebuilds from a healthy source. (Clearing by delete avoids this.)
+- **CoreDNS preflight (see 1.36 deltas above):** `--ignore-preflight-errors=
+  CoreDNSUnsupportedPlugins,CoreDNSMigration --skip-phases=addon`.
+
+**Phase-5 restore list (settings toggled live for the run):**
+`node-drain-policy` → `block-if-contains-last-replica`;
+`replica-replenishment-wait-interval` → `600`; resume descheduler; etcd defrag;
+then the deferred Longhorn engine upgrade + old-IM GC.
+
 ## State at the start of the upgrade
 
 | Aspect | Reality |

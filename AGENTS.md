@@ -451,6 +451,7 @@ the tier before you emit. Per HOMELAB-SPEC Layer 5.
 
 Not inlined, to stay inside the context budget. Read the file when its subject comes up.
 
+- **[`.agents/instructions/claude-runner-routing.md`](.agents/instructions/claude-runner-routing.md)** — When (and when NOT) to push work into the in-cluster `claude-runner` vs. local-cron / interactive / not-automated, and the recipe + quota rules for a scheduled Claude workflow. Read before automating any recurring task. **Provisional trial policy (review ~2026-09-21).**
 - **[`.agents/instructions/storage-class.instructions.md`](.agents/instructions/storage-class.instructions.md)** — Picking between Rook/Ceph, Longhorn, Garage and direct NFS. Read before creating or migrating any PVC.
 - **[`.agents/instructions/schema.correction.md`](.agents/instructions/schema.correction.md)** — Fixing yaml-language-server schema URLs and CRD validation errors.
 - **[`.agents/instructions/gpu-routing.md`](.agents/instructions/gpu-routing.md)** — Which GPU (P40 / DGX Spark) a workload belongs on, and why.

@@ -38,16 +38,24 @@ spec:
             # The image CMD already runs `reddit-mcp --transport http --host
             # 0.0.0.0 --port 8000`, so no command/args override is needed.
             env:
-              # Live OAuth (oauth.reddit.com) is the only reliable tier: the
-              # unauthenticated JSON/scrape path is hard-403'd by Reddit and
-              # curl_cffi TLS-impersonation does NOT bypass it (verified
-              # 2026-08-22). Without creds the server silently degrades to the
-              # lagged Arctic Shift archive. Creds come from the ExternalSecret.
+              # ZERO-CONFIG DEFAULT — no Reddit OAuth creds required to start.
+              # The server runs its fallback chain (browser-impersonated live
+              # fetch -> Arctic Shift archive -> DuckDuckGo), which covers the
+              # headline extract_public_opinion (read-a-thread) tool. Only
+              # analyze_niche_trends needs OAuth (archive lags live trends); it
+              # returns a graceful warning without creds rather than failing.
+              # OAuth is deliberately OFF the critical path — Reddit's legacy
+              # app-creation form is broken as of 2026-08-22, and the earlier
+              # "OAuth mandatory" spike ran from a datacenter egress, not the
+              # cluster's residential egress via brain (which may pass the
+              # fallback fine). To add OAuth later: (1) create the 1Password
+              # `reddit-mcp` item, (2) re-add ./externalsecret.yaml to
+              # kustomization.yaml, (3) restore the envFrom secretRef below.
               REDDIT_MAX_CONCURRENCY: "4"
               REDDIT_RATE_LIMIT_PER_MINUTE: "40"
-            envFrom:
-              - secretRef:
-                  name: reddit-mcp-secret
+            # envFrom:                          # ← OAuth add-on (see note above)
+            #   - secretRef:
+            #       name: reddit-mcp-secret
             resources:
               requests:
                 cpu: 10m

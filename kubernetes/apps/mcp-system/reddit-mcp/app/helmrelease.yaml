@@ -1,0 +1,110 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: reddit-mcp
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  values:
+    defaultPodOptions:
+      securityContext:
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+    controllers:
+      reddit-mcp:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        pod:
+          annotations:
+            sidecar.istio.io/inject: "true"
+        containers:
+          app:
+            image:
+              # Upstream (ismailsaoulaj/reddit-mcp-server, PyPI: reddit-mcp-ai)
+              # publishes NO container image — only the PyPI package. Built to
+              # ghcr.io/rwlove from the `containers` repo (reddit-mcp/Dockerfile
+              # + reddit-mcp-release.yml, pip-wraps reddit-mcp-ai), same pattern
+              # as esphome-mcp / netbox-mcp / time-mcp. Retire and switch
+              # upstream if ismailsaoulaj/reddit-mcp-server#19 (image request)
+              # lands. Bump via `gh workflow run reddit-mcp-release.yml -f
+              # version=<x.y.z>` in the containers repo, then repin here.
+              repository: ghcr.io/rwlove/reddit-mcp-server
+              tag: v0.5.1@sha256:1c522e4096af995015e149c9f131e52ad49a63b8ffc821dee7456bb8a7a99544
+            # The image CMD already runs `reddit-mcp --transport http --host
+            # 0.0.0.0 --port 8000`, so no command/args override is needed.
+            env:
+              # ZERO-CONFIG DEFAULT — no Reddit OAuth creds required to start.
+              # The server runs its fallback chain (browser-impersonated live
+              # fetch -> Arctic Shift archive -> DuckDuckGo), which covers the
+              # headline extract_public_opinion (read-a-thread) tool. Only
+              # analyze_niche_trends needs OAuth (archive lags live trends); it
+              # returns a graceful warning without creds rather than failing.
+              # OAuth is deliberately OFF the critical path — Reddit's legacy
+              # app-creation form is broken as of 2026-08-22, and the earlier
+              # "OAuth mandatory" spike ran from a datacenter egress, not the
+              # cluster's residential egress via brain (which may pass the
+              # fallback fine). To add OAuth later: (1) create the 1Password
+              # `reddit-mcp` item, (2) re-add ./externalsecret.yaml to
+              # kustomization.yaml, (3) restore the envFrom secretRef below.
+              REDDIT_MAX_CONCURRENCY: "4"
+              REDDIT_RATE_LIMIT_PER_MINUTE: "40"
+            # envFrom:                          # ← OAuth add-on (see note above)
+            #   - secretRef:
+            #       name: reddit-mcp-secret
+            resources:
+              requests:
+                cpu: 10m
+                memory: 128Mi
+              limits:
+                memory: 256Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: {drop: ["ALL"]}
+    persistence:
+      # curl_cffi + httpx write transient files; readOnlyRootFilesystem: true
+      # makes / read-only, so give them a scratch /tmp.
+      tmp:
+        type: emptyDir
+        globalMounts:
+          - path: /tmp
+    service:
+      app:
+        controller: reddit-mcp
+        ports:
+          http:
+            port: 8000
+    route:
+      app:
+        hostnames:
+          - "reddit-mcp.mcp.local"
+        parentRefs:
+          - name: mcp-gateway
+            namespace: mcp-system
+            sectionName: mcps
+        rules:
+          - matches:
+              - path:
+                  type: PathPrefix
+                  value: /mcp
+            filters:
+              # Strip inbound Authorization before forwarding to the backend
+              # MCP server. The Kuadrant mcp-gateway forwards all client
+              # headers; the broker-side Bearer can take precedence over the
+              # backend's own credential env in any upstream MCP client that
+              # honors Authorization, causing 401s against the real target.
+              # Backend MCP servers each carry their own env-loaded creds —
+              # stripping the broker Bearer here lets those take effect
+              # uniformly across the fleet.
+              - type: RequestHeaderModifier
+                requestHeaderModifier:
+                  remove:
+                    - Authorization
+            backendRefs:
+              - identifier: app
+                port: 8000

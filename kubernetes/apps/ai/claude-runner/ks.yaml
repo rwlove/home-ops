@@ -1,0 +1,33 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/kustomization-kustomize-v1.json
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: &app claude-runner
+spec:
+  # GATE 0 — shipped suspended. To activate, in order (see ./app/README.md):
+  #   1. `claude setup-token` on nomad → store the value in 1Password item
+  #      `claude-runner`, field `claude_code_oauth_token` (subscription only,
+  #      never an API key).
+  #   2. Rebuild/confirm ghcr.io/rwlove/claude-runner per plan D3 (add tmux,
+  #      bump CLAUDE_CODE_VERSION); set the tag in the ./app manifests.
+  #   3. Remove this `suspend: true` → Flux creates the ExternalSecret and
+  #      runs the auth-spike Job. Confirm its logs print SUBSCRIPTION-HEADLESS-OK.
+  #   4. Only then remove `suspend: true` from the drift-digest CronJob.
+  suspend: true
+  commonMetadata:
+    labels:
+      app.kubernetes.io/name: *app
+  targetNamespace: ai
+  path: ./kubernetes/apps/ai/claude-runner/app
+  interval: 1h
+  timeout: 5m
+  prune: true
+  wait: false
+  sourceRef:
+    kind: GitRepository
+    name: home-ops-kubernetes
+    namespace: flux-system
+  dependsOn:
+    - name: onepassword-connect
+      namespace: external-secrets

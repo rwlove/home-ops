@@ -1,0 +1,45 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: claude-runner-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: claude-runner
+  # Additive — default-deny (ai ns) triggers the lockdown; these punch holes.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # Prometheus (observability ns) — READ-ONLY cluster state for the
+    # drift-digest workflow (Flux gotk_* + Longhorn longhorn_* metrics).
+    # Selector matches the known-good prometheus-mcp rule (app.kubernetes.io/
+    # name: prometheus); a wrong label here silent-drops (see
+    # reference_cnp_blackbox_exporter_label_trap).
+    #
+    # DELIBERATELY NOT the MCP broker (mcp-gateway-istio.mcp-system:8080):
+    # opencode/app/cnp-allow.yaml documents the broker has no enforceable
+    # per-tool authz — reachability grants the full MUTATING surface
+    # (kubectl/omada/ha/arr) and the client-side allowlist "is not a security
+    # boundary." Its own note: do not point an unattended loop at it. This
+    # runner is an unattended loop, so it stays on read-only Prometheus.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: prometheus
+      toPorts:
+        - ports:
+            - port: "9090"
+              protocol: TCP
+    # External HTTPS: api.anthropic.com (Claude Code subscription runtime) +
+    # api.github.com (gh CLI). matchPattern FQDN pinning is inert here
+    # (A-only records) per project_cilium_matchpattern_fqdn_limits, so this
+    # collapses to world:443 (repo precedent: opencode, khoj, comfyui).
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

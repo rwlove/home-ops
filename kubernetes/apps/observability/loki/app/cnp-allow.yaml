@@ -12,10 +12,23 @@ spec:
   enableDefaultDeny:
     egress: false
     ingress: false
-  # No ingress rules needed: Loki is internal-only. Vector aggregator
-  # pushes to loki:3100 and Grafana queries loki:3100 — both intra-ns,
-  # covered by baseline allow-intra-namespace. No HTTPRoute exposes
-  # Loki publicly.
+  # Intra-ns callers (Vector aggregator push, Grafana query) are covered
+  # by baseline allow-intra-namespace and need no rule. No HTTPRoute
+  # exposes Loki publicly. The only cross-ns caller is below.
+  ingress:
+    # local-cron (ai ns) → loki:3100 — the daily error-pattern skim reads
+    # log state read-only via the Loki HTTP query API, then summarizes it
+    # on the local Ollama (never Claude). Egress side is punched through in
+    # ai/local-cron/app/cnp-allow.yaml. A wrong label here silent-drops
+    # (see reference_cnp_blackbox_exporter_label_trap).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: local-cron
+      toPorts:
+        - ports:
+            - port: "3100"
+              protocol: TCP
   egress:
     # Chunk + index storage on Rook Ceph RGW (S3 API). Loki's S3
     # endpoint resolves to the `rook-ceph-rgw-ceph-objectstore` Service

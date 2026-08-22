@@ -1,0 +1,52 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: local-cron-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: local-cron
+  # Additive — the ai ns default-deny is what triggers the lockdown; these
+  # rules punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # Loki (observability ns) — READ-ONLY log state for the daily
+    # error-pattern skim. Loki is auth_enabled:false / SingleBinary; the
+    # Service is loki.observability:3100 and Loki pods carry
+    # `app.kubernetes.io/name: loki`. A wrong label here silent-drops (see
+    # reference_cnp_blackbox_exporter_label_trap). The INGRESS side is
+    # punched through in observability/loki/app/cnp-allow.yaml — that CNP
+    # otherwise admits only intra-ns Grafana/Vector, so this cross-ns
+    # caller had to be added there explicitly.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: loki
+      toPorts:
+        - ports:
+            - port: "3100"
+              protocol: TCP
+    # Ollama (ai ns, intra-namespace) — the local-model summarizer. NOT
+    # given its own rule here: local-cron and ollama are both in `ai`, so
+    # this hop is covered by the baseline `allow-intra-namespace` component.
+    # ollama's own cnp-allow.yaml lists cross-ns callers only; intra-ns is
+    # explicitly delegated to the baseline there. Reasoning runs on the P40
+    # local model (qwen2.5:7b) — NOT Claude/Anthropic (HOMELAB-SPEC L6).
+    #
+    # External HTTPS: api.pushover.net (the private digest sink). It is a
+    # canonical FQDN (no CNAME chain), and Cilium matchPattern silently
+    # fails on those through K8s DNS search-domain augmentation (see memory
+    # project_cilium_matchpattern_fqdn_limits), so this collapses to
+    # world:443 — same precedent as the alertmanager→Pushover rule in
+    # observability/kube-prometheus-stack/app/cnp-allow.yaml and the repo's
+    # PRs #11498/#11512/#11517/#11533.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

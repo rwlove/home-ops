@@ -1,0 +1,212 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/cronjob-batch-v1.json
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: local-cron-loki-error-skim
+  labels:
+    app.kubernetes.io/name: local-cron
+spec:
+  # SHIPPED SUSPENDED (see ./README.md → Activation). Even with the ks
+  # unsuspended, this CronJob does not fire until `spec.suspend` is removed.
+  suspend: true
+  # 0 12 * * * UTC = 08:00 EDT / 07:00 EST, daily. Well after the 00:00 UTC
+  # Longhorn recurring-job window and off the mcp-gateway 04:30 rotation, so
+  # the P40 model load doesn't collide with other scheduled bursts. Local
+  # inference is free (no Anthropic tokens), so daily cadence is fine —
+  # unlike the claude-runner tier which is weekly to spare Max limits.
+  schedule: "0 12 * * *"
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      # 15 min hard cap: Loki queries are quick; the only slow leg is a
+      # cold qwen2.5:7b GGUF load on the P40 (~seconds) plus generation.
+      activeDeadlineSeconds: 900
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: local-cron
+          annotations:
+            k8tz.io/inject: "false"
+        spec:
+          # amd64 image; ai ns also has arm64 Spark nodes — pin so the pod
+          # can't land on Spark and hit an exec-format error.
+          nodeSelector:
+            kubernetes.io/arch: amd64
+          serviceAccountName: local-cron
+          automountServiceAccountToken: false
+          restartPolicy: OnFailure
+          containers:
+            - name: skim
+              # Carries curl + jq (same image the home-ns/mcp-system
+              # maintenance jobs use). NOTE: `date` is busybox — it accepts
+              # `-d @<epoch>` but not `-d "24 hours ago"`; the epoch math
+              # below is deliberate.
+              image: docker.io/alpine/k8s:1.36.2@sha256:44ef4942e171939b9c665a4a84beb80e2dcdb9a24330d4651cfdfd2e9deecc47
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -ceu
+                # Flux postBuild runs envsubst in STRICT mode over this
+                # manifest: a bare ${VAR} is read as a Flux substitution and
+                # fails the whole Kustomization with "variable not set".
+                # Every shell `$` is doubled (`$$`) so the rendered manifest
+                # carries a literal `$` for /bin/sh. Same convention as
+                # home/windmill/app/watchdog-cronjob.yaml (verified there).
+                - |
+                  LOKI="http://loki.observability.svc.cluster.local:3100"
+                  OLLAMA="http://ollama.ai.svc.cluster.local:11434"
+                  MODEL="qwen2.5:7b"
+                  WINDOW_S=86400
+
+                  NOW="$$(date -u +%s)"
+                  START="$$(( (NOW - WINDOW_S) * 1000000000 ))"
+                  END="$$(( NOW * 1000000000 ))"
+                  DAY="$$(date -u +%Y-%m-%d)"
+
+                  # (1) Rank apps by error/panic/fatal log volume over 24h.
+                  # A LogQL metric query: count matching lines per app+ns.
+                  # `|~` is case-insensitive via (?i). We cap the topk so the
+                  # summary stays bounded, and only pull sample lines from
+                  # those apps.
+                  METRIC_Q='topk(15, sum by (namespace, app) (count_over_time({namespace=~".+"} |~ `(?i)(error|panic|fatal|traceback|exception)` [24h])))'
+
+                  RANK="$$(curl -sSG --max-time 60 \
+                            "$${LOKI}/loki/api/v1/query" \
+                            --data-urlencode "query=$${METRIC_Q}" \
+                            --data-urlencode "time=$${END}")" || {
+                    echo "FATAL: Loki metric query failed — cannot skim errors"
+                    exit 1
+                  }
+
+                  # Flatten to "count<TAB>namespace/app" lines. jq -e makes an
+                  # unexpected shape (Loki error payload) a hard failure
+                  # rather than a silent empty pass.
+                  RANKED="$$(printf '%s' "$$RANK" | jq -er '
+                    .data.result
+                    | map({c: (.value[1] | tonumber), ns: .metric.namespace, app: .metric.app})
+                    | sort_by(-.c)
+                    | .[]
+                    | "\(.c)\t\(.ns)/\(.app)"' )" || {
+                    echo "FATAL: could not parse Loki rank response"
+                    printf '%s\n' "$$RANK" | head -c 500
+                    exit 1
+                  }
+
+                  if [ -z "$$RANKED" ]; then
+                    echo "No error/panic/fatal log lines in the last 24h. Nothing to report."
+                    exit 0
+                  fi
+
+                  echo "Top error-log producers (24h):"
+                  printf '%s\n' "$$RANKED"
+
+                  # (2) Pull a small sample of actual error lines from the top
+                  # few apps for the model to distill into patterns. Keep the
+                  # payload small — this is a skim, not a full log export.
+                  # POSIX sh `while read` runs in a subshell, so accumulate
+                  # into a temp file rather than a shell var that would be lost.
+                  : > /tmp/samples.txt
+                  printf '%s\n' "$$RANKED" | head -5 | while IFS="$$(printf '\t')" read -r C NSAPP; do
+                    NS="$${NSAPP%%/*}"
+                    APP="$${NSAPP#*/}"
+                    Q="{namespace=\"$${NS}\", app=\"$${APP}\"} |~ \`(?i)(error|panic|fatal|traceback|exception)\`"
+                    LINES="$$(curl -sSG --max-time 45 \
+                                "$${LOKI}/loki/api/v1/query_range" \
+                                --data-urlencode "query=$${Q}" \
+                                --data-urlencode "start=$${START}" \
+                                --data-urlencode "end=$${END}" \
+                                --data-urlencode "limit=8" \
+                                --data-urlencode "direction=backward" \
+                              | jq -r '.data.result[]?.values[]?[1]' 2>/dev/null \
+                              | head -8 | cut -c1-300)"
+                    {
+                      echo "### $${NSAPP} ($${C} lines/24h)"
+                      printf '%s\n' "$$LINES"
+                      echo
+                    } >> /tmp/samples.txt
+                  done
+
+                  SAMPLES="$$(cat /tmp/samples.txt)"
+
+                  # (3) Summarize with the LOCAL model (Ollama, P40) — never
+                  # Claude. Build the /api/generate body with jq so the log
+                  # text is safely JSON-escaped.
+                  PROMPT="You are a Kubernetes log-triage assistant for a home cluster. Below are the top error-log producers in the last 24h and a few sample lines from each. Produce a terse digest (max 12 short lines, plain text, no markdown): for each notable app, one line naming it and the dominant error pattern, and whether it looks like noise or a real problem. Group obvious flapping. Do not invent apps not listed. Data:\n\n$${SAMPLES}"
+
+                  REQ="$$(jq -n --arg m "$$MODEL" --arg p "$$PROMPT" \
+                          '{model:$$m, prompt:$$p, stream:false, options:{num_predict:400, temperature:0.2}}')"
+
+                  SUMMARY="$$(curl -sSf --max-time 300 \
+                              -H 'Content-Type: application/json' \
+                              -d "$$REQ" \
+                              "$${OLLAMA}/api/generate" \
+                            | jq -r '.response // empty')" || {
+                    echo "FATAL: Ollama summarization failed"
+                    exit 1
+                  }
+
+                  if [ -z "$$SUMMARY" ]; then
+                    echo "FATAL: Ollama returned an empty summary"
+                    exit 1
+                  fi
+
+                  echo "----- local-model digest -----"
+                  printf '%s\n' "$$SUMMARY"
+
+                  # (4) Send ONE Pushover notification (private channel).
+                  # Pushover message limit is 1024 chars; truncate to be safe.
+                  MSG="$$(printf '%s' "$$SUMMARY" | cut -c1-1000)"
+                  HTTP="$$(curl -sS --max-time 30 -o /tmp/pushover.out -w '%{http_code}' \
+                            --form-string "token=$${PUSHOVER_TOKEN}" \
+                            --form-string "user=$${PUSHOVER_USER}" \
+                            --form-string "title=loki-error-skim $${DAY}" \
+                            --form-string "message=$${MSG}" \
+                            https://api.pushover.net/1/messages.json)" || {
+                    echo "FATAL: Pushover request errored"
+                    exit 1
+                  }
+                  case "$$HTTP" in
+                    2??) echo "Pushover digest sent (HTTP $$HTTP)";;
+                    *) echo "FATAL: Pushover returned HTTP $$HTTP"; cat /tmp/pushover.out; exit 1;;
+                  esac
+              env:
+                - name: HOME
+                  value: /tmp
+                - name: TZ
+                  value: America/New_York
+              envFrom:
+                - secretRef:
+                    name: local-cron-secret
+                    optional: false
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir:
+                medium: Memory
+                sizeLimit: 64Mi

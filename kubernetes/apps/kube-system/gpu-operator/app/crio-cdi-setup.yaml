@@ -19,7 +19,16 @@
 #   2. Generates /var/run/cdi/management.nvidia.com-gpu.yaml
 #   3. Creates /run/nvidia/validations/toolkit-ready to unblock the
 #      device-plugin's toolkit-validation init container.
-#   4. Re-runs every hour so the spec stays fresh after driver updates.
+#   4. Creates /run/nvidia/validations/driver-ready (host-managed
+#      driver-root values), which the device-plugin entrypoint blocks on
+#      and SOURCES for NVIDIA_DRIVER_ROOT. On Pascal the operator-validator
+#      (which normally writes this) is disabled by the
+#      gpu-operator-pascal-validator-skip NFR because its cuda-validation
+#      false-negatives; /run is tmpfs, so after a reboot nothing rewrote
+#      driver-ready and the device-plugin crashlooped hunting driver libs
+#      in the empty operator-managed /run/nvidia/driver path. We emulate
+#      driver-validation here, gated on the host driver actually responding.
+#   5. Re-runs every hour so the specs stay fresh after driver updates.
 #
 # Scoped exclusively to CRI-O GPU nodes via:
 #   nvidia.com/gpu.present=true (has a GPU)
@@ -78,8 +87,19 @@ spec:
                     --vendor=management.nvidia.com \
                     --output=/var/run/cdi/management.nvidia.com-gpu.yaml
                   touch /run/nvidia/validations/toolkit-ready
+                  # Emulate the operator-validator driver-validation that is
+                  # disabled on Pascal: only signal driver-ready if the host
+                  # driver actually responds (fail loud if it ever breaks),
+                  # then write the host-managed driver-root values the
+                  # device-plugin entrypoint sources for NVIDIA_DRIVER_ROOT.
+                  if nvidia-smi >/dev/null 2>&1; then
+                    printf "IS_HOST_DRIVER=true\nNVIDIA_DRIVER_ROOT=/\nDRIVER_ROOT_CTR_PATH=/host\nNVIDIA_DEV_ROOT=/\nDEV_ROOT_CTR_PATH=/host\n" \
+                      > /run/nvidia/validations/driver-ready
+                  else
+                    rm -f /run/nvidia/validations/driver-ready
+                  fi
                 '
-                echo "$(date -u): management CDI spec generated / toolkit-ready signaled"
+                echo "$(date -u): management CDI spec + driver-ready generated / toolkit-ready signaled"
               }
 
               generate

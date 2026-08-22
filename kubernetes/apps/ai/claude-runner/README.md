@@ -124,21 +124,13 @@ kubectl -n ai exec deploy/claude-runner-shell -c shell -- ls /home/node/vaults/c
   rule from `ai`/`claude-runner`. Both namespaces are default-deny; DNS is
   already granted by the baseline component.
 
-## Add a Claude-tier workflow
+## Routing, recipe, quota & kill criteria
 
-Copy `cronjob-flux-longhorn-drift-digest.yaml`, then:
+**When** to push work into this runner (vs. `local-cron` / interactive / not-automated),
+the step-by-step **recipe** for adding a Claude-tier workflow, **quota** governance, and
+**kill criteria** all live in the routing policy — the single source of truth:
 
-- Keep the hardening block verbatim (non-root 1000, `readOnlyRootFilesystem`,
-  drop `ALL`, `RuntimeDefault`, tmpfs work dirs, `automountServiceAccountToken:
-  false`, `k8tz.io/inject: "false"`, deadlines, `backoffLimit`, `Forbid`).
-- Reach only what `cnp-allow.yaml` permits (Prometheus + world:443). Need more?
-  Add a **narrow** egress rule + scoped read-only RBAC — never the MCP broker.
-- Set `--allowedTools` explicitly; never `--dangerously-skip-permissions`.
-- Pick a sink: a single GitHub issue/comment, or Pushover — never per-PR spam.
-- Keep the cadence low (shared Max limits).
+**[`.agents/instructions/claude-runner-routing.md`](../../../../.agents/instructions/claude-runner-routing.md)**
 
-## Kill criteria
-
-Retire any workflow (delete its CronJob) if: useful-output rate < 30% after
-2 weeks, OR zero acted-upon outputs in 14 days, OR > 5 noise outputs in any
-7-day window.
+> That policy is a **provisional trial** (review ~2026-09-21) and documents the one-PR
+> revert if the approach isn't earning its keep.

@@ -13,6 +13,85 @@ then to k8s 1.35.
 The cluster runs kubeadm with stacked etcd and kube-vip (DaemonSet) for
 the control-plane VIP at `192.168.6.1`.
 
+## 1.35.4 → 1.36.4 upgrade (2026-08-22)
+
+Executed against the reusable Phase 3 procedure below. Target: **k8s
+`v1.36.4`** (latest patch — 1.36.0–1.36.2 carry a kubelet memory-leak
+regression fixed in 1.36.3; land on the latest), **cri-o `1.36.3`**.
+Full package upgrades (`dnf upgrade -y` / apt) on every node per the
+operator's instruction.
+
+### Deltas from the 1.34→1.35 run (verify these before reusing)
+
+- **All CentOS nodes are now RPM-tracked** (`rpm -qa | grep -cE
+  '^(kubeadm|kubelet|kubectl|cri-o)-'` == 4 on every node, incl.
+  worker5/worker6). The "alternate manual-install procedure" is
+  retired for CentOS nodes.
+- **`spark` is an 11th node** (Ubuntu 24.04 / containerd 2.2.1, arm64
+  GB10). Its k8s binaries are apt-managed and `apt-mark hold`-ed; its
+  NVIDIA driver is **apt-managed, not gpu-operator** (`driver.enabled:
+  false` cluster-wide; `/run/nvidia/driver` is an empty stale mount).
+  **Do NOT `apt full-upgrade` the driver on spark** — NVIDIA forum
+  reports a routine apt bump to **580.173.02 bricks the GB10** (`nvidia-smi
+  "No devices found"`), and NVIDIA's own guidance is to update the Spark
+  driver only via the DGX Dashboard/OTA. On spark: `apt-mark hold` the
+  `nvidia-driver-*`, `nvidia-kernel-*`, `linux-*-nvidia-hwe-*` and
+  `nvidia-modprobe`/`nvidia-settings` packages; upgrade k8s + non-driver
+  packages only; handle driver currency separately.
+- **worker8 (P40) NVIDIA must stay on R580** — `dnf upgrade` on worker8
+  runs with `--exclude='nvidia*,cuda*,libnvidia*,kmod-nvidia*'` (no
+  versionlock is set; the cuda-rhel9 repo could otherwise jump the
+  driver past Pascal's last branch).
+- **CoreDNS preflight gotcha (new with kubeadm 1.36):** `kubeadm upgrade
+  plan/apply` fails preflight with `CoreDNSUnsupportedPlugins` /
+  `CoreDNSMigration` because our Flux-managed CoreDNS (app 1.14.6) is not
+  a version kubeadm can migrate. It is `dns.disabled: true` in the live
+  `kubeadm-config`, so kubeadm must not touch it. Run apply with
+  `--ignore-preflight-errors=CoreDNSUnsupportedPlugins,CoreDNSMigration
+  --skip-phases=addon` (the `addon` phase is only CoreDNS + kube-proxy,
+  both of which we own outside kubeadm — Cilium replaces kube-proxy).
+  Verify the `coredns` Deployment image is still `1.14.6` after apply.
+- **master1 is workload-heavy** — it is schedulable and hosts **8 CNPG
+  primaries (including the `authelia` auth/ext-authz SPOF), `mon-k`
+  (pinned), `osd-1`, and Longhorn replicas**. It therefore gets the full
+  worker-style pre-drain (CNPG failover + Longhorn eviction + ceph gate +
+  mon check), not a bare control-plane drain. Because it must go first
+  for the minor-bump `apply`, split its steps: run `kubeadm upgrade
+  apply` **without draining** (HA-protected, control-plane only), and do
+  master1's heavy node-drain **last**, when the rest of the cluster is
+  proven healthy. There is **no `cnpg` kubectl plugin** on master1 —
+  trigger CNPG failover by deleting the primary pod (auto-promotes a
+  healthy replica) rather than `kubectl cnpg promote`.
+
+### Refined order for this run
+
+1. `master1` — `kubeadm upgrade apply v1.36.4` only (no drain).
+2. `master2` → `master3` — full node upgrade, one at a time, verify etcd
+   quorum between (both are VMs on beast; never concurrent — 2 down = lost
+   quorum).
+3. Workers — `worker7 → worker3 → worker2 → worker6 → worker5 → worker4
+   → worker8` (hardware-pinned last).
+4. `spark` — k8s-only (driver/kernel held), per the note above.
+5. `master1` — full node drain **last** (8 CNPG failovers + mon-k +
+   osd-1 + Longhorn).
+
+### Gate between nodes
+
+Ceph carries 3 pre-existing `AUTH_INSECURE_*` HEALTH_WARNs (CVE-2025-30156
+key-type tail), so **do not gate on the literal `HEALTH_OK` string** — it
+will never be clean. Gate on: all OSDs `up`/`in`, zero degraded/misplaced
+PGs, target node `Ready` at `v1.36.4`, and (after masters) etcd quorum
+3/3 synced.
+
+### 1.36 feature adoption — deferred, not bundled
+
+The upgrade PR carries **zero** feature changes. Adopt separately after
+soak, in priority order: accelerated recursive SELinux relabel (GA,
+auto-on — audit `seLinuxChangePolicy` first), pod-level in-place resize
+(beta), HPA scale-to-zero (beta), user namespaces (GA), node log query
+(GA), CSI volume group snapshots (GA). Verify each against the *deployed*
+chart/arch before implementing.
+
 ## State at the start of the upgrade
 
 | Aspect | Reality |

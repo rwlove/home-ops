@@ -3,7 +3,7 @@
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: kube-vip-master1
+  name: kube-vip
   labels:
     app.kubernetes.io/instance: kube-vip
     app.kubernetes.io/name: kube-vip
@@ -27,8 +27,14 @@ spec:
           env:
             - name: vip_arp
               value: "true"
-            - name: vip_interface
-              value: "enp0s31f6"
+            # vip_interface is intentionally OMITTED so kube-vip auto-detects
+            # the interface from each node's lowest-metric default route. This
+            # is what lets ONE DaemonSet serve every control-plane node despite
+            # differing NIC names (previously two DaemonSets: master1 bare-metal
+            # enp0s31f6, master2/3 VMs enp1s0). Validated 2026-08-22:
+            # master1->enp0s31f6, master2/3->enp1s0 (all metric 100); the VLAN
+            # 20/40 sub-interfaces are metric 400/401 so they are never picked.
+            # A new/replaced control-plane node now needs no kube-vip change.
             - name: port
               value: "6443"
             - name: vip_cidr
@@ -73,95 +79,8 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
-                  - key: kubernetes.io/hostname
-                    operator: In
-                    values:
-                      - master1.${SECRET_DOMAIN}
-      tolerations:
-        - effect: NoSchedule
-          operator: Exists
-        - effect: NoExecute
-          operator: Exists
-
----
-apiVersion: apps/v1
-kind: DaemonSet
-metadata:
-  name: kube-vip-master2-master3
-  labels:
-    app.kubernetes.io/instance: kube-vip
-    app.kubernetes.io/name: kube-vip
-spec:
-  selector:
-    matchLabels:
-      app.kubernetes.io/instance: kube-vip
-      app.kubernetes.io/name: kube-vip
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/instance: kube-vip
-        app.kubernetes.io/name: kube-vip
-    spec:
-      containers:
-        - name: kube-vip
-          image: ghcr.io/kube-vip/kube-vip:v1.2.3@sha256:2fcdbb014a2e217b9ea1b6dacac53d6851b185af323cdd28d100ad82d74bc79a
-          imagePullPolicy: IfNotPresent
-          args:
-            - manager
-          env:
-            - name: vip_arp
-              value: "true"
-            - name: vip_interface
-              value: "enp1s0"
-            - name: port
-              value: "6443"
-            - name: vip_cidr
-              value: "32"
-            - name: cp_enable
-              value: "true"
-            - name: cp_namespace
-              value: kube-system
-            # LeaderElection tuning. The API VIP failover window was ~15s
-            # (kube-vip default leaseDuration), which strands the VIP when the
-            # owning master hangs ungracefully (bit us during the 1.36 upgrade
-            # when master1's cri-o froze). 5/3/1 shortens the lease-driven
-            # failover to ~5s. The VIP intentionally stays on L2/ARP so brain
-            # remains OUT of the control-plane datapath — BGP-advertising the
-            # /32 would route it through brain and make brain a control-plane
-            # SPOF, which ARP (flat 192.168.0.0/16 L2) avoids today.
-            - name: vip_leaderelection
-              value: "true"
-            - name: vip_leaseduration
-              value: "5"
-            - name: vip_renewdeadline
-              value: "3"
-            - name: vip_retryperiod
-              value: "1"
-            - name: svc_enable
-              value: "false"
-            - name: address
-              value: "192.168.6.1"
-          securityContext:
-            capabilities:
-              add:
-                - NET_ADMIN
-                - NET_RAW
-      hostAliases:
-        - hostnames:
-            - kubernetes
-          ip: 127.0.0.1
-      hostNetwork: true
-      serviceAccountName: kube-vip
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: kubernetes.io/hostname
-                    operator: In
-                    values:
-                      - master2.${SECRET_DOMAIN}
-                      - master3.${SECRET_DOMAIN}
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: Exists
       tolerations:
         - effect: NoSchedule
           operator: Exists

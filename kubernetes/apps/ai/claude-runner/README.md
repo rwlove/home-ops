@@ -24,8 +24,9 @@ ones:
 The Flux `ks.yaml` ships `suspend: true`. Activate in order:
 
 1. **Token.** On nomad: `claude setup-token` → copy the value →
-   `op item edit "claude-runner" --vault Kubernetes claude_code_oauth_token=<token>`
-   (item also needs `gh_token`). Subscription token only — never an API key.
+   `op item edit "claude-runner" --vault Kubernetes claude_code_oauth_token=<token>`.
+   Subscription token only — never an API key. (Pushover creds are pulled from
+   the separate 1P `Pushover` item; no other fields needed on `claude-runner`.)
 2. **Image.** Confirm `ghcr.io/rwlove/claude-runner` is published and current
    (plan D3: add `tmux`, bump `CLAUDE_CODE_VERSION`); set the tag in the app
    manifests. Ships suspended, so nothing pulls until step 3.
@@ -42,7 +43,7 @@ The Flux `ks.yaml` ships `suspend: true`. Activate in order:
 
 | Workflow | Schedule (UTC) | Tier | What |
 |---|---|---|---|
-| `flux-longhorn-drift-digest` | `0 13 * * 1` (Mon 09:00 EDT) | Claude | Read Flux/Longhorn health from Prometheus, reason about real drift + a fix, post ONE `drift-digest` GitHub issue. Silent when clean. |
+| `flux-longhorn-drift-digest` | `0 13 * * 1` (Mon 09:00 EDT) | Claude | Read Flux/Longhorn health from Prometheus, reason about real drift + a fix, send ONE Pushover digest (private — reuses the alertmanager Pushover app). Silent when clean. |
 
 Summarize/triage-style checks (Renovate-PR summaries, log skims, doc-drift)
 do **not** go here — they are the local-model (`sgpt`) tier per HOMELAB-SPEC

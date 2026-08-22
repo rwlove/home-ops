@@ -49,6 +49,25 @@ Summarize/triage-style checks (Renovate-PR summaries, log skims, doc-drift)
 do **not** go here — they are the local-model (`sgpt`) tier per HOMELAB-SPEC
 Layer 6.
 
+## Interactive shell (survives laptop sleep)
+
+`deployment-shell.yaml` runs a persistent `claude-runner-shell` Deployment that
+holds a detached `tmux` session on the subscription token. Use it to kick off a
+long interactive task and walk away — the session keeps running in-cluster when
+your laptop sleeps.
+
+```sh
+kubectl -n ai exec -it deploy/claude-runner-shell -- tmux attach -t main
+# then inside: claude
+# detach: Ctrl-b d   (session + any running task persist; reattach anytime)
+```
+
+HOME (`/home/node`) is a `ceph-block` PVC (`claude-shell-data`), so Claude
+transcripts + scratch clones survive pod restarts. Needs the tmux-bearing image
+(`ghcr.io/rwlove/claude-runner:v2.1.240+`, built with `tmux` in the `containers`
+repo). Egress is the same CNP as the cron workflows (read-only Prometheus +
+world:443); attach is via `kubectl exec`, no route.
+
 ## Add a Claude-tier workflow
 
 Copy `cronjob-flux-longhorn-drift-digest.yaml`, then:

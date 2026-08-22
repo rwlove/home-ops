@@ -1,0 +1,108 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/cronjob-batch-v1.json
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: claude-runner-flux-longhorn-drift-digest
+  labels:
+    app.kubernetes.io/name: claude-runner
+spec:
+  # SECOND gate: stays suspended until the auth-spike Job (Gate 0) prints
+  # SUBSCRIPTION-HEADLESS-OK. Then remove this line to activate.
+  suspend: true
+  # 0 13 * * 1 UTC = Monday 09:00 EDT / 08:00 EST. Weekly on purpose: these
+  # runs draw on Rob's shared Max limits, so keep the cadence low.
+  schedule: "0 13 * * 1"
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      # 30 min hard cap — Claude reasoning + tool-calls per turn can run long;
+      # backoffLimit:1 + the weekly schedule bound the worst case.
+      activeDeadlineSeconds: 1800
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: claude-runner
+          annotations:
+            k8tz.io/inject: "false"
+        spec:
+          serviceAccountName: claude-runner
+          automountServiceAccountToken: false
+          restartPolicy: OnFailure
+          containers:
+            - name: runner
+              image: ghcr.io/rwlove/claude-runner:0.1.1
+              imagePullPolicy: IfNotPresent
+              command: ["claude"]
+              args:
+                - "--print"
+                - "--max-turns"
+                - "25"
+                # Permission allowlist (D6) — NOT --dangerously-skip-permissions.
+                # curl reaches only Prometheus + world:443 (CNP-bounded); gh
+                # posts the one digest issue.
+                - "--allowedTools"
+                - "Bash(curl:*) Bash(gh:*)"
+                - >-
+                  You are the home-ops drift auditor. Read cluster state
+                  READ-ONLY from Prometheus via curl against
+                  http://kube-prometheus-stack-prometheus.observability.svc.cluster.local:9090/api/v1/query
+                  Assess two things: (1) Flux health —
+                  gotk_reconcile_condition{type="Ready",status="False"} — list
+                  every non-Ready Kustomization and HelmRelease; distinguish a
+                  transient mass-reconcile (many Progressing at once, converges
+                  in minutes) from a real Stalled/BuildFailed/ApplyFailed root.
+                  (2) Longhorn — longhorn_volume_* health and any backup-age
+                  series indicating a stale or missing backup. For each real
+                  problem, reason about the likely cause and one concrete next
+                  step. Post ONE consolidated GitHub issue to rwlove/home-ops
+                  titled "drift-digest: <YYYY-MM-DD>" with label "drift-digest"
+                  via `gh issue create`. If there are zero real problems, post
+                  nothing and exit 0. Never include secrets, media file names,
+                  internal hostnames, or restricted app names in the issue.
+              env:
+                - name: HOME
+                  value: /workspace
+                - name: TZ
+                  value: America/New_York
+              envFrom:
+                - secretRef:
+                    name: claude-runner-secret
+                    optional: false
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: "1"
+                  memory: 1Gi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: workspace
+                  mountPath: /workspace
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: workspace
+              emptyDir:
+                medium: Memory
+                sizeLimit: 256Mi
+            - name: tmp
+              emptyDir:
+                medium: Memory
+                sizeLimit: 64Mi

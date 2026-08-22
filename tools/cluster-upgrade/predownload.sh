@@ -24,7 +24,7 @@ CONTAINERD="${CONTAINERD:-spark}"   # apt/containerd nodes (GPU appliance etc.);
 
 for n in $CENTOS; do
   # worker8 example: hold the GPU driver out of the cached upgrade set
-  excl=""; [ "$n" = worker8 ] && excl="--exclude=nvidia*,cuda*,libnvidia*,kmod-nvidia*"
+  excl=""; [ "$n" = worker8 ] && excl="--exclude=*nvidia*,cuda*"   # hold the whole GPU stack
   (
     ssh -o ConnectTimeout=10 -o BatchMode=yes root@$n.$D "set -f
       dnf install -y --downloadonly --setopt=keepcache=1 kubeadm-$KVER kubelet-$KVER kubectl-$KVER >/tmp/predl-k8s.log 2>&1

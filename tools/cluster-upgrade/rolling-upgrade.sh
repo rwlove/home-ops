@@ -219,7 +219,7 @@ upgrade_worker worker2
 upgrade_worker worker6
 upgrade_worker worker5
 upgrade_worker worker4
-upgrade_worker worker8 "--exclude=nvidia*,cuda*,libnvidia*,kmod-nvidia*"
+upgrade_worker worker8 "--exclude=*nvidia*,cuda*"   # hold the WHOLE GPU stack (xorg-x11-nvidia etc. or you hit dep conflicts)
 # GPU/containerd node (spark) handled separately — see README.
 # Heaviest control plane LAST (its `apply` was done up front; here only the node bits):
 KHOST=master2; ETCDHOST=master2

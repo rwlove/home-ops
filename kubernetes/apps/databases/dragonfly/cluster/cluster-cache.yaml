@@ -1,0 +1,33 @@
+---
+# yaml-language-server: $schema=https://lds-schemas.pages.dev/dragonflydb.io/dragonfly_v1alpha1.json
+apiVersion: dragonflydb.io/v1alpha1
+kind: Dragonfly
+metadata:
+  name: dragonfly-cache
+spec:
+  labels:
+    dragonflydb.io/cluster: dragonfly-cache
+  image: ghcr.io/dragonflydb/dragonfly:v1.40.1@sha256:ebf3c6c213e82fb51b4521660cca13f06f3421dc5b1ed14f2f474c50b5e29986
+  # Regenerable-cache tier. Single replica: the data is reconstructable
+  # (renovate repository cache), so node-loss HA is not worth 3x the RAM.
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 1280Mi
+    limits:
+      memory: 1280Mi
+  networkPolicyEnabled: false
+  # --cache_mode makes this instance EVICT (LRU-style) when it reaches
+  # --maxmemory instead of returning `ERR Out of memory`. Correct for a
+  # pure cache: a full cache should shed cold keys, never refuse writes.
+  # This is the property the shared instance lacked (noeviction) that let
+  # renovate's cache jam authelia/immich/paperless. Isolating renovate
+  # here means its churn can never again reach the durable instance.
+  # --maxmemory stays strictly below limits.memory (RSS overhead sits on
+  # top) so background activity can't OOM-kill the pod.
+  args:
+    - "--maxmemory=1024Mi"
+    - "--cache_mode=true"
+    - "--proactor_threads=2"
+    - "--cluster_mode=emulated"

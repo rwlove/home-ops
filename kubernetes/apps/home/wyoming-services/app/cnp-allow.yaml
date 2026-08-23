@@ -1,0 +1,32 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: wyoming-whisper-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: wyoming-services
+      app.kubernetes.io/controller: whisper
+  # Additive — the home-ns default-deny is the lockdown; this punches a hole.
+  # HA's own voice pipeline reaches whisper intra-namespace (allow-intra-
+  # namespace covers it); this only adds the cross-namespace pump consumer.
+  # Scoped to the whisper sub-service via the controller label so kokoro /
+  # openwakeword (same app name) are untouched.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # pump (collab ns) set-note dictation: pump's /api/stt relays browser-
+    # captured audio here over the Wyoming protocol (10300). Mirrors the
+    # pump ingress rule in emqx-allow; the matching egress hole is in
+    # collab/pump/app/cnp-allow.yaml.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: collab
+            app.kubernetes.io/name: pump
+      toPorts:
+        - ports:
+            - port: "10300"
+              protocol: TCP

@@ -138,6 +138,89 @@ The per-node critical path dropped from ~40 min to ~7–10 min once these were i
 - **CoreDNS preflight (see 1.36 deltas above):** `--ignore-preflight-errors=
   CoreDNSUnsupportedPlugins,CoreDNSMigration --skip-phases=addon`.
 
+### Stateful data integrity across reboots — MANDATORY (added after the 1.36.4 run)
+
+The 1.36.4 run **silently rewound a Renee-facing media-server config volume**
+(its library index + watch history) to a weeks-old state, while the media files
+themselves — on a separate volume — were untouched. This is the most dangerous
+class of upgrade damage because it is invisible until a user notices, and the
+app is otherwise `Running` and healthy.
+
+**Root-cause chain.** A node reboot was ungraceful (cri-o shutdown hang), so a
+still-attached Longhorn **xfs** volume never got a clean unmount/fsync. On
+remount xfs reported `Metadata LSN ahead of current LSN` (mount exit 32) and
+only mounted after **`xfs_repair -L`, which zeroes the dirty log** — discarding
+every write that was logged but not yet flushed. For a busy SQLite app whose
+write-ahead log (`-wal`) had not been checkpointed into the main `.db`, that
+discard rewound the database **far past "a few seconds"** — weeks of state. The
+loss is proportional to un-checkpointed WAL, so it hits the *busiest* DBs
+hardest: other `*-config-xfs` apps on the same reboot batch (the PVR /
+media-management configs) came back current because their DBs were small and
+flushed.
+
+**Rules — apply on every upgrade:**
+
+1. **Never reboot a node with Longhorn volumes still attached.** The Longhorn
+   pre-drain step evicts *replicas* — that is **not** sufficient. After
+   `kubectl drain`, **assert every Longhorn volume is `detached` from the node
+   and `sync` the node** before issuing the reboot. A reboot that races the
+   volume unmount is exactly what creates the dirty log. If a volume will not
+   detach, **stop — do not force-reboot.**
+
+   ```sh
+   # Must print nothing before rebooting <node>:
+   kubectl get volumes.longhorn.io -n longhorn-system -o json | jq -r \
+     --arg n "<node>.${SECRET_DOMAIN}" \
+     '.items[] | select(.status.currentNodeID==$n) | .metadata.name'
+   ssh root@<node>.${SECRET_DOMAIN} sync
+   ```
+
+2. **Take a deliberate pre-upgrade snapshot of stateful volumes.** The nightly
+   Longhorn snapshot is what made recovery possible in 1.36.4 — but that was
+   timing luck (it happened to be recent). Take an on-demand snapshot (or
+   backup) of the DB-heavy volumes at the *start* of the run so best-known-good
+   is fresh and clean.
+
+3. **Make DB-heavy backups app-consistent.** Longhorn block snapshots are **not
+   crash-consistent** for a live SQLite DB. For the busiest Renee-facing DB apps
+   (the media server above all): enable the app's own scheduled DB backup to a
+   separate PVC, **or** checkpoint the WAL (`PRAGMA wal_checkpoint(TRUNCATE)`)
+   ahead of the snapshot, **or** scale the app down for the snapshot window.
+   This converts a lossy block snapshot into a reliable restore point.
+
+**Recovery — revert a Longhorn volume to a pre-upgrade snapshot.** If an app
+returns with rewound data:
+
+```sh
+# 1. Stop the app so the volume detaches (suspend HR first so Flux won't re-scale).
+flux -n <ns> suspend helmrelease <app>
+kubectl -n <ns> scale statefulset <app> --replicas=0
+# Wait until detached:
+#   kubectl get volume <vol> -n longhorn-system -o jsonpath='{.status.state}'  == detached
+
+# 2. snapshotRevert is a Longhorn ENGINE op, not a CRD field. Its API is
+#    in-cluster only (longhorn-backend:9500). `kubectl port-forward` FAILS here
+#    (the manager does not bind pod-localhost) — curl from INSIDE a manager pod:
+MGR=$(kubectl -n longhorn-system get pod -l app=longhorn-manager -o name | head -1)
+API=http://longhorn-backend:9500/v1 ; VOL=<vol> ; NODE=<node>.${SECRET_DOMAIN}
+kx(){ kubectl -n longhorn-system exec "${MGR#pod/}" -c longhorn-manager -- sh -c "$1"; }
+# List snapshots and pick a pre-upgrade daily (READY, created before the reboot):
+kx "curl -s -X POST '$API/volumes/$VOL?action=snapshotList'"
+SNAP=<daily-sn-...>
+# Attach in maintenance mode (frontend disabled), wait state=attached + robustness=healthy:
+kx "curl -s -X POST '$API/volumes/$VOL?action=attach' -H 'Content-Type: application/json' -d '{\"hostId\":\"'$NODE'\",\"disableFrontend\":true}'"
+kx "curl -s -X POST '$API/volumes/$VOL?action=snapshotRevert' -H 'Content-Type: application/json' -d '{\"name\":\"'$SNAP'\"}'"
+kx "curl -s -X POST '$API/volumes/$VOL?action=detach'"
+
+# 3. Bring the app back.
+kubectl -n <ns> scale statefulset <app> --replicas=1
+flux -n <ns> resume helmrelease <app>   # gated by the destructive hook — needs explicit approval
+```
+
+Revert discards only snapshots *newer* than the target; older dailies and the
+NFS backup remain as fallbacks. Verify a clean app startup afterward (SQLite
+opens with **0 migrations**, no corruption warnings).
+
 **Phase-5 restore list (settings toggled live for the run):**
 `node-drain-policy` → `block-if-contains-last-replica`;
 `replica-replenishment-wait-interval` → `600`; resume descheduler; etcd defrag;
@@ -460,6 +543,7 @@ kubectl run nvidia-smoke --rm -i --restart=Never \
 | crio + kubelet inactive after reboot (services disabled in systemd) | New cri-o/kubelet RPM install on top of an existing manual-install node resets the systemd unit enable state to disabled | Always `systemctl enable crio kubelet` *before* the reboot step, or after the reboot if you forgot |
 | Longhorn instance-manager won't evict even though node has 0 replicas | Longhorn keeps the per-node instance-manager PDB at `disruptionsAllowed: 0` until `spec.evictionRequested: true` is set on the Longhorn node CR | Before drain: `kubectl patch -n longhorn-system nodes.longhorn.io <node> --type=merge -p '{"spec":{"allowScheduling":false,"evictionRequested":true}}'`. The Longhorn UI does this for you when you set "Disable Scheduling + Eviction Requested". After uncordon, restore: `'{"spec":{"allowScheduling":true,"evictionRequested":false}}'` |
 | HelmRelease `spec.suspend: true` revert pushed to git, but cluster HR still shows `suspend: true` after Flux reconciles | Flux's helm-controller can get stuck on a transient state; observedGeneration matches but the spec doesn't reflect the new file | Direct patch: `kubectl patch hr -n <ns> <name> --type=merge -p '{"spec":{"suspend":null}}'`. Bit us with descheduler at the end of Phase 3. |
+| App returns `Running`/healthy after an upgrade reboot but with **weeks-old data** (config/DB rewound; media files on their own volume fine) | Ungraceful reboot left a Longhorn **xfs** volume with a dirty log (`Metadata LSN ahead of current LSN`, mount exit 32); `xfs_repair -L` zeroed the log and discarded unflushed writes; a non-checkpointed SQLite WAL then rewound the DB far past "seconds". | Revert the volume to its last **pre-upgrade** Longhorn daily snapshot — see "Stateful data integrity across reboots" for the in-cluster `snapshotRevert` recipe. **Prevent:** assert volumes `detached` + `sync` before reboot; app-consistent DB backups for busy DB apps. |
 | Static pod manifests (apiserver, controller-manager, scheduler, etcd) stay at the old patch version after `kubeadm upgrade node` on patch bumps | `kubeadm upgrade node` only refreshes the kubelet config + kubeconfig on patches; static pod images are only bumped via `kubeadm upgrade apply` (one master) or by the minor bump. So `apiserver: v1.34.2` can persist for months while kubelets are at 1.34.7. | Acceptable while inside the same minor. The next minor bump (`kubeadm upgrade apply v1.35.x`) refreshes them. |
 
 ### Master procedure

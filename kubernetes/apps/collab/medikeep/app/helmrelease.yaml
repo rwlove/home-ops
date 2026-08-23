@@ -111,7 +111,16 @@ spec:
         globalMounts:
           - path: /app/matplotlib
       uploads:
-        type: emptyDir
+        # Uploaded medical documents (lab-result PDFs, patient photos) are stored
+        # on disk here — irreplaceable, so Longhorn (survives cluster loss via the
+        # NFS backup target) not emptyDir, which lost them on every pod reschedule.
+        # Auto-covered by Longhorn's `default` recurring-job group (daily snapshot
+        # + weekly/monthly backup). MediKeep runs as 999 and the pod already sets
+        # fsGroup 999, so the volume root is writable.
+        type: persistentVolumeClaim
+        accessMode: ReadWriteOnce
+        size: 5Gi
+        storageClass: longhorn
         globalMounts:
           - path: /app/uploads
 

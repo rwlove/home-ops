@@ -65,9 +65,15 @@ spec:
 
                   ## DATA CLASSIFICATION — this digest becomes a PUBLIC GitHub issue
                   - Apps under `kubernetes/apps/media/` or `kubernetes/apps/security/` are
-                    RESTRICTED. Do NOT name them, their charts, or their images. If you find
-                    adoptable candidates there, collapse them to ONE line per section:
+                    RESTRICTED. Do NOT name them, their charts, their images, or their
+                    directory paths ANYWHERE in your output. If you find adoptable
+                    candidates there, collapse them to ONE line per section that contains
+                    ONLY a bare count and nothing that could identify the app, EXACTLY:
                     "N candidate(s) in restricted namespaces — review interactively."
+                    NEVER put an app/chart/image name in parentheses or anywhere on that
+                    line. A single restricted name anywhere in your output is a HARD
+                    FAILURE that gets the whole digest withheld — when unsure whether a
+                    name is restricted, omit it.
                   - Never include media file names, internal hostnames, IP/MAC addresses, or
                     any secret value. Prefer roles ("the gateway") over names.
                   - Public-tier app names, chart names, and versions ARE fine (public repo).
@@ -138,6 +144,20 @@ spec:
                   if [ -z "$SIG" ] || [ "$SIG" = "NOTHING-TO-REPORT" ]; then
                     echo "adoption-scout: nothing to report (silent)"; exit 0
                   fi
+
+                  # FAIL-SAFE backstop: never let a restricted (media/security) app name
+                  # reach the public issue, even if the model ignored the prompt rule.
+                  # Enumerate the restricted app dir names from the clone and REFUSE to
+                  # post if any appears in the digest — fail closed (data-classification,
+                  # HOMELAB-SPEC L2 #2). The name is not echoed (pod logs are internal).
+                  RESTRICTED=$(find /scratch/repo/kubernetes/apps/media /scratch/repo/kubernetes/apps/security \
+                    -maxdepth 1 -mindepth 1 -type d -printf '%f\n' 2>/dev/null | sort -u)
+                  for app in $RESTRICTED; do
+                    if printf '%s' "$DIGEST" | grep -Fiqw -- "$app"; then
+                      echo "adoption-scout: BLOCKED — a restricted-namespace name appears in the digest; refusing to post (data-classification). Digest withheld."
+                      exit 1
+                    fi
+                  done
 
                   # Build the issue payload with jq (encodes markdown safely as JSON).
                   printf '%s' "$DIGEST" > /tmp/digest.md

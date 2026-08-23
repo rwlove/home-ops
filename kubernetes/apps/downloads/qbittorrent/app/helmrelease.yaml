@@ -39,12 +39,14 @@ spec:
               tag: 5.2.3@sha256:4fcf15b7f265c2c8d7bc2a7e13240a07e0593c326f3cf3b5b9bb69eec5b79299
 
             env:
-              QBT_Application__MemoryWorkingSetLimit:
-                valueFrom:
-                  resourceFieldRef:
-                    containerName: app
-                    resource: limits.memory
-                    divisor: 1Mi
+              # Soft cap MUST sit below limits.memory so qBittorrent sheds
+              # cache before the kernel OOMKills. Deriving it from limits.memory
+              # set cap == hard limit (both 10.24 GiB), so libtorrent buffer
+              # overhead pushed total usage past the ceiling before the soft cap
+              # ever forced a shed → repeated OOMKills. 10240 MiB (10 GiB) caps
+              # just under the observed ~10.2 GiB working-set peak and leaves
+              # ~1.18 GiB headroom under the 12G limit.
+              QBT_Application__MemoryWorkingSetLimit: "10240"
               QBT_BitTorrent__Session__Interface: vxlan0
               QBT_BitTorrent__Session__InterfaceAddress:
                 valueFrom:
@@ -80,7 +82,7 @@ spec:
                 cpu: 35m
                 memory: 8G
               limits:
-                memory: 11G
+                memory: 12G
 
             securityContext:
               allowPrivilegeEscalation: false

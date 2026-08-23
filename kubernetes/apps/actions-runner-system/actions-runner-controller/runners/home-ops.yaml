@@ -66,16 +66,22 @@ spec:
                     fieldPath: status.hostIP
               - name: ACTIONS_RUNNER_REQUIRE_JOB_CONTAINER
                 value: "false"
-            # flux-local Test/Diff are bursty CPU-heavy kustomize builds that run
-            # in-pod. Request 1 core so the scheduler costs/spreads them honestly;
-            # allow bursting to 4 so a build isn't throttled when the node is free.
+            # Right-sized 1c/2Gi → 300m/1Gi (limits 4c/6Gi → 2c/2Gi). The heavy
+            # in-pod flux-local Test/Diff jobs that justified a full core have
+            # moved to ubuntu-latest (flate rewrite); the only jobs still landing
+            # here are light — actionlint/yamllint/markdownlint, the shell checks
+            # (cnp-empty-rules/envsubst-shell-vars/readme-drift), labeler, and the
+            # docs mkdocs build. At maxRunners:16 the old 1c request reserved 16
+            # cores at full burst and deadlocked scale-up runners on the busy
+            # workers (Pending on node-pinned openebs-hostpath PVs). 300m keeps the
+            # scheduler honest; 2c limit leaves burst headroom for the mkdocs build.
             resources:
               requests:
-                cpu: "1"
-                memory: 2Gi
+                cpu: "300m"
+                memory: 1Gi
               limits:
-                cpu: "4"
-                memory: 6Gi
+                cpu: "2"
+                memory: 2Gi
 
   valuesFrom:
     - kind: Secret

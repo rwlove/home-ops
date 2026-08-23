@@ -64,10 +64,14 @@ ingress. Two holes were punched:
   no ingress rules (only intra-ns Grafana/Vector via baseline), so this
   cross-ns caller had to be listed explicitly or it would silent-drop.
 
-## Activation (shipped suspended)
+## Activation
 
-Both the Flux `ks.yaml` and the CronJob ship `suspend: true`. Activate in
-order:
+**Status: ACTIVE as of 2026-08-23** — the ks and both CronJobs are
+unsuspended and running on their schedules. To pause, re-add
+`spec.suspend: true` to the CronJob (fast, keeps objects) or to the ks
+(prunes the app's objects on next reconcile).
+
+The original first-time activation order, for reference:
 
 1. **Confirm the model is pullable/loadable.** `qwen2.5:7b` is already the
    khoj default and Open WebUI-selectable on this Ollama, so it is

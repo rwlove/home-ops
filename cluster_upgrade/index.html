@@ -1018,6 +1018,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#stateful-data-integrity-across-reboots--mandatory-added-after-the-1364-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stateful data integrity across reboots — MANDATORY (added after the 1.36.4 run)
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2507,6 +2518,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#stateful-data-integrity-across-reboots--mandatory-added-after-the-1364-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stateful data integrity across reboots — MANDATORY (added after the 1.36.4 run)
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2877,6 +2899,84 @@ The per-node critical path dropped from ~40 min to ~7–10 min once these were i
 <li><strong>CoreDNS preflight (see 1.36 deltas above):</strong> <code>--ignore-preflight-errors=
   CoreDNSUnsupportedPlugins,CoreDNSMigration --skip-phases=addon</code>.</li>
 </ul>
+<h3 id="stateful-data-integrity-across-reboots--mandatory-added-after-the-1364-run">Stateful data integrity across reboots — MANDATORY (added after the 1.36.4 run)<a class="headerlink" href="#stateful-data-integrity-across-reboots--mandatory-added-after-the-1364-run" title="Permanent link">&para;</a></h3>
+<p>The 1.36.4 run <strong>silently rewound a Renee-facing media-server config volume</strong>
+(its library index + watch history) to a weeks-old state, while the media files
+themselves — on a separate volume — were untouched. This is the most dangerous
+class of upgrade damage because it is invisible until a user notices, and the
+app is otherwise <code>Running</code> and healthy.</p>
+<p><strong>Root-cause chain.</strong> A node reboot was ungraceful (cri-o shutdown hang), so a
+still-attached Longhorn <strong>xfs</strong> volume never got a clean unmount/fsync. On
+remount xfs reported <code>Metadata LSN ahead of current LSN</code> (mount exit 32) and
+only mounted after <strong><code>xfs_repair -L</code>, which zeroes the dirty log</strong> — discarding
+every write that was logged but not yet flushed. For a busy SQLite app whose
+write-ahead log (<code>-wal</code>) had not been checkpointed into the main <code>.db</code>, that
+discard rewound the database <strong>far past "a few seconds"</strong> — weeks of state. The
+loss is proportional to un-checkpointed WAL, so it hits the <em>busiest</em> DBs
+hardest: other <code>*-config-xfs</code> apps on the same reboot batch (the PVR /
+media-management configs) came back current because their DBs were small and
+flushed.</p>
+<p><strong>Rules — apply on every upgrade:</strong></p>
+<ol>
+<li><strong>Never reboot a node with Longhorn volumes still attached.</strong> The Longhorn
+   pre-drain step evicts <em>replicas</em> — that is <strong>not</strong> sufficient. After
+   <code>kubectl drain</code>, <strong>assert every Longhorn volume is <code>detached</code> from the node
+   and <code>sync</code> the node</strong> before issuing the reboot. A reboot that races the
+   volume unmount is exactly what creates the dirty log. If a volume will not
+   detach, <strong>stop — do not force-reboot.</strong></li>
+</ol>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Must print nothing before rebooting &lt;node&gt;:</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>volumes.longhorn.io<span class="w"> </span>-n<span class="w"> </span>longhorn-system<span class="w"> </span>-o<span class="w"> </span>json<span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-r<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span>--arg<span class="w"> </span>n<span class="w"> </span><span class="s2">"&lt;node&gt;.</span><span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="s1">'.items[] | select(.status.currentNodeID==$n) | .metadata.name'</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>ssh<span class="w"> </span>root@&lt;node&gt;.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span>sync
+</span></code></pre></div>
+<ol>
+<li>
+<p><strong>Take a deliberate pre-upgrade snapshot of stateful volumes.</strong> The nightly
+   Longhorn snapshot is what made recovery possible in 1.36.4 — but that was
+   timing luck (it happened to be recent). Take an on-demand snapshot (or
+   backup) of the DB-heavy volumes at the <em>start</em> of the run so best-known-good
+   is fresh and clean.</p>
+</li>
+<li>
+<p><strong>Make DB-heavy backups app-consistent.</strong> Longhorn block snapshots are <strong>not
+   crash-consistent</strong> for a live SQLite DB. For the busiest Renee-facing DB apps
+   (the media server above all): enable the app's own scheduled DB backup to a
+   separate PVC, <strong>or</strong> checkpoint the WAL (<code>PRAGMA wal_checkpoint(TRUNCATE)</code>)
+   ahead of the snapshot, <strong>or</strong> scale the app down for the snapshot window.
+   This converts a lossy block snapshot into a reliable restore point.</p>
+</li>
+</ol>
+<p><strong>Recovery — revert a Longhorn volume to a pre-upgrade snapshot.</strong> If an app
+returns with rewound data:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># 1. Stop the app so the volume detaches (suspend HR first so Flux won't re-scale).</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>flux<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span><span class="nb">suspend</span><span class="w"> </span>helmrelease<span class="w"> </span>&lt;app&gt;
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>scale<span class="w"> </span>statefulset<span class="w"> </span>&lt;app&gt;<span class="w"> </span>--replicas<span class="o">=</span><span class="m">0</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># Wait until detached:</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="c1">#   kubectl get volume &lt;vol&gt; -n longhorn-system -o jsonpath='{.status.state}'  == detached</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="c1"># 2. snapshotRevert is a Longhorn ENGINE op, not a CRD field. Its API is</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="c1">#    in-cluster only (longhorn-backend:9500). `kubectl port-forward` FAILS here</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="c1">#    (the manager does not bind pod-localhost) — curl from INSIDE a manager pod:</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="nv">MGR</span><span class="o">=</span><span class="k">$(</span>kubectl<span class="w"> </span>-n<span class="w"> </span>longhorn-system<span class="w"> </span>get<span class="w"> </span>pod<span class="w"> </span>-l<span class="w"> </span><span class="nv">app</span><span class="o">=</span>longhorn-manager<span class="w"> </span>-o<span class="w"> </span>name<span class="w"> </span><span class="p">|</span><span class="w"> </span>head<span class="w"> </span>-1<span class="k">)</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="nv">API</span><span class="o">=</span>http://longhorn-backend:9500/v1<span class="w"> </span><span class="p">;</span><span class="w"> </span><span class="nv">VOL</span><span class="o">=</span>&lt;vol&gt;<span class="w"> </span><span class="p">;</span><span class="w"> </span><span class="nv">NODE</span><span class="o">=</span>&lt;node&gt;.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>kx<span class="o">(){</span><span class="w"> </span>kubectl<span class="w"> </span>-n<span class="w"> </span>longhorn-system<span class="w"> </span><span class="nb">exec</span><span class="w"> </span><span class="s2">"</span><span class="si">${</span><span class="nv">MGR</span><span class="p">#pod/</span><span class="si">}</span><span class="s2">"</span><span class="w"> </span>-c<span class="w"> </span>longhorn-manager<span class="w"> </span>--<span class="w"> </span>sh<span class="w"> </span>-c<span class="w"> </span><span class="s2">"</span><span class="nv">$1</span><span class="s2">"</span><span class="p">;</span><span class="w"> </span><span class="o">}</span>
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="c1"># List snapshots and pick a pre-upgrade daily (READY, created before the reboot):</span>
+</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>kx<span class="w"> </span><span class="s2">"curl -s -X POST '</span><span class="nv">$API</span><span class="s2">/volumes/</span><span class="nv">$VOL</span><span class="s2">?action=snapshotList'"</span>
+</span><span id="__span-1-15"><a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="nv">SNAP</span><span class="o">=</span>&lt;daily-sn-...&gt;
+</span><span id="__span-1-16"><a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="c1"># Attach in maintenance mode (frontend disabled), wait state=attached + robustness=healthy:</span>
+</span><span id="__span-1-17"><a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>kx<span class="w"> </span><span class="s2">"curl -s -X POST '</span><span class="nv">$API</span><span class="s2">/volumes/</span><span class="nv">$VOL</span><span class="s2">?action=attach' -H 'Content-Type: application/json' -d '{\"hostId\":\"'</span><span class="nv">$NODE</span><span class="s2">'\",\"disableFrontend\":true}'"</span>
+</span><span id="__span-1-18"><a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>kx<span class="w"> </span><span class="s2">"curl -s -X POST '</span><span class="nv">$API</span><span class="s2">/volumes/</span><span class="nv">$VOL</span><span class="s2">?action=snapshotRevert' -H 'Content-Type: application/json' -d '{\"name\":\"'</span><span class="nv">$SNAP</span><span class="s2">'\"}'"</span>
+</span><span id="__span-1-19"><a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>kx<span class="w"> </span><span class="s2">"curl -s -X POST '</span><span class="nv">$API</span><span class="s2">/volumes/</span><span class="nv">$VOL</span><span class="s2">?action=detach'"</span>
+</span><span id="__span-1-20"><a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>
+</span><span id="__span-1-21"><a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a><span class="c1"># 3. Bring the app back.</span>
+</span><span id="__span-1-22"><a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>scale<span class="w"> </span>statefulset<span class="w"> </span>&lt;app&gt;<span class="w"> </span>--replicas<span class="o">=</span><span class="m">1</span>
+</span><span id="__span-1-23"><a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a>flux<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>resume<span class="w"> </span>helmrelease<span class="w"> </span>&lt;app&gt;<span class="w">   </span><span class="c1"># gated by the destructive hook — needs explicit approval</span>
+</span></code></pre></div>
+<p>Revert discards only snapshots <em>newer</em> than the target; older dailies and the
+NFS backup remain as fallbacks. Verify a clean app startup afterward (SQLite
+opens with <strong>0 migrations</strong>, no corruption warnings).</p>
 <p><strong>Phase-5 restore list (settings toggled live for the run):</strong>
 <code>node-drain-policy</code> → <code>block-if-contains-last-replica</code>;
 <code>replica-replenishment-wait-interval</code> → <code>600</code>; resume descheduler; etcd defrag;
@@ -2972,12 +3072,12 @@ inside the same drain window per node, so we drain once per node.</p>
 </ol>
 <p>Never drain two masters concurrently. After each master, verify etcd
 quorum:</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>kubectl<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span>etcd-master1.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span>--<span class="w"> </span>etcdctl<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span>--endpoints<span class="o">=</span>https://127.0.0.1:2379<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span>--cacert<span class="o">=</span>/etc/kubernetes/pki/etcd/ca.crt<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span>--cert<span class="o">=</span>/etc/kubernetes/pki/etcd/server.crt<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span>--key<span class="o">=</span>/etc/kubernetes/pki/etcd/server.key<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span>endpoint<span class="w"> </span>status<span class="w"> </span>--cluster<span class="w"> </span>-w<span class="w"> </span>table
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>kubectl<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span>etcd-master1.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span>--<span class="w"> </span>etcdctl<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>--endpoints<span class="o">=</span>https://127.0.0.1:2379<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span>--cacert<span class="o">=</span>/etc/kubernetes/pki/etcd/ca.crt<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span>--cert<span class="o">=</span>/etc/kubernetes/pki/etcd/server.crt<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span>--key<span class="o">=</span>/etc/kubernetes/pki/etcd/server.key<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">  </span>endpoint<span class="w"> </span>status<span class="w"> </span>--cluster<span class="w"> </span>-w<span class="w"> </span>table
 </span></code></pre></div>
 <h3 id="pre-flight-before-every-node-lessons-from-2026-05-02">Pre-flight before every node (lessons from 2026-05-02)<a class="headerlink" href="#pre-flight-before-every-node-lessons-from-2026-05-02" title="Permanent link">&para;</a></h3>
 <p>These checks <strong>must</strong> happen before draining any node. Skipping any of
@@ -3001,19 +3101,19 @@ them caused real damage on the first attempt at this phase.</p>
    - <strong>Re-enable scheduling and clear eviction after the node is back
      and you've uncordoned it</strong>, otherwise replicas won't return.</p>
 <p><strong>Via kubectl</strong> (equivalent):</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>kubectl<span class="w"> </span>patch<span class="w"> </span>-n<span class="w"> </span>longhorn-system<span class="w"> </span>nodes.longhorn.io<span class="w"> </span>&lt;node&gt;<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span>--type<span class="o">=</span>merge<span class="w"> </span>-p<span class="w"> </span><span class="s1">'{"spec":{"allowScheduling":false,"evictionRequested":true}}'</span>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># Wait until no replicas remain on the node</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="k">until</span><span class="w"> </span><span class="o">[</span><span class="w"> </span><span class="s2">"</span><span class="k">$(</span>kubectl<span class="w"> </span>get<span class="w"> </span>replicas.longhorn.io<span class="w"> </span>-n<span class="w"> </span>longhorn-system<span class="w"> </span>-o<span class="w"> </span>json<span class="w"> </span><span class="p">|</span>
-</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span>jq<span class="w"> </span>-r<span class="w"> </span>--arg<span class="w"> </span>n<span class="w"> </span><span class="s2">"&lt;node&gt;"</span><span class="w"> </span><span class="s1">'.items[] | select(.spec.nodeID==$n) | .metadata.name'</span><span class="w"> </span><span class="p">|</span>
-</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">  </span>wc<span class="w"> </span>-l<span class="k">)</span><span class="s2">"</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"0"</span><span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span>sleep<span class="w"> </span><span class="m">10</span><span class="p">;</span><span class="w"> </span><span class="k">done</span>
-</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>
-</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="c1"># … do the drain + upgrade + uncordon …</span>
-</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>
-</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="c1"># After uncordon and node Ready, restore Longhorn scheduling:</span>
-</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>kubectl<span class="w"> </span>patch<span class="w"> </span>-n<span class="w"> </span>longhorn-system<span class="w"> </span>nodes.longhorn.io<span class="w"> </span>&lt;node&gt;<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">  </span>--type<span class="o">=</span>merge<span class="w"> </span>-p<span class="w"> </span><span class="s1">'{"spec":{"allowScheduling":true,"evictionRequested":false}}'</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>kubectl<span class="w"> </span>patch<span class="w"> </span>-n<span class="w"> </span>longhorn-system<span class="w"> </span>nodes.longhorn.io<span class="w"> </span>&lt;node&gt;<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span>--type<span class="o">=</span>merge<span class="w"> </span>-p<span class="w"> </span><span class="s1">'{"spec":{"allowScheduling":false,"evictionRequested":true}}'</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="c1"># Wait until no replicas remain on the node</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="k">until</span><span class="w"> </span><span class="o">[</span><span class="w"> </span><span class="s2">"</span><span class="k">$(</span>kubectl<span class="w"> </span>get<span class="w"> </span>replicas.longhorn.io<span class="w"> </span>-n<span class="w"> </span>longhorn-system<span class="w"> </span>-o<span class="w"> </span>json<span class="w"> </span><span class="p">|</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">  </span>jq<span class="w"> </span>-r<span class="w"> </span>--arg<span class="w"> </span>n<span class="w"> </span><span class="s2">"&lt;node&gt;"</span><span class="w"> </span><span class="s1">'.items[] | select(.spec.nodeID==$n) | .metadata.name'</span><span class="w"> </span><span class="p">|</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">  </span>wc<span class="w"> </span>-l<span class="k">)</span><span class="s2">"</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"0"</span><span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span>sleep<span class="w"> </span><span class="m">10</span><span class="p">;</span><span class="w"> </span><span class="k">done</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="c1"># … do the drain + upgrade + uncordon …</span>
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>
+</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="c1"># After uncordon and node Ready, restore Longhorn scheduling:</span>
+</span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a>kubectl<span class="w"> </span>patch<span class="w"> </span>-n<span class="w"> </span>longhorn-system<span class="w"> </span>nodes.longhorn.io<span class="w"> </span>&lt;node&gt;<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-13"><a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="w">  </span>--type<span class="o">=</span>merge<span class="w"> </span>-p<span class="w"> </span><span class="s1">'{"spec":{"allowScheduling":true,"evictionRequested":false}}'</span>
 </span></code></pre></div>
 <ol>
 <li>
@@ -3033,7 +3133,7 @@ them caused real damage on the first attempt at this phase.</p>
    in/out:</p>
 </li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>pod<span class="w"> </span>-n<span class="w"> </span>rook-ceph<span class="w"> </span>-l<span class="w"> </span><span class="nv">app</span><span class="o">=</span>rook-ceph-mon<span class="w"> </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{range .items[*]}{.metadata.labels.mon}{"\t"}{.spec.nodeSelector.kubernetes\.io/hostname}{"\n"}{end}'</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>pod<span class="w"> </span>-n<span class="w"> </span>rook-ceph<span class="w"> </span>-l<span class="w"> </span><span class="nv">app</span><span class="o">=</span>rook-ceph-mon<span class="w"> </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{range .items[*]}{.metadata.labels.mon}{"\t"}{.spec.nodeSelector.kubernetes\.io/hostname}{"\n"}{end}'</span>
 </span></code></pre></div>
 <p>Re-check before every node — the mon names shift (we saw c,e,f →
    c,e,g → c,e,h over a single afternoon as nodes drained). Draining
@@ -3048,7 +3148,7 @@ them caused real damage on the first attempt at this phase.</p>
    (RPM-tracked). Others have manually-installed binaries (no RPM
    entries):</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>ssh<span class="w"> </span>root@&lt;node&gt;<span class="w"> </span><span class="s1">'rpm -qa | grep -cE "^(kubeadm|kubelet|kubectl|cri-o)-"'</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>ssh<span class="w"> </span>root@&lt;node&gt;<span class="w"> </span><span class="s1">'rpm -qa | grep -cE "^(kubeadm|kubelet|kubectl|cri-o)-"'</span>
 </span></code></pre></div>
 <p>Returns 4 → standard procedure. Returns 0 → <strong>alternate
    procedure</strong> (don't <code>rm crio.conf</code>; use <code>dnf install</code> not <code>dnf
@@ -3056,13 +3156,13 @@ them caused real damage on the first attempt at this phase.</p>
 <ol>
 <li><strong>CNPG primary failover</strong>:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">for</span><span class="w"> </span>c<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="k">$(</span>kubectl<span class="w"> </span>get<span class="w"> </span>pod<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>-l<span class="w"> </span><span class="s1">'cnpg.io/instanceRole=primary'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">    </span>--field-selector<span class="w"> </span>spec.nodeName<span class="o">=</span>&lt;node&gt;.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{range .items[*]}{.metadata.labels.cnpg\.io/cluster}{"\n"}{end}'</span><span class="k">)</span><span class="p">;</span><span class="w"> </span><span class="k">do</span>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span><span class="nv">replica</span><span class="o">=</span><span class="k">$(</span>kubectl<span class="w"> </span>get<span class="w"> </span>pod<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>-l<span class="w"> </span><span class="s2">"cnpg.io/cluster=</span><span class="nv">$c</span><span class="s2">,cnpg.io/instanceRole=replica"</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">    </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{range .items[?(@.spec.nodeName!="&lt;node&gt;.${SECRET_DOMAIN}")]}{.metadata.name}{"\n"}{end}'</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>head<span class="w"> </span>-1<span class="k">)</span>
-</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">  </span>kubectl<span class="w"> </span>cnpg<span class="w"> </span>promote<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span><span class="s2">"</span><span class="nv">$c</span><span class="s2">"</span><span class="w"> </span><span class="s2">"</span><span class="nv">$replica</span><span class="s2">"</span>
-</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="k">done</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">for</span><span class="w"> </span>c<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="k">$(</span>kubectl<span class="w"> </span>get<span class="w"> </span>pod<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>-l<span class="w"> </span><span class="s1">'cnpg.io/instanceRole=primary'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">    </span>--field-selector<span class="w"> </span>spec.nodeName<span class="o">=</span>&lt;node&gt;.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{range .items[*]}{.metadata.labels.cnpg\.io/cluster}{"\n"}{end}'</span><span class="k">)</span><span class="p">;</span><span class="w"> </span><span class="k">do</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span><span class="nv">replica</span><span class="o">=</span><span class="k">$(</span>kubectl<span class="w"> </span>get<span class="w"> </span>pod<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>-l<span class="w"> </span><span class="s2">"cnpg.io/cluster=</span><span class="nv">$c</span><span class="s2">,cnpg.io/instanceRole=replica"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">    </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{range .items[?(@.spec.nodeName!="&lt;node&gt;.${SECRET_DOMAIN}")]}{.metadata.name}{"\n"}{end}'</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>head<span class="w"> </span>-1<span class="k">)</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">  </span>kubectl<span class="w"> </span>cnpg<span class="w"> </span>promote<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span><span class="s2">"</span><span class="nv">$c</span><span class="s2">"</span><span class="w"> </span><span class="s2">"</span><span class="nv">$replica</span><span class="s2">"</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="k">done</span>
 </span></code></pre></div>
 <p>Then poll <code>kubectl get pod -n databases -l 'cnpg.io/instanceRole=primary' --field-selector spec.nodeName=&lt;node&gt;...</code>
    until empty.</p>
@@ -3079,43 +3179,43 @@ them caused real damage on the first attempt at this phase.</p>
 <li>Pre-flight checks above.</li>
 <li><strong>Drain</strong>:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>kubectl<span class="w"> </span>drain<span class="w"> </span>&lt;worker&gt;.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>--ignore-daemonsets<span class="w"> </span>--delete-emptydir-data
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>kubectl<span class="w"> </span>drain<span class="w"> </span>&lt;worker&gt;.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span>--ignore-daemonsets<span class="w"> </span>--delete-emptydir-data
 </span></code></pre></div>
 <ol>
 <li><strong>Package upgrade and kubelet config refresh</strong>:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>ssh<span class="w"> </span>root@&lt;worker&gt;.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span><span class="s1">'</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="s1">  # Drop the legacy crio.conf / .rpmnew. Order matters: only do</span>
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="s1">  # this RIGHT BEFORE the upgrade succeeds — leaving cri-o</span>
-</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="s1">  # without a config will trigger the "unsafe procfs detected"</span>
-</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="s1">  # runc error and break ALL pods on the node.</span>
-</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="s1">  rm -f /etc/crio/crio.conf /etc/crio/crio.conf.rpmnew /etc/crio/crio.conf.working</span>
-</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>
-</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="s1">  # Single transaction: cri-o upgrade picks up the new isv repo</span>
-</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="s1">  # automatically since 1.34.7 &gt; 1.28.4.</span>
-</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="s1">  dnf upgrade -y cri-o kubelet-1.34.7 kubeadm-1.34.7 kubectl-1.34.7</span>
-</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>
-</span><span id="__span-6-12"><a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="s1">  kubeadm upgrade node</span>
-</span><span id="__span-6-13"><a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="s1">  systemctl daemon-reload</span>
-</span><span id="__span-6-14"><a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a><span class="s1">  systemctl restart crio</span>
-</span><span id="__span-6-15"><a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a><span class="s1">  systemctl restart kubelet</span>
-</span><span id="__span-6-16"><a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a><span class="s1">'</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>ssh<span class="w"> </span>root@&lt;worker&gt;.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span><span class="s1">'</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="s1">  # Drop the legacy crio.conf / .rpmnew. Order matters: only do</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="s1">  # this RIGHT BEFORE the upgrade succeeds — leaving cri-o</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="s1">  # without a config will trigger the "unsafe procfs detected"</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="s1">  # runc error and break ALL pods on the node.</span>
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="s1">  rm -f /etc/crio/crio.conf /etc/crio/crio.conf.rpmnew /etc/crio/crio.conf.working</span>
+</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>
+</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="s1">  # Single transaction: cri-o upgrade picks up the new isv repo</span>
+</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="s1">  # automatically since 1.34.7 &gt; 1.28.4.</span>
+</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="s1">  dnf upgrade -y cri-o kubelet-1.34.7 kubeadm-1.34.7 kubectl-1.34.7</span>
+</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>
+</span><span id="__span-8-12"><a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a><span class="s1">  kubeadm upgrade node</span>
+</span><span id="__span-8-13"><a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a><span class="s1">  systemctl daemon-reload</span>
+</span><span id="__span-8-14"><a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a><span class="s1">  systemctl restart crio</span>
+</span><span id="__span-8-15"><a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a><span class="s1">  systemctl restart kubelet</span>
+</span><span id="__span-8-16"><a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a><span class="s1">'</span>
 </span></code></pre></div>
 <ol>
 <li><strong>Smoke-test before uncordon</strong>:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>ssh<span class="w"> </span>root@&lt;worker&gt;.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span><span class="s1">'</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="s1">  systemctl is-active crio kubelet</span>
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="s1">  crictl info | grep -E "CgroupManagerName|DefaultRuntime"</span>
-</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="s1">  ls /etc/crio/crio.conf.d/   # should exist; legacy crio.conf should be gone</span>
-</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="s1">'</span>
-</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>kubectl<span class="w"> </span>get<span class="w"> </span>node<span class="w"> </span>&lt;worker&gt;.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span>-o<span class="w"> </span>wide<span class="w">   </span><span class="c1"># version + cri-o version match expected</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>ssh<span class="w"> </span>root@&lt;worker&gt;.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span><span class="s1">'</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="s1">  systemctl is-active crio kubelet</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="s1">  crictl info | grep -E "CgroupManagerName|DefaultRuntime"</span>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="s1">  ls /etc/crio/crio.conf.d/   # should exist; legacy crio.conf should be gone</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="s1">'</span>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>kubectl<span class="w"> </span>get<span class="w"> </span>node<span class="w"> </span>&lt;worker&gt;.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span>-o<span class="w"> </span>wide<span class="w">   </span><span class="c1"># version + cri-o version match expected</span>
 </span></code></pre></div>
 <ol>
 <li><strong>Uncordon</strong>:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>kubectl<span class="w"> </span>uncordon<span class="w"> </span>&lt;worker&gt;.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>kubectl<span class="w"> </span>uncordon<span class="w"> </span>&lt;worker&gt;.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span>
 </span></code></pre></div>
 <p>Rook auto-clears any host noout flag on its own a few seconds
    after uncordon — don't manually unset it.
@@ -3131,57 +3231,57 @@ replacement.</p>
 <li><strong>Drain</strong> (same as above).</li>
 <li><strong>Fresh-install via dnf</strong> (overwrites the un-tracked binaries):</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>ssh<span class="w"> </span>root@&lt;worker&gt;.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span><span class="s1">'</span>
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="s1">  # Stop services so we can replace running binaries cleanly</span>
-</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="s1">  systemctl stop kubelet</span>
-</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="s1">  systemctl stop crio</span>
-</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>
-</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="s1">  # Move the manual binaries aside (rollback if dnf install fails)</span>
-</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="s1">  mv /usr/bin/kubelet  /usr/bin/kubelet.manual</span>
-</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="s1">  mv /usr/bin/kubeadm  /usr/bin/kubeadm.manual</span>
-</span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="s1">  mv /usr/bin/kubectl  /usr/bin/kubectl.manual</span>
-</span><span id="__span-9-10"><a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="s1">  mv /usr/bin/crio     /usr/bin/crio.manual</span>
-</span><span id="__span-9-11"><a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a>
-</span><span id="__span-9-12"><a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="s1">  # Install the RPMs fresh (now they will be tracked)</span>
-</span><span id="__span-9-13"><a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a><span class="s1">  dnf install -y cri-o kubelet-1.34.7 kubeadm-1.34.7 kubectl-1.34.7</span>
-</span><span id="__span-9-14"><a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a>
-</span><span id="__span-9-15"><a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a><span class="s1">  # Now we can safely remove crio.conf — package provides drop-in</span>
-</span><span id="__span-9-16"><a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a><span class="s1">  rm -f /etc/crio/crio.conf /etc/crio/crio.conf.rpmnew /etc/crio/crio.conf.working</span>
-</span><span id="__span-9-17"><a id="__codelineno-9-17" name="__codelineno-9-17" href="#__codelineno-9-17"></a>
-</span><span id="__span-9-18"><a id="__codelineno-9-18" name="__codelineno-9-18" href="#__codelineno-9-18"></a><span class="s1">  kubeadm upgrade node</span>
-</span><span id="__span-9-19"><a id="__codelineno-9-19" name="__codelineno-9-19" href="#__codelineno-9-19"></a><span class="s1">  systemctl daemon-reload</span>
-</span><span id="__span-9-20"><a id="__codelineno-9-20" name="__codelineno-9-20" href="#__codelineno-9-20"></a>
-</span><span id="__span-9-21"><a id="__codelineno-9-21" name="__codelineno-9-21" href="#__codelineno-9-21"></a><span class="s1">  # Multi-minor cri-o jumps (1.28 → 1.34) leave stale container</span>
-</span><span id="__span-9-22"><a id="__codelineno-9-22" name="__codelineno-9-22" href="#__codelineno-9-22"></a><span class="s1">  # refs that hang internal_wipe forever. Skip the regular start;</span>
-</span><span id="__span-9-23"><a id="__codelineno-9-23" name="__codelineno-9-23" href="#__codelineno-9-23"></a><span class="s1">  # do the kill+wipe+start dance up front.</span>
-</span><span id="__span-9-24"><a id="__codelineno-9-24" name="__codelineno-9-24" href="#__codelineno-9-24"></a><span class="s1">  systemctl kill --signal=SIGKILL crio || true</span>
-</span><span id="__span-9-25"><a id="__codelineno-9-25" name="__codelineno-9-25" href="#__codelineno-9-25"></a><span class="s1">  crio wipe -f</span>
-</span><span id="__span-9-26"><a id="__codelineno-9-26" name="__codelineno-9-26" href="#__codelineno-9-26"></a><span class="s1">  systemctl start crio</span>
-</span><span id="__span-9-27"><a id="__codelineno-9-27" name="__codelineno-9-27" href="#__codelineno-9-27"></a><span class="s1">  systemctl start kubelet</span>
-</span><span id="__span-9-28"><a id="__codelineno-9-28" name="__codelineno-9-28" href="#__codelineno-9-28"></a>
-</span><span id="__span-9-29"><a id="__codelineno-9-29" name="__codelineno-9-29" href="#__codelineno-9-29"></a><span class="s1">  # Verify and clean up rollback files only after success</span>
-</span><span id="__span-9-30"><a id="__codelineno-9-30" name="__codelineno-9-30" href="#__codelineno-9-30"></a><span class="s1">  rpm -q cri-o kubelet kubeadm kubectl</span>
-</span><span id="__span-9-31"><a id="__codelineno-9-31" name="__codelineno-9-31" href="#__codelineno-9-31"></a><span class="s1">  systemctl is-active crio kubelet</span>
-</span><span id="__span-9-32"><a id="__codelineno-9-32" name="__codelineno-9-32" href="#__codelineno-9-32"></a><span class="s1">  # rm /usr/bin/*.manual-pre-1.34.7    # only after smoke-test confirms success</span>
-</span><span id="__span-9-33"><a id="__codelineno-9-33" name="__codelineno-9-33" href="#__codelineno-9-33"></a><span class="s1">'</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>ssh<span class="w"> </span>root@&lt;worker&gt;.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span><span class="s1">'</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="s1">  # Stop services so we can replace running binaries cleanly</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="s1">  systemctl stop kubelet</span>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="s1">  systemctl stop crio</span>
+</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>
+</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="s1">  # Move the manual binaries aside (rollback if dnf install fails)</span>
+</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="s1">  mv /usr/bin/kubelet  /usr/bin/kubelet.manual</span>
+</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="s1">  mv /usr/bin/kubeadm  /usr/bin/kubeadm.manual</span>
+</span><span id="__span-11-9"><a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="s1">  mv /usr/bin/kubectl  /usr/bin/kubectl.manual</span>
+</span><span id="__span-11-10"><a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="s1">  mv /usr/bin/crio     /usr/bin/crio.manual</span>
+</span><span id="__span-11-11"><a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a>
+</span><span id="__span-11-12"><a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a><span class="s1">  # Install the RPMs fresh (now they will be tracked)</span>
+</span><span id="__span-11-13"><a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a><span class="s1">  dnf install -y cri-o kubelet-1.34.7 kubeadm-1.34.7 kubectl-1.34.7</span>
+</span><span id="__span-11-14"><a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a>
+</span><span id="__span-11-15"><a id="__codelineno-11-15" name="__codelineno-11-15" href="#__codelineno-11-15"></a><span class="s1">  # Now we can safely remove crio.conf — package provides drop-in</span>
+</span><span id="__span-11-16"><a id="__codelineno-11-16" name="__codelineno-11-16" href="#__codelineno-11-16"></a><span class="s1">  rm -f /etc/crio/crio.conf /etc/crio/crio.conf.rpmnew /etc/crio/crio.conf.working</span>
+</span><span id="__span-11-17"><a id="__codelineno-11-17" name="__codelineno-11-17" href="#__codelineno-11-17"></a>
+</span><span id="__span-11-18"><a id="__codelineno-11-18" name="__codelineno-11-18" href="#__codelineno-11-18"></a><span class="s1">  kubeadm upgrade node</span>
+</span><span id="__span-11-19"><a id="__codelineno-11-19" name="__codelineno-11-19" href="#__codelineno-11-19"></a><span class="s1">  systemctl daemon-reload</span>
+</span><span id="__span-11-20"><a id="__codelineno-11-20" name="__codelineno-11-20" href="#__codelineno-11-20"></a>
+</span><span id="__span-11-21"><a id="__codelineno-11-21" name="__codelineno-11-21" href="#__codelineno-11-21"></a><span class="s1">  # Multi-minor cri-o jumps (1.28 → 1.34) leave stale container</span>
+</span><span id="__span-11-22"><a id="__codelineno-11-22" name="__codelineno-11-22" href="#__codelineno-11-22"></a><span class="s1">  # refs that hang internal_wipe forever. Skip the regular start;</span>
+</span><span id="__span-11-23"><a id="__codelineno-11-23" name="__codelineno-11-23" href="#__codelineno-11-23"></a><span class="s1">  # do the kill+wipe+start dance up front.</span>
+</span><span id="__span-11-24"><a id="__codelineno-11-24" name="__codelineno-11-24" href="#__codelineno-11-24"></a><span class="s1">  systemctl kill --signal=SIGKILL crio || true</span>
+</span><span id="__span-11-25"><a id="__codelineno-11-25" name="__codelineno-11-25" href="#__codelineno-11-25"></a><span class="s1">  crio wipe -f</span>
+</span><span id="__span-11-26"><a id="__codelineno-11-26" name="__codelineno-11-26" href="#__codelineno-11-26"></a><span class="s1">  systemctl start crio</span>
+</span><span id="__span-11-27"><a id="__codelineno-11-27" name="__codelineno-11-27" href="#__codelineno-11-27"></a><span class="s1">  systemctl start kubelet</span>
+</span><span id="__span-11-28"><a id="__codelineno-11-28" name="__codelineno-11-28" href="#__codelineno-11-28"></a>
+</span><span id="__span-11-29"><a id="__codelineno-11-29" name="__codelineno-11-29" href="#__codelineno-11-29"></a><span class="s1">  # Verify and clean up rollback files only after success</span>
+</span><span id="__span-11-30"><a id="__codelineno-11-30" name="__codelineno-11-30" href="#__codelineno-11-30"></a><span class="s1">  rpm -q cri-o kubelet kubeadm kubectl</span>
+</span><span id="__span-11-31"><a id="__codelineno-11-31" name="__codelineno-11-31" href="#__codelineno-11-31"></a><span class="s1">  systemctl is-active crio kubelet</span>
+</span><span id="__span-11-32"><a id="__codelineno-11-32" name="__codelineno-11-32" href="#__codelineno-11-32"></a><span class="s1">  # rm /usr/bin/*.manual-pre-1.34.7    # only after smoke-test confirms success</span>
+</span><span id="__span-11-33"><a id="__codelineno-11-33" name="__codelineno-11-33" href="#__codelineno-11-33"></a><span class="s1">'</span>
 </span></code></pre></div>
 <ol>
 <li>Smoke-test, uncordon, wait for <code>HEALTH_OK</code> — same as above.</li>
 </ol>
 <h3 id="worker8-nvidia-extra-steps">Worker8 (NVIDIA) extra steps<a class="headerlink" href="#worker8-nvidia-extra-steps" title="Permanent link">&para;</a></h3>
 <p>After the standard procedure:</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>ssh<span class="w"> </span>root@worker8.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span><span class="s1">'cat &gt; /etc/crio/crio.conf.d/20-nvidia.conf &lt;&lt;EOF</span>
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="s1">[crio.runtime.runtimes.nvidia]</span>
-</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="s1">runtime_path = "/usr/bin/nvidia-container-runtime"</span>
-</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="s1">runtime_root = "/run/nvidia"</span>
-</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="s1">runtime_type = "oci"</span>
-</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="s1">EOF</span>
-</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="s1">systemctl restart crio'</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>ssh<span class="w"> </span>root@worker8.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span><span class="s1">'cat &gt; /etc/crio/crio.conf.d/20-nvidia.conf &lt;&lt;EOF</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="s1">[crio.runtime.runtimes.nvidia]</span>
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="s1">runtime_path = "/usr/bin/nvidia-container-runtime"</span>
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="s1">runtime_root = "/run/nvidia"</span>
+</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="s1">runtime_type = "oci"</span>
+</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="s1">EOF</span>
+</span><span id="__span-12-7"><a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="s1">systemctl restart crio'</span>
 </span></code></pre></div>
 <p>Smoke-test before resuming ollama / comfyui:</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>kubectl<span class="w"> </span>run<span class="w"> </span>nvidia-smoke<span class="w"> </span>--rm<span class="w"> </span>-i<span class="w"> </span>--restart<span class="o">=</span>Never<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span>--overrides<span class="o">=</span><span class="s1">'{"spec":{"runtimeClassName":"nvidia","nodeName":"worker8.${SECRET_DOMAIN}"}}'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">  </span>--image<span class="o">=</span>nvidia/cuda:12.0-base-ubuntu22.04<span class="w"> </span>--<span class="w"> </span>nvidia-smi
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>kubectl<span class="w"> </span>run<span class="w"> </span>nvidia-smoke<span class="w"> </span>--rm<span class="w"> </span>-i<span class="w"> </span>--restart<span class="o">=</span>Never<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span>--overrides<span class="o">=</span><span class="s1">'{"spec":{"runtimeClassName":"nvidia","nodeName":"worker8.${SECRET_DOMAIN}"}}'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="w">  </span>--image<span class="o">=</span>nvidia/cuda:12.0-base-ubuntu22.04<span class="w"> </span>--<span class="w"> </span>nvidia-smi
 </span></code></pre></div>
 <h3 id="failure-modes-seen-during-the-1342--1347-2026-05-02-and-1347--1354-2026-05-03-upgrades">Failure modes seen during the 1.34.2 → 1.34.7 (2026-05-02) and 1.34.7 → 1.35.4 (2026-05-03) upgrades<a class="headerlink" href="#failure-modes-seen-during-the-1342--1347-2026-05-02-and-1347--1354-2026-05-03-upgrades" title="Permanent link">&para;</a></h3>
 <table>
@@ -3269,6 +3369,11 @@ replacement.</p>
 <td>Direct patch: <code>kubectl patch hr -n &lt;ns&gt; &lt;name&gt; --type=merge -p '{"spec":{"suspend":null}}'</code>. Bit us with descheduler at the end of Phase 3.</td>
 </tr>
 <tr>
+<td>App returns <code>Running</code>/healthy after an upgrade reboot but with <strong>weeks-old data</strong> (config/DB rewound; media files on their own volume fine)</td>
+<td>Ungraceful reboot left a Longhorn <strong>xfs</strong> volume with a dirty log (<code>Metadata LSN ahead of current LSN</code>, mount exit 32); <code>xfs_repair -L</code> zeroed the log and discarded unflushed writes; a non-checkpointed SQLite WAL then rewound the DB far past "seconds".</td>
+<td>Revert the volume to its last <strong>pre-upgrade</strong> Longhorn daily snapshot — see "Stateful data integrity across reboots" for the in-cluster <code>snapshotRevert</code> recipe. <strong>Prevent:</strong> assert volumes <code>detached</code> + <code>sync</code> before reboot; app-consistent DB backups for busy DB apps.</td>
+</tr>
+<tr>
 <td>Static pod manifests (apiserver, controller-manager, scheduler, etcd) stay at the old patch version after <code>kubeadm upgrade node</code> on patch bumps</td>
 <td><code>kubeadm upgrade node</code> only refreshes the kubelet config + kubeconfig on patches; static pod images are only bumped via <code>kubeadm upgrade apply</code> (one master) or by the minor bump. So <code>apiserver: v1.34.2</code> can persist for months while kubelets are at 1.34.7.</td>
 <td>Acceptable while inside the same minor. The next minor bump (<code>kubeadm upgrade apply v1.35.x</code>) refreshes them.</td>
@@ -3294,109 +3399,109 @@ the 2026-05-03 minor bump. Use this verbatim for future minor bumps —
 it's substantially more robust than what's in the per-worker section
 above (which was for the 1.34 patch upgrade).</p>
 <h3 id="phase-3-prep-once-before-any-node">Phase 3 prep (once, before any node)<a class="headerlink" href="#phase-3-prep-once-before-any-node" title="Permanent link">&para;</a></h3>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># Stage v1.35 repos on every node</span>
-</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>ssh<span class="w"> </span>root@&lt;every-node&gt;<span class="w"> </span><span class="s1">'cat &gt; /etc/yum.repos.d/Kubernetes-1.35.repo &lt;&lt;EOF</span>
-</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="s1">[Kubernetes-1.35]</span>
-</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="s1">name=Kubernetes 1.35 Repo</span>
-</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="s1">baseurl=https://pkgs.k8s.io/core:/stable:/v1.35/rpm/</span>
-</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="s1">enabled=1</span>
-</span><span id="__span-12-7"><a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="s1">gpgcheck=1</span>
-</span><span id="__span-12-8"><a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="s1">gpgkey=https://pkgs.k8s.io/core:/stable:/v1.35/rpm/repodata/repomd.xml.key</span>
-</span><span id="__span-12-9"><a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a><span class="s1">EOF</span>
-</span><span id="__span-12-10"><a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a><span class="s1">cat &gt; /etc/yum.repos.d/isv_cri-o_stable_v1.35.repo &lt;&lt;EOF</span>
-</span><span id="__span-12-11"><a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a><span class="s1">[isv_cri-o_stable_v1.35]</span>
-</span><span id="__span-12-12"><a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a><span class="s1">name=CRI-O v1.35 (Stable) (rpm)</span>
-</span><span id="__span-12-13"><a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a><span class="s1">baseurl=https://download.opensuse.org/repositories/isv:/cri-o:/stable:/v1.35/rpm/</span>
-</span><span id="__span-12-14"><a id="__codelineno-12-14" name="__codelineno-12-14" href="#__codelineno-12-14"></a><span class="s1">gpgcheck=1</span>
-</span><span id="__span-12-15"><a id="__codelineno-12-15" name="__codelineno-12-15" href="#__codelineno-12-15"></a><span class="s1">gpgkey=https://download.opensuse.org/repositories/isv:/cri-o:/stable:/v1.35/rpm/repodata/repomd.xml.key</span>
-</span><span id="__span-12-16"><a id="__codelineno-12-16" name="__codelineno-12-16" href="#__codelineno-12-16"></a><span class="s1">enabled=1</span>
-</span><span id="__span-12-17"><a id="__codelineno-12-17" name="__codelineno-12-17" href="#__codelineno-12-17"></a><span class="s1">EOF'</span>
-</span><span id="__span-12-18"><a id="__codelineno-12-18" name="__codelineno-12-18" href="#__codelineno-12-18"></a>
-</span><span id="__span-12-19"><a id="__codelineno-12-19" name="__codelineno-12-19" href="#__codelineno-12-19"></a><span class="c1"># etcd snapshot (off-cluster)</span>
-</span><span id="__span-12-20"><a id="__codelineno-12-20" name="__codelineno-12-20" href="#__codelineno-12-20"></a>kubectl<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span>etcd-master1.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span>--<span class="w"> </span>etcdctl<span class="w"> </span>...<span class="w"> </span>snapshot<span class="w"> </span>save<span class="w"> </span>/var/lib/etcd/snapshot-prephase3-<span class="k">$(</span>date<span class="w"> </span>+%Y%m%d<span class="k">)</span>.db
-</span><span id="__span-12-21"><a id="__codelineno-12-21" name="__codelineno-12-21" href="#__codelineno-12-21"></a>scp<span class="w"> </span>root@master1:/var/lib/etcd/snapshot-prephase3-*.db<span class="w"> </span>~/cluster-backups/etcd-prephase3/
-</span><span id="__span-12-22"><a id="__codelineno-12-22" name="__codelineno-12-22" href="#__codelineno-12-22"></a>
-</span><span id="__span-12-23"><a id="__codelineno-12-23" name="__codelineno-12-23" href="#__codelineno-12-23"></a><span class="c1"># Suspend descheduler (commit `new: disable-descheduler` + scale to 0)</span>
-</span><span id="__span-12-24"><a id="__codelineno-12-24" name="__codelineno-12-24" href="#__codelineno-12-24"></a>
-</span><span id="__span-12-25"><a id="__codelineno-12-25" name="__codelineno-12-25" href="#__codelineno-12-25"></a><span class="c1"># kubeadm upgrade plan (from the master that will receive `apply`)</span>
-</span><span id="__span-12-26"><a id="__codelineno-12-26" name="__codelineno-12-26" href="#__codelineno-12-26"></a>ssh<span class="w"> </span>root@master1<span class="w"> </span><span class="s1">'dnf install -y kubeadm-1.35.4 &amp;&amp; kubeadm upgrade plan v1.35.4'</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="c1"># Stage v1.35 repos on every node</span>
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>ssh<span class="w"> </span>root@&lt;every-node&gt;<span class="w"> </span><span class="s1">'cat &gt; /etc/yum.repos.d/Kubernetes-1.35.repo &lt;&lt;EOF</span>
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="s1">[Kubernetes-1.35]</span>
+</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="s1">name=Kubernetes 1.35 Repo</span>
+</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="s1">baseurl=https://pkgs.k8s.io/core:/stable:/v1.35/rpm/</span>
+</span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a><span class="s1">enabled=1</span>
+</span><span id="__span-14-7"><a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a><span class="s1">gpgcheck=1</span>
+</span><span id="__span-14-8"><a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a><span class="s1">gpgkey=https://pkgs.k8s.io/core:/stable:/v1.35/rpm/repodata/repomd.xml.key</span>
+</span><span id="__span-14-9"><a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a><span class="s1">EOF</span>
+</span><span id="__span-14-10"><a id="__codelineno-14-10" name="__codelineno-14-10" href="#__codelineno-14-10"></a><span class="s1">cat &gt; /etc/yum.repos.d/isv_cri-o_stable_v1.35.repo &lt;&lt;EOF</span>
+</span><span id="__span-14-11"><a id="__codelineno-14-11" name="__codelineno-14-11" href="#__codelineno-14-11"></a><span class="s1">[isv_cri-o_stable_v1.35]</span>
+</span><span id="__span-14-12"><a id="__codelineno-14-12" name="__codelineno-14-12" href="#__codelineno-14-12"></a><span class="s1">name=CRI-O v1.35 (Stable) (rpm)</span>
+</span><span id="__span-14-13"><a id="__codelineno-14-13" name="__codelineno-14-13" href="#__codelineno-14-13"></a><span class="s1">baseurl=https://download.opensuse.org/repositories/isv:/cri-o:/stable:/v1.35/rpm/</span>
+</span><span id="__span-14-14"><a id="__codelineno-14-14" name="__codelineno-14-14" href="#__codelineno-14-14"></a><span class="s1">gpgcheck=1</span>
+</span><span id="__span-14-15"><a id="__codelineno-14-15" name="__codelineno-14-15" href="#__codelineno-14-15"></a><span class="s1">gpgkey=https://download.opensuse.org/repositories/isv:/cri-o:/stable:/v1.35/rpm/repodata/repomd.xml.key</span>
+</span><span id="__span-14-16"><a id="__codelineno-14-16" name="__codelineno-14-16" href="#__codelineno-14-16"></a><span class="s1">enabled=1</span>
+</span><span id="__span-14-17"><a id="__codelineno-14-17" name="__codelineno-14-17" href="#__codelineno-14-17"></a><span class="s1">EOF'</span>
+</span><span id="__span-14-18"><a id="__codelineno-14-18" name="__codelineno-14-18" href="#__codelineno-14-18"></a>
+</span><span id="__span-14-19"><a id="__codelineno-14-19" name="__codelineno-14-19" href="#__codelineno-14-19"></a><span class="c1"># etcd snapshot (off-cluster)</span>
+</span><span id="__span-14-20"><a id="__codelineno-14-20" name="__codelineno-14-20" href="#__codelineno-14-20"></a>kubectl<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span>etcd-master1.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span>--<span class="w"> </span>etcdctl<span class="w"> </span>...<span class="w"> </span>snapshot<span class="w"> </span>save<span class="w"> </span>/var/lib/etcd/snapshot-prephase3-<span class="k">$(</span>date<span class="w"> </span>+%Y%m%d<span class="k">)</span>.db
+</span><span id="__span-14-21"><a id="__codelineno-14-21" name="__codelineno-14-21" href="#__codelineno-14-21"></a>scp<span class="w"> </span>root@master1:/var/lib/etcd/snapshot-prephase3-*.db<span class="w"> </span>~/cluster-backups/etcd-prephase3/
+</span><span id="__span-14-22"><a id="__codelineno-14-22" name="__codelineno-14-22" href="#__codelineno-14-22"></a>
+</span><span id="__span-14-23"><a id="__codelineno-14-23" name="__codelineno-14-23" href="#__codelineno-14-23"></a><span class="c1"># Suspend descheduler (commit `new: disable-descheduler` + scale to 0)</span>
+</span><span id="__span-14-24"><a id="__codelineno-14-24" name="__codelineno-14-24" href="#__codelineno-14-24"></a>
+</span><span id="__span-14-25"><a id="__codelineno-14-25" name="__codelineno-14-25" href="#__codelineno-14-25"></a><span class="c1"># kubeadm upgrade plan (from the master that will receive `apply`)</span>
+</span><span id="__span-14-26"><a id="__codelineno-14-26" name="__codelineno-14-26" href="#__codelineno-14-26"></a>ssh<span class="w"> </span>root@master1<span class="w"> </span><span class="s1">'dnf install -y kubeadm-1.35.4 &amp;&amp; kubeadm upgrade plan v1.35.4'</span>
 </span></code></pre></div>
 <h3 id="first-control-plane-master1-kubeadm-upgrade-apply">First control plane (master1): <code>kubeadm upgrade apply</code><a class="headerlink" href="#first-control-plane-master1-kubeadm-upgrade-apply" title="Permanent link">&para;</a></h3>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="c1"># Pre-flight: CNPG primaries failover, set Longhorn evictionRequested=true</span>
-</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="c1"># (see standard worker procedure)</span>
-</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>
-</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>kubectl<span class="w"> </span>drain<span class="w"> </span>master1.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span>--ignore-daemonsets<span class="w"> </span>--delete-emptydir-data
-</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>
-</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>ssh<span class="w"> </span>root@master1.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span><span class="s1">'</span>
-</span><span id="__span-13-7"><a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="s1">  set -eu</span>
-</span><span id="__span-13-8"><a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="s1">  kubeadm upgrade apply v1.35.4 --yes</span>
-</span><span id="__span-13-9"><a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a><span class="s1">  dnf install -y kubelet-1.35.4 kubectl-1.35.4</span>
-</span><span id="__span-13-10"><a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a><span class="s1">  dnf upgrade -y                       # full system, picks up new kernel + cri-o 1.35.x</span>
-</span><span id="__span-13-11"><a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a><span class="s1">  systemctl enable crio kubelet        # RPM upgrade can reset enable state</span>
-</span><span id="__span-13-12"><a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a><span class="s1">  systemd-run --on-active=5s --unit=upgrade-reboot systemctl reboot</span>
-</span><span id="__span-13-13"><a id="__codelineno-13-13" name="__codelineno-13-13" href="#__codelineno-13-13"></a><span class="s1">'</span>
-</span><span id="__span-13-14"><a id="__codelineno-13-14" name="__codelineno-13-14" href="#__codelineno-13-14"></a>
-</span><span id="__span-13-15"><a id="__codelineno-13-15" name="__codelineno-13-15" href="#__codelineno-13-15"></a><span class="c1"># Wait for reboot + Ready, then uncordon. cri-o post-reboot recovery</span>
-</span><span id="__span-13-16"><a id="__codelineno-13-16" name="__codelineno-13-16" href="#__codelineno-13-16"></a><span class="c1"># can take 60-120s of "activating" before settling.</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="c1"># Pre-flight: CNPG primaries failover, set Longhorn evictionRequested=true</span>
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="c1"># (see standard worker procedure)</span>
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>kubectl<span class="w"> </span>drain<span class="w"> </span>master1.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span>--ignore-daemonsets<span class="w"> </span>--delete-emptydir-data
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>
+</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a>ssh<span class="w"> </span>root@master1.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span><span class="s1">'</span>
+</span><span id="__span-15-7"><a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a><span class="s1">  set -eu</span>
+</span><span id="__span-15-8"><a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a><span class="s1">  kubeadm upgrade apply v1.35.4 --yes</span>
+</span><span id="__span-15-9"><a id="__codelineno-15-9" name="__codelineno-15-9" href="#__codelineno-15-9"></a><span class="s1">  dnf install -y kubelet-1.35.4 kubectl-1.35.4</span>
+</span><span id="__span-15-10"><a id="__codelineno-15-10" name="__codelineno-15-10" href="#__codelineno-15-10"></a><span class="s1">  dnf upgrade -y                       # full system, picks up new kernel + cri-o 1.35.x</span>
+</span><span id="__span-15-11"><a id="__codelineno-15-11" name="__codelineno-15-11" href="#__codelineno-15-11"></a><span class="s1">  systemctl enable crio kubelet        # RPM upgrade can reset enable state</span>
+</span><span id="__span-15-12"><a id="__codelineno-15-12" name="__codelineno-15-12" href="#__codelineno-15-12"></a><span class="s1">  systemd-run --on-active=5s --unit=upgrade-reboot systemctl reboot</span>
+</span><span id="__span-15-13"><a id="__codelineno-15-13" name="__codelineno-15-13" href="#__codelineno-15-13"></a><span class="s1">'</span>
+</span><span id="__span-15-14"><a id="__codelineno-15-14" name="__codelineno-15-14" href="#__codelineno-15-14"></a>
+</span><span id="__span-15-15"><a id="__codelineno-15-15" name="__codelineno-15-15" href="#__codelineno-15-15"></a><span class="c1"># Wait for reboot + Ready, then uncordon. cri-o post-reboot recovery</span>
+</span><span id="__span-15-16"><a id="__codelineno-15-16" name="__codelineno-15-16" href="#__codelineno-15-16"></a><span class="c1"># can take 60-120s of "activating" before settling.</span>
 </span></code></pre></div>
 <h3 id="other-control-planes-master2-master3-kubeadm-upgrade-node">Other control planes (master2, master3): <code>kubeadm upgrade node</code><a class="headerlink" href="#other-control-planes-master2-master3-kubeadm-upgrade-node" title="Permanent link">&para;</a></h3>
 <p>Same as master1 but replace <code>kubeadm upgrade apply v1.35.4 --yes</code> with
 <code>kubeadm upgrade node</code>. Wait for <code>ceph -s HEALTH_OK</code> between each.</p>
 <h3 id="workers-with-hardware-pinned-variants">Workers (with hardware-pinned variants)<a class="headerlink" href="#workers-with-hardware-pinned-variants" title="Permanent link">&para;</a></h3>
 <p>The robust per-worker block is:</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="c1"># Pre-flight (do all of these IN ORDER):</span>
-</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="c1"># 1. Confirm Longhorn replicas on the node are 0 via UI eviction</span>
-</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="c1">#    (or `kubectl patch -n longhorn-system nodes.longhorn.io &lt;node&gt;</span>
-</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="c1">#    --type=merge -p '{"spec":{"allowScheduling":false,</span>
-</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="c1">#    "evictionRequested":true}}'` and wait for replicas to migrate).</span>
-</span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a><span class="c1"># 2. Verify ceph HEALTH_OK and zero remapped/misplaced pgs.</span>
-</span><span id="__span-14-7"><a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a><span class="c1"># 3. Verify mons not pinned to this node — or accept 2/3 quorum.</span>
-</span><span id="__span-14-8"><a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a><span class="c1"># 4. CNPG primary failover for any primary on this node.</span>
-</span><span id="__span-14-9"><a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a><span class="c1"># 5. Hardware-pinned pod suspend (frigate / ollama / comfyui / zigbee /</span>
-</span><span id="__span-14-10"><a id="__codelineno-14-10" name="__codelineno-14-10" href="#__codelineno-14-10"></a><span class="c1">#    zwave) via the `disable-&lt;app&gt;` GitOps commit pattern, plus</span>
-</span><span id="__span-14-11"><a id="__codelineno-14-11" name="__codelineno-14-11" href="#__codelineno-14-11"></a><span class="c1">#    `kubectl scale ... --replicas=0` once Flux applies the suspend.</span>
-</span><span id="__span-14-12"><a id="__codelineno-14-12" name="__codelineno-14-12" href="#__codelineno-14-12"></a>
-</span><span id="__span-14-13"><a id="__codelineno-14-13" name="__codelineno-14-13" href="#__codelineno-14-13"></a><span class="c1"># Drain — with auto OSD-pod-delete after 60s if drain stalls on the</span>
-</span><span id="__span-14-14"><a id="__codelineno-14-14" name="__codelineno-14-14" href="#__codelineno-14-14"></a><span class="c1"># Rook OSD-host PDB:</span>
-</span><span id="__span-14-15"><a id="__codelineno-14-15" name="__codelineno-14-15" href="#__codelineno-14-15"></a>kubectl<span class="w"> </span>drain<span class="w"> </span>&lt;node&gt;<span class="w"> </span>--ignore-daemonsets<span class="w"> </span>--delete-emptydir-data<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-14-16"><a id="__codelineno-14-16" name="__codelineno-14-16" href="#__codelineno-14-16"></a><span class="w">  </span>--timeout<span class="o">=</span>600s<span class="w"> </span><span class="p">&amp;</span>
-</span><span id="__span-14-17"><a id="__codelineno-14-17" name="__codelineno-14-17" href="#__codelineno-14-17"></a><span class="nv">DRAIN_PID</span><span class="o">=</span><span class="nv">$!</span>
-</span><span id="__span-14-18"><a id="__codelineno-14-18" name="__codelineno-14-18" href="#__codelineno-14-18"></a>sleep<span class="w"> </span><span class="m">60</span>
-</span><span id="__span-14-19"><a id="__codelineno-14-19" name="__codelineno-14-19" href="#__codelineno-14-19"></a><span class="k">if</span><span class="w"> </span><span class="nb">kill</span><span class="w"> </span>-0<span class="w"> </span><span class="nv">$DRAIN_PID</span><span class="w"> </span><span class="m">2</span>&gt;/dev/null<span class="p">;</span><span class="w"> </span><span class="k">then</span>
-</span><span id="__span-14-20"><a id="__codelineno-14-20" name="__codelineno-14-20" href="#__codelineno-14-20"></a><span class="w">  </span><span class="nv">REMAINING</span><span class="o">=</span><span class="k">$(</span>kubectl<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-A<span class="w"> </span>--field-selector<span class="w"> </span>spec.nodeName<span class="o">=</span>&lt;node&gt;<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-14-21"><a id="__codelineno-14-21" name="__codelineno-14-21" href="#__codelineno-14-21"></a><span class="w">    </span>-o<span class="w"> </span>wide<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-vE<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-14-22"><a id="__codelineno-14-22" name="__codelineno-14-22" href="#__codelineno-14-22"></a><span class="w">    </span><span class="s1">'cilium-|node-tuning|node-feature|node-problem|engine-image|longhorn-csi-plugin|longhorn-manager|multus|node-exporter|smartctl|vector-agent|nodeplugin|intel-gpu|NAME'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-14-23"><a id="__codelineno-14-23" name="__codelineno-14-23" href="#__codelineno-14-23"></a><span class="w">    </span><span class="p">|</span><span class="w"> </span>wc<span class="w"> </span>-l<span class="k">)</span>
-</span><span id="__span-14-24"><a id="__codelineno-14-24" name="__codelineno-14-24" href="#__codelineno-14-24"></a><span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="o">[</span><span class="w"> </span><span class="s2">"</span><span class="nv">$REMAINING</span><span class="s2">"</span><span class="w"> </span>-ge<span class="w"> </span><span class="s2">"1"</span><span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">then</span>
-</span><span id="__span-14-25"><a id="__codelineno-14-25" name="__codelineno-14-25" href="#__codelineno-14-25"></a><span class="w">    </span><span class="nv">OSD</span><span class="o">=</span><span class="k">$(</span>kubectl<span class="w"> </span>get<span class="w"> </span>pod<span class="w"> </span>-n<span class="w"> </span>rook-ceph<span class="w"> </span>-l<span class="w"> </span><span class="s1">'app=rook-ceph-osd'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-14-26"><a id="__codelineno-14-26" name="__codelineno-14-26" href="#__codelineno-14-26"></a><span class="w">      </span>--field-selector<span class="w"> </span>spec.nodeName<span class="o">=</span>&lt;node&gt;<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-14-27"><a id="__codelineno-14-27" name="__codelineno-14-27" href="#__codelineno-14-27"></a><span class="w">      </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{.items[0].metadata.name}'</span><span class="k">)</span>
-</span><span id="__span-14-28"><a id="__codelineno-14-28" name="__codelineno-14-28" href="#__codelineno-14-28"></a><span class="w">    </span><span class="o">[</span><span class="w"> </span>-n<span class="w"> </span><span class="s2">"</span><span class="nv">$OSD</span><span class="s2">"</span><span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>kubectl<span class="w"> </span>delete<span class="w"> </span>pod<span class="w"> </span>-n<span class="w"> </span>rook-ceph<span class="w"> </span><span class="s2">"</span><span class="nv">$OSD</span><span class="s2">"</span><span class="w"> </span>--grace-period<span class="o">=</span><span class="m">30</span>
-</span><span id="__span-14-29"><a id="__codelineno-14-29" name="__codelineno-14-29" href="#__codelineno-14-29"></a><span class="w">  </span><span class="k">fi</span>
-</span><span id="__span-14-30"><a id="__codelineno-14-30" name="__codelineno-14-30" href="#__codelineno-14-30"></a><span class="k">fi</span>
-</span><span id="__span-14-31"><a id="__codelineno-14-31" name="__codelineno-14-31" href="#__codelineno-14-31"></a><span class="nb">wait</span><span class="w"> </span><span class="nv">$DRAIN_PID</span>
-</span><span id="__span-14-32"><a id="__codelineno-14-32" name="__codelineno-14-32" href="#__codelineno-14-32"></a>
-</span><span id="__span-14-33"><a id="__codelineno-14-33" name="__codelineno-14-33" href="#__codelineno-14-33"></a><span class="c1"># Upgrade + full system update + initramfs check + reboot:</span>
-</span><span id="__span-14-34"><a id="__codelineno-14-34" name="__codelineno-14-34" href="#__codelineno-14-34"></a>ssh<span class="w"> </span>root@&lt;node&gt;<span class="w"> </span><span class="s1">'set -eu</span>
-</span><span id="__span-14-35"><a id="__codelineno-14-35" name="__codelineno-14-35" href="#__codelineno-14-35"></a><span class="s1">  dnf install -y kubeadm-1.35.4 kubelet-1.35.4 kubectl-1.35.4</span>
-</span><span id="__span-14-36"><a id="__codelineno-14-36" name="__codelineno-14-36" href="#__codelineno-14-36"></a><span class="s1">  kubeadm upgrade node</span>
-</span><span id="__span-14-37"><a id="__codelineno-14-37" name="__codelineno-14-37" href="#__codelineno-14-37"></a><span class="s1">  dnf upgrade -y                           # full system; may bump kernel + cri-o</span>
-</span><span id="__span-14-38"><a id="__codelineno-14-38" name="__codelineno-14-38" href="#__codelineno-14-38"></a>
-</span><span id="__span-14-39"><a id="__codelineno-14-39" name="__codelineno-14-39" href="#__codelineno-14-39"></a><span class="s1">  # Initramfs check via /boot (works on RPM and manual-install nodes)</span>
-</span><span id="__span-14-40"><a id="__codelineno-14-40" name="__codelineno-14-40" href="#__codelineno-14-40"></a><span class="s1">  LATEST_K=$(ls -1 /boot/vmlinuz-* | grep -v rescue | sort -V | tail -1 \</span>
-</span><span id="__span-14-41"><a id="__codelineno-14-41" name="__codelineno-14-41" href="#__codelineno-14-41"></a><span class="s1">    | sed "s|/boot/vmlinuz-||")</span>
-</span><span id="__span-14-42"><a id="__codelineno-14-42" name="__codelineno-14-42" href="#__codelineno-14-42"></a><span class="s1">  if [ ! -f /boot/initramfs-${LATEST_K}.img ]; then</span>
-</span><span id="__span-14-43"><a id="__codelineno-14-43" name="__codelineno-14-43" href="#__codelineno-14-43"></a><span class="s1">    dracut -f /boot/initramfs-${LATEST_K}.img $LATEST_K</span>
-</span><span id="__span-14-44"><a id="__codelineno-14-44" name="__codelineno-14-44" href="#__codelineno-14-44"></a><span class="s1">  fi</span>
-</span><span id="__span-14-45"><a id="__codelineno-14-45" name="__codelineno-14-45" href="#__codelineno-14-45"></a>
-</span><span id="__span-14-46"><a id="__codelineno-14-46" name="__codelineno-14-46" href="#__codelineno-14-46"></a><span class="s1">  systemctl enable crio kubelet            # RPM upgrade can reset state</span>
-</span><span id="__span-14-47"><a id="__codelineno-14-47" name="__codelineno-14-47" href="#__codelineno-14-47"></a><span class="s1">  systemd-run --on-active=5s --unit=upgrade-reboot systemctl reboot</span>
-</span><span id="__span-14-48"><a id="__codelineno-14-48" name="__codelineno-14-48" href="#__codelineno-14-48"></a><span class="s1">'</span>
-</span><span id="__span-14-49"><a id="__codelineno-14-49" name="__codelineno-14-49" href="#__codelineno-14-49"></a>
-</span><span id="__span-14-50"><a id="__codelineno-14-50" name="__codelineno-14-50" href="#__codelineno-14-50"></a><span class="c1"># Wait for SSH back, services active, Ready, kubelet at v1.35.4.</span>
-</span><span id="__span-14-51"><a id="__codelineno-14-51" name="__codelineno-14-51" href="#__codelineno-14-51"></a><span class="c1"># Then uncordon, restore Longhorn (allowScheduling=true,</span>
-</span><span id="__span-14-52"><a id="__codelineno-14-52" name="__codelineno-14-52" href="#__codelineno-14-52"></a><span class="c1"># evictionRequested=false), revert the disable-&lt;app&gt; commit, scale</span>
-</span><span id="__span-14-53"><a id="__codelineno-14-53" name="__codelineno-14-53" href="#__codelineno-14-53"></a><span class="c1"># the StatefulSet/Deployment back to 1.</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="c1"># Pre-flight (do all of these IN ORDER):</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="c1"># 1. Confirm Longhorn replicas on the node are 0 via UI eviction</span>
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="c1">#    (or `kubectl patch -n longhorn-system nodes.longhorn.io &lt;node&gt;</span>
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="c1">#    --type=merge -p '{"spec":{"allowScheduling":false,</span>
+</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="c1">#    "evictionRequested":true}}'` and wait for replicas to migrate).</span>
+</span><span id="__span-16-6"><a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a><span class="c1"># 2. Verify ceph HEALTH_OK and zero remapped/misplaced pgs.</span>
+</span><span id="__span-16-7"><a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a><span class="c1"># 3. Verify mons not pinned to this node — or accept 2/3 quorum.</span>
+</span><span id="__span-16-8"><a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a><span class="c1"># 4. CNPG primary failover for any primary on this node.</span>
+</span><span id="__span-16-9"><a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a><span class="c1"># 5. Hardware-pinned pod suspend (frigate / ollama / comfyui / zigbee /</span>
+</span><span id="__span-16-10"><a id="__codelineno-16-10" name="__codelineno-16-10" href="#__codelineno-16-10"></a><span class="c1">#    zwave) via the `disable-&lt;app&gt;` GitOps commit pattern, plus</span>
+</span><span id="__span-16-11"><a id="__codelineno-16-11" name="__codelineno-16-11" href="#__codelineno-16-11"></a><span class="c1">#    `kubectl scale ... --replicas=0` once Flux applies the suspend.</span>
+</span><span id="__span-16-12"><a id="__codelineno-16-12" name="__codelineno-16-12" href="#__codelineno-16-12"></a>
+</span><span id="__span-16-13"><a id="__codelineno-16-13" name="__codelineno-16-13" href="#__codelineno-16-13"></a><span class="c1"># Drain — with auto OSD-pod-delete after 60s if drain stalls on the</span>
+</span><span id="__span-16-14"><a id="__codelineno-16-14" name="__codelineno-16-14" href="#__codelineno-16-14"></a><span class="c1"># Rook OSD-host PDB:</span>
+</span><span id="__span-16-15"><a id="__codelineno-16-15" name="__codelineno-16-15" href="#__codelineno-16-15"></a>kubectl<span class="w"> </span>drain<span class="w"> </span>&lt;node&gt;<span class="w"> </span>--ignore-daemonsets<span class="w"> </span>--delete-emptydir-data<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-16-16"><a id="__codelineno-16-16" name="__codelineno-16-16" href="#__codelineno-16-16"></a><span class="w">  </span>--timeout<span class="o">=</span>600s<span class="w"> </span><span class="p">&amp;</span>
+</span><span id="__span-16-17"><a id="__codelineno-16-17" name="__codelineno-16-17" href="#__codelineno-16-17"></a><span class="nv">DRAIN_PID</span><span class="o">=</span><span class="nv">$!</span>
+</span><span id="__span-16-18"><a id="__codelineno-16-18" name="__codelineno-16-18" href="#__codelineno-16-18"></a>sleep<span class="w"> </span><span class="m">60</span>
+</span><span id="__span-16-19"><a id="__codelineno-16-19" name="__codelineno-16-19" href="#__codelineno-16-19"></a><span class="k">if</span><span class="w"> </span><span class="nb">kill</span><span class="w"> </span>-0<span class="w"> </span><span class="nv">$DRAIN_PID</span><span class="w"> </span><span class="m">2</span>&gt;/dev/null<span class="p">;</span><span class="w"> </span><span class="k">then</span>
+</span><span id="__span-16-20"><a id="__codelineno-16-20" name="__codelineno-16-20" href="#__codelineno-16-20"></a><span class="w">  </span><span class="nv">REMAINING</span><span class="o">=</span><span class="k">$(</span>kubectl<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-A<span class="w"> </span>--field-selector<span class="w"> </span>spec.nodeName<span class="o">=</span>&lt;node&gt;<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-16-21"><a id="__codelineno-16-21" name="__codelineno-16-21" href="#__codelineno-16-21"></a><span class="w">    </span>-o<span class="w"> </span>wide<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-vE<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-16-22"><a id="__codelineno-16-22" name="__codelineno-16-22" href="#__codelineno-16-22"></a><span class="w">    </span><span class="s1">'cilium-|node-tuning|node-feature|node-problem|engine-image|longhorn-csi-plugin|longhorn-manager|multus|node-exporter|smartctl|vector-agent|nodeplugin|intel-gpu|NAME'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-16-23"><a id="__codelineno-16-23" name="__codelineno-16-23" href="#__codelineno-16-23"></a><span class="w">    </span><span class="p">|</span><span class="w"> </span>wc<span class="w"> </span>-l<span class="k">)</span>
+</span><span id="__span-16-24"><a id="__codelineno-16-24" name="__codelineno-16-24" href="#__codelineno-16-24"></a><span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="o">[</span><span class="w"> </span><span class="s2">"</span><span class="nv">$REMAINING</span><span class="s2">"</span><span class="w"> </span>-ge<span class="w"> </span><span class="s2">"1"</span><span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">then</span>
+</span><span id="__span-16-25"><a id="__codelineno-16-25" name="__codelineno-16-25" href="#__codelineno-16-25"></a><span class="w">    </span><span class="nv">OSD</span><span class="o">=</span><span class="k">$(</span>kubectl<span class="w"> </span>get<span class="w"> </span>pod<span class="w"> </span>-n<span class="w"> </span>rook-ceph<span class="w"> </span>-l<span class="w"> </span><span class="s1">'app=rook-ceph-osd'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-16-26"><a id="__codelineno-16-26" name="__codelineno-16-26" href="#__codelineno-16-26"></a><span class="w">      </span>--field-selector<span class="w"> </span>spec.nodeName<span class="o">=</span>&lt;node&gt;<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-16-27"><a id="__codelineno-16-27" name="__codelineno-16-27" href="#__codelineno-16-27"></a><span class="w">      </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{.items[0].metadata.name}'</span><span class="k">)</span>
+</span><span id="__span-16-28"><a id="__codelineno-16-28" name="__codelineno-16-28" href="#__codelineno-16-28"></a><span class="w">    </span><span class="o">[</span><span class="w"> </span>-n<span class="w"> </span><span class="s2">"</span><span class="nv">$OSD</span><span class="s2">"</span><span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>kubectl<span class="w"> </span>delete<span class="w"> </span>pod<span class="w"> </span>-n<span class="w"> </span>rook-ceph<span class="w"> </span><span class="s2">"</span><span class="nv">$OSD</span><span class="s2">"</span><span class="w"> </span>--grace-period<span class="o">=</span><span class="m">30</span>
+</span><span id="__span-16-29"><a id="__codelineno-16-29" name="__codelineno-16-29" href="#__codelineno-16-29"></a><span class="w">  </span><span class="k">fi</span>
+</span><span id="__span-16-30"><a id="__codelineno-16-30" name="__codelineno-16-30" href="#__codelineno-16-30"></a><span class="k">fi</span>
+</span><span id="__span-16-31"><a id="__codelineno-16-31" name="__codelineno-16-31" href="#__codelineno-16-31"></a><span class="nb">wait</span><span class="w"> </span><span class="nv">$DRAIN_PID</span>
+</span><span id="__span-16-32"><a id="__codelineno-16-32" name="__codelineno-16-32" href="#__codelineno-16-32"></a>
+</span><span id="__span-16-33"><a id="__codelineno-16-33" name="__codelineno-16-33" href="#__codelineno-16-33"></a><span class="c1"># Upgrade + full system update + initramfs check + reboot:</span>
+</span><span id="__span-16-34"><a id="__codelineno-16-34" name="__codelineno-16-34" href="#__codelineno-16-34"></a>ssh<span class="w"> </span>root@&lt;node&gt;<span class="w"> </span><span class="s1">'set -eu</span>
+</span><span id="__span-16-35"><a id="__codelineno-16-35" name="__codelineno-16-35" href="#__codelineno-16-35"></a><span class="s1">  dnf install -y kubeadm-1.35.4 kubelet-1.35.4 kubectl-1.35.4</span>
+</span><span id="__span-16-36"><a id="__codelineno-16-36" name="__codelineno-16-36" href="#__codelineno-16-36"></a><span class="s1">  kubeadm upgrade node</span>
+</span><span id="__span-16-37"><a id="__codelineno-16-37" name="__codelineno-16-37" href="#__codelineno-16-37"></a><span class="s1">  dnf upgrade -y                           # full system; may bump kernel + cri-o</span>
+</span><span id="__span-16-38"><a id="__codelineno-16-38" name="__codelineno-16-38" href="#__codelineno-16-38"></a>
+</span><span id="__span-16-39"><a id="__codelineno-16-39" name="__codelineno-16-39" href="#__codelineno-16-39"></a><span class="s1">  # Initramfs check via /boot (works on RPM and manual-install nodes)</span>
+</span><span id="__span-16-40"><a id="__codelineno-16-40" name="__codelineno-16-40" href="#__codelineno-16-40"></a><span class="s1">  LATEST_K=$(ls -1 /boot/vmlinuz-* | grep -v rescue | sort -V | tail -1 \</span>
+</span><span id="__span-16-41"><a id="__codelineno-16-41" name="__codelineno-16-41" href="#__codelineno-16-41"></a><span class="s1">    | sed "s|/boot/vmlinuz-||")</span>
+</span><span id="__span-16-42"><a id="__codelineno-16-42" name="__codelineno-16-42" href="#__codelineno-16-42"></a><span class="s1">  if [ ! -f /boot/initramfs-${LATEST_K}.img ]; then</span>
+</span><span id="__span-16-43"><a id="__codelineno-16-43" name="__codelineno-16-43" href="#__codelineno-16-43"></a><span class="s1">    dracut -f /boot/initramfs-${LATEST_K}.img $LATEST_K</span>
+</span><span id="__span-16-44"><a id="__codelineno-16-44" name="__codelineno-16-44" href="#__codelineno-16-44"></a><span class="s1">  fi</span>
+</span><span id="__span-16-45"><a id="__codelineno-16-45" name="__codelineno-16-45" href="#__codelineno-16-45"></a>
+</span><span id="__span-16-46"><a id="__codelineno-16-46" name="__codelineno-16-46" href="#__codelineno-16-46"></a><span class="s1">  systemctl enable crio kubelet            # RPM upgrade can reset state</span>
+</span><span id="__span-16-47"><a id="__codelineno-16-47" name="__codelineno-16-47" href="#__codelineno-16-47"></a><span class="s1">  systemd-run --on-active=5s --unit=upgrade-reboot systemctl reboot</span>
+</span><span id="__span-16-48"><a id="__codelineno-16-48" name="__codelineno-16-48" href="#__codelineno-16-48"></a><span class="s1">'</span>
+</span><span id="__span-16-49"><a id="__codelineno-16-49" name="__codelineno-16-49" href="#__codelineno-16-49"></a>
+</span><span id="__span-16-50"><a id="__codelineno-16-50" name="__codelineno-16-50" href="#__codelineno-16-50"></a><span class="c1"># Wait for SSH back, services active, Ready, kubelet at v1.35.4.</span>
+</span><span id="__span-16-51"><a id="__codelineno-16-51" name="__codelineno-16-51" href="#__codelineno-16-51"></a><span class="c1"># Then uncordon, restore Longhorn (allowScheduling=true,</span>
+</span><span id="__span-16-52"><a id="__codelineno-16-52" name="__codelineno-16-52" href="#__codelineno-16-52"></a><span class="c1"># evictionRequested=false), revert the disable-&lt;app&gt; commit, scale</span>
+</span><span id="__span-16-53"><a id="__codelineno-16-53" name="__codelineno-16-53" href="#__codelineno-16-53"></a><span class="c1"># the StatefulSet/Deployment back to 1.</span>
 </span></code></pre></div>
 <h3 id="phase-3-worker-order-used-2026-05-03">Phase 3 worker order (used 2026-05-03)<a class="headerlink" href="#phase-3-worker-order-used-2026-05-03" title="Permanent link">&para;</a></h3>
 <p><code>worker7 → worker3 → worker2 → worker6 → worker5 → worker4 → worker8</code>.</p>

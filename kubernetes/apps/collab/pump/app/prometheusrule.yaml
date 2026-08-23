@@ -1,0 +1,99 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: pump-rules
+spec:
+  groups:
+    - name: pump.availability
+      rules:
+        # The wedge that silently killed a workout's auto-load: pump-voltra's
+        # probe server stayed up while its work loop stalled on a hung BLE /
+        # proxy await, so the pod looked healthy and the kubelet never
+        # restarted it. The sidecar now stamps a heartbeat every loop tick;
+        # `time() - heartbeat` catches a stall the frozen gauges can't.
+        # The in-pod liveness watchdog restarts at 600s, so a stale heartbeat
+        # surviving 10m means auto-recovery itself failed (crashloop, bad
+        # config, or the probe wedged too) — that is the page-worthy case.
+        - alert: PumpVoltraSidecarWedged
+          annotations:
+            summary: pump-voltra work loop wedged (Voltra auto-load unavailable)
+            description: |
+              pump-voltra's heartbeat has been stale >10m — its control loop
+              has stalled and the Voltra will not load mid-workout, even though
+              the pod may report healthy. The in-pod liveness watchdog should
+              have restarted it at ~600s; if this is firing, auto-recovery is
+              not working. Manual recovery:
+              `kubectl -n collab rollout restart deploy/pump-voltra`, then check
+              logs for a hung ESPHome-proxy/BLE await or a dead work task.
+          expr: |-
+            time() - pump_voltra_heartbeat_timestamp_seconds{job="pump-voltra"} > 600
+          for: 10m
+          labels:
+            severity: critical
+        # Metrics endpoint unreachable: pod crashed, OOMKilled, crashlooping,
+        # or unschedulable. 15m tolerates a normal rolling deploy.
+        - alert: PumpVoltraScrapeDown
+          annotations:
+            summary: pump-voltra metrics target down (>15m)
+            description: |
+              Prometheus cannot scrape pump-voltra for >15m — the pod is likely
+              crashed, OOMKilled, crashlooping, or unschedulable (longer than a
+              deploy). `kubectl -n collab get pod -l app.kubernetes.io/name=pump-voltra`
+              and `kubectl -n collab logs -l app.kubernetes.io/name=pump-voltra --previous`.
+          expr: |-
+            up{job="pump-voltra"} == 0
+          for: 15m
+          labels:
+            severity: warning
+        # The server (pump-0) and camera sidecar (pump-cv) carry real readiness
+        # probes; a sustained not-Ready means the UI/ingest (pump-0) or CV
+        # capture (pump-cv) is down. pump-voltra is excluded here — its
+        # readiness probe is disabled, so PumpVoltraSidecarWedged covers it.
+        - alert: PumpPodNotReady
+          annotations:
+            summary: pump pod {{ $labels.pod }} not Ready (>10m)
+            description: |
+              {{ $labels.pod }} in collab has been not-Ready for >10m. pump-0
+              not Ready = the workout UI and all ingest are down; pump-cv not
+              Ready = camera auto-logging is down. `kubectl -n collab describe
+              pod {{ $labels.pod }}` and `kubectl -n collab logs {{ $labels.pod }} --previous`.
+          expr: |-
+            kube_pod_status_ready{namespace="collab", pod=~"pump-0|pump-cv-.*", condition="true"} == 0
+          for: 10m
+          labels:
+            severity: critical
+        # Any pump pod stuck in CrashLoopBackOff. For pump-voltra this most
+        # likely means the new fail-fast is restart-looping on a persistent
+        # fault (dead proxy, unusable config) rather than recovering.
+        - alert: PumpPodCrashLooping
+          annotations:
+            summary: pump pod {{ $labels.pod }} crash-looping
+            description: |
+              {{ $labels.pod }} in collab has been in CrashLoopBackOff for >10m.
+              If it is pump-voltra, the liveness/fail-fast recovery is looping on
+              a persistent fault rather than healing. `kubectl -n collab logs
+              {{ $labels.pod }} --previous` for the crash cause.
+          expr: |-
+            kube_pod_container_status_waiting_reason{namespace="collab", pod=~"pump-.*", reason="CrashLoopBackOff"} == 1
+          for: 10m
+          labels:
+            severity: critical
+    - name: pump.data
+      rules:
+        # A completed set the sidecar could not write to PUMP — the rep count
+        # and resistance for that set are lost. Rare and worth a look, not a
+        # page: warning severity.
+        - alert: PumpVoltraSetWriteFailures
+          annotations:
+            summary: pump-voltra failed to write a set to PUMP
+            description: |
+              pump-voltra could not write ≥1 completed set to PUMP in the last
+              hour — that set's reps/resistance may be lost. Check the sidecar
+              logs and pump-0's /api/sets handler.
+          expr: |-
+            increase(pump_voltra_sets_failed_total{job="pump-voltra"}[1h]) > 0
+          for: 5m
+          labels:
+            severity: warning

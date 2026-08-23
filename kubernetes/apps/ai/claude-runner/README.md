@@ -44,10 +44,31 @@ The Flux `ks.yaml` ships `suspend: true`. Activate in order:
 | Workflow | Schedule (UTC) | Tier | What |
 |---|---|---|---|
 | `flux-longhorn-drift-digest` | `0 13 * * 1` (Mon 09:00 EDT) | Claude | Read Flux/Longhorn health from Prometheus, reason about real drift + a fix, send ONE Pushover digest (private — reuses the alertmanager Pushover app). Silent when clean. |
+| `adoption-scout` | `0 14 * * 3` (Wed 10:00 EDT) | Claude | Shallow-clone the repo, review recently-bumped charts/images for adoptable new features (verified against the DEPLOYED version), and re-check `# workaround:` annotations + `workaround`-labeled issues for retirement. Posts ONE **public GitHub issue** (create-or-comment, label `adoption-scout`), naming only public-tier apps. Discovery-only — never opens PRs. Silent when clean. Kill if useful-output rate <30% after 2 weeks. |
 
 Summarize/triage-style checks (Renovate-PR summaries, log skims, doc-drift)
 do **not** go here — they are the local-model (`sgpt`) tier per HOMELAB-SPEC
 Layer 6.
+
+### `adoption-scout` — extra one-time setup
+
+Beyond Gate 0 (token + image + unsuspend), the scout needs:
+
+1. **GitHub write token.** A fine-grained PAT scoped to **Issues: Read+Write on
+   `rwlove/home-ops` only** (nothing else), stored on the 1P `claude-runner`
+   item: `op item edit "claude-runner" --vault Kubernetes github_issue_token=<pat>`.
+   The runner shell (not Claude) uses it to post the digest.
+2. **Label.** Create the `adoption-scout` GitHub label once — GitHub rejects
+   issue creation with a non-existent label:
+   `gh label create adoption-scout -R rwlove/home-ops -c FBCA04 -d "weekly adoption/workaround digest"`.
+3. **Image deps.** The runner image must ship `git` (for the shallow clone) and
+   `jq` (to build the issue JSON). Verify in the test run below; if `jq` is
+   missing, add it in the `containers` repo and bump the tag.
+4. **Test suspended → unsuspend.**
+   `kubectl -n ai create job --from=cronjob/claude-runner-adoption-scout adoption-scout-test`,
+   confirm it clones, produces a two-section digest naming **no** restricted-tier
+   apps, and opens exactly one labeled issue (a second run comments, not
+   duplicates), then remove `spec.suspend`.
 
 ## Interactive shell (survives laptop sleep)
 

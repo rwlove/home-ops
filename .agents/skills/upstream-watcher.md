@@ -11,7 +11,13 @@ still necessary upstream.
 
 ## When to use
 
-Manually, ~weekly. Future: scheduled.
+Manually, ~weekly, to author the removal PRs. The **discovery** step is now
+scheduled: the `adoption-scout` claude-runner CronJob
+(`kubernetes/apps/ai/claude-runner/app/cronjob-adoption-scout.yaml`) re-checks
+`# workaround:` annotations + `workaround`-labeled issues weekly and reports
+retirable candidates in a public GitHub issue. This skill is the interactive
+**back-end**: it turns a scout candidate (or your own find) into a verified
+removal PR. The scout only reports; it never opens PRs.
 
 ## Inputs
 

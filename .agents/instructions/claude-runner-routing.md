@@ -102,7 +102,8 @@ maintenance cost exceeds value; or it just isn't used.
    CronJobs, the shell, the vault-bridge, and the (ceph-block, regenerable) PVCs.
 2. Revert the cross-ns CNP ingress additions (`prometheus-allow`, `loki`,
    `obsidian-couchdb-allow`) added for the runner.
-3. Delete the `claude-runner` OAuth token from 1Password.
+3. Delete the `claude-runner` OAuth token **and the `github_issue_token`
+   fine-grained PAT** from the 1Password `claude-runner` item.
 4. **Leave intact** (independent of the trial): the Obsidian `claude` CouchDB db + vault
    sync, the Flatpak fix, the `containers` tmux image.
 

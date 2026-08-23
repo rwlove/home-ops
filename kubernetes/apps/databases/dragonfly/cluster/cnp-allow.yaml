@@ -14,17 +14,16 @@ spec:
     egress: false
     ingress: false
   ingress:
-    # Known consumers (`dragonfly.databases.svc.cluster.local:6379`):
-    #   auth/authelia         — session store
-    #   collab/nametag        — caching backend
-    #   collab/paperless      — broker / cache
-    #   collab/searxng        — redis cache (db=10)
-    #   collab/zulip          — broker / cache
-    #   collab/pump           — broker
-    #   home/netbox           — caching + django-q broker
-    #   media/immich          — task queue
-    #   media/romm            — task queue
-    #   renovate/renovate     — caching
+    # Durable tier (sessions + queues, noeviction). Consumers of
+    # `dragonfly.databases.svc.cluster.local:6379`, by db index:
+    #   auth/authelia    db5 — session store
+    #   media/immich     db1 — BullMQ task queue
+    #   home/netbox      db3 — task queue   / db4 — django cache
+    #   collab/paperless db7 — celery broker
+    #   media/romm       db2 — RQ task queue
+    #   collab/nametag   db6 — session / cache
+    # The pure-cache hog (renovate) lives on the separate evicting
+    # `dragonfly-cache` instance so its churn can't jam this tier.
     # Enumerating each per-pod selector across 6 namespaces is fragile.
     # Use fromEntities: cluster on port 6379 — the cross-cluster /
     # default-deny boundary is what matters; missing a consumer here

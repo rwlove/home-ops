@@ -1,0 +1,46 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: health-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: health
+  # Additive holes through the collab default-deny. DNS is covered by the
+  # baseline component. extAuth is envoy->authelia (not from this pod), so no
+  # authelia egress rule is needed here.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # Read-only PostgREST -> postgres-medikeep (BP + dose views). The CNPG pods
+    # carry cnpg.io/cluster regardless of the -ro/-rw service used.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            cnpg.io/cluster: postgres-medikeep
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    # Read-only PostgREST -> postgres-pump (weight view).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            cnpg.io/cluster: postgres-pump
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+  ingress:
+    # Internal Gateway -> nginx :8080 (admin-only via the extAuth SecurityPolicy).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP

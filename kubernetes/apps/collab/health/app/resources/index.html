@@ -22,20 +22,20 @@
   </style>
 </head>
 <body>
-  <h1>Health — medication dose vs markers</h1>
+  <h1>Health — markers &amp; medication dose</h1>
   <div class="sub" id="updated">loading…</div>
 
   <div class="card"><h2>Body weight vs medication dose</h2><div id="c1"></div><div class="err" id="e1"></div></div>
-  <div class="card"><h2>Blood pressure vs medication dose</h2><div id="c2"></div><div class="err" id="e2"></div></div>
+  <div class="card"><h2>Blood pressure vs body weight</h2><div id="c2"></div><div class="err" id="e2"></div></div>
 
   <script src="uPlot.iife.min.js"></script>
   <script>
-    // Read-only, generic: dose series are labeled from the DB at runtime — no
+    // Read-only, generic: series are labeled from the DB at runtime — no
     // medication names are baked into this file (data-classification: restricted).
     const REFRESH_MS = 5 * 60 * 1000;
     const PALETTE = ["#dc2626", "#ea580c", "#7c3aed", "#0891b2", "#65a30d", "#db2777"];
     const num = v => v == null ? null : Number(v);
-    const ts  = d => Math.floor(new Date(d + "T00:00:00Z").getTime() / 1000);
+    const ts  = d => Math.floor(new Date((d.length > 10 ? d : d + "T00:00:00Z")).getTime() / 1000);
     const todaySec = () => Math.floor(Date.now() / 1000);
 
     async function get(path) {
@@ -54,7 +54,7 @@
       return 0;
     }
 
-    // x-axis = sorted unique union of the marker dates + all dose boundaries
+    // x-axis = sorted unique union of the marker dates + dose boundaries
     function buildX(dateLists, periods) {
       const set = new Set();
       dateLists.forEach(l => l.forEach(d => set.add(ts(d))));
@@ -63,64 +63,65 @@
       return [...set].sort((a, b) => a - b);
     }
 
-    // group flat dose rows into { medName: [periods...] }
     function byMed(dose) {
       const m = {};
       for (const r of dose) (m[r.treatment_name] ||= []).push(r);
       return m;
     }
 
-    function doseSeries(meds, xs, startIdx) {
-      return Object.keys(meds).sort().map((name, i) => ({
-        label: name + " (mg)", scale: "dose", width: 2,
-        stroke: PALETTE[(startIdx + i) % PALETTE.length],
-        paths: uPlot.paths.stepped({ align: 1 }),
-        _data: xs.map(t => doseAt(meds[name], t)),
-      }));
-    }
-
-    function chart(el, xs, series, doseLabel) {
+    // Generic uPlot builder. `series` carry their own `scale`; `axes` maps
+    // scale->side. The `dose` scale (if present) is pinned to a 0 baseline.
+    function chart(el, xs, series, axes) {
       el.innerHTML = "";
-      const opts = {
+      const u = new uPlot({
         width: el.clientWidth || 900, height: 320,
-        scales: { x: { time: true }, y: {}, dose: { range: (u, mn, mx) => [0, Math.max(5, (mx || 0) * 1.15)] } },
+        scales: { x: { time: true }, dose: { range: (u2, mn, mx) => [0, Math.max(5, (mx || 0) * 1.15)] } },
         legend: { live: true },
         series: [{}].concat(series),
-        axes: [{}, { scale: "y", side: 3, grid: { show: true } }, { scale: "dose", side: 1, label: doseLabel }],
-      };
-      const u = new uPlot(opts, [xs].concat(series.map(s => s._data)), el);
+        axes: [{}].concat(axes),
+      }, [xs].concat(series.map(s => s._data)), el);
       window.addEventListener("resize", () => u.setSize({ width: el.clientWidth || 900, height: 320 }));
-      return u;
     }
 
     async function draw() {
       const e1 = document.getElementById("e1"), e2 = document.getElementById("e2");
       e1.textContent = e2.textContent = "";
-      let meds = {};
+      let weight = [];
+      const wAt = () => Object.fromEntries(weight.map(r => [ts(r.date), num(r.weight_lb)]));
+
+      // Chart 1: body weight (left) vs medication dose step (right)
       try {
         const dose = await get("/api/mk/v_dose");
-        meds = byMed(dose);
-
-        const weight = await get("/api/pump/v_weight");
+        weight = await get("/api/pump/v_weight");
+        const meds = byMed(dose);
         const xs = buildX([weight.map(r => r.date)], dose);
-        const wBy = Object.fromEntries(weight.map(r => [ts(r.date), num(r.weight_lb)]));
-        const series = [{ label: "Weight (lb)", scale: "y", stroke: "#2563eb", width: 2, spanGaps: true,
-                          _data: xs.map(t => wBy[t] ?? null) }].concat(doseSeries(meds, xs, 0));
-        chart(document.getElementById("c1"), xs, series, "mg");
+        const wBy = wAt();
+        const series = [{ label: "Weight (lb)", scale: "wt", stroke: "#2563eb", width: 2, spanGaps: true,
+                          _data: xs.map(t => wBy[t] ?? null) }]
+          .concat(Object.keys(meds).sort().map((name, i) => ({
+            label: name + " (mg)", scale: "dose", width: 2, stroke: PALETTE[i % PALETTE.length],
+            paths: uPlot.paths.stepped({ align: 1 }), _data: xs.map(t => doseAt(meds[name], t)),
+          })));
+        chart(document.getElementById("c1"), xs, series,
+          [{ scale: "wt", side: 3, grid: { show: true } }, { scale: "dose", side: 1, label: "mg" }]);
       } catch (err) { e1.textContent = String(err); }
 
+      // Chart 2: blood pressure (left) vs body weight (right)
       try {
         const bp = await get("/api/mk/v_bp");
-        const dosePeriods = Object.values(meds).flat();
-        const xs = buildX([bp.map(r => r.date)], dosePeriods);
+        if (!weight.length) weight = await get("/api/pump/v_weight");
+        const xs = buildX([bp.map(r => r.date), weight.map(r => r.date)], []);
         const sysBy = Object.fromEntries(bp.map(r => [ts(r.date), num(r.systolic_bp)]));
         const diaBy = Object.fromEntries(bp.map(r => [ts(r.date), num(r.diastolic_bp)]));
+        const wBy = wAt();
         const series = [
-          { label: "Systolic", scale: "y", stroke: "#7c3aed", width: 2, spanGaps: true, _data: xs.map(t => sysBy[t] ?? null) },
-          { label: "Diastolic", scale: "y", stroke: "#059669", width: 2, spanGaps: true, _data: xs.map(t => diaBy[t] ?? null) },
-        ].concat(doseSeries(meds, xs, 0));
-        chart(document.getElementById("c2"), xs, series, "mg");
-        if (!bp.length) e2.textContent = "No blood-pressure data yet — pending the Sheets backfill.";
+          { label: "Systolic", scale: "bp", stroke: "#dc2626", width: 2, spanGaps: true, _data: xs.map(t => sysBy[t] ?? null) },
+          { label: "Diastolic", scale: "bp", stroke: "#ea580c", width: 2, spanGaps: true, _data: xs.map(t => diaBy[t] ?? null) },
+          { label: "Weight (lb)", scale: "wt", stroke: "#2563eb", width: 2, spanGaps: true, _data: xs.map(t => wBy[t] ?? null) },
+        ];
+        chart(document.getElementById("c2"), xs, series,
+          [{ scale: "bp", side: 3, grid: { show: true } }, { scale: "wt", side: 1, label: "lb" }]);
+        if (bp.length < 3) e2.textContent = "Only " + bp.length + " BP reading(s) in MediKeep — import the BP history to populate this chart.";
       } catch (err) { e2.textContent = String(err); }
 
       document.getElementById("updated").textContent = "updated " + new Date().toLocaleString();

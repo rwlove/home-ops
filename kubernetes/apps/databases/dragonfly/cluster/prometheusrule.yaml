@@ -1,0 +1,53 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: dragonfly-rules
+  labels:
+    prometheus: k8s
+    role: alert-rules
+spec:
+  groups:
+    - name: dragonfly.rules
+      rules:
+        # The failure that started the 2026-08-23 incident: a noeviction
+        # instance at --maxmemory rejects every write with `ERR Out of
+        # memory` (dragonfly_oom_errors_total climbed 82k+). This is a k8s
+        # RSS-under-limit soft cap, so NO OOMKill/restart fires — kube
+        # alerts miss it entirely. Rejected writes are data-affecting
+        # (sessions not persisted, queue enqueues dropped), hence critical.
+        #
+        # Fires per instance/pod. The evicting `dragonfly-cache` tier
+        # (--cache_mode=true) sheds cold keys instead of erroring, so it
+        # never emits oom_errors — this alert is self-scoping to the
+        # noeviction (durable) tier without needing an instance-name match.
+        - alert: DragonflyOutOfMemoryErrors
+          annotations:
+            description: Dragonfly {{ $labels.pod }} in {{ $labels.namespace }} is rejecting writes with "Out of memory" ({{ printf "%.2f" $value }}/s). A noeviction instance has hit --maxmemory; writes (sessions, queue enqueues) are failing. Reclaim memory or raise --maxmemory.
+            summary: Dragonfly is refusing writes (at maxmemory, noeviction).
+          expr: |-
+            sum by (namespace, pod) (
+              rate(dragonfly_oom_errors_total[5m])
+            ) > 0
+          for: 5m
+          labels:
+            severity: critical
+        # Early warning: catch the fill BEFORE it starts erroring, so there
+        # is lead time to reclaim/resize instead of finding out via failed
+        # auth writes. Excludes the *-cache tier, which runs at maxmemory by
+        # DESIGN (cache_mode evicts at the cap) and would otherwise fire
+        # here permanently. A durable/noeviction instance sitting above 90%
+        # for 15m is genuinely filling toward the OutOfMemoryErrors cliff.
+        - alert: DragonflyMemoryNearMaxmemory
+          annotations:
+            description: Dragonfly {{ $labels.pod }} in {{ $labels.namespace }} is at {{ printf "%.0f" $value }}% of --maxmemory. A noeviction instance this full is approaching write rejection (ERR Out of memory). Reclaim keys or raise the cap before it hits the wall.
+            summary: Dragonfly noeviction instance is near maxmemory.
+          expr: |-
+            100 * (
+              dragonfly_memory_used_bytes{app!~".+-cache"}
+              / dragonfly_memory_max_bytes{app!~".+-cache"}
+            ) > 90
+          for: 15m
+          labels:
+            severity: warning

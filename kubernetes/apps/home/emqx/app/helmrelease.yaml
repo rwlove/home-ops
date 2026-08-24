@@ -18,16 +18,19 @@ spec:
   values:
     affinity:
       podAntiAffinity:
-        preferredDuringSchedulingIgnoredDuringExecution:
-          - podAffinityTerm:
-              labelSelector:
-                matchExpressions:
-                  - key: app.kubernetes.io/name
-                    operator: In
-                    values: ["emqx"]
-              topologyKey: kubernetes.io/hostname
-
-            weight: 100
+        # Hard spread across nodes. The `preferred` rule (in place since Dec
+        # 2025) was ignored under scheduling pressure and 2-of-3 brokers
+        # colocated on worker3; when that node flapped (2026-08-22) it wedged
+        # MQTT and took HA↔Z-Wave down. `required` forces each of the 3
+        # brokers onto a distinct node — always satisfiable (11 nodes), and no
+        # rolling-update deadlock (a replaced pod has 8 free nodes to land on).
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: ["emqx"]
+            topologyKey: kubernetes.io/hostname
     emqxConfig:
       EMQX_ALLOW_ANONYMOUS: "false"
       EMQX_AUTH__MNESIA__PASSWORD_HASH: plain

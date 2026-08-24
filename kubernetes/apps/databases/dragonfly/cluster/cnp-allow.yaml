@@ -14,16 +14,19 @@ spec:
     egress: false
     ingress: false
   ingress:
-    # Durable tier (sessions + queues, noeviction). Consumers of
+    # Durable tier (small queues + caches, noeviction). Consumers of
     # `dragonfly.databases.svc.cluster.local:6379`, by db index:
-    #   auth/authelia    db5 — session store
-    #   media/immich     db1 — BullMQ task queue
     #   home/netbox      db3 — task queue   / db4 — django cache
     #   collab/paperless db7 — celery broker
     #   media/romm       db2 — RQ task queue
     #   collab/nametag   db6 — session / cache
     # The pure-cache hog (renovate) lives on the separate evicting
     # `dragonfly-cache` instance so its churn can't jam this tier.
+    # The auth SPOF (authelia) and the heavy/bursty tenant (immich
+    # BullMQ) were split off to dedicated `dragonfly-auth` /
+    # `dragonfly-immich` instances after immich burst-filled this
+    # noeviction tier on 2026-08-24 and made it reject every tenant's
+    # writes, auth included (cluster-immich.yaml / cluster-auth.yaml).
     # Enumerating each per-pod selector across 6 namespaces is fragile.
     # Use fromEntities: cluster on port 6379 — the cross-cluster /
     # default-deny boundary is what matters; missing a consumer here

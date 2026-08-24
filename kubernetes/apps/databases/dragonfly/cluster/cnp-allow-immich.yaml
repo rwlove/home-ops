@@ -1,0 +1,27 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: dragonfly-immich-allow
+spec:
+  # Select on `app: <instance>` — see cnp-allow-auth.yaml for the label
+  # trap this avoids (#13733).
+  endpointSelector:
+    matchLabels:
+      app: dragonfly-immich
+  # Additive — default-deny is what triggers the lockdown; these rules
+  # punch holes through it.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # Consumers of `dragonfly-immich.databases.svc.cluster.local:6379`:
+    #   media/immich — BullMQ task queue (db1)
+    # fromEntities: cluster on 6379 (same rationale as the other tiers).
+    - fromEntities:
+        - cluster
+      toPorts:
+        - ports:
+            - port: "6379"
+              protocol: TCP

@@ -25,10 +25,19 @@ spec:
     - "--cluster_mode=emulated"
     - "--default_lua_flags=allow-undeclared-keys"
 
+  # Scope the spread selector to THIS instance's own replicas (`app:
+  # dragonfly`), not the operator's shared `app.kubernetes.io/part-of:
+  # dragonfly` — that label is stamped identically on every Dragonfly
+  # instance (dragonfly, -auth, -cache, -immich), so selecting on it
+  # pools all instances under one constraint. The descheduler's
+  # RemovePodsViolatingTopologySpreadConstraint plugin then evicts the
+  # single-replica -immich/-cache pods every ~5 min whenever they share a
+  # node with these replicas. Same shared-label class as the CNP trap in
+  # #13733, different key. See reference_descheduler_evicts_dragonfly_singletons.
   topologySpreadConstraints:
     - maxSkew: 1
       topologyKey: "kubernetes.io/hostname"
       whenUnsatisfiable: "DoNotSchedule"
       labelSelector:
         matchLabels:
-          app.kubernetes.io/part-of: dragonfly
+          app: dragonfly

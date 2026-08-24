@@ -25,12 +25,15 @@ spec:
       memory: 512Mi
   networkPolicyEnabled: false
   # Noeviction (no --cache_mode): sessions must never be silently evicted
-  # out from under a logged-in user. The store is tiny (~7 keys), so
-  # --maxmemory=256Mi is enormous headroom — the dragonfly
-  # memory-non-reclamation caveat (see cluster-immich.yaml) would take a
-  # very long time to ratchet a store this small to the cap. --maxmemory
-  # stays strictly below limits.memory (RSS overhead sits on top).
+  # out from under a logged-in user. The store is tiny (~7 keys).
+  # Dragonfly requires --maxmemory >= 256MiB PER proactor thread or it
+  # refuses to start ("N threads, so N*256MiB are required. Exiting").
+  # One thread is ample for authelia's tiny, low-throughput session load,
+  # so proactor_threads=1 lets --maxmemory=384Mi (well above the 256MiB
+  # floor, still enormous headroom for ~7 keys) sit ~75% under the 512Mi
+  # cgroup limit (RSS overhead sits on top). HA comes from the 3 replicas,
+  # not the thread count.
   args:
-    - "--maxmemory=256Mi"
-    - "--proactor_threads=2"
+    - "--maxmemory=384Mi"
+    - "--proactor_threads=1"
     - "--cluster_mode=emulated"

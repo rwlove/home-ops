@@ -1,0 +1,52 @@
+---
+# yaml-language-server: $schema=https://lds-schemas.pages.dev/dragonflydb.io/dragonfly_v1alpha1.json
+apiVersion: dragonflydb.io/v1alpha1
+kind: Dragonfly
+metadata:
+  name: dragonfly-immich
+spec:
+  labels:
+    dragonflydb.io/cluster: dragonfly-immich
+  image: ghcr.io/dragonflydb/dragonfly:v1.40.1@sha256:ebf3c6c213e82fb51b4521660cca13f06f3421dc5b1ed14f2f474c50b5e29986
+  # Dedicated immich (BullMQ) tier. immich is the heavy, bursty tenant: a
+  # nightly "queue-all" style job (storageTemplateMigration /
+  # backgroundTask) transiently allocated ~750Mi of job data on
+  # 2026-08-24, which — combined with the reclamation caveat below — hit
+  # --maxmemory on the shared noeviction `dragonfly` and made it reject
+  # ALL tenants' writes (auth included). Its own instance contains that
+  # blast radius to immich: when it fills, only immich's own jobs stall.
+  # Single replica: the BullMQ queue is regenerable (immich re-detects
+  # outstanding work), so node-loss HA is not worth 2-3x the (large) RAM
+  # — same rationale as dragonfly-cache. Core immich (photos, upload,
+  # browse) reads from Postgres and is unaffected by a queue-pod restart.
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 3Gi
+    limits:
+      memory: 3Gi
+  networkPolicyEnabled: false
+  # Noeviction (NO --cache_mode): BullMQ on an evicting Redis corrupts
+  # queue state (jobs vanish mid-lifecycle), so immich MUST stay
+  # noeviction. --maxmemory=2Gi is ~67% of the 3Gi cgroup limit: mimalloc
+  # RSS overhead (and, per #7947, block-size charged to small TTL keys)
+  # sits above --maxmemory, so keep real headroom below limits.memory or
+  # the kernel OOM-kills the pod. --default_lua_flags=allow-undeclared-keys
+  # is REQUIRED for BullMQ's EVALSHA scripts (same as the origin
+  # `dragonfly` instance).
+  #
+  # workaround: https://github.com/dragonflydb/dragonfly/issues/4418 —
+  # dragonfly does not return freed memory to used_memory after a
+  # delete/trim under noeviction (aggravated for BullMQ's small TTL keys
+  # by v1.40.0 PR #7947, which charges full mimalloc block size to
+  # used_memory). A noeviction instance thus ratchets toward --maxmemory
+  # across bursts and eventually self-wedges until restarted. The generous
+  # cap is containment; shrink it (and stop expecting periodic self-wedge)
+  # when a delete/trim returns used_memory below --maxmemory without a
+  # restart. Replace this URL with our own filed issue once opened.
+  args:
+    - "--maxmemory=2Gi"
+    - "--proactor_threads=2"
+    - "--cluster_mode=emulated"
+    - "--default_lua_flags=allow-undeclared-keys"

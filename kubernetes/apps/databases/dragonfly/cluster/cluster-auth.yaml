@@ -1,0 +1,36 @@
+---
+# yaml-language-server: $schema=https://lds-schemas.pages.dev/dragonflydb.io/dragonfly_v1alpha1.json
+apiVersion: dragonflydb.io/v1alpha1
+kind: Dragonfly
+metadata:
+  name: dragonfly-auth
+spec:
+  labels:
+    dragonflydb.io/cluster: dragonfly-auth
+  image: ghcr.io/dragonflydb/dragonfly:v1.40.1@sha256:ebf3c6c213e82fb51b4521660cca13f06f3421dc5b1ed14f2f474c50b5e29986
+  # Dedicated auth-session tier. Authelia is the auth choke point for
+  # every gated app — losing its session store locks users out of all of
+  # them (it is THE SPOF). It used to share the noeviction `dragonfly`
+  # instance, where a co-tenant burst (immich BullMQ, 2026-08-24) filled
+  # --maxmemory and made the whole instance reject writes — including
+  # authelia session writes. Its own instance means no other tenant's
+  # churn can ever reach it. 3 replicas: same HA posture as `dragonfly`,
+  # justified here because it protects the auth SPOF.
+  replicas: 3
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 512Mi
+  networkPolicyEnabled: false
+  # Noeviction (no --cache_mode): sessions must never be silently evicted
+  # out from under a logged-in user. The store is tiny (~7 keys), so
+  # --maxmemory=256Mi is enormous headroom — the dragonfly
+  # memory-non-reclamation caveat (see cluster-immich.yaml) would take a
+  # very long time to ratchet a store this small to the cap. --maxmemory
+  # stays strictly below limits.memory (RSS overhead sits on top).
+  args:
+    - "--maxmemory=256Mi"
+    - "--proactor_threads=2"
+    - "--cluster_mode=emulated"

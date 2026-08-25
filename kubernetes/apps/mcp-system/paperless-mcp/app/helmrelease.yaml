@@ -26,19 +26,24 @@ spec:
           app:
             image:
               # workaround: https://github.com/baruchiro/paperless-mcp/pull/140 — revert to ghcr.io/baruchiro/paperless-mcp `latest` once BOTH upstream fixes ship
-              # Fork build of baruchiro/paperless-mcp v2.0.1 carrying TWO fixes the
-              # Kuadrant broker needs to federate paperless:
-              #   1. #138 schema — collapse `type: ["T","null"]` unions (from
-              #      `.nullable()`) to scalar; the broker drops the whole backend
-              #      otherwise (PR baruchiro/paperless-mcp#140).
+              # Fork build of baruchiro/paperless-mcp v2.0.1 carrying THREE fixes the
+              # Kuadrant broker needs to federate paperless (each necessary, none
+              # sufficient alone):
+              #   1. protocol version — the SDK negotiated "2025-03-26"; the broker
+              #      only serves upstreams that negotiate its pinned "2025-11-25", so
+              #      paperless was dropped from every served set. Advertise the newer
+              #      revision so the SDK echoes it. THIS was the actual federation
+              #      blocker.
               #   2. stateful transport — v2.x ran stateless (empty Mcp-Session-Id,
-              #      GET /mcp -> 405); the v0.9.0 broker won't federate a stateless
-              #      upstream (same wall as github/windmill/searxng, #13627). The
-              #      fork issues a real Mcp-Session-Id + notification stream.
+              #      GET /mcp -> 405); a 2025-11-25 (stateful) upstream needs a real
+              #      session + notification stream.
+              #   3. #138 schema — collapse `type: ["T","null"]` unions (from
+              #      `.nullable()`) to scalar so the broker doesn't reject tools
+              #      (upstream PR baruchiro/paperless-mcp#140).
               # Built from rwlove/paperless-mcp `fix/stateful-transport`; tracked in
-              # home-ops #13804. Return to baruchiro `latest` when both land upstream.
+              # home-ops #13804. Return to baruchiro `latest` once these land upstream.
               repository: ghcr.io/rwlove/paperless-mcp
-              tag: fix-138-stateful-20260825@sha256:30b9d7ea0eb99350c1a44aed222da1e0d301454b1f10800296192821e7367882
+              tag: fix-138-stateful-proto-20260825@sha256:1cdcb6de15b9af8ff3e2f271664706b93f4409b07c8f721f9d840615072d22be
             # v2.0.x makes a per-request `Authorization: Bearer` mandatory and drops
             # the env-token fallback, so every broker request 401s (the mcp-gateway
             # route strips Authorization so backends use their own env cred). The

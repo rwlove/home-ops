@@ -25,18 +25,22 @@ spec:
         containers:
           app:
             image:
-              repository: ghcr.io/baruchiro/paperless-mcp
-              # Upstream publishes only `latest` + `sha-<commit>` digest tags —
-              # no `2.0.x` docker tag exists (`2.0.1` → HTTP 404 on ghcr), so the
-              # `latest` portion is decorative; the @sha256 enforces. This digest
-              # self-reports serverInfo v2.0.1 (verified via tools/list 2026-08-22).
-              # Keep `latest` (NOT a fake `2.0.1` tag) so Renovate keeps tracking
-              # digest bumps — that's how we'll learn the #138 schema fix shipped.
-              tag: latest@sha256:f80bd21542a64f51828eb7fd26e9e1d5b84a66500c2c472ac75b336551d501d0
-            # v2.0.0 made a per-request `Authorization: Bearer <paperless
-            # token>` mandatory and dropped the env-token fallback, so every
-            # broker request 401s (the mcp-gateway route strips Authorization
-            # so backends use their own env cred). --no-auth restores the
+              # workaround: https://github.com/baruchiro/paperless-mcp/pull/140 — revert to ghcr.io/baruchiro/paperless-mcp `latest` once #140 merges and publishes
+              # Temporary fork build of baruchiro/paperless-mcp v2.0.1 carrying the
+              # PR #140 fix for upstream #138: the Kuadrant broker rejects the
+              # `type: ["T","null"]` union schema that zod-to-json-schema emits for
+              # `.nullable()` fields and de-federates the ENTIRE backend (invalid=3
+              # valid=41 → zero paperless_* tools). The fork collapses those unions
+              # to a scalar `type` in the advertised schema only (zod still accepts
+              # null at call time). Built from rwlove/paperless-mcp
+              # `fix/138-nullable-union-types`; tracked in home-ops #13804. Drop this
+              # pin and return to baruchiro `latest` (Renovate-tracked) when #140 ships.
+              repository: ghcr.io/rwlove/paperless-mcp
+              tag: fix-138-20260825@sha256:214b64b7bda0bef8c779110a8a1d192247c935de59391617eb45092118a37581
+            # v2.0.x makes a per-request `Authorization: Bearer` mandatory and drops
+            # the env-token fallback, so every broker request 401s (the mcp-gateway
+            # route strips Authorization so backends use their own env cred). The
+            # fork is v2.0.1-based, so this is still required: --no-auth restores the
             # env-token fallback (PAPERLESS_API_KEY, set by the ExternalSecret).
             # Safe here: CNP-gated to broker-only access behind Authelia — the
             # "trusted network" the flag documents. Appends to the image

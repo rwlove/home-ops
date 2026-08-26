@@ -24,7 +24,7 @@ spec:
         # noeviction (durable) tier without needing an instance-name match.
         - alert: DragonflyOutOfMemoryErrors
           annotations:
-            description: Dragonfly {{ $labels.pod }} in {{ $labels.namespace }} is rejecting writes with "Out of memory" ({{ printf "%.2f" $value }}/s). A noeviction instance has hit --maxmemory; writes (sessions, queue enqueues) are failing. Reclaim memory or raise --maxmemory.
+            description: Dragonfly {{ $labels.pod }} in {{ $labels.namespace }} is rejecting writes with "Out of memory" ({{ printf "%.2f" $value }}/s). A noeviction instance has hit --maxmemory; writes (sessions, queue enqueues) are failing. Recover in place without a restart (keeps live keys) with `redis-cli DEBUG COMPACT-TABLE 1.0` — the prime hash table does not shrink on delete, so table_used_memory stays pinned (home-ops#13793, dragonflydb#8149). Or raise --maxmemory.
             summary: Dragonfly is refusing writes (at maxmemory, noeviction).
           expr: |-
             sum by (namespace, pod) (
@@ -41,7 +41,7 @@ spec:
         # for 15m is genuinely filling toward the OutOfMemoryErrors cliff.
         - alert: DragonflyMemoryNearMaxmemory
           annotations:
-            description: Dragonfly {{ $labels.pod }} in {{ $labels.namespace }} is at {{ printf "%.0f" $value }}% of --maxmemory. A noeviction instance this full is approaching write rejection (ERR Out of memory). Reclaim keys or raise the cap before it hits the wall.
+            description: Dragonfly {{ $labels.pod }} in {{ $labels.namespace }} is at {{ printf "%.0f" $value }}% of --maxmemory. A noeviction instance this full is approaching write rejection (ERR Out of memory). Recover in place with `redis-cli DEBUG COMPACT-TABLE 1.0` (the prime hash table does not shrink on delete; keeps live keys — home-ops#13793), or raise the cap before it hits the wall.
             summary: Dragonfly noeviction instance is near maxmemory.
           expr: |-
             100 * (

@@ -25,23 +25,28 @@ spec:
         containers:
           app:
             image:
-              # workaround: https://github.com/baruchiro/paperless-mcp/pull/140 — revert to ghcr.io/baruchiro/paperless-mcp `latest` once BOTH upstream fixes ship
+              # workaround: https://github.com/Kuadrant/mcp-gateway/issues/1436 — return to ghcr.io/baruchiro/paperless-mcp `latest` when this + Kuadrant/mcp-gateway#1419 + baruchiro/paperless-mcp#140 all close (umbrella: home-ops #13804)
               # Fork build of baruchiro/paperless-mcp v2.0.1 carrying THREE fixes the
               # Kuadrant broker needs to federate paperless (each necessary, none
-              # sufficient alone):
+              # sufficient alone). Each maps to an upstream gap:
               #   1. protocol version — the SDK negotiated "2025-03-26"; the broker
               #      only serves upstreams that negotiate its pinned "2025-11-25", so
-              #      paperless was dropped from every served set. Advertise the newer
-              #      revision so the SDK echoes it. THIS was the actual federation
-              #      blocker.
+              #      paperless was dropped from every served set (the actual
+              #      federation blocker). Fork advertises "2025-11-25" so the SDK
+              #      echoes it. Upstream: Kuadrant/mcp-gateway#1436.
               #   2. stateful transport — v2.x ran stateless (empty Mcp-Session-Id,
               #      GET /mcp -> 405); a 2025-11-25 (stateful) upstream needs a real
-              #      session + notification stream.
+              #      session + notification stream. Related upstream:
+              #      Kuadrant/mcp-gateway#1419 (see caveat below).
               #   3. #138 schema — collapse `type: ["T","null"]` unions (from
-              #      `.nullable()`) to scalar so the broker doesn't reject tools
-              #      (upstream PR baruchiro/paperless-mcp#140).
-              # Built from rwlove/paperless-mcp `fix/stateful-transport`; tracked in
-              # home-ops #13804. Return to baruchiro `latest` once these land upstream.
+              #      `.nullable()`) to scalar so the broker doesn't reject tools.
+              #      Upstream: baruchiro/paperless-mcp#140.
+              # CAVEAT (Kuadrant/mcp-gateway#1419, stale-session recovery): the
+              # broker does NOT re-federate this upstream on its own after the
+              # paperless pod restarts (Renovate bump, reconcile, node drain) — it
+              # holds a stale session and serves 0 paperless tools until the broker
+              # is restarted: `kubectl -n mcp-system rollout restart deploy/mcp-gateway`.
+              # Built from rwlove/paperless-mcp `fix/stateful-transport`; tracked in #13804.
               repository: ghcr.io/rwlove/paperless-mcp
               tag: fix-138-stateful-proto-20260825@sha256:1cdcb6de15b9af8ff3e2f271664706b93f4409b07c8f721f9d840615072d22be
             # v2.0.x makes a per-request `Authorization: Bearer` mandatory and drops

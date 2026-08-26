@@ -1,0 +1,80 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: slskd-rules
+spec:
+  groups:
+    - name: slskd.session
+      rules:
+        # Backstop for the "half-open server session" failure mode: the
+        # downloads-gateway VXLAN tunnel flaps, slskd's Soulseek SERVER
+        # connection goes half-open, but server.state stays "Connected,
+        # LoggedIn" — the app itself can't tell the transport is dead until
+        # the OS TCP timeout (~15m) forces a reconnect. server.state /
+        # isLoggedIn are therefore useless as a signal (see
+        # slskd_search_incoming_requests_received below for why this metric
+        # is the one that's actually robust).
+        #
+        # slskd_search_incoming_requests_received counts distributed-mesh
+        # search requests flowing IN through this client — it keeps flowing
+        # even though this client is a zero-share leech (2026-08-26 privacy
+        # change), because incoming search traffic doesn't depend on us
+        # having shares. Healthy rate ~15-21/s; a stale server session
+        # flatlines it to 0. Deliberately NOT using
+        # slskd_dnet_has_parent (unreliable for a leech — rarely gets a
+        # distributed parent) or slskd_search_incoming_responses_sent
+        # (legitimately 0 for a leech, so it can't distinguish healthy from
+        # stale).
+        #
+        # The liveness probe in helmrelease.yaml already restarts the pod on
+        # the same underlying signal (via the point-in-time gauge
+        # slskd_search_incoming_request_receive_rate_current) at ~5-8m, so
+        # in normal operation this alert should rarely fire — it exists as
+        # the backstop for the case where the probe's restart doesn't clear
+        # the fault (e.g. the VPN tunnel itself is down, so every restart
+        # just reconnects into the same dead egress path and re-flatlines).
+        #
+        # `for: 15m` matches the OS TCP timeout the pod would eventually
+        # self-heal on, so this alert should only ever fire when self-heal
+        # AND the liveness-probe restart have both failed to clear it —
+        # i.e. a real, unresolved outage, not a transient blip. A genuinely
+        # quiet moment on the Soulseek network (rare, and network-wide, not
+        # client-specific) is the false-positive risk; 15m of zero incoming
+        # distributed search traffic cluster-wide is not something a quiet
+        # moment produces.
+        - alert: SlskdServerSessionStale
+          annotations:
+            summary: slskd Soulseek server session is stale (0 incoming search traffic for 15m)
+            description: |
+              slskd has received zero incoming distributed-mesh search
+              requests for 15 minutes despite being scraped successfully.
+              This is the signature of a half-open Soulseek server session
+              (downloads-gateway VXLAN tunnel flap) — server.state will
+              still report "Connected, LoggedIn" even though the transport
+              is dead.
+
+              The liveness probe (helmrelease.yaml) should already have
+              restarted the pod on this same signal before this alert's
+              15m window elapses. If this is firing, either that restart
+              hasn't happened yet or it fired and the session is still
+              stale post-restart — check whether the downloads-gateway VPN
+              tunnel itself is down:
+                kubectl -n downloads get pods -l app.kubernetes.io/name=slskd
+                kubectl -n downloads logs -l app.kubernetes.io/name=slskd --tail=100
+                kubectl -n vpn get pods -l app.kubernetes.io/instance=downloads-gateway
+              Fix is a pod restart (reconnects the server session); if the
+              VPN gateway itself is down, restarting slskd alone won't
+              clear it.
+          expr: |-
+            (
+              up{job="slskd"} == 1
+            )
+            and
+            (
+              rate(slskd_search_incoming_requests_received{job="slskd"}[10m]) == 0
+            )
+          for: 15m
+          labels:
+            severity: warning

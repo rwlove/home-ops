@@ -36,15 +36,23 @@ spec:
   # is REQUIRED for BullMQ's EVALSHA scripts (same as the origin
   # `dragonfly` instance).
   #
-  # workaround: https://github.com/dragonflydb/dragonfly/issues/8149 —
-  # dragonfly does not return freed memory to used_memory after a
-  # delete/trim under noeviction (aggravated for BullMQ's small TTL keys
-  # by v1.40.0 PR #7947, which charges full mimalloc block size to
-  # used_memory). A noeviction instance thus ratchets toward --maxmemory
-  # across bursts and eventually self-wedges until restarted. The generous
-  # cap is containment; shrink it (and stop expecting periodic self-wedge)
-  # when a delete/trim returns used_memory below --maxmemory without a
-  # restart. Tracked in rwlove/home-ops#13793.
+  # PRIME-TABLE NON-SHRINK (root cause, confirmed 2026-08-26 on
+  # dragonflydb/dragonfly#8149): under noeviction, deleting/trimming keys
+  # does NOT return used_memory. Dragonfly's prime hash table (DashTable)
+  # grows its segment/directory arrays on insert and never shrinks them on
+  # erase, so table_used_memory stays pinned at the high-water mark while
+  # object_used_memory correctly drops to 0. PR #7947 only makes the peak
+  # arrive sooner — it is NOT the persistent pin. A noeviction instance thus
+  # ratchets toward --maxmemory across bursts and eventually self-wedges.
+  # Upstream will NOT auto-compact the table (maintainer: no fair general
+  # heuristic), so this is PERMANENT, not awaiting an upstream fix — the
+  # generous cap is deliberate containment, not a temporary hedge.
+  #
+  # RECOVERY without a restart (keeps live keys — preferred over restarting,
+  # which drops the regenerable queue): `redis-cli DEBUG COMPACT-TABLE 1.0`
+  # merges the under-full segments in place and reclaims table_used_memory
+  # fully (verified 313MiB->633KiB, all live keys intact). See
+  # rwlove/home-ops#13793.
   args:
     - "--maxmemory=2Gi"
     - "--proactor_threads=2"

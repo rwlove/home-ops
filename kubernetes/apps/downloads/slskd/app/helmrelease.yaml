@@ -75,9 +75,49 @@ spec:
               # When the downloads-gateway VXLAN tunnel flaps, slskd loses its server
               # session and — without VPN integration — sits in "Disconnecting" forever
               # because connectionWatchdog never engages. The exec probe catches that
-              # state and restarts the pod after 10×30s = 5 min of stuck Disconnecting,
-              # which is the only path back to a logged-in state until upstream slskd
-              # exposes a real watchdog config.
+              # state and restarts the pod, which is the only path back to a
+              # logged-in state until upstream slskd exposes a real watchdog config.
+              #
+              # TODO: no upstream issue found that covers detecting a half-open
+              # server session while server.state still reports LoggedIn — closest
+              # hits are slskd/slskd#93 (reconnect-after-KNOWN-disconnect strategy)
+              # and jpdillingham/Soulseek.NET#468 (distributed-watchdog timer
+              # scoping), neither of which is this bug. Re-check on slskd version
+              # bumps and replace this TODO with a real `# workaround:` link (per
+              # .agents/instructions/workarounds.md) if a matching issue opens.
+              #
+              # Second failure mode, added 2026-08-26: the tunnel flap can leave the
+              # server session HALF-OPEN instead of visibly Disconnecting — isLoggedIn
+              # stays true and every check above still passes, but the transport is
+              # dead: every operation times out and ALL searches return 0 responses,
+              # until the ~15min OS TCP timeout forces a reconnect. isLoggedIn /
+              # isConnecting / isLoggingIn / isAwaitingVpn are all useless for this
+              # case — none of them change while stale. The one signal that's
+              # actually robust here is
+              # slskd_search_incoming_request_receive_rate_current — the live rate of
+              # distributed-mesh search requests flowing IN through this client. It
+              # keeps flowing even though this client is a zero-share leech (privacy
+              # change, 2026-08-26): incoming search traffic doesn't depend on us
+              # having shares to offer. Healthy is a rate in the low thousands/min
+              # (~3015 observed); a stale session flatlines it to exactly 0.
+              # Deliberately NOT dnet_has_parent (unreliable for a leech — rarely
+              # gets a distributed parent) and NOT incoming_responses_sent
+              # (legitimately 0 for a leech either way, so it can't distinguish
+              # healthy from stale).
+              #
+              # failureThreshold: 12 × periodSeconds: 30s = 6 min grace — inside the
+              # 5-8 min target window (comfortably under the ~15min TCP self-heal, so
+              # the probe wins the race and recovers faster) while giving a couple of
+              # spare probe cycles of tolerance for a single transient wget/jq
+              # hiccup across the three checks now bundled into one exec, since a
+              # false restart here is a full slskd restart (re-scan + reconnect), not
+              # free. If the downloads-gateway VPN tunnel itself is down (not just
+              # flapped), this restart-loops at ~6min cadence rather than thrashing
+              # faster — bounded by failureThreshold, not unbounded — until the
+              # tunnel recovers; SlskdServerSessionStale (prometheusrule.yaml) is the
+              # backstop alert for exactly that case, with its own 15m `for:` so a
+              # persistent VPN outage still pages even though the probe alone can't
+              # fix it.
               liveness:
                 enabled: true
                 custom: true
@@ -89,8 +129,12 @@ spec:
                       - |
                         wget -qO- http://localhost:5030/health >/dev/null || exit 1
                         wget -qO- http://localhost:5030/api/v0/application \
-                          | jq -e '.server.isLoggedIn or .server.isConnecting or .server.isLoggingIn or .connectionWatchdog.isAwaitingVpn' >/dev/null
-                  failureThreshold: 10
+                          | jq -e '.server.isLoggedIn or .server.isConnecting or .server.isLoggingIn or .connectionWatchdog.isAwaitingVpn' >/dev/null || exit 1
+                        rate=$(wget -qO- http://localhost:5030/metrics \
+                          | grep '^slskd_search_incoming_request_receive_rate_current ' \
+                          | cut -d' ' -f2)
+                        [ -n "$rate" ] && [ "${rate%.*}" -gt 0 ] 2>/dev/null || exit 1
+                  failureThreshold: 12
                   initialDelaySeconds: 0
                   periodSeconds: 30
                   timeoutSeconds: 5

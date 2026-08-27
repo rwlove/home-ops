@@ -125,7 +125,13 @@ probe_served() { # probe_served <id> <originalPath> -> "codec height bitrate" of
 
 set_policy_via_pr() { # set_policy_via_pr <disabled|bitrate> <subject>
   local target="$1" subject="$2" wt br pr
-  wt="$(mktemp -d)"; br="claude/immich-transcode-${target}-$$"
+  # Refresh origin/$MAIN first: the flip PR merged in THIS run, so the local
+  # remote-tracking ref is stale — branching the revert off it would diff
+  # against the pre-flip tree (empty diff -> failed revert, policy stuck on).
+  git -C "$REPO" fetch -q origin "$MAIN"
+  # Unique branch per call ($$ alone collides when the EXIT-trap retries the
+  # same target after a failed attempt).
+  wt="$(mktemp -d)"; br="claude/immich-transcode-${target}-$$-${RANDOM}"
   git -C "$REPO" worktree add -q "$wt" -b "$br" "origin/$MAIN"
   sed -i -E 's/("transcode": )"(disabled|required|bitrate)"/\1"'"$target"'"/' "$wt/$ES_PATH"
   git -C "$wt" add "$ES_PATH"
@@ -136,6 +142,13 @@ set_policy_via_pr() { # set_policy_via_pr <disabled|bitrate> <subject>
   pr="$(gh pr create -R "$ORG_REPO" --head "$br" --title "$subject" \
         --body "Automated flip-scope-revert step — see tools/immich-frame-video-transcode.sh." | tail -1)"
   c "PR $pr — waiting for CI"
+  # `gh pr checks --watch` errors out ("no checks reported") if it looks before
+  # GitHub has registered any check runs — a race right after `gh pr create`.
+  # Wait for at least one check to appear before watching (up to ~5 min).
+  for _ in $(seq 1 30); do
+    [ -n "$(gh pr checks "$pr" -R "$ORG_REPO" 2>/dev/null)" ] && break
+    sleep 10
+  done
   gh pr checks "$pr" -R "$ORG_REPO" --watch --interval 20 >/dev/null || { git -C "$REPO" worktree remove --force "$wt"; die "CI failed on $pr"; }
   gh pr merge "$pr" -R "$ORG_REPO" --squash >/dev/null
   git -C "$REPO" worktree remove --force "$wt" 2>/dev/null || true

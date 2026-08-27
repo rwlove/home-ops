@@ -2,21 +2,31 @@
 #
 # immich-frame-video-transcode.sh
 #
-# Give the ImmichFrame album's videos a browser-playable (h264) stored transcode
-# so they play on the Frameo frames (WebView 101 = h264 only), WITHOUT leaving
-# Immich's global transcode policy enabled.
+# Give the ImmichFrame album's videos a FRAME-PLAYABLE stored transcode — h264,
+# <=1080p, <=8 Mbps — so they play smoothly on the low-power Frameo frames
+# (Allwinner sun50iw10, WebView 101 = h264 only; 4K h264 and >~15 Mbps stutter),
+# WITHOUT leaving Immich's global transcode policy enabled.
 #
 # Rob's rule: ONLY the frame album's videos ever get transcoded — never the wider
 # library, not even future uploads elsewhere. So the global policy stays
-# `disabled`; this tool briefly flips it to `required`, transcodes ONLY the
-# album's non-h264 videos, then reverts to `disabled`. The produced transcodes
-# persist after the revert (Immich only deletes a transcode when a job re-runs on
-# the asset under a non-transcoding policy).
+# `disabled`; this tool briefly flips it to `bitrate`, transcodes ONLY the album's
+# non-conforming videos (wrong codec OR >1080p OR over the bitrate cap), then
+# reverts to `disabled`. The produced transcodes persist after the revert (Immich
+# only deletes a transcode when a job re-runs on the asset under a non-transcoding
+# policy).
+#
+# Codec alone is not enough: the old `required` flip skipped 4K *h264* originals
+# (already an accepted codec) and served them raw at ~72 Mbps — the frame can't
+# decode 4K h264, so it stuttered. The `bitrate` policy + ffmpeg.maxBitrate +
+# ffmpeg.targetResolution (both set in the immich ExternalSecret, inert while
+# transcode=disabled) force those down to 1080p/8 Mbps.
 #
 # Why the flip is unavoidable: Immich transcode is global-policy-driven. With
 # `ffmpeg.transcode=disabled`, a targeted transcode-video job NO-OPS (verified
 # live, Immich v3.1.0). There is no per-asset policy override and no live config
-# API (system.json is file-managed). See memory:
+# API (system.json is file-managed). The resolution/bitrate caps live permanently
+# in the ExternalSecret (ffmpeg.targetResolution + ffmpeg.maxBitrate) and do
+# nothing until this tool flips the policy off `disabled`. See memory:
 #   project_todo_immichframe_video_transcode
 #
 # GitOps-clean: the policy change goes through git (a PR against the immich
@@ -47,6 +57,12 @@ ORG_REPO=rwlove/home-ops
 MAIN=main
 DEFAULT_ALBUM="ad782b0e-9e90-453c-98e7-086455300ef1"   # familyroom frame album
 # party frame album (currently has 0 videos): 59526fba-9726-4976-a6da-b7f71ebd16cd
+
+# A served video is "frame-conforming" only if h264 AND <= MAX_HEIGHT AND its
+# overall bitrate is <= MAX_BITRATE_BPS. The bitrate ceiling sits a hair above the
+# 8 Mbps ffmpeg.maxBitrate cap so a freshly-produced transcode isn't re-flagged.
+MAX_HEIGHT=1080          # frame panel ~1280x1920; 1080p matches, 4K stutters
+MAX_BITRATE_BPS=9000000  # ~9 Mbps; originals at 17/72 Mbps trip this, 8 Mbps encodes don't
 
 # ---- args ----
 ASSUME_YES=0
@@ -92,12 +108,26 @@ encoded_ids() { # asset-ids that currently have an encoded-video file
     'find /data/encoded-video -type f -name "*.mp4" 2>/dev/null' \
     | sed -E 's|.*/([0-9a-f-]{36})[^/]*\.mp4$|\1|' | sort -u
 }
+enc_path() { # enc_path <id> -> this asset's encoded-video file path (empty if none)
+  kubectl exec -n "$NS" "$POD" -c "$CTR" -- sh -c \
+    'find /data/encoded-video -type f -name "'"$1"'*.mp4" 2>/dev/null | head -1'
+}
+probe_served() { # probe_served <id> <originalPath> -> "codec height bitrate" of what the frame gets
+  # The frame fetches /video/playback, which serves the stored transcode if one
+  # exists, else the original — so probe the encoded file when present.
+  local enc path
+  enc="$(enc_path "$1")"
+  path="${enc:-$2}"
+  kubectl exec -n "$NS" "$POD" -c "$CTR" -- sh -c \
+    'FF=$(command -v ffprobe || echo /usr/lib/jellyfin-ffmpeg/ffprobe); "$FF" -v error -select_streams v:0 -show_entries stream=codec_name,height:format=bit_rate -of default=noprint_wrappers=1 "'"$path"'" 2>/dev/null' \
+    | awk -F= '/^codec_name=/{c=$2} /^height=/{h=$2} /^bit_rate=/{b=$2} END{if(b==""||b=="N/A")b=0; if(h=="")h=0; print c, h, b}'
+}
 
-set_policy_via_pr() { # set_policy_via_pr <disabled|required> <subject>
+set_policy_via_pr() { # set_policy_via_pr <disabled|bitrate> <subject>
   local target="$1" subject="$2" wt br pr
   wt="$(mktemp -d)"; br="claude/immich-transcode-${target}-$$"
   git -C "$REPO" worktree add -q "$wt" -b "$br" "origin/$MAIN"
-  sed -i -E 's/("transcode": )"(disabled|required)"/\1"'"$target"'"/' "$wt/$ES_PATH"
+  sed -i -E 's/("transcode": )"(disabled|required|bitrate)"/\1"'"$target"'"/' "$wt/$ES_PATH"
   git -C "$wt" add "$ES_PATH"
   git -C "$wt" commit -q -m "$subject" \
     -m "Automated by tools/immich-frame-video-transcode.sh (temporary flip-scope-revert)." \
@@ -136,19 +166,23 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# ---- 1. inventory album videos + codecs (no downloads; in-pod ffprobe) ----
+# ---- 1. inventory album videos: probe what the frame ACTUALLY gets served ----
+# (no downloads; in-pod ffprobe of the encoded transcode if present, else original)
 c "current global policy: $(policy_live)"
-declare -a NEED=()          # asset ids that are not h264 -> need transcode
+c "frame-conforming = h264 AND height<=${MAX_HEIGHT} AND bitrate<=$((MAX_BITRATE_BPS/1000000))Mbps"
+declare -a NEED=()          # asset ids whose SERVED stream is not frame-conforming
 for alb in "${ALBUMS[@]}"; do
   c "scanning album $alb"
   # NOTE: single search page (<=250 assets). Frame albums are small.
   while IFS=$'\t' read -r id path; do
     [ -n "$id" ] || continue
-    codec="$(ffprobe_pod "$path")"
-    if [ "$codec" = "h264" ]; then
-      c "  ok      $id  ($codec)"
+    read -r codec height bitrate < <(probe_served "$id" "$path")
+    : "${codec:=?}" "${height:=0}" "${bitrate:=0}"
+    mbps=$(( bitrate / 1000000 ))
+    if [ "$codec" = "h264" ] && [ "$height" -le "$MAX_HEIGHT" ] && [ "$bitrate" -le "$MAX_BITRATE_BPS" ]; then
+      c "  ok      $id  (${codec} ${height}p ~${mbps}Mbps)"
     else
-      c "  needs   $id  ($codec)"
+      c "  needs   $id  (${codec} ${height}p ~${mbps}Mbps)"
       NEED+=("$id")
     fi
   done < <(api POST /api/search/metadata "{\"albumIds\":[\"$alb\"],\"type\":\"VIDEO\"}" \
@@ -156,13 +190,13 @@ for alb in "${ALBUMS[@]}"; do
 done
 
 if [ ${#NEED[@]} -eq 0 ]; then
-  c "all album videos are already h264 — nothing to transcode. Done."
+  c "all album videos already serve frame-conforming h264 — nothing to do. Done."
   exit 0
 fi
-c "${#NEED[@]} video(s) need a transcode: ${NEED[*]}"
+c "${#NEED[@]} video(s) need a (re-)transcode: ${NEED[*]}"
 
 if [ "$ASSUME_YES" != 1 ]; then
-  printf '\nThis will temporarily flip Immich transcode policy to required and RESTART %s TWICE (Renee-facing photo/frame blip). Proceed? [y/N] ' "$STS"
+  printf '\nThis will temporarily flip Immich transcode policy to "bitrate" (cap: 1080p / 8 Mbps) and RESTART %s TWICE (Renee-facing photo/frame blip). Proceed? [y/N] ' "$STS"
   read -r ans; [ "$ans" = y ] || [ "$ans" = Y ] || die "aborted by user"
 fi
 
@@ -170,7 +204,7 @@ fi
 mapfile -t BASELINE < <(encoded_ids)
 c "baseline: ${#BASELINE[@]} assets already have an encoded video"
 
-set_policy_via_pr required "chore(immich): temporarily enable transcode for frame-album video"
+set_policy_via_pr bitrate "chore(immich): temporarily cap frame-album video (1080p/8Mbps)"
 FLIPPED=1
 
 ids_json="$(printf '%s\n' "${NEED[@]}" | jq -R . | jq -sc .)"
@@ -199,14 +233,20 @@ done <<<"$new"
 set_policy_via_pr disabled "chore(immich): revert transcode policy to disabled (frame-album video done)"
 FLIPPED=0
 
-# ---- 4. verify each targeted asset now serves h264 ----
-c "verifying targeted assets serve h264"
+# ---- 4. verify each targeted asset now serves frame-conforming h264 ----
+c "verifying targeted assets serve h264 <=${MAX_HEIGHT}p <=$((MAX_BITRATE_BPS/1000000))Mbps"
 ok=1
 for id in "${NEED[@]}"; do
-  enc="$(kubectl exec -n "$NS" "$POD" -c "$CTR" -- sh -c 'find /data/encoded-video -type f -name "'"$id"'*.mp4" 2>/dev/null | head -1')"
+  enc="$(enc_path "$id")"
   if [ -z "$enc" ]; then warn "  $id: NO encoded file produced"; ok=0; continue; fi
-  codec="$(ffprobe_pod "$enc")"
-  if [ "$codec" = "h264" ]; then c "  $id: encoded h264 ✓"; else warn "  $id: encoded codec is '$codec' (expected h264)"; ok=0; fi
+  read -r codec height bitrate < <(probe_served "$id" "")
+  : "${codec:=?}" "${height:=0}" "${bitrate:=0}"
+  mbps=$(( bitrate / 1000000 ))
+  if [ "$codec" = "h264" ] && [ "$height" -le "$MAX_HEIGHT" ] && [ "$bitrate" -le "$MAX_BITRATE_BPS" ]; then
+    c "  $id: encoded ${codec} ${height}p ~${mbps}Mbps ✓"
+  else
+    warn "  $id: encoded ${codec} ${height}p ~${mbps}Mbps (want h264 <=${MAX_HEIGHT}p <=$((MAX_BITRATE_BPS/1000000))Mbps)"; ok=0
+  fi
 done
 
 c "final global policy: $(policy_live)"

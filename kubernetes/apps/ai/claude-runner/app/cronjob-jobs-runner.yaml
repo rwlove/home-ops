@@ -99,16 +99,29 @@ spec:
                 - -ceu
                 - |
                   DIR=/vault/automation/jobs/claude
-                  echo "waiting for the vault-bridge sidecar to materialise $DIR ..."
-                  i=0
-                  while [ ! -d "$DIR" ] && [ "$i" -lt 72 ]; do
-                    i=$((i + 1)); sleep 5
+                  # The vault-bridge sidecar does an initial FULL replication of
+                  # the vault (~1200+ files) into this per-run scratch dir. The
+                  # jobs DIRECTORY can appear early — while its *.md notes are
+                  # still in flight — so waiting on the directory alone RACES: a
+                  # run can glob zero notes and exit 0 (the 2026-08-24 43s no-op).
+                  # Wait instead until the WHOLE /vault file count stops growing
+                  # for 4 consecutive 5s samples (initial sync settled), capped
+                  # at ~8 min so a stuck sidecar can't hang the job.
+                  echo "waiting for the vault-bridge sidecar to finish materialising the vault ..."
+                  prev=-1; stable=0; i=0
+                  while [ "$stable" -lt 4 ] && [ "$i" -lt 96 ]; do
+                    n=$(find /vault -type f 2>/dev/null | wc -l)
+                    if [ "$n" -gt 0 ] && [ "$n" -eq "$prev" ]; then
+                      stable=$((stable + 1))
+                    else
+                      stable=0
+                    fi
+                    prev=$n; i=$((i + 1)); sleep 5
                   done
+                  echo "vault settled at $prev file(s) after $((i * 5))s"
                   if [ ! -d "$DIR" ]; then
-                    echo "FATAL: vault jobs folder not materialised in time"; exit 1
+                    echo "FATAL: vault jobs folder $DIR never materialised"; exit 1
                   fi
-                  # let the mirror scan settle so all notes in the folder land.
-                  sleep 30
                   ran=0
                   for f in "$DIR"/*.md; do
                     [ -e "$f" ] || continue
@@ -137,7 +150,19 @@ spec:
                     echo "job $name: pushover HTTP $H"
                   done
                   echo "ran $ran job(s)"
-                  [ "$ran" -gt 0 ] || echo "NOTE: no job notes found in $DIR"
+                  # Guardrail (claude-runner-routing.md #10): a settled vault with
+                  # ZERO notes means the sync failed or the folder is unexpectedly
+                  # empty — make that VISIBLE instead of a silent success.
+                  notes=$(ls "$DIR"/*.md 2>/dev/null | wc -l)
+                  if [ "$notes" -eq 0 ]; then
+                    echo "WARNING: no job notes present in $DIR after the vault settled"
+                    curl -sS --max-time 30 -o /dev/null \
+                      --form-string "token=$PUSHOVER_TOKEN" \
+                      --form-string "user=$PUSHOVER_USER" \
+                      --form-string "title=claude-runner-jobs: no notes" \
+                      --form-string "message=Vault materialised but $DIR held no *.md notes — sync may have failed." \
+                      https://api.pushover.net/1/messages.json || true
+                  fi
               env:
                 - name: HOME
                   value: /workspace

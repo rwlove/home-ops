@@ -55,22 +55,21 @@ spec:
               protocol: TCP
             - port: "80"
               protocol: TCP
-    # OIDC token exchange — direct to authelia in-cluster Service
-    # (Pattern E). RomM uses Authlib server-side OIDC
-    # (OIDC_SERVER_METADATA_URL points at auth.${SECRET_DOMAIN}) to
-    # do the code exchange after user login redirect.
-    # toEntities:[world]:443 and matchPattern:auth.${SECRET_DOMAIN}
-    # DO NOT work for this in-cluster path: split-horizon DNS
-    # returns the LB IP and Cilium socket-lb rewrites the connect()
-    # to the envoy pod IP + targetPort 10443 BEFORE policy check, so
-    # neither rule matches the rewritten destination. Authelia's CNP
-    # already permits fromEntities:cluster on 9091. Mirrors
-    # paperless PR #11525.
+    # OIDC discovery + token exchange against Authelia. RomM uses
+    # Authlib server-side OIDC with OIDC_SERVER_METADATA_URL pointing
+    # at the external issuer auth.${SECRET_DOMAIN}, so every OIDC
+    # request hits split-horizon DNS which returns the internal envoy
+    # LB IP. Cilium socket-lb rewrites the connect() to the envoy pod
+    # IP + targetPort 10443 BEFORE policy evaluation, so the policy
+    # must allow the envoy pod on its container port (10443) — NOT
+    # world:443 (doesn't match cluster LB IPs) and NOT authelia:9091
+    # (RomM never connects there directly given this config). Mirrors
+    # the working paperless egress (kubernetes/apps/collab/paperless).
     - toEndpoints:
         - matchLabels:
-            io.kubernetes.pod.namespace: auth
-            app.kubernetes.io/name: authelia
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
       toPorts:
         - ports:
-            - port: "9091"
+            - port: "10443"
               protocol: TCP

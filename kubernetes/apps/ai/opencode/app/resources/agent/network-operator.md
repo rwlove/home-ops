@@ -82,9 +82,10 @@ decline politely and let it go back to the main thread.
   policies. `kube-apiserver` traffic is sensitive to ipBlock-only
   egress rules (Cilium 1.19 silently drops it — see
   `project_cilium_ipblock_apiserver.md`).
-- **Egress** — DataPacket 1:1 NAT (`us-nyc-wg-301`) for downloads
-  gateway; M247 NY is a NAT pool and trips news.newsgroup.ninja 2-IP
-  cap (see `project_mullvad_nat_egress_topology.md`).
+- **Egress** — DataPacket 1:1 NAT (`us-nyc-wg-302`, re-pinned
+  2026-08-28 off a degraded `us-nyc-wg-301`) for downloads gateway;
+  M247 NY is a NAT pool and trips news.newsgroup.ninja 2-IP cap (see
+  `project_mullvad_nat_egress_topology.md`).
 - **OOB recovery path** — wg-easy + the brain firewalld SSH pinhole
   on port 3231. **Treat these as untouchable.**
 

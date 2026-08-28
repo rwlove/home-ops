@@ -126,3 +126,54 @@ data:
                 status in the last 5m. Check the mcp-gateway broker logs
                 (audit=true lines) for the failing tool/server/status — a
                 backend MCP server is likely down or erroring.
+
+      # Backstop for a failure mode invisible to kube_pod_container_status_restarts_total:
+      # gluetun (the VPN client sidecar for the download-path egress gateway
+      # in the vpn namespace) restarts its own internal WireGuard process on
+      # a failed healthcheck WITHOUT the container or pod restarting — CRI-O
+      # and the kubelet see a live, Ready, restartCount:0 process throughout.
+      # No metrics endpoint is enabled on this deployment (no
+      # HTTP_CONTROL_SERVER / METRICS_ENABLED env, no ServiceMonitor), so a
+      # Prometheus-metric alert cannot see this signal; log content is the
+      # only observable. Confirmed live 2026-08-28 13:01-13:06 ET: gluetun
+      # logged `restarting VPN because it failed to pass the healthcheck:
+      # ... dial tcp4 1.1.1.1:443: i/o timeout` roughly every 6s across a
+      # ~4.5m outage window (~45 occurrences) before self-recovering with no
+      # config change on our side — see project_downloads_gateway_gluetun_
+      # silent_restart_loop.md.
+      #
+      # A single normal reconnect (the design-intent CONNECTION_RETRY_COUNT
+      # recovery baked into the pod-gateway settings) produces at most one
+      # or two of these lines before the tunnel comes back — nowhere near
+      # threshold. `> 10` in a 5m window requires a genuinely sustained loop
+      # (~1 failure/30s sustained, well below today's observed ~1/6s
+      # cadence) to fire, so this rule is tuned to catch today's event
+      # comfortably (45 >> 10) without paging on routine single retries.
+      # `for: 5m` keeps a five-minute matching window so a loop has to
+      # persist across the whole window, not just spike once.
+      - name: vpn-egress-gateway
+        rules:
+          - alert: DownloadPathVpnGatewayRestartLoop
+            expr: |
+              sum(count_over_time({namespace="vpn", container="gluetun"} |~ "(?i)restarting vpn because it failed to pass the healthcheck"[5m])) > 10
+            for: 5m
+            labels:
+              severity: warning
+              category: logs
+            annotations:
+              summary: "Download-path VPN egress gateway: gluetun stuck in an internal restart loop"
+              description: >-
+                {{ $value | humanize }} internal gluetun restarts in the
+                last 5m in the vpn namespace — the WireGuard tunnel is
+                failing its own healthcheck repeatedly and NOT recovering
+                on its own. This does not show up as a pod restart (CRI-O
+                restartCount stays 0), so this log-based alert is the only
+                signal. Every pod routed through this gateway
+                (routed_namespaces: [downloads]) has degraded or no
+                internet egress while this fires. Check:
+                  kubectl -n vpn logs -l app.kubernetes.io/instance=downloads-gateway -c gluetun --tail=100
+                If the tunnel is cycling through multiple resolved
+                endpoints and failing all of them, this is likely a
+                provider-side (Mullvad relay) outage, not a config
+                regression — cross-check the pinned SERVER_HOSTNAMES
+                relay's status before changing anything.

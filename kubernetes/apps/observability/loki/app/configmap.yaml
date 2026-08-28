@@ -142,6 +142,18 @@ data:
       # config change on our side — see project_downloads_gateway_gluetun_
       # silent_restart_loop.md.
       #
+      # IMPORTANT: this pod runs 3 containers (main, gluetun, netshoot)
+      # sharing ONE Loki stream — the vector-agent sink indexes only
+      # {app="pod-gateway", namespace="vpn", node, service_name} at the pod
+      # level; there is NO indexed `container` label in this cluster's Loki
+      # schema (confirmed 2026-08-28 via list_loki_label_names — the shipped
+      # v1 of this rule used a nonexistent `container="gluetun"` matcher and
+      # silently matched zero streams instead of erroring, per
+      # feedback_public_sink_llm_digest_needs_mechanical_restricted_backstop-
+      # style "worse than nothing" failure). The per-container name is only
+      # inside the JSON-encoded line body as `container_name`, so isolate it
+      # with `| json | container_name="gluetun"` instead.
+      #
       # A single normal reconnect (the design-intent CONNECTION_RETRY_COUNT
       # recovery baked into the pod-gateway settings) produces at most one
       # or two of these lines before the tunnel comes back — nowhere near
@@ -150,12 +162,14 @@ data:
       # cadence) to fire, so this rule is tuned to catch today's event
       # comfortably (45 >> 10) without paging on routine single retries.
       # `for: 5m` keeps a five-minute matching window so a loop has to
-      # persist across the whole window, not just spike once.
+      # persist across the whole window, not just spike once. Verified live
+      # against today's outage window (13:01-13:06 ET) post-fix: this exact
+      # matcher returns the historical restart-loop lines.
       - name: vpn-egress-gateway
         rules:
           - alert: DownloadPathVpnGatewayRestartLoop
             expr: |
-              sum(count_over_time({namespace="vpn", container="gluetun"} |~ "(?i)restarting vpn because it failed to pass the healthcheck"[5m])) > 10
+              sum(count_over_time({namespace="vpn"} | json | container_name="gluetun" |~ "(?i)restarting vpn because it failed to pass the healthcheck"[5m])) > 10
             for: 5m
             labels:
               severity: warning

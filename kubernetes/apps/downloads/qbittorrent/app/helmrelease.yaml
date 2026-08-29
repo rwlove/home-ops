@@ -59,14 +59,19 @@ spec:
               QBT_WEBUI_PORT: &httpPort 8080
 
             # In-place resize (k8s 1.35 GA): a live memory/CPU bump applies
-            # without restarting the container. The OOM cause was libtorrent
-            # 2.x mmap disk IO + OS cache on the NFS download paths (working set
-            # ballooned to ~9 GiB of page cache while RSS stayed ~110 MB); fixed
-            # live in the WebUI (Disk IO type=POSIX, read/write mode=Disable OS
-            # cache) so it now holds ~110 MiB. 1Gi/3Gi replaces the old 8G/12G
-            # headroom that only existed for that eliminated balloon — 3Gi still
-            # covers recheck spikes ("Outstanding memory when checking" = 32 MiB
-            # x concurrent). Watching for OOM at the smaller ceiling.
+            # without restarting the container. libtorrent 2.x relies on the OS
+            # page cache for disk IO; disabling it (O_DIRECT) crippled write
+            # throughput on the NFS download paths, so OS cache is re-enabled in
+            # the WebUI. Disk IO type stays POSIX (not mmap): POSIX buffered
+            # pages are reclaimable and dirty-page writeback self-throttles, so
+            # the cache stays bounded rather than the unbounded whole-file mmap
+            # balloon that caused the original OOM. With cache on, page cache
+            # fills memory.current to the ceiling while working set stays ~110
+            # MiB (the cache is invisible to working-set metrics). 6Gi gives that
+            # reclaimable cache + recheck spikes ("Outstanding memory when
+            # checking" = 32 MiB x concurrent) headroom off the wall, still well
+            # under the ~9 GiB the mmap balloon hit. Request stays 1Gi — the
+            # cache is reclaimable, not a reservation. Watching memory.current.
             resizePolicy:
               - resourceName: cpu
                 restartPolicy: NotRequired
@@ -78,7 +83,7 @@ spec:
                 cpu: 35m
                 memory: 1Gi
               limits:
-                memory: 3Gi
+                memory: 6Gi
 
             securityContext:
               allowPrivilegeEscalation: false

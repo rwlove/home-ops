@@ -1,0 +1,31 @@
+---
+# yaml-language-server: $schema=https://datreeio.github.io/CRDs-catalog/gateway.networking.k8s.io/httproute_v1.json
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: mcp-gateway-broker-authz
+  annotations:
+    # Internal-only route on the istio gateway's authenticated listener;
+    # external-dns must not publish a record for this hostname (it is a
+    # .mcp.local name reached in-cluster by Host header, never public).
+    external-dns.alpha.kubernetes.io/controller: none
+spec:
+  # Distinct hostname pins traffic to the mcp-authz listener. In-cluster
+  # clients dial mcp-gateway-istio.mcp-system.svc:8080 (same Service as the
+  # unauthenticated path) but set Host: mcp-authz.mcp.local to select this
+  # route + listener. Same broker backend (mcp-gateway:8080) as the public
+  # mcp route — the AuthPolicy on sectionName: mcp-authz is the only
+  # difference in the request path.
+  hostnames:
+    - mcp-authz.mcp.local
+  parentRefs:
+    - name: mcp-gateway
+      sectionName: mcp-authz
+  rules:
+    - backendRefs:
+        - name: mcp-gateway
+          port: 8080
+      matches:
+        - path:
+            type: PathPrefix
+            value: /mcp

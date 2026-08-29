@@ -13,6 +13,44 @@ spec:
   httpRouteManagement: Disabled
   privateHost: mcp-gateway-istio.mcp-system.svc.cluster.local:8080
   publicHost: mcp.${SECRET_DOMAIN}
+  # tools/list ENUMERATION filtering (the wristband). Verified against the
+  # deployed broker source (ghcr.io/kuadrant/mcp-gateway:v0.9.0):
+  #   internal/broker/filtered_tools_handler.go reads the `x-mcp-authorized`
+  #   request header, validates it as an ES256 JWT with the public key from
+  #   env TRUSTED_HEADER_PUBLIC_KEY, and filters tools/list to the JWT's
+  #   `allowed-capabilities` claim (a JSON string of
+  #   {"tools": {"<mcp-server-name>": ["<unprefixed-tool>", ...]}}).
+  # Setting trustedHeadersKey here makes the operator inject that env var into
+  # the broker deployment (internal/controller/broker_router.go lines 126-138:
+  # TRUSTED_HEADER_PUBLIC_KEY <- SecretKeyRef{name: <secretName>, key: "key"}).
+  #
+  # SCOPE / BLAST RADIUS: the broker is a SINGLETON serving all three
+  # listeners (mcp, mcps, mcp-authz), so this env is gateway-wide, NOT
+  # listener-scoped. That is SAFE because enumeration filtering is INERT
+  # unless the `x-mcp-authorized` header is present: the broker's
+  # `enforce-capability-filtering` flag stays at its default `false`
+  # (main.go:150), so a request WITHOUT the header gets the FULL, unfiltered
+  # tool list (filtered_tools_handler.go:105-110 "Returns original tools if
+  # header not present and enforcement is off"). Only the mcp-authz path
+  # (where the AuthPolicy injects the wristband) is filtered. The `mcp` /
+  # `mcps` listeners send no such header and are byte-for-byte unaffected.
+  #
+  # BYO key (generate: Disabled) — NOT operator-generated. The operator's
+  # `generate: Enabled` path (internal/controller/trusted_headers.go) writes
+  # BOTH halves with data key `key`, but Authorino's wristband signingKeyRefs
+  # REQUIRES the private key in a secret entry named `key.pem`
+  # (AuthPolicy CRD: "secrets must contain a `key.pem` entry"). The two
+  # contracts don't line up, so we materialise the pair ourselves:
+  #   - public  key -> Secret `mcp-gateway-trusted-headers-public` (entry
+  #                    `key`, plain manifest below) — read by the broker.
+  #   - private key -> Secret `mcp-gateway-trusted-headers-signing` (entry
+  #                    `key.pem`, from 1Password via ExternalSecret) — read
+  #                    by Authorino for signingKeyRefs.
+  # Both PEM halves are ONE generated ECDSA P-256 (ES256) pair; see the
+  # manual key-generation step in the apply plan.
+  trustedHeadersKey:
+    generate: Disabled
+    secretName: mcp-gateway-trusted-headers-public
   targetRef:
     group: gateway.networking.k8s.io
     kind: Gateway

@@ -1,0 +1,52 @@
+---
+# yaml-language-server: $schema=https://lds-schemas.pages.dev/dragonflydb.io/dragonfly_v1alpha1.json
+apiVersion: dragonflydb.io/v1alpha1
+kind: Dragonfly
+metadata:
+  name: dragonfly-romm
+spec:
+  labels:
+    dragonflydb.io/cluster: dragonfly-romm
+  image: ghcr.io/dragonflydb/dragonfly:v1.40.1@sha256:ebf3c6c213e82fb51b4521660cca13f06f3421dc5b1ed14f2f474c50b5e29986
+  # Dedicated romm tier. Unlike the immich/auth wedges (table-bloat under
+  # #8149, cleared by DEBUG COMPACT-TABLE), romm's footprint is REAL object
+  # data: it caches the entire LaunchBox Games Database into Redis to match
+  # ROMs during scans — ~760Mi across four hash indexes
+  # (romm:launchbox_metadata_{name,folded_name,database_id,image}, 187k
+  # games). On the shared 768Mi `dragonfly` that single legitimate cache
+  # filled the whole noeviction cap and rejected every OTHER tenant's writes
+  # (paperless/netbox/nametag sessions) — the same fat-tenant blast radius
+  # that got immich (#13785) and auth (#13787) split off. Its own instance
+  # contains that: when romm fills, only romm's own scans stall. COMPACT-TABLE
+  # does NOT reclaim this (it's object_used_memory, not table_used_memory) —
+  # the levers are the cap below or dropping the LaunchBox source in the romm
+  # HelmRelease (LAUNCHBOX_API_ENABLED).
+  #
+  # Single replica: romm's Redis state is regenerable — the LaunchBox cache
+  # rebuilds from source, python-rq re-detects outstanding jobs, sessions
+  # re-login. Node-loss HA is not worth 2-3x the (large) RAM, same rationale
+  # as dragonfly-immich/-cache. Core romm (library, users) reads from
+  # Postgres and is unaffected by a queue-pod restart.
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 3Gi
+    limits:
+      memory: 3Gi
+  networkPolicyEnabled: false
+  # Noeviction (NO --cache_mode): romm's python-rq task queue on an evicting
+  # Redis corrupts job state (jobs vanish mid-lifecycle), so it MUST stay
+  # noeviction — same constraint as immich's BullMQ. --maxmemory=2Gi is ~67%
+  # of the 3Gi cgroup limit: mimalloc RSS overhead sits above --maxmemory, so
+  # keep real headroom below limits.memory or the kernel OOM-kills the pod.
+  # 2Gi ≈ 2.6x the ~760Mi LaunchBox baseline, leaving room for a scheduled
+  # LaunchBox rebuild (ENABLE_SCHEDULED_UPDATE_LAUNCHBOX_METADATA) plus rq job
+  # churn during a COMPLETE scan of ~10k ROMs. --default_lua_flags=
+  # allow-undeclared-keys preserves parity with the shared `dragonfly`
+  # instance romm ran on (python-rq's atomic Lua scripts).
+  args:
+    - "--maxmemory=2Gi"
+    - "--proactor_threads=2"
+    - "--cluster_mode=emulated"
+    - "--default_lua_flags=allow-undeclared-keys"

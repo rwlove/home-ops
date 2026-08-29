@@ -59,12 +59,14 @@ spec:
               QBT_WEBUI_PORT: &httpPort 8080
 
             # In-place resize (k8s 1.35 GA): a live memory/CPU bump applies
-            # without restarting the container. The real OOM fix was switching
-            # libtorrent disk IO to POSIX + OS-cache-disabled in the WebUI
-            # (Advanced: Disk IO type=POSIX, read/write mode=Disable OS cache);
-            # working set dropped from ~9 GiB of NFS page cache to ~110 MiB.
-            # The 8G/12G below is now oversized headroom for that eliminated
-            # balloon — pending a right-size after ~24h of observation.
+            # without restarting the container. The OOM cause was libtorrent
+            # 2.x mmap disk IO + OS cache on the NFS download paths (working set
+            # ballooned to ~9 GiB of page cache while RSS stayed ~110 MB); fixed
+            # live in the WebUI (Disk IO type=POSIX, read/write mode=Disable OS
+            # cache) so it now holds ~110 MiB. 1Gi/3Gi replaces the old 8G/12G
+            # headroom that only existed for that eliminated balloon — 3Gi still
+            # covers recheck spikes ("Outstanding memory when checking" = 32 MiB
+            # x concurrent). Watching for OOM at the smaller ceiling.
             resizePolicy:
               - resourceName: cpu
                 restartPolicy: NotRequired
@@ -74,9 +76,9 @@ spec:
             resources:
               requests:
                 cpu: 35m
-                memory: 8G
+                memory: 1Gi
               limits:
-                memory: 12G
+                memory: 3Gi
 
             securityContext:
               allowPrivilegeEscalation: false

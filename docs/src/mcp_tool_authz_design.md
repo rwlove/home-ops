@@ -1,9 +1,49 @@
 # MCP Tool-Level Authorization Design Proposal
 
-Status: **Proposal — research only, not implemented.** Prerequisite for
-running any agent unattended against the MCP gateway.
+Status: **ABANDONED (2026-08-29) — do not retry on the shared gateway.**
 Owner: home-ops
-Last updated: 2026-07-26
+Last updated: 2026-08-29
+
+> ## Postmortem — why this was abandoned (2026-08-29)
+>
+> An implementation of Stages 2–4 (additive `mcp-authz` listener +
+> AuthPolicy + Authorino wristband) was built, shipped, and **caused a
+> shared-gateway outage**, then fully reverted. Two lessons, both load-bearing:
+>
+> 1. **The Kuadrant/Istio wasm-shim is fail-closed and gateway-wide.**
+>    Attaching an AuthPolicy to the `mcp-gateway` Istio Gateway makes
+>    Kuadrant install a wasm-shim (`oci://quay.io/kuadrant/wasm-shim`) on
+>    that Gateway's Envoy. A WasmPlugin on a Gateway workload applies to
+>    **all its listeners**, and under `FAIL_CLOSE` a failed *fetch* makes
+>    every request 5xx. So a shim that can't load 503s `mcp`/`mcps` too —
+>    `sectionName` scopes *matching*, not *fault isolation*. The additive
+>    **listener** shares the Envoy, so it shares the failure domain. Proper
+>    isolation would require a **separate Istio `Gateway` object** (its own
+>    Envoy). Confirmed via Istio's WasmPlugin API docs + istio#33858.
+> 2. **It was disproportionate.** The whole effort existed to constrain one
+>    unattended agent (opencode) — which also has a `bash` tool with
+>    `world:443` egress, so MCP-authz only closed the smaller of two doors.
+>    Standing up Authorino + Limitador + DNS-operator + an OIDC client + a
+>    JWT rotator + a wasm-shim, and coupling the shared MCP path's uptime to
+>    that shim's fetch reliability, was the wrong-sized tool.
+>
+> The two proximate bugs were themselves fixable (a missing CNP egress for
+> the gateway pod's OCI wasm pull to `quay.io:443`; the ES256 signing-key
+> Secret needed to live in the `kuadrant` namespace, not `mcp-system`) —
+> but fixing them only shrinks the outage *window*; it does not remove the
+> shared failure domain.
+>
+> **If per-tool authz is ever genuinely needed** (multiple external clients
+> needing cryptographic, claim-based, per-*tool* differentiation — not the
+> case today), build it on a **dedicated Istio Gateway**, preload the
+> wasm image into ZOT and pin by digest, and never attach it to the Envoy
+> serving `mcp`/`mcps`. For unattended agents, prefer the network-layer
+> answer that `.agents/instructions/claude-runner-routing.md` already
+> prescribes: a read-only-only surface + scoped RBAC, no mutating broker
+> egress. The design below is retained for historical context only.
+
+Original status: **Proposal — research only, not implemented.** Prerequisite for
+running any agent unattended against the MCP gateway.
 
 > **Update 2026-07-26 — this is no longer a prerequisite for *using* the
 > gateway, only for *enforcing* restrictions on it.**

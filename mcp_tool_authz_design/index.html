@@ -1718,6 +1718,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Stage 4 — cut opencode over and verify negatively">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#enumeration-test-the-wristband" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Enumeration test (the wristband)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
         
       </ul>
@@ -2427,6 +2444,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Stage 4 — cut opencode over and verify negatively">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#enumeration-test-the-wristband" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Enumeration test (the wristband)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
         
       </ul>
@@ -2684,6 +2718,55 @@ with the bearer token.</p>
 <p>The second bullet is the whole point of the exercise. If a session can
 still reach a mutating tool by lifting its own client-side gate, nothing
 has been gained.</p>
+<h4 id="enumeration-test-the-wristband">Enumeration test (the wristband)<a class="headerlink" href="#enumeration-test-the-wristband" title="Permanent link">&para;</a></h4>
+<p>The third bullet — <code>tools/list</code> omits denied tools — is enforced by the
+ES256 "wristband" (<code>x-mcp-authorized</code> header) and must be tested
+explicitly, because the invocation gate and the enumeration gate are
+independent code paths in the broker. Invocation denial passing does
+<strong>not</strong> imply enumeration filtering works.</p>
+<p>Run all three from a pod that can reach the istio Service, with the
+opencode bearer token:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nv">TOKEN</span><span class="o">=</span><span class="k">$(</span>kubectl<span class="w"> </span>-n<span class="w"> </span>mcp-system<span class="w"> </span>get<span class="w"> </span>secret<span class="w"> </span>mcp-gateway-opencode-jwt-current<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{.data.token}'</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>base64<span class="w"> </span>-d<span class="k">)</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="nv">URL</span><span class="o">=</span>http://mcp-gateway-istio.mcp-system.svc.cluster.local:8080/mcp
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="c1"># tools/list on the AUTHENTICATED listener (Host selects mcp-authz).</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>curl<span class="w"> </span>-s<span class="w"> </span><span class="s2">"</span><span class="nv">$URL</span><span class="s2">"</span><span class="w"> </span>-H<span class="w"> </span><span class="s2">"Host: mcp-authz.mcp.local"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$TOKEN</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Accept: application/json, text/event-stream'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{"jsonrpc":"2.0","id":1,"method":"tools/list"}'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>tee<span class="w"> </span>/tmp/authz.json<span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-r<span class="w"> </span><span class="s1">'.result.tools[].name'</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>sort<span class="w"> </span>&gt;<span class="w"> </span>/tmp/authz-tools.txt
+</span></code></pre></div>
+<p>Assertions (the test passes only if all hold):</p>
+<ol>
+<li><strong>Returned set equals the allowlist.</strong> <code>/tmp/authz-tools.txt</code> must equal
+   the 31 prefixed real-tool names the wristband <code>allowed-capabilities</code>
+   map enumerates (19 <code>kubectl_*</code> + 6 <code>prom_*</code> + 6 <code>time_*</code> reads) — the
+   same 31 the AuthPolicy <code>tool-access-check</code> predicate allows minus its
+   two meta-tools. <code>discover_tools</code> / <code>select_tools</code>
+   are broker-native meta-tools with no upstream <code>MCPServerRegistration</code>,
+   so the broker cannot map them to a server and they remain listed;
+   allow for them in the diff. <code>diff &lt;(sort /tmp/authz-tools.txt) &lt;(sort
+   allowlist.txt)</code> should show only those two meta-tools, nothing from
+   <code>omada_*</code>, <code>ha_*</code>, <code>arr_*</code>, <code>comfyui_*</code>, <code>kubectl_kubectl_apply</code>,
+   <code>kubectl_delete_resource</code>, etc.</li>
+<li><strong>Denied tools are absent, not merely un-callable.</strong> Grep the returned
+   set for a known-mutating name (<code>grep -c kubectl_kubectl_apply
+   /tmp/authz-tools.txt</code> == 0, <code>grep -c '^omada_' == 0</code>). This is the new
+   property: on the pre-wristband build these names appeared in the list
+   (but 403'd on call); they must now be <em>gone from the enumeration</em>.</li>
+<li><strong>The <code>mcp</code> listener is unaffected.</strong> The same <code>tools/list</code> sent with
+   <code>Host: mcp.example.com</code> (the public listener, no wristband) must still
+   return the full ~1300-tool catalogue — proving the wristband filtering
+   is scoped to the authenticated path and did not leak onto the shared
+   listener. <code>wc -l</code> on that path's tool names ≫ 31.</li>
+</ol>
+<p>Negative control for the fail-closed edge: a request to <code>mcp-authz</code> with a
+<strong>malformed</strong> <code>x-mcp-authorized</code> header (or a token the broker's public
+key can't verify) must return an <strong>empty</strong> tool list, not the full one
+(broker <code>applyAuthorizedCapabilitiesFilter</code> returns <code>[]</code> on validation
+failure). This confirms a forged wristband cannot widen enumeration.</p>
 <h2 id="proposed-initial-allowlist-for-opencode">Proposed initial allowlist for opencode<a class="headerlink" href="#proposed-initial-allowlist-for-opencode" title="Permanent link">&para;</a></h2>
 <p>Read-only to start, matching the credential posture already chosen for
 its GitHub access (read-only deploy keys):</p>

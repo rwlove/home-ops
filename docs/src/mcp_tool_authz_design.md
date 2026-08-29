@@ -105,7 +105,8 @@ are not deployed.
 
 The operator **is** staged in-repo at
 [`kubernetes/apps/kuadrant/kuadrant-operator`](https://github.com/rwlove/home-ops/tree/main/kubernetes/apps/kuadrant)
-(chart `kuadrant-operator` 1.1.0) but is commented out of the top-level
+(chart `kuadrant-operator` 1.5.2 — an umbrella pulling in authorino,
+limitador, and dns-operator) but is commented out of the top-level
 kustomization:
 
 ```yaml

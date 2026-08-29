@@ -27,6 +27,7 @@ spec:
             fsGroup: 1001
             fsGroupChangePolicy: OnRootMismatch
             runAsGroup: 1001
+            runAsNonRoot: true
             runAsUser: 1105
 
         annotations:
@@ -39,14 +40,6 @@ spec:
               tag: 5.2.3@sha256:4fcf15b7f265c2c8d7bc2a7e13240a07e0593c326f3cf3b5b9bb69eec5b79299
 
             env:
-              # Soft cap MUST sit below limits.memory so qBittorrent sheds
-              # cache before the kernel OOMKills. Deriving it from limits.memory
-              # set cap == hard limit (both 10.24 GiB), so libtorrent buffer
-              # overhead pushed total usage past the ceiling before the soft cap
-              # ever forced a shed → repeated OOMKills. 10240 MiB (10 GiB) caps
-              # just under the observed ~10.2 GiB working-set peak and leaves
-              # ~1.18 GiB headroom under the 12G limit.
-              QBT_Application__MemoryWorkingSetLimit: "10240"
               QBT_BitTorrent__Session__Interface: vxlan0
               QBT_BitTorrent__Session__InterfaceAddress:
                 valueFrom:
@@ -65,12 +58,15 @@ spec:
               QBT_TORRENTING_PORT: ${WIREGUARD_FORWARD_PORT:-24589}
               QBT_WEBUI_PORT: &httpPort 8080
 
-            # In-place resize (k8s 1.35 GA): let a live memory/CPU bump apply
-            # without restarting the container, so an OOM-risk memory raise
-            # doesn't drop active torrents. Note: QBT_Application__MemoryWorkingSetLimit
-            # is read from limits.memory at start and won't track a live resize
-            # until the next restart — the cgroup limit does change live, which
-            # is what prevents the OOMKill.
+            # In-place resize (k8s 1.35 GA): a live memory/CPU bump applies
+            # without restarting the container. The OOM cause was libtorrent
+            # 2.x mmap disk IO + OS cache on the NFS download paths (working set
+            # ballooned to ~9 GiB of page cache while RSS stayed ~110 MB); fixed
+            # live in the WebUI (Disk IO type=POSIX, read/write mode=Disable OS
+            # cache) so it now holds ~110 MiB. 1Gi/3Gi replaces the old 8G/12G
+            # headroom that only existed for that eliminated balloon — 3Gi still
+            # covers recheck spikes ("Outstanding memory when checking" = 32 MiB
+            # x concurrent). Watching for OOM at the smaller ceiling.
             resizePolicy:
               - resourceName: cpu
                 restartPolicy: NotRequired
@@ -80,14 +76,16 @@ spec:
             resources:
               requests:
                 cpu: 35m
-                memory: 8G
+                memory: 1Gi
               limits:
-                memory: 12G
+                memory: 3Gi
 
             securityContext:
               allowPrivilegeEscalation: false
               capabilities: {drop: ["ALL"]}
               readOnlyRootFilesystem: true
+              seccompProfile:
+                type: RuntimeDefault
 
     service:
       app:

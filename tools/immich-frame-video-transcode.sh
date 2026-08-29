@@ -209,7 +209,7 @@ fi
 c "${#NEED[@]} video(s) need a (re-)transcode: ${NEED[*]}"
 
 if [ "$ASSUME_YES" != 1 ]; then
-  printf '\nThis will temporarily flip Immich transcode policy to "bitrate" (cap: 1080p / 8 Mbps) and RESTART %s TWICE (Renee-facing photo/frame blip). Proceed? [y/N] ' "$STS"
+  printf '\nThis will temporarily flip Immich transcode policy to "bitrate" (cap: 1080p / 8 Mbps) and RESTART %s TWICE (household-facing photo/frame blip). Proceed? [y/N] ' "$STS"
   read -r ans; [ "$ans" = y ] || [ "$ans" = Y ] || die "aborted by user"
 fi
 

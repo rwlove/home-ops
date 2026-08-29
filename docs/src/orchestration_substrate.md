@@ -32,7 +32,7 @@ decommission detail. What's left:
   and its HolmesGPT enrichment were removed 2026-07-06 (a separate,
   earlier decommission); AlertManager fires and pages Pushover
   directly.
-- **HA voice + ntfy notifications** for Renee-facing surfaces.
+- **HA voice + ntfy notifications** for household-facing surfaces.
   Currently end-user-driven, not agent-mediated.
 - **Known gap, not yet fixed:** the HA voice "inbox …" intent (a
   `rest_command` in `home-assistant-config`) still POSTs toward the
@@ -76,7 +76,7 @@ When the substrate exists, every task carries:
 - `trace_id` — OpenTelemetry-compatible
 - `origin` — `open-webui` | `ha-voice` | `android` | `observer` |
   `scheduled` | `manual`
-- `requester` — `rob` | `renee` | `system`
+- `requester` — `rob` | `member` | `system`
 - `intent` — natural-language string
 - `priority` — `low` | `normal` | `high` | `urgent`
 - `destructive` — bool, planner sets/confirms
@@ -89,9 +89,9 @@ When the substrate exists, every task carries:
 
 Tasks without this envelope are rejected at ingress.
 
-## Renee allowlist (forward-looking)
+## Household-user allowlist (forward-looking)
 
-When the substrate exists, Renee's intents are auto-approved when
+When the substrate exists, the household user's intents are auto-approved when
 they fall into these categories:
 
 - Media playback (Jellyfin, Music Assistant, Kodi)
@@ -100,8 +100,8 @@ they fall into these categories:
 - Scenes
 - Locks-unlock-when-already-home (NOT from-away)
 
-Anything else from Renee routes to Rob's queue with a Renee-originated
-tag. Renee never sees admin output, stack traces, or restricted-tier
+Anything else from the household user routes to Rob's queue with a household-originated
+tag. The household user never sees admin output, stack traces, or restricted-tier
 data.
 
 Start narrow — easier to widen than retract.

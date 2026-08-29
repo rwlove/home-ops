@@ -124,7 +124,7 @@ Non-emergency disruptive changes wait for one of these windows
 - **Routine** (internal services, Windmill,
   MCP servers, observability, storage backends): any night,
   02:00–05:00.
-- **Renee-facing** (Home Assistant, Music Assistant, Jellyfin,
+- **household-facing** (Home Assistant, Music Assistant, Jellyfin,
   Frigate, voice services, lighting / climate / locks): Tuesday
   02:00–04:00 only.
 

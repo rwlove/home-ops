@@ -310,7 +310,7 @@ open-webui + LightRAG + opencode.
 
 Each phase has a validation gate; do not proceed until it passes. Disruptive
 steps run in a **routine maintenance window (02:00–05:00 ET)** — the affected
-services (Open WebUI, LightRAG) are routine-tier, not Renee-facing.
+services (Open WebUI, LightRAG) are routine-tier, not household-facing.
 
 ### Phase 0 — Prerequisites (no cluster change)
 

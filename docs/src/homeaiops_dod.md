@@ -1272,7 +1272,7 @@ storage agree.
 
 Time budget: 2–3 m of downtime per HR. Pick a maintenance
 window per `CLAUDE.md` if the component is operator- or
-Renee-facing.
+household-facing.
 
 ### Local inference path down — escalation fallback
 

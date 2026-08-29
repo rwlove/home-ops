@@ -140,7 +140,7 @@ The per-node critical path dropped from ~40 min to ~7–10 min once these were i
 
 ### Stateful data integrity across reboots — MANDATORY (added after the 1.36.4 run)
 
-The 1.36.4 run **silently rewound a Renee-facing media-server config volume**
+The 1.36.4 run **silently rewound a household-facing media-server config volume**
 (its library index + watch history) to a weeks-old state, while the media files
 themselves — on a separate volume — were untouched. This is the most dangerous
 class of upgrade damage because it is invisible until a user notices, and the
@@ -182,7 +182,7 @@ flushed.
    is fresh and clean.
 
 3. **Make DB-heavy backups app-consistent.** Longhorn block snapshots are **not
-   crash-consistent** for a live SQLite DB. For the busiest Renee-facing DB apps
+   crash-consistent** for a live SQLite DB. For the busiest household-facing DB apps
    (the media server above all): enable the app's own scheduled DB backup to a
    separate PVC, **or** checkpoint the WAL (`PRAGMA wal_checkpoint(TRUNCATE)`)
    ahead of the snapshot, **or** scale the app down for the snapshot window.

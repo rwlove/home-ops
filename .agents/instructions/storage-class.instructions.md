@@ -176,7 +176,7 @@ retention), not provided by the tier itself.
 When declaring a direct-NFS PV, set `mountOptions` to its workload tier's full
 set in a **single** block — `mountOptions` are immutable, so each later change
 means deleting/recreating the PV and remounting the pod (a maintenance window;
-Renee-facing PVs → Tuesday 02:00–04:00). For the reference pattern
+household-facing PVs → Tuesday 02:00–04:00). For the reference pattern
 (`["nfsvers=4.2","nconnect=8","hard","noatime"]`) see the already-tuned PVs at
 `kubernetes/apps/media/immich/app/nfs-pvc.yaml` and
 `kubernetes/apps/storage/garage/app/nfs-pvc.yaml`.

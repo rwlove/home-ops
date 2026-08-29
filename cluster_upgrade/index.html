@@ -1008,6 +1008,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#watch-list-for-future-upgrades--network-policy-primitive-ccnp--kcnp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Watch-list for future upgrades — network-policy primitive (CCNP → KCNP)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#optimizations--lessons-from-the-136-run--reuse-these-next-time" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2508,6 +2519,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#watch-list-for-future-upgrades--network-policy-primitive-ccnp--kcnp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Watch-list for future upgrades — network-policy primitive (CCNP → KCNP)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#optimizations--lessons-from-the-136-run--reuse-these-next-time" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2855,6 +2877,37 @@ auto-on — audit <code>seLinuxChangePolicy</code> first), pod-level in-place re
 (beta), HPA scale-to-zero (beta), user namespaces (GA), node log query
 (GA), CSI volume group snapshots (GA). Verify each against the <em>deployed</em>
 chart/arch before implementing.</p>
+<h3 id="watch-list-for-future-upgrades--network-policy-primitive-ccnp--kcnp">Watch-list for future upgrades — network-policy primitive (CCNP → KCNP)<a class="headerlink" href="#watch-list-for-future-upgrades--network-policy-primitive-ccnp--kcnp" title="Permanent link">&para;</a></h3>
+<p><strong>At each k8s upgrade, re-check <code>network-policy-api</code> maturity.</strong> As of
+2026-08-29 the cluster uses (and is expanding) Cilium-native
+<code>CiliumClusterwideNetworkPolicy</code> (<strong>CCNP</strong>) for label-keyed egress
+consolidation on top of the existing default-deny + 160 per-app
+<code>CiliumNetworkPolicy</code>. The K8s-standard <code>ClusterNetworkPolicy</code> (<strong>KCNP</strong>,
+<code>policy.networking.k8s.io</code> / AdminNetworkPolicy) is the CNI-agnostic future,
+but today it is <strong><code>v1alpha1</code> and lacks egress + FQDN support</strong> (both are
+pre-beta NPEP roadmap items). That gap is disqualifying for <em>our</em> use: the
+rules that dominate our policies are <code>toEntities: world</code> internet egress
+(~44% of files) and <code>toFQDNs</code> — neither expressible in KCNP yet. So we stay
+on <strong>CCNP for the egress work now</strong>; KCNP is deferred.</p>
+<p><strong>Conversion checklist — ALL must hold before converting CCNP → KCNP:</strong></p>
+<ol>
+<li><strong>Upstream API:</strong> <code>network-policy-api</code> has shipped <strong>egress + FQDN</strong>
+   support (both are pre-beta NPEP roadmap items today) and graduated to
+   <strong>beta/GA</strong>.</li>
+<li><strong>Cilium support (verify explicitly, do not assume):</strong> the <em>then-current</em>
+   Cilium release actually <strong>implements the KCNP egress + FQDN features</strong>.
+   Cilium's KCNP support tracks the upstream spec and lags it — <strong>base KCNP
+   already works on our Cilium</strong> (1.20.1, proven by the #13886 trial), but
+   Cilium cannot implement egress/FQDN until the spec adds them. Check the
+   deployed Cilium version's release notes / feature matrix at cutover time;
+   a KCNP-capable Cilium for <em>ingress</em> is not evidence it does egress/FQDN.</li>
+<li><strong>Pilot-verified:</strong> confirmed on one namespace (Hubble-verified, per the
+   CCNP rollout plan) before removing any CCNPs.</li>
+</ol>
+<p>Don't convert on a k8s-version bump alone — items 1 and 2 are independent of
+the k8s version. Context: zero of the four reference home-ops repos use KCNP;
+the one that does dense network policy (bjw-s) is on CCNP. The #13886 trial
+covers the ingress / admin-tier slice Cilium supports today.</p>
 <h3 id="optimizations--lessons-from-the-136-run--reuse-these-next-time">Optimizations &amp; lessons from the 1.36 run — reuse these next time<a class="headerlink" href="#optimizations--lessons-from-the-136-run--reuse-these-next-time" title="Permanent link">&para;</a></h3>
 <p>The 1.36 run was hand-driven and iterated on live; the distilled, reusable
 automation now lives in <strong><a href="https://github.com/rwlove/home-ops/tree/main/tools/cluster-upgrade"><code>tools/cluster-upgrade/</code></a></strong>

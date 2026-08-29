@@ -209,6 +209,61 @@ The second bullet is the whole point of the exercise. If a session can
 still reach a mutating tool by lifting its own client-side gate, nothing
 has been gained.
 
+#### Enumeration test (the wristband)
+
+The third bullet — `tools/list` omits denied tools — is enforced by the
+ES256 "wristband" (`x-mcp-authorized` header) and must be tested
+explicitly, because the invocation gate and the enumeration gate are
+independent code paths in the broker. Invocation denial passing does
+**not** imply enumeration filtering works.
+
+Run all three from a pod that can reach the istio Service, with the
+opencode bearer token:
+
+```sh
+TOKEN=$(kubectl -n mcp-system get secret mcp-gateway-opencode-jwt-current \
+  -o jsonpath='{.data.token}' | base64 -d)
+URL=http://mcp-gateway-istio.mcp-system.svc.cluster.local:8080/mcp
+
+# tools/list on the AUTHENTICATED listener (Host selects mcp-authz).
+curl -s "$URL" -H "Host: mcp-authz.mcp.local" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+  | tee /tmp/authz.json | jq -r '.result.tools[].name' | sort > /tmp/authz-tools.txt
+```
+
+Assertions (the test passes only if all hold):
+
+1. **Returned set equals the allowlist.** `/tmp/authz-tools.txt` must equal
+   the 31 prefixed real-tool names the wristband `allowed-capabilities`
+   map enumerates (19 `kubectl_*` + 6 `prom_*` + 6 `time_*` reads) — the
+   same 31 the AuthPolicy `tool-access-check` predicate allows minus its
+   two meta-tools. `discover_tools` / `select_tools`
+   are broker-native meta-tools with no upstream `MCPServerRegistration`,
+   so the broker cannot map them to a server and they remain listed;
+   allow for them in the diff. `diff <(sort /tmp/authz-tools.txt) <(sort
+   allowlist.txt)` should show only those two meta-tools, nothing from
+   `omada_*`, `ha_*`, `arr_*`, `comfyui_*`, `kubectl_kubectl_apply`,
+   `kubectl_delete_resource`, etc.
+2. **Denied tools are absent, not merely un-callable.** Grep the returned
+   set for a known-mutating name (`grep -c kubectl_kubectl_apply
+   /tmp/authz-tools.txt` == 0, `grep -c '^omada_' == 0`). This is the new
+   property: on the pre-wristband build these names appeared in the list
+   (but 403'd on call); they must now be *gone from the enumeration*.
+3. **The `mcp` listener is unaffected.** The same `tools/list` sent with
+   `Host: mcp.example.com` (the public listener, no wristband) must still
+   return the full ~1300-tool catalogue — proving the wristband filtering
+   is scoped to the authenticated path and did not leak onto the shared
+   listener. `wc -l` on that path's tool names ≫ 31.
+
+Negative control for the fail-closed edge: a request to `mcp-authz` with a
+**malformed** `x-mcp-authorized` header (or a token the broker's public
+key can't verify) must return an **empty** tool list, not the full one
+(broker `applyAuthorizedCapabilitiesFilter` returns `[]` on validation
+failure). This confirms a forged wristband cannot widen enumeration.
+
 ## Proposed initial allowlist for opencode
 
 Read-only to start, matching the credential posture already chosen for

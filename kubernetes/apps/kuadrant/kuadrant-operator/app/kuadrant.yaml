@@ -1,0 +1,25 @@
+---
+# TODO: apply schema (kuadrant.io CRDs ship no upstream JSON schema; not in
+# datreeio/CRDs-catalog or k8s-schemas.home-operations.com as of 2026-08-29)
+#
+# The Kuadrant CR is the instance object the kuadrant-operator reconciles to
+# actually wire the data path: it deploys the Authorino instance (external
+# authorization service) and registers the Istio wasm-shim/EnvoyFilter that
+# lets an AuthPolicy take effect. Installing the operator chart alone (Stage 1)
+# does NOT do this — with no Kuadrant CR present the operator builds an EMPTY
+# wasm configuration (observed in kuadrant-operator logs: IstioExtensionReconciler
+# "build Wasm configuration" completes with nothing to inject, and
+# `kubectl get authorino -A` / `kubectl get wasmplugins -A` are both empty).
+#
+# BLAST RADIUS: the operator's Istio integration only touches gateways of
+# gatewayClassName: istio. In this cluster the ONLY istio-class Gateway is
+# mcp-system/mcp-gateway (network/external + network/internal are envoy class,
+# which Kuadrant's Istio path does not touch). Creating this CR deploys
+# Authorino + registers the shim but injects NO enforcing filter onto any
+# listener until an AuthPolicy targets it — so on its own it changes no
+# existing traffic. Empty spec: components/mtls/observability all default off.
+apiVersion: kuadrant.io/v1beta1
+kind: Kuadrant
+metadata:
+  name: kuadrant
+spec: {}

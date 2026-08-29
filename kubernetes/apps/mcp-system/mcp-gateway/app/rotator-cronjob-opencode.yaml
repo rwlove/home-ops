@@ -1,0 +1,89 @@
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: mcp-gateway-opencode-jwt-rotator
+spec:
+  # Daily rotation, mirroring the human mcp-gateway rotator. Token lifespan is
+  # 7d (set on the Authelia 'mcp-gateway-opencode' client via its custom
+  # lifespan policy); a daily refresh gives ~6d overlap so a long-running
+  # opencode session that captured the previous token keeps working across a
+  # rotation. A long-lived server should also refresh-on-401 (see the design
+  # doc open question on token lifetime vs. long agent sessions).
+  schedule: "35 4 * * *"
+  timeZone: "Etc/UTC"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      template:
+        metadata:
+          labels:
+            # Stable selector used by the mcp-gateway-opencode-jwt-rotator-allow
+            # CNP. The auto-generated `job-name` label rotates every run and
+            # can't be used in a Cilium endpointSelector.
+            app.kubernetes.io/name: mcp-gateway-opencode-jwt-rotator
+        spec:
+          serviceAccountName: mcp-gateway-opencode-jwt-rotator
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+          containers:
+            - name: rotator
+              image: docker.io/alpine/k8s:1.36.2@sha256:44ef4942e171939b9c665a4a84beb80e2dcdb9a24330d4651cfdfd2e9deecc47
+              command:
+                - /bin/sh
+                - -ceu
+                # Flux postBuild substitutes ${VAR} — escape all shell vars
+                # with $${VAR} so the rendered manifest has ${VAR} for sh.
+                - |
+                  RESPONSE=$(curl -fsSL -X POST "$${OIDC_TOKEN_ENDPOINT}" \
+                    -H "Content-Type: application/x-www-form-urlencoded" \
+                    --data-urlencode "grant_type=client_credentials" \
+                    --data-urlencode "client_id=$${OIDC_CLIENT_ID}" \
+                    --data-urlencode "client_secret=$${OIDC_CLIENT_SECRET}" \
+                    --data-urlencode "scope=mcp-gateway-opencode" \
+                    --data-urlencode "audience=mcp-gateway-opencode")
+                  TOKEN=$(printf '%s' "$${RESPONSE}" | jq -er '.access_token')
+                  EXPIRES_IN=$(printf '%s' "$${RESPONSE}" | jq -er '.expires_in // 604800')
+                  EXPIRES_AT=$(( $(date +%s) + EXPIRES_IN ))
+                  kubectl create secret generic mcp-gateway-opencode-jwt-current \
+                    --from-literal=token="$${TOKEN}" \
+                    --from-literal=expires_at="$${EXPIRES_AT}" \
+                    --dry-run=client -o yaml | kubectl apply -f -
+                  echo "Rotated mcp-gateway-opencode JWT; expires_at=$${EXPIRES_AT} (in $${EXPIRES_IN}s)"
+              envFrom:
+                - secretRef:
+                    name: mcp-gateway-opencode-authelia-client
+              env:
+                - name: OIDC_TOKEN_ENDPOINT
+                  value: "https://auth.${SECRET_DOMAIN}/api/oidc/token"
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+                limits:
+                  memory: 128Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+                - name: kube
+                  mountPath: /.kube
+          volumes:
+            - name: tmp
+              emptyDir: {}
+            - name: kube
+              emptyDir: {}

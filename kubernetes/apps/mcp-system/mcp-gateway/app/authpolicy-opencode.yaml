@@ -1,0 +1,171 @@
+---
+# TODO: apply schema (kuadrant.io CRDs ship no upstream JSON schema; not in
+# datreeio/CRDs-catalog or k8s-schemas.home-operations.com as of 2026-08-29.
+# Field shape verified live against the installed CRD via `kubectl explain
+# authpolicy.spec` on 2026-08-29 — Authorino 0.25.2 / kuadrant-operator 1.5.2.)
+#
+# ===========================================================================
+# CORE ENFORCEMENT for the unattended in-cluster opencode agent.
+# This is the ACTUAL security boundary (unlike the MCPVirtualServer header,
+# which the client chooses for itself). It attaches to ONE listener
+# (sectionName: mcp-authz) so it cannot affect the unauthenticated `mcp`
+# listener that langgraph / Open WebUI / Rob's laptop ride.
+# See docs/src/mcp_tool_authz_design.md.
+#
+# Two independent gates, both must pass:
+#   1. IDENTITY  — a valid Authelia-issued JWT with audience `mcp-gateway-opencode`.
+#                  A caller with no token, or a token for a different audience,
+#                  is rejected at authentication (401). This proves the caller
+#                  is the opencode identity, not just any in-cluster pod.
+#   2. TOOL GATE — the MCP Router sets `x-mcp-toolname` from the JSON-RPC body
+#                  (the client cannot forge it). The request is allowed ONLY if
+#                  that tool name is in the read-only allowlist below. Every
+#                  mutating tool (kubectl apply/patch/delete/scale/rollout,
+#                  every omada_/ha_/arr_/comfyui_ write) is absent from the
+#                  list and therefore DENIED (403) — and denied even if the
+#                  session calls select_tools to try to widen its own view,
+#                  because select_tools changes the client's tools/list, not
+#                  the router-set x-mcp-toolname on a subsequent tools/call.
+#
+# WIDENING LATER IS A ONE-LINE CHANGE: add the tool name to the CEL list
+# literal in spec.rules.authorization.tool-access-check. Nothing else moves.
+#
+# ENUMERATION GATE (wristband) — NOW WIRED (see spec.rules.response below).
+# The broker-side mechanism was confirmed against the deployed broker source
+# (ghcr.io/kuadrant/mcp-gateway:v0.9.0):
+#   - broker reads the `x-mcp-authorized` REQUEST header
+#     (internal/broker/filtered_tools_handler.go:20 —
+#      authorizedCapabilitiesHeader = "x-mcp-authorized"),
+#   - validates it as an ES256 JWT with env TRUSTED_HEADER_PUBLIC_KEY
+#     (broker.go:28 os.Getenv("TRUSTED_HEADER_PUBLIC_KEY")), and
+#   - filters tools/list to the JWT's `allowed-capabilities` claim
+#     (a JSON STRING of {"tools": {"<mcp-server-name>": ["<unprefixed>",…]}};
+#      filtered_tools_handler.go:23,156,166,191 — the broker strips each
+#      server's registration prefix, so tool names in the claim are
+#      UN-prefixed and grouped by MCPServerRegistration name).
+# The public key is wired into the broker by setting trustedHeadersKey on the
+# MCPGatewayExtension (mcpgatewayextension.yaml). Enforcement is INERT on the
+# `mcp`/`mcps` listeners: they send no `x-mcp-authorized` header and the
+# broker's enforce-capability-filtering flag stays default `false` (fail-open
+# without the header), so only THIS listener's traffic (which carries the
+# wristband) is enumeration-filtered.
+#
+# IMPORTANT header-name caveat: the v0.9.0 broker header is `x-mcp-authorized`
+# and the claim key is `allowed-capabilities` — this DIFFERS from the Red Hat
+# reference article (`x-authorized-tools` / `allowed-tools`) and the Kuadrant
+# flow doc (`x-authorised-tools`). Verified from source, not the articles.
+# ===========================================================================
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: mcp-gateway-opencode
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: Gateway
+    name: mcp-gateway
+    # Listener-scoped: enforcement applies ONLY to the mcp-authz listener.
+    # The `mcp` and `mcps` listeners carry no policy and are untouched.
+    sectionName: mcp-authz
+  rules:
+    authentication:
+      # Identity gate. Only an Authelia-issued JWT with the opencode audience
+      # is accepted. Same issuer + JWKS the Envoy SecurityPolicy already
+      # trusts (securitypolicy.yaml), but validated here by Authorino on the
+      # Istio path. Bearer token in the Authorization header (Authorino default).
+      authelia:
+        jwt:
+          issuerUrl: "https://auth.${SECRET_DOMAIN}"
+        # Require the opencode-specific audience so a token minted for the
+        # existing human `mcp-gateway` client (audience: mcp-gateway) cannot
+        # be replayed here to reach the authz listener. `aud` may be a string
+        # or an array in a JWT; normalise both to a list before membership.
+        # (auth.identity is the decoded token object in Authorino's auth JSON.)
+        when:
+          - predicate: |
+              has(auth.identity.aud)
+              && (type(auth.identity.aud) == string
+                    ? auth.identity.aud == 'mcp-gateway-opencode'
+                    : 'mcp-gateway-opencode' in auth.identity.aud)
+    authorization:
+      # Tool gate. Deny (403) unless x-mcp-toolname is in the read-only
+      # allowlist. WIDEN by adding a tool name to this single CEL list literal
+      # — one-line change, reviewable in Git. Every mutating tool (kubectl
+      # apply/patch/delete/scale/rollout, omada_/ha_/arr_/comfyui_ writes) is
+      # absent and therefore DENIED. The MCP Router sets x-mcp-toolname from
+      # the JSON-RPC body; the client cannot forge it, and select_tools cannot
+      # bypass it (it changes the client's tools/list, not this header).
+      tool-access-check:
+        patternMatching:
+          patterns:
+            - predicate: >-
+                request.headers['x-mcp-toolname'] in
+                ['discover_tools', 'select_tools',
+                'kubectl_get_pods', 'kubectl_get_nodes',
+                'kubectl_get_nodes_summary', 'kubectl_get_events',
+                'kubectl_get_pod_events', 'kubectl_get_deployments',
+                'kubectl_get_statefulsets', 'kubectl_get_services',
+                'kubectl_get_namespaces', 'kubectl_get_pvcs',
+                'kubectl_get_persistent_volumes', 'kubectl_get_logs',
+                'kubectl_describe', 'kubectl_health_check',
+                'kubectl_check_pod_health', 'kubectl_get_cluster_info',
+                'kubectl_gitops_apps_list_tool', 'kubectl_get_node_metrics',
+                'kubectl_get_pod_metrics', 'prom_execute_query',
+                'prom_execute_range_query', 'prom_list_metrics',
+                'prom_health_check', 'prom_get_targets',
+                'prom_get_metric_metadata', 'time_current_time',
+                'time_convert_time', 'time_relative_time',
+                'time_get_timestamp', 'time_days_in_month',
+                'time_get_week_year']
+    response:
+      success:
+        headers:
+          # ENUMERATION GATE. Authorino signs a "festival wristband" (ES256
+          # JWT) and injects it into the REQUEST to the broker under the header
+          # the v0.9.0 broker reads: `x-mcp-authorized` (set by `key:` below —
+          # the header name defaults to the config name otherwise). The broker
+          # validates it with TRUSTED_HEADER_PUBLIC_KEY and returns ONLY the
+          # tools named in the `allowed-capabilities` claim from tools/list, so
+          # a restricted caller cannot even SEE denied tools — closing the gap
+          # the invocation gate (authorization, above) left open.
+          x-mcp-authorized:
+            key: x-mcp-authorized
+            wristband:
+              # Issuer must NOT equal the caller's identity issuer
+              # (https://auth.${SECRET_DOMAIN}); Authorino SKIPS wristband
+              # generation when they match (authorino wristband.go Call()).
+              # `authorino` is distinct, so the wristband is always issued.
+              issuer: authorino
+              tokenDuration: 300
+              signingKeyRefs:
+                # Private half of the ECDSA P-256 pair. Secret entry MUST be
+                # `key.pem` (Authorino contract) and the Secret MUST carry the
+                # label authorino.kuadrant.io/managed-by: authorino to be
+                # watched (see externalsecret.yaml target template). Provided
+                # BYO via 1Password because the operator's generate path emits
+                # the wrong data-key name (`key`, not `key.pem`).
+                - name: mcp-gateway-trusted-headers-signing
+                  algorithm: ES256
+              customClaims:
+                # The claim the broker unmarshals. It is a STRING containing
+                # JSON: {"tools": {"<MCPServerRegistration name>":
+                # ["<tool name WITHOUT the server's registration prefix>", …]}}.
+                # The broker re-prepends each server's prefix
+                # (kubectl-tools->"kubectl_", prometheus-tools->"prom_",
+                # time-tools->"time_") before matching the merged tool list.
+                #
+                # KEEP IN SYNC with spec.rules.authorization.tool-access-check
+                # above. That list is FLAT + PREFIXED (invocation gate, matches
+                # x-mcp-toolname); this one is GROUPED-BY-SERVER + UN-prefixed
+                # (enumeration gate, matches the broker's server map). Authorino
+                # cannot derive one from the other here (different shapes), so
+                # they are two hand-maintained literals. A tool present in only
+                # one is a bug: authz-only -> callable but invisible;
+                # wristband-only -> visible but 403 on call. Any widening edits
+                # BOTH. discover_tools/select_tools are broker-native meta-tools
+                # (no upstream MCPServerRegistration), so they are NOT in this
+                # map — they remain visible regardless (the broker only filters
+                # tools it can map to a server).
+                allowed-capabilities:
+                  value: >-
+                    {"tools":{"kubectl-tools":["get_pods","get_nodes","get_nodes_summary","get_events","get_pod_events","get_deployments","get_statefulsets","get_services","get_namespaces","get_pvcs","get_persistent_volumes","get_logs","describe","health_check","check_pod_health","get_cluster_info","gitops_apps_list_tool","get_node_metrics","get_pod_metrics"],"prometheus-tools":["execute_query","execute_range_query","list_metrics","health_check","get_targets","get_metric_metadata"],"time-tools":["current_time","convert_time","relative_time","get_timestamp","days_in_month","get_week_year"]}}

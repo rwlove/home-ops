@@ -92,6 +92,40 @@ auto-on — audit `seLinuxChangePolicy` first), pod-level in-place resize
 (GA), CSI volume group snapshots (GA). Verify each against the *deployed*
 chart/arch before implementing.
 
+### Watch-list for future upgrades — network-policy primitive (CCNP → KCNP)
+
+**At each k8s upgrade, re-check `network-policy-api` maturity.** As of
+2026-08-29 the cluster uses (and is expanding) Cilium-native
+`CiliumClusterwideNetworkPolicy` (**CCNP**) for label-keyed egress
+consolidation on top of the existing default-deny + 160 per-app
+`CiliumNetworkPolicy`. The K8s-standard `ClusterNetworkPolicy` (**KCNP**,
+`policy.networking.k8s.io` / AdminNetworkPolicy) is the CNI-agnostic future,
+but today it is **`v1alpha1` and lacks egress + FQDN support** (both are
+pre-beta NPEP roadmap items). That gap is disqualifying for *our* use: the
+rules that dominate our policies are `toEntities: world` internet egress
+(~44% of files) and `toFQDNs` — neither expressible in KCNP yet. So we stay
+on **CCNP for the egress work now**; KCNP is deferred.
+
+**Conversion checklist — ALL must hold before converting CCNP → KCNP:**
+
+1. **Upstream API:** `network-policy-api` has shipped **egress + FQDN**
+   support (both are pre-beta NPEP roadmap items today) and graduated to
+   **beta/GA**.
+2. **Cilium support (verify explicitly, do not assume):** the *then-current*
+   Cilium release actually **implements the KCNP egress + FQDN features**.
+   Cilium's KCNP support tracks the upstream spec and lags it — **base KCNP
+   already works on our Cilium** (1.20.1, proven by the #13886 trial), but
+   Cilium cannot implement egress/FQDN until the spec adds them. Check the
+   deployed Cilium version's release notes / feature matrix at cutover time;
+   a KCNP-capable Cilium for *ingress* is not evidence it does egress/FQDN.
+3. **Pilot-verified:** confirmed on one namespace (Hubble-verified, per the
+   CCNP rollout plan) before removing any CCNPs.
+
+Don't convert on a k8s-version bump alone — items 1 and 2 are independent of
+the k8s version. Context: zero of the four reference home-ops repos use KCNP;
+the one that does dense network policy (bjw-s) is on CCNP. The #13886 trial
+covers the ingress / admin-tier slice Cilium supports today.
+
 ### Optimizations & lessons from the 1.36 run — reuse these next time
 
 The 1.36 run was hand-driven and iterated on live; the distilled, reusable

@@ -1,0 +1,55 @@
+---
+# TODO: apply schema (no published JSON schema for policy.networking.k8s.io/v1alpha2 yet)
+#
+# KCNP TRIAL (home-ops#13772 §1) — scoped adoption trial of Cilium's Kubernetes
+# ClusterNetworkPolicy support, NOT a replacement for the per-namespace CNP
+# baseline. See kubernetes/apps/kube-system/cilium/app/values.yaml for the
+# k8sClusterNetworkPolicy.enabled flag and
+# kubernetes/apps/kube-system/network-policy-api-crds/ for the CRD install.
+#
+# This is a CLUSTER-SCOPED resource (spec.scope: Cluster on the CRD) living
+# inside a namespace-targeted Flux Kustomization (renovate-operator, ks.yaml
+# sets targetNamespace: renovate). Flux/kustomize does not set
+# metadata.namespace on cluster-scoped kinds, so this is safe, but it is an
+# unusual placement for this repo — the file lives here (rather than a new
+# top-level app dir) so the entire trial is a single, obviously-deletable
+# unit alongside the CRD install + the values.yaml flag.
+#
+# action: Pass is deliberate — it hands the matched flow off to the next
+# tier (Cilium's own per-namespace CiliumNetworkPolicy enforcement,
+# unaffected) rather than substituting Accept/Deny for it. This proves KCNP
+# mechanically works (subject/from selectors match, priority/tiering is
+# honored) without this trial's resource being able to weaken or override
+# the existing baseline+default-deny enforcement in the renovate namespace
+# even if the trial resource is wrong.
+#
+# Mirrors (does not replace) the existing ingress allow for Envoy ->
+# renovate-operator:8081 in ./cnp-allow.yaml.
+apiVersion: policy.networking.k8s.io/v1alpha2
+kind: ClusterNetworkPolicy
+metadata:
+  name: kcnp-trial-renovate-operator-ingress
+spec:
+  priority: 900 # low precedence — never intended to shadow a real Tier-0 policy
+  subject:
+    pods:
+      namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: renovate
+      podSelector:
+        matchLabels:
+          app: renovate-operator
+  ingress:
+    - name: pass-envoy-ingress-to-existing-cnp-enforcement
+      action: Pass
+      from:
+        - pods:
+            namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: network
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/name: envoy
+      ports:
+        - protocol: TCP
+          port: 8081

@@ -1,0 +1,38 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/gateway.envoyproxy.io/securitypolicy_v1alpha1.json
+#
+# extAuth via Authelia (#12767) — same pattern as the kube-ops-view
+# pilot (#12779) and every other internal UI in this cluster. The
+# renovate-operator route was the lone internal app with no SSO gate
+# in front of it; its own 6.x UI-authorization model was the only
+# guard. Put it behind Authelia like the rest instead of relying on
+# the operator's (unverified, OAuth-App-dependent) native auth.
+# failOpen stays false: Authelia down means deny, not an open app.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: renovate-operator-extauth
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: renovate-operator
+  extAuth:
+    failOpen: false
+    headersToExtAuth:
+      - accept
+      - cookie
+      - authorization
+      - proxy-authorization
+      - x-forwarded-proto
+    http:
+      backendRefs:
+        - name: authelia
+          namespace: auth
+          port: 9091
+      path: /api/authz/ext-authz/
+      headersToBackend:
+        - Remote-User
+        - Remote-Groups
+        - Remote-Name
+        - Remote-Email

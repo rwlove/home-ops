@@ -17,6 +17,21 @@ spec:
   # as soon as this one's resources are applied, not when the chart
   # has actually installed its CRDs. Mirrors cert-manager / kyverno.
   wait: true
+  # KCNP trial (home-ops#13772 §1): values.yaml sets
+  # k8sClusterNetworkPolicy.enabled: true, and cilium-agent watches the
+  # external sigs.k8s.io/network-policy-api ClusterNetworkPolicy CRD
+  # for that feature. The CRD is not bundled in this chart (unlike
+  # cilium's own CRDs) — network-policy-api-crds installs it
+  # separately. Sequenced here so the CRD exists before cilium-agent's
+  # informer for it starts, mirroring cilium's own dev-harness ordering
+  # (Makefile.kind: `get crd ... || apply CRD` before enabling the
+  # flag). Not strictly required for cilium-agent to stay up if
+  # reordered — its informer for this CRD is wired unconditionally and
+  # retries via the standard client-go reflector on a NotFound list —
+  # but there is no reason to rely on that when the ordering is free.
+  dependsOn:
+    - name: network-policy-api-crds
+      namespace: kube-system
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/kustomization-kustomize-v1.json
 apiVersion: kustomize.toolkit.fluxcd.io/v1

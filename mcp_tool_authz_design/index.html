@@ -1610,6 +1610,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#postmortem--why-this-was-abandoned-2026-08-29" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Postmortem — why this was abandoned (2026-08-29)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#problem-statement" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2319,6 +2330,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#postmortem--why-this-was-abandoned-2026-08-29" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Postmortem — why this was abandoned (2026-08-29)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#problem-statement" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2504,10 +2526,48 @@
 
 
 <h1 id="mcp-tool-level-authorization-design-proposal">MCP Tool-Level Authorization Design Proposal<a class="headerlink" href="#mcp-tool-level-authorization-design-proposal" title="Permanent link">&para;</a></h1>
-<p>Status: <strong>Proposal — research only, not implemented.</strong> Prerequisite for
-running any agent unattended against the MCP gateway.
+<p>Status: <strong>ABANDONED (2026-08-29) — do not retry on the shared gateway.</strong>
 Owner: home-ops
-Last updated: 2026-07-26</p>
+Last updated: 2026-08-29</p>
+<blockquote>
+<h2 id="postmortem--why-this-was-abandoned-2026-08-29">Postmortem — why this was abandoned (2026-08-29)<a class="headerlink" href="#postmortem--why-this-was-abandoned-2026-08-29" title="Permanent link">&para;</a></h2>
+<p>An implementation of Stages 2–4 (additive <code>mcp-authz</code> listener +
+AuthPolicy + Authorino wristband) was built, shipped, and <strong>caused a
+shared-gateway outage</strong>, then fully reverted. Two lessons, both load-bearing:</p>
+<ol>
+<li><strong>The Kuadrant/Istio wasm-shim is fail-closed and gateway-wide.</strong>
+   Attaching an AuthPolicy to the <code>mcp-gateway</code> Istio Gateway makes
+   Kuadrant install a wasm-shim (<code>oci://quay.io/kuadrant/wasm-shim</code>) on
+   that Gateway's Envoy. A WasmPlugin on a Gateway workload applies to
+   <strong>all its listeners</strong>, and under <code>FAIL_CLOSE</code> a failed <em>fetch</em> makes
+   every request 5xx. So a shim that can't load 503s <code>mcp</code>/<code>mcps</code> too —
+   <code>sectionName</code> scopes <em>matching</em>, not <em>fault isolation</em>. The additive
+   <strong>listener</strong> shares the Envoy, so it shares the failure domain. Proper
+   isolation would require a <strong>separate Istio <code>Gateway</code> object</strong> (its own
+   Envoy). Confirmed via Istio's WasmPlugin API docs + istio#33858.</li>
+<li><strong>It was disproportionate.</strong> The whole effort existed to constrain one
+   unattended agent (opencode) — which also has a <code>bash</code> tool with
+   <code>world:443</code> egress, so MCP-authz only closed the smaller of two doors.
+   Standing up Authorino + Limitador + DNS-operator + an OIDC client + a
+   JWT rotator + a wasm-shim, and coupling the shared MCP path's uptime to
+   that shim's fetch reliability, was the wrong-sized tool.</li>
+</ol>
+<p>The two proximate bugs were themselves fixable (a missing CNP egress for
+the gateway pod's OCI wasm pull to <code>quay.io:443</code>; the ES256 signing-key
+Secret needed to live in the <code>kuadrant</code> namespace, not <code>mcp-system</code>) —
+but fixing them only shrinks the outage <em>window</em>; it does not remove the
+shared failure domain.</p>
+<p><strong>If per-tool authz is ever genuinely needed</strong> (multiple external clients
+needing cryptographic, claim-based, per-<em>tool</em> differentiation — not the
+case today), build it on a <strong>dedicated Istio Gateway</strong>, preload the
+wasm image into ZOT and pin by digest, and never attach it to the Envoy
+serving <code>mcp</code>/<code>mcps</code>. For unattended agents, prefer the network-layer
+answer that <code>.agents/instructions/claude-runner-routing.md</code> already
+prescribes: a read-only-only surface + scoped RBAC, no mutating broker
+egress. The design below is retained for historical context only.</p>
+</blockquote>
+<p>Original status: <strong>Proposal — research only, not implemented.</strong> Prerequisite for
+running any agent unattended against the MCP gateway.</p>
 <blockquote>
 <p><strong>Update 2026-07-26 — this is no longer a prerequisite for <em>using</em> the
 gateway, only for <em>enforcing</em> restrictions on it.</strong></p>

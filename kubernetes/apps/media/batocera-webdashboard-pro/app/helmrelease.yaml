@@ -47,6 +47,14 @@ spec:
                   name: batocera-webdashboard-pro-secret
 
             probes:
+              # The app's Flask dev server is single-threaded — a blocking
+              # SSH call to the Batocera box (dashboard data fetch) can
+              # starve /health under concurrent kubelet probing, causing a
+              # probe timeout -> SIGKILL -> crash-loop (94+ restarts seen
+              # 2026-08-30) even though the app and its SSH target are both
+              # healthy. Loosened timeout/threshold as a mitigation; the
+              # real fix is a threaded/production WSGI server in the
+              # ghcr.io/rwlove/batocera-webdashboard-pro image itself.
               liveness: &probes
                 enabled: true
                 custom: true
@@ -56,8 +64,8 @@ spec:
                     port: *httpPort
                   initialDelaySeconds: 10
                   periodSeconds: 30
-                  timeoutSeconds: 10
-                  failureThreshold: 3
+                  timeoutSeconds: 30
+                  failureThreshold: 5
               readiness: *probes
               startup:
                 enabled: false

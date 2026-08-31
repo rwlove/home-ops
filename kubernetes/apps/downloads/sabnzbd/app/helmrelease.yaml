@@ -24,6 +24,23 @@ spec:
         annotations:
           reloader.stakater.com/auto: "true"
         type: statefulset
+        initContainers:
+          # ceph-block provisions fresh ext4, whose mkfs creates lost+found as
+          # root:root mode-700. fsGroup chowns it to gid 1001 but leaves mode
+          # 700, so the non-root app (uid 1106) EACCES's when it enumerates the
+          # /incomplete root for resumable jobs at startup. chmod it readable.
+          fix-lost-found:
+            image:
+              repository: docker.io/library/busybox
+              tag: "1.37.0"
+            command:
+              - /bin/sh
+              - -c
+              - "chmod 755 /incomplete/lost+found 2>/dev/null || true"
+            securityContext:
+              runAsUser: 0
+              runAsNonRoot: false
+              readOnlyRootFilesystem: true
         containers:
           app:
             image:

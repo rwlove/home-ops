@@ -14,8 +14,13 @@
       // minimumReleaseAge is the real safety belt — a bad rebuild gets
       // 3 days to be caught upstream before it can land. ignoreTests
       // stays false so a red CI for any other reason still blocks.
+      // First-party ghcr.io/rwlove/* images are excluded here — renovate has
+      // no release timestamp for them, so ANY minimumReleaseAge is
+      // unsatisfiable and (internalChecksFilter=strict) the update is withheld
+      // forever. They get their own gate-free rule at the bottom.
       description: "Auto-merge container digests",
       matchDatasources: ["docker"],
+      matchPackageNames: ["!/^ghcr\\.io\\/rwlove\\//"],
       automerge: true,
       automergeType: "pr",
       matchUpdateTypes: ["digest"],
@@ -30,8 +35,10 @@
       // minimumReleaseAge gives a bad release 3 days to get yanked
       // upstream before it can land. Digests stay on the trusted-org
       // allowlist above — CI can't meaningfully validate a re-tag.
+      // First-party ghcr.io/rwlove/* excluded — see the digest rule above.
       description: "Auto-merge all non-major container + helm updates once CI passes",
       matchDatasources: ["docker", "helm"],
+      matchPackageNames: ["!/^ghcr\\.io\\/rwlove\\//"],
       automerge: true,
       automergeType: "pr",
       matchUpdateTypes: ["minor", "patch"],
@@ -77,12 +84,20 @@
       ignoreTests: false,
     },
     {
-      // First-party images: Rob builds and pushes these himself, so
-      // there is no upstream release to be yanked and the 3-day soak
-      // the docker rules above stamp on every bump protects against
-      // nothing here — it only delays a known-good rebuild. This rule
-      // is last, so its minimumReleaseAge override wins the merge and
-      // drops these off the dashboard's "Pending Status Checks" wait.
+      // First-party images: Rob builds and pushes these himself, so there is
+      // no upstream release to be yanked and a soak protects against nothing —
+      // it only delays a known-good rebuild.
+      //
+      // NO minimumReleaseAge on purpose, and the two soak rules above now
+      // exclude these packages so their 3-day gate can't leak in via
+      // rule-merge. This is load-bearing: renovate has no release timestamp
+      // for ghcr.io/rwlove/* images, so ANY age gate is unsatisfiable and
+      // (internalChecksFilter=strict) renovate WITHHOLDS the update entirely —
+      // no branch, no PR, stuck pendingChecks forever. That is exactly what a
+      // "1 minute" gate here did (home-ops #13775, whose title said "drop soak"
+      // but which added the gate): pump image bumps never auto-opened and were
+      // rolled by hand every release. With no gate, the PR opens the instant a
+      // new tag is seen and automerge+ignoreTests lands it on green.
       description: "Auto-merge rwlove personal container images (no soak — first-party)",
       matchDatasources: ["docker"],
       automerge: true,
@@ -90,7 +105,6 @@
       matchPackageNames: [
         "/^ghcr\\.io\\/rwlove\\//",
       ],
-      minimumReleaseAge: "1 minute",
       ignoreTests: true,
     },
   ],

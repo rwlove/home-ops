@@ -128,9 +128,16 @@ spec:
             resources:
               requests:
                 cpu: 15m
+                # Request stays at the idle footprint; the limit is raised to
+                # give burst headroom. request==limit==128M left ZERO room for a
+                # spike (a large health-ingest batch, many concurrent SSE
+                # clients, image/QR generation) — the next spike OOMKills the
+                # server and drops every SSE connection. Burstable QoS with a
+                # 320M ceiling absorbs the spike while keeping the scheduler
+                # footprint small.
                 memory: 128M
               limits:
-                memory: 128M
+                memory: 320M
             securityContext: *hardened
 
     service:

@@ -93,6 +93,38 @@ spec:
               - secretRef:
                   name: pump-secret
 
+            # The Go server shipped with NO probes — a wedged server (a
+            # deadlock, a goroutine parked on a dead DB connection, pool
+            # starvation) stayed Running and served nothing, with nothing to
+            # restart it. `/api/ping` is a static 200 that only answers once the
+            # HTTP listener is up, which is AFTER MigratePostgres runs at boot —
+            # so a startup probe on it doubles as "migrations finished", and its
+            # generous failureThreshold keeps a slow migration from being killed
+            # mid-run (the migration runner has no context deadline). Liveness
+            # then takes over. Readiness is left to app-template's TCP default;
+            # a DB-aware /readyz is a follow-up.
+            probes:
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /api/ping
+                    port: 8080
+                  # 40 × 5s = up to ~200s for boot + migrations before the
+                  # pod is declared failed.
+                  periodSeconds: 5
+                  failureThreshold: 40
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /api/ping
+                    port: 8080
+                  periodSeconds: 30
+                  failureThreshold: 3
+
             resources:
               requests:
                 cpu: 15m

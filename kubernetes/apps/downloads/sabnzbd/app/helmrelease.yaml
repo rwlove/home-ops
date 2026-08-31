@@ -46,6 +46,12 @@ spec:
                   name: *app
 
             probes:
+              # SABnzbd is single-threaded on its API; heavy assemble/par2/unpack
+              # bursts block /api for several seconds. A 1s timeout / 3-failure
+              # probe SIGKILLs the container mid-assembly, orphaning the queue
+              # __ADMIN__ files and causing "Error importing NzbFile" on restart.
+              # ~50s tolerance (5 × 10s) rides out an unpack burst while still
+              # catching a truly hung process.
               liveness: &probes
                 enabled: true
                 custom: true
@@ -53,10 +59,10 @@ spec:
                   httpGet:
                     path: /api?mode=version
                     port: *httpPort
-                  failureThreshold: 3
+                  failureThreshold: 5
                   initialDelaySeconds: 0
                   periodSeconds: 10
-                  timeoutSeconds: 1
+                  timeoutSeconds: 5
               readiness: *probes
               startup:
                 enabled: false

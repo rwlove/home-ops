@@ -93,12 +93,18 @@ spec:
               - resourceName: memory
                 restartPolicy: NotRequired
 
+            # Assembly writes to the incomplete dir balloon dirty page cache
+            # against the cgroup limit faster than write-back drains it, OOM-
+            # killing the container mid-job (working_set stays ~200Mi but the
+            # hard limit counts un-flushed pages). ceph-block flushes far faster
+            # than the old NFS path, but keep 2Gi headroom for repair/unpack
+            # spikes; resizePolicy above lets this apply without a restart.
             resources:
               requests:
                 cpu: 15m
                 memory: 512Mi
               limits:
-                memory: 1Gi
+                memory: 2Gi
 
     service:
       app:
@@ -135,4 +141,4 @@ spec:
         existingClaim: sabnzbd-downloads-pvc
 
       incomplete:
-        existingClaim: sabnzbd-incomplete-pvc
+        existingClaim: sabnzbd-incomplete

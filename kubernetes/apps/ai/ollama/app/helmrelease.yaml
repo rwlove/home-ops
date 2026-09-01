@@ -53,6 +53,37 @@ spec:
               # https://github.com/ollama/ollama/blob/main/docs/faq.md#how-can-i-set-the-quantization-type-for-the-kv-cache
               OLLAMA_KV_CACHE_TYPE: q8_0
               OLLAMA_FLASH_ATTENTION: 1
+              # ROOT CAUSE of the 2026-09-01 OOMKills (exit 137, ~every 1.5d):
+              # ollama has NO ollama-level cache cap, but each per-model
+              # llama-server runner is a llama.cpp binary that reads
+              # standard llama.cpp env vars from the inherited process env
+              # (llm/llama_server.go sets cmd.Env = os.Environ(), confirmed
+              # against ollama 0.33.2 source; the binary's own --help
+              # confirms `env: LLAMA_ARG_CACHE_RAM` is registered on this
+              # exact image). Undocumented by ollama itself — this is a
+              # llama.cpp flag (https://github.com/ggml-org/llama.cpp/pull/16391)
+              # ollama silently inherits.
+              #
+              # Unset, the compiled default is 8192 MiB PER RUNNER. With
+              # OLLAMA_MAX_LOADED_MODELS=3 that's up to 3 independent
+              # 8 GiB caches (24 GiB worst case) against a 6Gi container
+              # limit — nowhere near bounded at container scale. Confirmed
+              # via the crashed container's log: 19,779 live prompt-cache
+              # entries (~21 MiB each, `checkpoints: 0` — zero prefix
+              # reuse) for qwen2.5vl:3b with no "cache size limit reached"
+              # eviction message ever printed before the kill.
+              #
+              # The traffic is Frigate's GenAI VLM: one-shot ~1.1-1.2k
+              # token detection-description prompts, near-zero cross-
+              # request prefix overlap (see OLLAMA_KEEP_ALIVE comment
+              # below for the same workload). Prompt-cache reuse buys
+              # this workload almost nothing, so cap tight rather than
+              # disable outright (0 would also drop legitimate same-
+              # session reuse for qwen2.5-coder/bge-m3 traffic).
+              # 512 MiB/runner x up to 3 runners = 1.5 GiB worst-case
+              # aggregate, leaving the bulk of the (now 10Gi) limit for
+              # actual model weights + KV cache.
+              LLAMA_ARG_CACHE_RAM: 512
               # Raised from ollama's 5m default on 2026-07-26. Frigate's
               # GenAI VLM was aging out between detections, so real
               # descriptions paid ~38s of cold load (vision projector
@@ -126,7 +157,16 @@ spec:
                 cpu: 500m
                 nvidia.com/gpu: 1
               limits:
-                memory: 6G
+                # Headroom above the 6G request, added alongside the
+                # LLAMA_ARG_CACHE_RAM fix above (2026-09-01 OOMKill
+                # root-cause: unbounded per-runner llama.cpp prompt
+                # cache, see that comment). This is belt-and-suspenders,
+                # not the fix itself — worker8 has ~31 GiB available at
+                # time of writing, request stays flat so scheduling is
+                # unaffected, this only widens the cgroup ceiling so a
+                # transient spike doesn't get SIGKILLed while the cache
+                # fix soaks.
+                memory: 10G
                 nvidia.com/gpu: 1
 
             # GPU access is via the device plugin (nvidia.com/gpu: 1),

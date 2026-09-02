@@ -95,5 +95,16 @@ spec:
           - port: http
             scheme: http
             path: /metrics
-            interval: 1m
+            # 5m, not 1m: rcooler/omada_exporter re-queries the Omada
+            # controller's HTTPS API (brain:8043) on EVERY scrape, and this
+            # controller (v6.2.14.11) leaks the server side of each closed
+            # connection into CLOSE-WAIT. Those accumulate until Tomcat's
+            # 8043 connector hits maxConnections and stops accepting →
+            # OmadaControllerUnreachable + TargetDown (2026-08-01, 2026-09-01
+            # ~1:13 PM ET). 1m churn saturated it in ~1 month; 5m cuts the
+            # leak rate ~5x. This is a RATE-LIMITER, not the fix — the leak
+            # is server-side and unfixable from here; the durable bound is a
+            # scheduled omada.service restart on brain. See
+            # rwlove/lovenet-network-configuration#51.
+            interval: 5m
             scrapeTimeout: 30s

@@ -231,3 +231,32 @@ spec:
     staticConfig:
       static:
         - http://tei-embed-spark.ai.svc.cluster.local:3000/v1/embeddings
+
+---
+# yaml-language-server: $schema=https://k8s-schemas.home-operations.com/monitoring.coreos.com/probe_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: vllm-driver-spark-completion
+spec:
+  # Wedge detector for vllm-driver-spark (Qwen3.6-35B-A3B reasoning/driver
+  # LLM). The endpoint returns /health=200 while the EngineCore spin-loops
+  # (observed live 2026-09-05: GPU pinned 96%, num_requests_running stuck
+  # at 2, zero completions for 12 days) — so pod-Ready and /health cannot
+  # catch a wedge; only a real decode can. POSTs a 1-token completion and
+  # asserts the OpenAI shape. Sister of tei-embed-spark-embed / ollama-*.
+  #
+  # 2m cadence: the SparkVllmDriverWedged alert is for:5m, so finer
+  # granularity buys nothing and a decode is more expensive than an embed.
+  # scrapeTimeout 45s > the module's 40s timeout so a cold CUDA-graph
+  # warm-up after a restart surfaces as a slow success, not a scrape error
+  # (same pairing rule as ollama-vlm-warm's 50s>45s).
+  interval: 2m
+  scrapeTimeout: 45s
+  module: vllm_completion
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - http://vllm-driver-spark.ai.svc.cluster.local:8000/v1/chat/completions

@@ -1,0 +1,154 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: hermes
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 30m
+  install:
+    # First boot: s6 remaps the hermes user, chowns /opt/data, then starts the
+    # gateway. Don't let Flux block on readiness (mirrors vllm/ollama-spark).
+    disableWait: true
+  upgrade:
+    disableWait: true
+  values:
+    controllers:
+      hermes:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        # StatefulSet + single writer: "never run two gateway containers
+        # against the same data directory" (session/memory stores are not
+        # concurrency-safe). RWO Longhorn volume enforces it.
+        type: statefulset
+        pod:
+          securityContext:
+            # s6-overlay image: /init starts as root to remap the internal
+            # `hermes` user to HERMES_UID/GID and chown /opt/data, then drops
+            # each supervised service to that user via s6-setuidgid. So it MUST
+            # start as root and keep the default cap set — runAsNonRoot or
+            # capabilities.drop:[ALL] breaks the supervised drop. Documented
+            # escape hatch per helmrelease.security.md (same root-required
+            # rationale as ollama-spark / vllm-driver-spark).
+            runAsUser: 0
+            runAsGroup: 0
+            fsGroup: 10000
+            fsGroupChangePolicy: OnRootMismatch
+        initContainers:
+          config-seed:
+            image:
+              repository: docker.io/nousresearch/hermes-agent
+              tag: v2026.8.31
+            # Seed config.yaml onto the data volume ONCE (cp -n = no-clobber),
+            # so Hermes owns it after first boot ("hand-placed once, curates
+            # after"). Personal identity (SOUL/USER/MEMORY) is placed by hand
+            # on the PVC, never committed to this public repo.
+            command:
+              - sh
+              - -c
+              - cp -n /seed/config.yaml /opt/data/config.yaml || true
+        containers:
+          app:
+            image:
+              repository: docker.io/nousresearch/hermes-agent
+              tag: v2026.8.31
+            # The image ENTRYPOINT (/init → main-wrapper.sh) MUST stay PID 1
+            # for s6-overlay; only override CMD.
+            args: ["gateway", "run"]
+            env:
+              HERMES_HOME: /opt/data
+              HERMES_UID: "10000"
+              HERMES_GID: "10000"
+              # In-cluster OpenAI-compatible API server (health + reachability
+              # for later consumers). Binds 0.0.0.0 but pod-network only — no
+              # public HTTPRoute. API_SERVER_KEY (from the secret) is mandatory:
+              # an unauthenticated Hermes API server was an entry point for the
+              # June-2026 agent-backdoor campaign.
+              API_SERVER_ENABLED: "true"
+              API_SERVER_HOST: 0.0.0.0
+              # The driver has no --api-key, so any non-empty value satisfies
+              # the OpenAI client. Real secrets come via envFrom below.
+              OPENAI_API_KEY: sk-noauth-local-vllm
+            envFrom:
+              - secretRef:
+                  name: hermes-secret
+            probes:
+              # TCP on the API server port — the API server binds :8642 once
+              # the gateway is up. Generous startup budget for the s6 init +
+              # chown + gateway warmup on a fresh volume.
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: 8642
+                  initialDelaySeconds: 90
+                  periodSeconds: 30
+                  timeoutSeconds: 5
+                  failureThreshold: 5
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: 8642
+                  initialDelaySeconds: 45
+                  periodSeconds: 15
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: 8642
+                  initialDelaySeconds: 30
+                  periodSeconds: 10
+                  timeoutSeconds: 5
+                  failureThreshold: 60
+            securityContext:
+              # See the pod comment: root-required s6 image. s6-setuidgid needs
+              # SETUID/SETGID/CHOWN from the default cap set, so do NOT drop
+              # ALL; rootfs stays writable for s6 /run state. This is the
+              # documented deviation, not the baseline.
+              allowPrivilegeEscalation: true
+              readOnlyRootFilesystem: false
+              seccompProfile:
+                type: RuntimeDefault
+            resources:
+              requests:
+                cpu: 500m
+                memory: 2Gi
+              limits:
+                memory: 4Gi
+    service:
+      app:
+        controller: hermes
+        ports:
+          http:
+            port: 8642
+    persistence:
+      # The single source of truth for all Hermes state (SQLite, config, .env,
+      # profiles, skills, memories, sessions) — mounted into both the seed init
+      # container and the app.
+      data:
+        existingClaim: hermes-data-pvc
+        advancedMounts:
+          hermes:
+            config-seed:
+              - path: /opt/data
+            app:
+              - path: /opt/data
+      # The operator-managed config.yaml, mounted read-only into the seed init
+      # container only (it copies it onto the data volume if absent).
+      config-seed:
+        type: configMap
+        name: hermes-config
+        advancedMounts:
+          hermes:
+            config-seed:
+              - path: /seed
+                readOnly: true

@@ -1,0 +1,43 @@
+# Hermes Agent config — seeded ONCE onto the /opt/data PVC by the init
+# container (cp -n: seed-if-absent, matching Hermes' "hand-placed once,
+# curates after" model). This is application config, NOT a k8s manifest,
+# so it carries no schema (resources/ dir rule). Secrets — OPENAI_API_KEY
+# (dummy; the driver has no --api-key), CLAUDE_CODE_OAUTH_TOKEN,
+# API_SERVER_KEY — arrive via env from the hermes ExternalSecret, never here.
+# Personal identity (SOUL.md / USER.md / MEMORY.md) is hand-placed on the
+# PVC separately and is never committed to this public repo.
+model:
+  # The vLLM reasoning/driver model on the Spark. provider "vllm" is an
+  # alias for "custom" (any OpenAI-compatible endpoint); base_url is what
+  # actually selects it.
+  default: qwen3.6-35b-a3b
+  provider: vllm
+  base_url: http://vllm-driver-spark.ai.svc.cluster.local:8000/v1
+  # Local server — /v1/models auto-detect is unreliable, so pin the window
+  # to the driver's --max-model-len.
+  context_length: 131072
+  # REQUIRED, not optional: the driver runs --tool-call-parser qwen3_xml +
+  # --reasoning-parser qwen3, which leaks tool calls into plain text under
+  # streaming (Hermes #72901). Non-streaming is the documented escape hatch,
+  # and the entire local execution loop depends on real tool_calls.
+  streaming: false
+auxiliary:
+  # Context compression on the same local model — zero Anthropic quota.
+  compression:
+    provider: vllm
+    base_url: http://vllm-driver-spark.ai.svc.cluster.local:8000/v1
+    model: qwen3.6-35b-a3b
+  # vision aux deferred to a later PR — the driver is text-only, and wiring
+  # the P40 VLM (qwen2.5vl) would add a cross-app CNP dependency this PR
+  # doesn't need. Image tasks are out of scope for the initial bring-up.
+agent:
+  # Hermes' native control is a fail-OPEN denylist (disabled_toolsets); the
+  # fail-CLOSED allowlist lands as a pre_tool_call hook in PR-4. Until then,
+  # disable the highest-risk toolset — arbitrary web (egress + exfil surface).
+  disabled_toolsets:
+    - web
+# Interactive front door only for now. The unattended/cron lanes (deny by
+# default) land with the hardened hooks + escalation bridge in PR-4.
+cron_mode: false
+unattended_mode: false
+single_query_mode: false

@@ -42,14 +42,28 @@ spec:
             image:
               repository: docker.io/nousresearch/hermes-agent
               tag: v2026.8.31
-            # Seed config.yaml onto the data volume ONCE (cp -n = no-clobber),
-            # so Hermes owns it after first boot ("hand-placed once, curates
-            # after"). Personal identity (SOUL/USER/MEMORY) is placed by hand
-            # on the PVC, never committed to this public repo.
+            # Apply the operator-owned config.yaml declaratively on every start
+            # (cp -f, was cp -n in PR-3). This keeps the `hooks.pre_tool_call`
+            # gate block authoritative — an agent edit to config.yaml cannot
+            # persistently disable its own gate, since the declarative version
+            # is restored on restart. Personal identity (SOUL/USER/MEMORY) lives
+            # in separate files, hand-placed on the PVC, and is untouched.
             command:
               - sh
               - -c
-              - cp -n /seed/config.yaml /opt/data/config.yaml || true
+              - cp -f /seed/config.yaml /opt/data/config.yaml
+          # One-time install of the `claude` CLI onto the PVC for the escalation
+          # skill. Lands in /opt/data/.local/bin (already on $PATH) so no PATH
+          # override is needed. Idempotent: skips if already present, so only
+          # the first boot pulls from npm (needs the world:443 egress in the CNP).
+          claude-cli-install:
+            image:
+              repository: docker.io/nousresearch/hermes-agent
+              tag: v2026.8.31
+            command:
+              - sh
+              - -c
+              - test -x /opt/data/.local/bin/claude || npm install -g --prefix /opt/data/.local --cache /tmp/.npm @anthropic-ai/claude-code
         containers:
           app:
             image:
@@ -140,10 +154,12 @@ spec:
           hermes:
             config-seed:
               - path: /opt/data
+            claude-cli-install:
+              - path: /opt/data
             app:
               - path: /opt/data
       # The operator-managed config.yaml, mounted read-only into the seed init
-      # container only (it copies it onto the data volume if absent).
+      # container only (it copies it onto the data volume every start).
       config-seed:
         type: configMap
         name: hermes-config
@@ -151,4 +167,15 @@ spec:
           hermes:
             config-seed:
               - path: /seed
+                readOnly: true
+      # The fail-closed pre_tool_call gate, mounted READ-ONLY at /opt/hooks —
+      # physically outside the writable /opt/data PVC, so the agent cannot
+      # rewrite its own gate (config.yaml references python3 /opt/hooks/gate.py).
+      hooks:
+        type: configMap
+        name: hermes-hooks
+        advancedMounts:
+          hermes:
+            app:
+              - path: /opt/hooks
                 readOnly: true

@@ -144,6 +144,34 @@ spec:
             valid_status_codes: [200]
           prober: http
           timeout: 40s
+        # Tool-call prober for vllm-driver-spark. The wedge probe above uses
+        # max_tokens:1 and so never exercises the --tool-call-parser qwen3_xml
+        # path — but a silent parser regression (leaking tool calls into plain
+        # text instead of returning tool_calls, e.g. after an image/model bump
+        # to a build that defaults to a wrong parser) is the failure mode most
+        # likely to break Hermes' agentic execution loop. This POSTs a request
+        # with a tools array and asserts the response carries a "tool_calls"
+        # field. tool_choice auto + a clear prompt reliably elicits the call.
+        #
+        # 30s timeout: this is a reasoning model, so it spends ~200 tokens
+        # thinking before emitting the call (~238 completion tokens total,
+        # ~8-12s warm). Runs at a low 30-min cadence (Probe CR) — the parser
+        # only breaks on a config/image change, not intermittently, so this is
+        # a regression canary, not a hot-path detector.
+        vllm_toolcall:
+          http:
+            body: |-
+              {"model":"qwen3.6-35b-a3b","messages":[{"role":"user","content":"Get the current weather for Paris using the available tool."}],"tools":[{"type":"function","function":{"name":"get_weather","description":"Get weather for a city","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}],"tool_choice":"auto","max_tokens":1024}
+            fail_if_body_not_matches_regexp:
+              - "\"tool_calls\""
+            headers:
+              Content-Type: application/json
+            method: POST
+            preferred_ip_protocol: "ip4"
+            valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+            valid_status_codes: [200]
+          prober: http
+          timeout: 30s
         tcp_connect:
           prober: tcp
           tcp:

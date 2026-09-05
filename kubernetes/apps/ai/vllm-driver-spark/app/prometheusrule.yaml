@@ -73,7 +73,7 @@ spec:
               (4) silence SparkVllmDriverPodDown for the restart window only,
                   never this alert.
           expr: |-
-            probe_success{instance=~"https?://vllm-driver-spark.*"} == 0
+            probe_success{job=~"probe/observability/vllm-driver-spark-completion"} == 0
           for: 5m
           labels:
             severity: critical
@@ -100,5 +100,31 @@ spec:
             and
             sum(increase(vllm:request_success_total{job="vllm-driver-spark"}[10m])) == 0
           for: 10m
+          labels:
+            severity: warning
+        # Tool-call parser regression canary. The driver can serve chat fine
+        # (wedge probe green) while --tool-call-parser leaks tool calls into
+        # plain text — which silently breaks Hermes' agentic execution loop.
+        # The vllm-driver-spark-toolcall Probe (30-min cadence) POSTs a
+        # tools request and asserts a "tool_calls" field. for:31m spans just
+        # over one probe interval, so it needs two consecutive misses to fire
+        # (no flap on a single slow/transient scrape). Warning: this degrades
+        # tool-calling, not chat, and outages are covered by the alerts above.
+        - alert: SparkVllmDriverToolCallBroken
+          annotations:
+            summary: vllm-driver-spark tool-call parser regression (Hermes execution loop degraded)
+            description: |
+              The vllm-driver-spark-toolcall Probe has failed for >31m — the
+              driver is not returning well-formed tool_calls for a tools
+              request, even though chat may still work. Most likely cause: an
+              image/model bump changed the default --tool-call-parser away from
+              qwen3_xml, or --enable-auto-tool-choice was dropped. Impact: any
+              Hermes/agentic tool-calling through the driver breaks. Check
+              `kubectl -n ai get statefulset vllm-driver-spark -o yaml` for the
+              --tool-call-parser / --reasoning-parser / --enable-auto-tool-choice
+              args, and confirm with a live tools request against :8000.
+          expr: |-
+            probe_success{instance=~"https?://vllm-driver-spark.*/v1/chat/completions",job=~"probe/observability/vllm-driver-spark-toolcall"} == 0
+          for: 31m
           labels:
             severity: warning

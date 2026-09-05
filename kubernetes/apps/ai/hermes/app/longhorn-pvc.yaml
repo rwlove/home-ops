@@ -1,0 +1,48 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/persistentvolumeclaim-v1.json
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hermes-data-pvc
+  labels:
+    type: longhorn
+spec:
+  accessModes:
+    - ReadWriteOnce
+  volumeMode: Filesystem
+  resources:
+    requests:
+      storage: 20Gi
+  volumeName: hermes-data-pv
+  storageClassName: hermes-data-storage-class
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: hermes-data-pv
+  labels:
+    type: longhorn
+spec:
+  # Irreplaceable, continuously-authored state (SQLite/FTS5 sessions,
+  # memory, self-authored skills, identity) → Longhorn per the storage-class
+  # decision tree rule 3. numberOfReplicas 2 (not media-grade 1). The volume
+  # carries no recurring-job-group labels, so Longhorn auto-applies the
+  # `default` group (daily snapshot + weekly + monthly backup) — the intended
+  # coverage per storage-class.instructions.md; do NOT add named labels here
+  # or it drops out of `default`. xfs (block, WAL-crash-safe) is the right FS
+  # for SQLite — NFS/SMB would force Hermes to fall back to journal=DELETE.
+  capacity:
+    storage: 20Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: hermes-data-storage-class
+  csi:
+    driver: driver.longhorn.io
+    fsType: xfs
+    volumeAttributes:
+      numberOfReplicas: "2"
+      staleReplicaTimeout: "2880"
+    volumeHandle: hermes-data-xfs

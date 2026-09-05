@@ -38,3 +38,67 @@ spec:
           for: 5m
           labels:
             severity: critical
+        # Synthetic-probe wedge detector — the sister of SparkTeiEmbedWedged
+        # / SparkOllamaWedged, and the load-bearing signal for this endpoint.
+        # /health returns 200 and the pod stays Ready while the EngineCore
+        # spin-loops (observed live 2026-09-05: GPU pinned 96%,
+        # num_requests_running stuck at 2, zero completions for 12 days) —
+        # so SparkVllmDriverPodDown above CANNOT catch a wedge. The
+        # vllm-driver-spark-completion Probe (blackbox-exporter/app/
+        # probes.yaml, 2-min cadence) POSTs a real 1-token /v1/chat/
+        # completions decode and asserts the OpenAI shape; probe_success
+        # goes 0 the moment decode freezes.
+        #
+        # Companion: the generic BlackboxProbeFailed does NOT cover this
+        # probe (its matcher is scoped to nfs|ollama-embed), so this rule is
+        # the only page for a driver wedge.
+        - alert: SparkVllmDriverWedged
+          annotations:
+            summary: vllm-driver-spark synthetic decode probe failing (reasoning/driver LLM wedged)
+            description: |
+              The vllm-driver-spark-completion Probe (POST /v1/chat/
+              completions, max_tokens:1) has been failing for ≥5 minutes.
+              The pod reports Ready and /health=200 while the EngineCore is
+              not actually serving — a GB10 CUDA-graph decode hang (#40969).
+              Impact: Open WebUI chat, LightRAG, and any driver-LLM consumer
+              stall. Checks:
+              (1) `kubectl -n ai logs statefulset/vllm-driver-spark --tail=200`;
+              (2) confirm the wedge signature —
+                  `vllm:num_requests_running > 0` with zero increase in
+                  `vllm:request_success_total` (SparkVllmDriverWedgedInternal);
+              (3) recovery is a restart —
+                  `kubectl -n ai rollout restart statefulset/vllm-driver-spark`
+                  (weights are cached on the PVC; ~10-40 min to reload +
+                  recompile graphs — do NOT thrash the pod);
+              (4) silence SparkVllmDriverPodDown for the restart window only,
+                  never this alert.
+          expr: |-
+            probe_success{instance=~"https?://vllm-driver-spark.*"} == 0
+          for: 5m
+          labels:
+            severity: critical
+        # Secondary/corroborating internal-counter view of the same wedge,
+        # verified live to fire against the current incident (2026-09-05):
+        # requests in flight (num_requests_running > 0) but zero successful
+        # completions over 10m. This catches the wedge from the engine's own
+        # metrics even if the synthetic probe request can't get scheduled.
+        # NB the aggregation: request_success_total is split into multiple
+        # series by `finished_reason`, so a bare `and` to num_requests_running
+        # (which has no such label) returns EMPTY and never fires — sum()/max()
+        # collapse the labels so the join works. Warning, not critical, to
+        # avoid double-paging with the probe alert above.
+        - alert: SparkVllmDriverWedgedInternal
+          annotations:
+            summary: vllm-driver-spark serving requests but completing none (engine-counter wedge signal)
+            description: |
+              vllm:num_requests_running > 0 with zero increase in
+              vllm:request_success_total over 10m — the engine is holding
+              requests without completing them. Corroborates
+              SparkVllmDriverWedged; same recovery (rollout restart).
+          expr: |-
+            max(vllm:num_requests_running{job="vllm-driver-spark"}) > 0
+            and
+            sum(increase(vllm:request_success_total{job="vllm-driver-spark"}[10m])) == 0
+          for: 10m
+          labels:
+            severity: warning

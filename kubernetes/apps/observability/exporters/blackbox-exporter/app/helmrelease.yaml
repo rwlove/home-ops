@@ -113,6 +113,37 @@ spec:
             valid_status_codes: [200]
           prober: http
           timeout: 45s
+        # Synthetic-decode prober for vllm-driver-spark, the Qwen3.6-35B-A3B
+        # reasoning/driver LLM on the Spark. POSTs a 1-token chat completion
+        # and asserts the OpenAI response shape ("choices"). This is the
+        # wedge detector the endpoint lacked: vLLM returns /health=200 while
+        # the EngineCore spin-loops (GPU pinned 96%, decode frozen,
+        # num_requests_running stuck) — /health cannot see it, a real decode
+        # can. Sister of ollama_generate (also a 1-token generation), but
+        # against the OpenAI /v1/chat/completions surface, so the success
+        # assertion is the OpenAI shape ("choices") rather than ollama's
+        # ("response"). The model id is the served-model-name invariant
+        # (qwen3.6-35b-a3b), stable across image/model bumps.
+        #
+        # 40s timeout absorbs a cold CUDA-graph warm-up after a restart
+        # (weights load from the cache PVC, then graphs compile); a warm
+        # decode returns in well under a second. The Probe CR (probes.yaml)
+        # pairs scrapeTimeout 45s > this 40s so a cold load surfaces as a
+        # slow success, not a scrape error (same rule as ollama-vlm-warm).
+        vllm_completion:
+          http:
+            body: |-
+              {"model":"qwen3.6-35b-a3b","messages":[{"role":"user","content":"ping"}],"max_tokens":1,"stream":false}
+            fail_if_body_not_matches_regexp:
+              - "\"choices\""
+            headers:
+              Content-Type: application/json
+            method: POST
+            preferred_ip_protocol: "ip4"
+            valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+            valid_status_codes: [200]
+          prober: http
+          timeout: 40s
         tcp_connect:
           prober: tcp
           tcp:

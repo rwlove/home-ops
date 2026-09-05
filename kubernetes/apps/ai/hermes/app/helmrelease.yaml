@@ -51,7 +51,14 @@ spec:
             command:
               - sh
               - -c
-              - cp -f /seed/config.yaml /opt/data/config.yaml
+              # Apply both the config and the shell-hook consent allowlist
+              # declaratively each start (before the gateway registers hooks).
+              # The allowlist is what actually makes the pre_tool_call gate FIRE
+              # — an unconsented hook is skipped (fail-open on consent), and
+              # HERMES_ACCEPT_HOOKS does not consent `gateway run` (verified via
+              # `hermes hooks doctor`). Seeding it each start also restores it if
+              # the agent deletes it, since consent is checked at registration.
+              - cp -f /seed/config.yaml /opt/data/config.yaml && cp -f /seed/shell-hooks-allowlist.json /opt/data/shell-hooks-allowlist.json
           # One-time install of the `claude` CLI onto the PVC for the escalation
           # skill. Lands in /opt/data/.local/bin (already on $PATH) so no PATH
           # override is needed. Idempotent: skips if already present, so only
@@ -76,14 +83,6 @@ spec:
               HERMES_HOME: /opt/data
               HERMES_UID: "10000"
               HERMES_GID: "10000"
-              # Auto-consent the operator-owned shell hooks at startup. Without
-              # this, the pre_tool_call gate registers but is "not allowlisted"
-              # and SKIPPED (fail-open on consent) — the first-use prompt can't
-              # be answered in a headless pod. This env var (vs a writable
-              # allowlist file on the PVC) is agent-un-removable, and config.yaml
-              # is operator-owned (cp -f each start) so no rogue hook can be
-              # auto-trusted. See hermes hooks docs — HERMES_ACCEPT_HOOKS.
-              HERMES_ACCEPT_HOOKS: "1"
               # In-cluster OpenAI-compatible API server (health + reachability
               # for later consumers). Binds 0.0.0.0 but pod-network only — no
               # public HTTPRoute. API_SERVER_KEY (from the secret) is mandatory:

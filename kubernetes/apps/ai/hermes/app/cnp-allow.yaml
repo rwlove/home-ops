@@ -26,6 +26,19 @@ spec:
         - ports:
             - port: "8000"
               protocol: TCP
+    # External HTTPS for (a) the claude-code escalation skill → api.anthropic.com
+    # (draws Rob's Max subscription) and (b) the one-time npm install of the
+    # `claude` CLI onto the PVC. toEntities:[world]:443 is the cluster's reliable
+    # external-egress pattern — Cilium 1.19 toFQDNs.matchPattern is limited here
+    # (see project_cilium_matchpattern_fqdn_limits; actions-runner uses the same
+    # world:443 rule). The fine-grained exfil control is the fail-closed
+    # pre_tool_call gate (blocks credential + restricted-tier content in tool
+    # args), not the CNP; tightening this to toFQDNs is a hardening follow-up.
+    - toEntities: [world]
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
   # No ingress holes: the OpenAI-compatible API server (:8642) is in-cluster
   # only with no consumer yet (reach it via `kubectl port-forward` for
   # testing). Kubelet health probes (host → pod) are allowed by Cilium's host

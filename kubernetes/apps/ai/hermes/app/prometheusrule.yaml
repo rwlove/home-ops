@@ -1,0 +1,45 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: hermes-rules
+spec:
+  groups:
+    - name: hermes.availability
+      rules:
+        # Pod-level failure — image-pull, OOM, crashloop, node loss, or a
+        # bad init container (config-seed / claude-cli-install).
+        - alert: HermesPodDown
+          annotations:
+            summary: hermes Pod not Ready (local-first agent front door unavailable)
+            description: |
+              Pod {{ $labels.namespace }}/{{ $labels.pod }} has been not-Ready
+              for >10 minutes. Inspect with `kubectl -n ai describe pod
+              {{ $labels.pod }}` and `kubectl -n ai logs {{ $labels.pod }}
+              --previous`. Init containers seed config + install the claude
+              CLI; a failure there blocks startup.
+          expr: |-
+            kube_pod_status_ready{namespace="ai",pod=~"hermes-.*",condition="true"} == 0
+          for: 10m
+          labels:
+            severity: warning
+        # Synthetic /health probe — catches an up-but-not-serving gateway that
+        # pod-Ready cannot (same rationale as the vllm/tei/ollama wedge probes).
+        # The hermes-health Probe (blackbox-exporter, 1-min cadence) GETs
+        # :8642/health. Warning, not critical: Hermes is Rob's tooling surface,
+        # not a household-facing service, and the local 35B + escalation both
+        # keep working directly even if the Hermes gateway is down.
+        - alert: HermesDown
+          annotations:
+            summary: hermes /health probe failing (agent gateway not serving)
+            description: |
+              The hermes-health Probe (GET :8642/health) has failed for >5m.
+              The gateway may be up (pod-Ready) but not serving — check
+              `kubectl -n ai logs statefulset/hermes --tail=100`. Recovery:
+              `kubectl -n ai rollout restart statefulset/hermes`.
+          expr: |-
+            probe_success{job=~"probe/observability/hermes-health"} == 0
+          for: 5m
+          labels:
+            severity: warning

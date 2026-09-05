@@ -3,46 +3,21 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: hermes-data-pvc
-  labels:
-    type: longhorn
+  name: hermes-data
 spec:
+  # Irreplaceable, continuously-authored state (SQLite/FTS5 sessions, memory,
+  # self-authored skills, identity) → Longhorn per storage-class rule 3.
+  # DYNAMIC provisioning (storageClassName: longhorn): a fresh app has no
+  # pre-existing Longhorn volume, so the static-PV + volumeHandle pattern
+  # (media/jellyfin) would fail to attach — that pattern is for restored/
+  # migrated volumes. The `longhorn` StorageClass is Retain + expandable;
+  # Longhorn creates the volume and, because the Volume CR carries no
+  # recurring-job labels, auto-applies the `default` group (daily snapshot +
+  # weekly + monthly backup) — the intended coverage. Block+xfs keeps SQLite
+  # on WAL (NFS would force journal=DELETE).
   accessModes:
     - ReadWriteOnce
-  volumeMode: Filesystem
+  storageClassName: longhorn
   resources:
     requests:
       storage: 20Gi
-  volumeName: hermes-data-pv
-  storageClassName: hermes-data-storage-class
-
----
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: hermes-data-pv
-  labels:
-    type: longhorn
-spec:
-  # Irreplaceable, continuously-authored state (SQLite/FTS5 sessions,
-  # memory, self-authored skills, identity) → Longhorn per the storage-class
-  # decision tree rule 3. numberOfReplicas 2 (not media-grade 1). The volume
-  # carries no recurring-job-group labels, so Longhorn auto-applies the
-  # `default` group (daily snapshot + weekly + monthly backup) — the intended
-  # coverage per storage-class.instructions.md; do NOT add named labels here
-  # or it drops out of `default`. xfs (block, WAL-crash-safe) is the right FS
-  # for SQLite — NFS/SMB would force Hermes to fall back to journal=DELETE.
-  capacity:
-    storage: 20Gi
-  volumeMode: Filesystem
-  accessModes:
-    - ReadWriteOnce
-  persistentVolumeReclaimPolicy: Retain
-  storageClassName: hermes-data-storage-class
-  csi:
-    driver: driver.longhorn.io
-    fsType: xfs
-    volumeAttributes:
-      numberOfReplicas: "2"
-      staleReplicaTimeout: "2880"
-    volumeHandle: hermes-data-xfs

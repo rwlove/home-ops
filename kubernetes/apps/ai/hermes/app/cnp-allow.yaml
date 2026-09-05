@@ -39,8 +39,16 @@ spec:
         - ports:
             - port: "443"
               protocol: TCP
-  # No ingress holes: the OpenAI-compatible API server (:8642) is in-cluster
-  # only with no consumer yet (reach it via `kubectl port-forward` for
-  # testing). Kubelet health probes (host → pod) are allowed by Cilium's host
-  # policy and need no rule. Consumer ingress + the claude -p → Anthropic
-  # egress land with the escalation bridge in PR-4.
+  ingress:
+    # Blackbox-exporter health probe → /health on :8642 (unauthenticated).
+    # Without this the hermes-health probe is a silent default-deny drop and
+    # probe_success never populates — the #13264 label trap. The label is
+    # `prometheus-blackbox-exporter`, NOT `blackbox-exporter`.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: prometheus-blackbox-exporter
+      toPorts:
+        - ports:
+            - port: "8642"
+              protocol: TCP

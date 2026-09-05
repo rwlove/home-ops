@@ -266,6 +266,27 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: Probe
 metadata:
+  name: hermes-health
+spec:
+  # Liveness for the Hermes agent gateway (the local-first routing front
+  # door). /health is unauthenticated and returns 200 once the gateway is up
+  # — a plain http_2xx check is enough; the OpenAI API (:8642/v1/*) itself is
+  # key-gated. This is the only external health signal for Hermes beyond
+  # pod-Ready. Alert HermesDown lives in hermes/app/prometheusrule.yaml.
+  interval: 1m
+  module: http_2xx
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - http://hermes.ai.svc.cluster.local:8642/health
+
+---
+# yaml-language-server: $schema=https://k8s-schemas.home-operations.com/monitoring.coreos.com/probe_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
   name: vllm-driver-spark-toolcall
 spec:
   # Regression canary for the --tool-call-parser qwen3_xml path — the one

@@ -1,0 +1,26 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: emqx-acl
+data:
+  # Mounted over EMQX's default authz file source (/opt/emqx/etc/acl.conf).
+  # Only ADDS a sandbox for the deck-light controller (clientid ESP32_c747D4,
+  # an untrusted closed-firmware ESP32 on the IoT VLAN) — everything below the
+  # divider is EMQX 5's stock acl.conf, preserved verbatim. With
+  # authorization.no_match = allow, any client matching no rule (i.e. every
+  # other client) is unaffected. Protocol/rationale: home-assistant-config
+  # packages/deck_lights.yaml.
+  #
+  # NOTE: EMQX reads this at boot; a later edit needs a pod roll to take effect.
+  acl.conf: |
+    %% --- Deck-light sandbox (clientid ESP32_c747D4) ---
+    {allow, {clientid, "ESP32_c747D4"}, publish, ["state/62c747d47605"]}.
+    {allow, {clientid, "ESP32_c747D4"}, subscribe, ["device/62c747d47605"]}.
+    {deny, {clientid, "ESP32_c747D4"}, all, ["#"]}.
+
+    %% --- EMQX 5 stock defaults (verbatim) ---
+    {allow, {username, {re, "^dashboard$"}}, subscribe, ["$SYS/#"]}.
+    {allow, {ipaddr, "127.0.0.1"}, all, ["$SYS/#", "#"]}.
+    {deny, all, subscribe, ["$SYS/#", {eq, "#"}, {eq, "+/#"}]}.
+    {allow, all}.

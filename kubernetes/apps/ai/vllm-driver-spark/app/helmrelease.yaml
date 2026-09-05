@@ -63,36 +63,14 @@ spec:
               # 2026-07-31 from the running EngineCore banner. Relevant when
               # correlating behaviour against upstream issues: match on the
               # dev SHA, not on v0.25.1.
-              # NVFP4 needs vLLM >=0.28. Renovate-held — it will re-pin the
-              # digest; the bare tag is confirmed to exist in the repo.
               repository: ghcr.io/timothystewart6/vllm-gb10
-              tag: v0.28.0-gb10.2
+              tag: v0.25.1-cu13.2-torch2.11-gb10.3@sha256:30e70a376ff076f4dc3e1e5fd5ee5f99f36a8ba274f6f590fa1d7894045a66d8
 
             command: ["vllm", "serve"]
             args:
-              # NVFP4 (Blackwell-native 4-bit) — ~2x FP8 throughput on GB10.
-              - unsloth/Qwen3.6-35B-A3B-NVFP4
-              # Single-GPU: sidesteps the #41725 marlin/TP=2 AllReduce hang
-              # entirely (that failure needs 2-node AllReduce; there is none
-              # at TP=1). NEVER marlin — flashinfer_b12x is both faster and off
-              # the hang path (Unsloth model card: marlin is 2x slower).
-              - --tensor-parallel-size
-              - "1"
-              - --moe-backend
-              - flashinfer_b12x
-              - --linear-backend
-              - flashinfer_b12x
-              - --attention-backend
-              - flashinfer
-              # #40969 is a FULL_AND_PIECEWISE cudagraph-capture hang and is
-              # TP-agnostic — NVFP4 keeps graphs on, so it would hit the same
-              # path. FULL_DECODE_ONLY keeps decode-path graphs (throughput
-              # ~unchanged) and drops the spin-looping full-graph capture.
-              - --compilation-config
-              - '{"cudagraph_mode":"FULL_DECODE_ONLY"}'
-              # Consumers reference this name (Open WebUI DEFAULT_MODELS,
-              # LightRAG LLM_MODEL, Hermes). HARD INVARIANT across model/image
-              # bumps — the webui.db chat connection pins this string.
+              - Qwen/Qwen3.6-35B-A3B-FP8
+              # Consumers reference this name (Open WebUI model id, LightRAG
+              # LLM_MODEL, opencode model). Keep stable across image bumps.
               - --served-model-name
               - qwen3.6-35b-a3b
               - --host
@@ -129,10 +107,8 @@ spec:
               # Cap concurrent sequences well under the Mamba cache-block limit
               # (95 at 128k, more at 65k). 32 is ample for this low-traffic
               # fleet (~1-3 concurrent) and lets CUDA graph capture proceed.
-              # 24 (down from FP8's 32) to leave decode headroom for ComfyUI /
-              # TEI on the shared GB10 under the higher NVFP4 gpu-mem-util.
               - --max-num-seqs
-              - "24"
+              - "32"
               # Explicit cap. TUNED FROM LIVE MEASUREMENT (2026-07-23):
               # vLLM sees 121.63 GiB total; the non-vLLM co-tenants
               # (comfyui, tei x2, pump-cv, av1corrector, bge-m3, CUDA
@@ -140,12 +116,8 @@ spec:
               # with coder 0.28 that leaves ~12 GiB for comfyui image-gen
               # bursts. Was 0.42 — dropped because 0.42+0.35 overshot free
               # memory and the coder failed to init.
-              # NVFP4 weights are ~26.5 GiB (vs FP8's ~35). Start at 0.45 and
-              # raise on-box only if ComfyUI/TEI headroom holds — NOT 0.80
-              # (the community default): node MemFree is tight and the GB10 is
-              # shared. Re-measure against live co-tenant usage.
               - --gpu-memory-utilization
-              - "0.45"
+              - "0.36"
               # FP8 KV cache REMOVED 2026-07-31. It halved the KV footprint to
               # fit two instances, but vllm-coder-spark has been parked at
               # replicas:0 since 2026-07-23 (Qwen3.6-27B cannot co-reside with
@@ -213,9 +185,6 @@ spec:
               # default-deny without the world:443 egress in cnp-allow).
               HF_HOME: &cachePath /data
               VLLM_LOGGING_LEVEL: INFO
-              # GB10 (Blackwell sm_121a) — required by the flashinfer b12x
-              # kernels used for NVFP4.
-              CUTE_DSL_ARCH: sm_121a
               # Read by the OTel SDK itself, not by vLLM — vLLM sets no
               # service name of its own, so without this every span lands
               # in Tempo as `unknown_service` and cannot be told apart

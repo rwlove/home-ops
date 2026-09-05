@@ -39,9 +39,19 @@ spec:
           # 0.5 still catches it. Drops with no destination_namespace label
           # (host-network or unmapped) get aggregated into the empty bucket
           # but still alert.
+          #
+          # ICMPv4 is excluded: a synchronized rolling restart of a namespace
+          # (e.g. Renovate landing a batch of image bumps that restart every
+          # pod at once) produces a burst of denied ICMPv4 — stale ARP/neighbor
+          # probes and kernel unreachables aimed at pod IPs that just got
+          # reassigned. No CNP in this cluster permits ICMP (ingress is scoped
+          # to app TCP/UDP ports), so that noise is always POLICY_DENIED and is
+          # never the "a real client can't reach its dependency" signal. TCP/UDP
+          # is. 2026-09-05: a databases-ns restart burst (peak 6.1 pkt/s ICMPv4,
+          # 6 TCP drops total) false-paged this alert; this filter closes it.
           expr: |
             sum by (destination_namespace) (
-              rate(hubble_drop_total{reason="POLICY_DENIED"}[5m])
+              rate(hubble_drop_total{reason="POLICY_DENIED", protocol!="ICMPv4"}[5m])
             ) > 0.5
           for: 10m
           labels:
@@ -58,9 +68,12 @@ spec:
           # 200 drops in 2m = ~1.7 pkt/s sustained, the signature of an app
           # whose connectivity just broke (e.g. a netpol PR landed and an
           # egress rule went missing). Critical → routes to Pushover.
+          # ICMPv4 excluded for the same reason as the sustained alert above —
+          # a large synchronized restart can burst denied ICMPv4 past 200/2m
+          # and false-page this critical alert, but ICMP is never the signal.
           expr: |
             sum by (destination_namespace) (
-              increase(hubble_drop_total{reason="POLICY_DENIED"}[2m])
+              increase(hubble_drop_total{reason="POLICY_DENIED", protocol!="ICMPv4"}[2m])
             ) > 200
           for: 2m
           labels:

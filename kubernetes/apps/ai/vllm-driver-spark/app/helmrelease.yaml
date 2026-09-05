@@ -63,12 +63,34 @@ spec:
               # 2026-07-31 from the running EngineCore banner. Relevant when
               # correlating behaviour against upstream issues: match on the
               # dev SHA, not on v0.25.1.
+              # NVFP4 needs vLLM >=0.28. Renovate-held — it re-pins the digest.
               repository: ghcr.io/timothystewart6/vllm-gb10
-              tag: v0.25.1-cu13.2-torch2.11-gb10.3@sha256:30e70a376ff076f4dc3e1e5fd5ee5f99f36a8ba274f6f590fa1d7894045a66d8
+              tag: v0.28.0-gb10.2
 
             command: ["vllm", "serve"]
             args:
-              - Qwen/Qwen3.6-35B-A3B-FP8
+              # NVFP4 (~2x FP8) — the `-Fast` variant, per the unsloth DGX Spark
+              # instructions. This checkpoint is MIXED precision: NVFP4 MoE
+              # experts + FP8 (W8A8) Gated-DeltaNet QKVZ layers.
+              - unsloth/Qwen3.6-35B-A3B-NVFP4-Fast
+              # THE FIX (vs the crashed 2026-09-05 attempt): do NOT force
+              # --moe-backend/--linear-backend/--attention-backend. flashinfer_b12x
+              # is NVFP4-ONLY; forcing it globally crashes on this model's FP8
+              # layers with "moe_backend='flashinfer_b12x' is not supported for
+              # FP8 MoE" (vLLM #49076, open). vLLM's compressed-tensors loader
+              # auto-selects the right kernel PER LAYER (NVFP4 → b12x, FP8 → a
+              # valid FP8 backend), so leave the backends unset.
+              - --trust-remote-code
+              - --tensor-parallel-size
+              - "1"
+              # #40969 is a TP-agnostic FULL_AND_PIECEWISE cudagraph-capture hang
+              # (it wedged our FP8). NVFP4 keeps graphs on → same path without
+              # this; FULL_DECODE_ONLY keeps decode graphs, drops the capture.
+              - --compilation-config
+              - '{"cudagraph_mode":"FULL_DECODE_ONLY"}'
+              - --enable-chunked-prefill
+              - --async-scheduling
+              - --enable-prefix-caching
               # Consumers reference this name (Open WebUI model id, LightRAG
               # LLM_MODEL, opencode model). Keep stable across image bumps.
               - --served-model-name
@@ -185,6 +207,11 @@ spec:
               # default-deny without the world:443 egress in cnp-allow).
               HF_HOME: &cachePath /data
               VLLM_LOGGING_LEVEL: INFO
+              # THE highest-impact GB10 knob for NVFP4: vLLM's arch detection
+              # defaults to sm_121 (no `a`) and silently drops CUTE-DSL to the
+              # ~2x-slower CUTLASS path. Both are needed on a fresh 0.28 build.
+              CUTE_DSL_ARCH: sm_121a
+              TORCH_CUDA_ARCH_LIST: 12.1a
               # Read by the OTel SDK itself, not by vLLM — vLLM sets no
               # service name of its own, so without this every span lands
               # in Tempo as `unknown_service` and cannot be told apart

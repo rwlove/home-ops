@@ -29,6 +29,16 @@ auxiliary:
     provider: vllm
     base_url: http://vllm-driver-spark.ai.svc.cluster.local:8000/v1
     model: qwen3.6-35b-a3b
+  # Board decomposition + profile auto-descriptions run on the local model too
+  # (zero Anthropic quota — the board's planning is local, not escalated).
+  kanban_decomposer:
+    provider: vllm
+    base_url: http://vllm-driver-spark.ai.svc.cluster.local:8000/v1
+    model: qwen3.6-35b-a3b
+  profile_describer:
+    provider: vllm
+    base_url: http://vllm-driver-spark.ai.svc.cluster.local:8000/v1
+    model: qwen3.6-35b-a3b
   # vision aux deferred — the driver is text-only.
 agent:
   # Hermes' native control is a fail-OPEN denylist; the fail-CLOSED gate is the
@@ -53,3 +63,31 @@ hooks:
 cron_mode: false
 unattended_mode: false
 single_query_mode: false
+# Peer→named-profile routing: `peer run in-cluster/<profile>` is served by that
+# profile (via /p/<profile>/). REQUIRED for beast to reach the `orchestrator`
+# profile — without it the api_server ignores the selector and card creation
+# over the peer path silently no-ops.
+multiplex_profiles: true
+# Kanban delegation board. The dispatcher runs in THIS gateway (single owner),
+# atomically claims `ready` cards, and spawns the assigned worker profile as a
+# local process on the 35B. Human-in-the-loop: a worker `kanban_block`s a
+# destructive/ambiguous step and Rob clears it from the dashboard (L2 #3).
+kanban:
+  dispatch_in_gateway: true
+  orchestrator_profile: orchestrator
+  default_assignee: generalist
+  auto_decompose: true
+  auto_decompose_per_tick: 5
+  dispatch_interval_seconds: 60
+  failure_limit: 2
+  # Reclaim a `running` card whose worker died (pod restart kills worker child
+  # processes; PID reuse can mask the death) after 30m instead of the 4h default
+  # — adversarial durability finding FM-1.
+  dispatch_stale_timeout_seconds: 1800
+  reconcile_orphans: true
+  # Bounded fan-out: workers are real processes under the pod's 4Gi limit and
+  # the dispatch cap reads host MemTotal not the cgroup, so pin it low (FM-3).
+  max_in_progress: 2
+  max_in_progress_per_profile: 1
+  review_dispatch: true
+  auto_subscribe_on_create: true

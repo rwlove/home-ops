@@ -1,0 +1,32 @@
+# Orchestrator profile config (operator-owned; seeded cp -f = authoritative).
+# Same LOCAL-provider + fail-closed-gate floor as the workers, PLUS the kanban
+# toolset override below. Self-contained (loaded with HERMES_HOME=<profile dir>).
+model:
+  default: qwen3.6-35b-a3b
+  provider: vllm
+  base_url: http://vllm-driver-spark.ai.svc.cluster.local:8000/v1
+  context_length: 131072
+  streaming: false
+auxiliary:
+  free_only: true
+  compression:
+    provider: vllm
+    base_url: http://vllm-driver-spark.ai.svc.cluster.local:8000/v1
+    model: qwen3.6-35b-a3b
+agent:
+  disabled_toolsets:
+    - web
+# CRITICAL (adversarial review, delegation break #1): a peer-received turn
+# (`peer run in-cluster/orchestrator "…"`) runs on the `api_server` platform,
+# whose default toolset (`hermes-api-server`) STRIPS every kanban_* tool. Without
+# this override the orchestrator produces text and creates NO card — the whole
+# beast→board path silently no-ops. `hermes-cli` is the full toolset incl kanban.
+platform_toolsets:
+  api_server:
+    - hermes-cli
+hooks:
+  pre_tool_call:
+    - matcher: "terminal"
+      command: "python3 /opt/hooks/gate.py"
+      timeout: 10
+      fail_closed: true

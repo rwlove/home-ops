@@ -58,7 +58,27 @@ spec:
               # HERMES_ACCEPT_HOOKS does not consent `gateway run` (verified via
               # `hermes hooks doctor`). Seeding it each start also restores it if
               # the agent deletes it, since consent is checked at registration.
-              - cp -f /seed/config.yaml /opt/data/config.yaml && cp -f /seed/shell-hooks-allowlist.json /opt/data/shell-hooks-allowlist.json
+              #
+              # Profiles (the board's "different agents"): each profile's
+              # config.yaml is operator-owned (cp -f = authoritative — pins the
+              # LOCAL provider + the orchestrator's kanban toolset, so an agent
+              # cannot disable its own gate or switch to a remote model). SOUL.md
+              # is a one-time identity seed (cp -n) the agent then evolves — never
+              # clobbered on restart.
+              - |
+                set -e
+                cp -f /seed/config.yaml /opt/data/config.yaml
+                cp -f /seed/shell-hooks-allowlist.json /opt/data/shell-hooks-allowlist.json
+                for p in orchestrator generalist ml network observability smart-home storage; do
+                  mkdir -p "/opt/data/profiles/$${p}"
+                done
+                cp -f /seed-profiles/orchestrator-config.yaml /opt/data/profiles/orchestrator/config.yaml
+                for p in generalist ml network observability smart-home storage; do
+                  cp -f /seed-profiles/worker-config.yaml "/opt/data/profiles/$${p}/config.yaml"
+                done
+                for p in orchestrator generalist ml network observability smart-home storage; do
+                  cp -n "/seed-profiles/$${p}.SOUL.md" "/opt/data/profiles/$${p}/SOUL.md" || true
+                done
           # One-time install of the `claude` CLI onto the PVC for the escalation
           # skill. Lands in /opt/data/.local/bin (already on $PATH) so no PATH
           # override is needed. Idempotent: skips if already present, so only
@@ -187,6 +207,17 @@ spec:
           hermes:
             config-seed:
               - path: /seed
+                readOnly: true
+      # Per-profile seed files (operator-owned config.yaml + one-time SOUL.md),
+      # mounted read-only into the seed init container only. It places them under
+      # /opt/data/profiles/<name>/ (config cp -f, identity cp -n).
+      profiles-seed:
+        type: configMap
+        name: hermes-profiles
+        advancedMounts:
+          hermes:
+            config-seed:
+              - path: /seed-profiles
                 readOnly: true
       # The fail-closed pre_tool_call gate, mounted READ-ONLY at /opt/hooks —
       # physically outside the writable /opt/data PVC, so the agent cannot

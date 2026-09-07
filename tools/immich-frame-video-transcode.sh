@@ -152,7 +152,21 @@ set_policy_via_pr() { # set_policy_via_pr <disabled|bitrate> <subject>
   git -C "$wt" commit -q -m "$subject" \
     -m "Automated by tools/immich-frame-video-transcode.sh (temporary flip-scope-revert)." \
     -m "Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
-  git -C "$wt" push -q -u origin "$br"
+  # Push, tolerating concurrent advances of origin/$MAIN. The repo pre-push hook
+  # rejects a branch that is behind origin/$MAIN, and main can advance between
+  # branch creation and push — the flip PR this run just merged, a Renovate
+  # automerge, or a parallel session. That once left the REVERT push failing and
+  # policy stuck on 'bitrate' until the EXIT-trap fired. Re-fetch, rebase onto the
+  # fresh tip, and retry so the revert lands on the first (not emergency) attempt.
+  local attempt
+  for attempt in 1 2 3 4; do
+    git -C "$wt" push -q -u origin "$br" 2>/dev/null && break
+    [ "$attempt" = 4 ] && { git -C "$REPO" worktree remove --force "$wt" 2>/dev/null || true; die "push of $br failed after $attempt attempts (rebasing onto origin/$MAIN each time)"; }
+    warn "push rejected (branch likely behind origin/$MAIN) — rebasing and retrying ($attempt/3)"
+    git -C "$wt" fetch -q origin "$MAIN"
+    git -C "$wt" rebase -q "origin/$MAIN" \
+      || { git -C "$wt" rebase --abort 2>/dev/null || true; git -C "$REPO" worktree remove --force "$wt" 2>/dev/null || true; die "rebase of $br onto origin/$MAIN conflicted — resolve manually"; }
+  done
   pr="$(gh pr create -R "$ORG_REPO" --head "$br" --title "$subject" \
         --body "Automated flip-scope-revert step — see tools/immich-frame-video-transcode.sh." | tail -1)"
   c "PR $pr — waiting for CI"

@@ -3,8 +3,8 @@
 # immich-frame-video-transcode.sh
 #
 # Give the ImmichFrame album's videos a FRAME-PLAYABLE stored transcode — h264,
-# <=1080p, <=8 Mbps — so they play smoothly on the low-power Frameo frames
-# (Allwinner sun50iw10, WebView 101 = h264 only; 4K h264 and >~15 Mbps stutter),
+# short-side <=720, <=5 Mbps — so they play smoothly on the low-power Frameo frames
+# (Allwinner sun50iw10, WebView 101 = h264 only; 4K h264 and 1080p60 stutter),
 # WITHOUT leaving Immich's global transcode policy enabled.
 #
 # Rob's rule: ONLY the frame album's videos ever get transcoded — never the wider
@@ -19,7 +19,7 @@
 # (already an accepted codec) and served them raw at ~72 Mbps — the frame can't
 # decode 4K h264, so it stuttered. The `bitrate` policy + ffmpeg.maxBitrate +
 # ffmpeg.targetResolution (both set in the immich ExternalSecret, inert while
-# transcode=disabled) force those down to 1080p/8 Mbps.
+# transcode=disabled) force those down to 720p/5 Mbps.
 #
 # Why the flip is unavoidable: Immich transcode is global-policy-driven. With
 # `ffmpeg.transcode=disabled`, a targeted transcode-video job NO-OPS (verified
@@ -58,11 +58,18 @@ MAIN=main
 DEFAULT_ALBUM="ad782b0e-9e90-453c-98e7-086455300ef1"   # familyroom frame album
 # party frame album (currently has 0 videos): 59526fba-9726-4976-a6da-b7f71ebd16cd
 
-# A served video is "frame-conforming" only if h264 AND <= MAX_HEIGHT AND its
-# overall bitrate is <= MAX_BITRATE_BPS. The bitrate ceiling sits a hair above the
-# 8 Mbps ffmpeg.maxBitrate cap so a freshly-produced transcode isn't re-flagged.
-MAX_HEIGHT=1080          # frame panel ~1280x1920; 1080p matches, 4K stutters
-MAX_BITRATE_BPS=9000000  # ~9 Mbps; originals at 17/72 Mbps trip this, 8 Mbps encodes don't
+# A served video is "frame-conforming" only if h264 AND its SHORT side (min of
+# width,height) is <= MAX_SHORT AND its overall bitrate is <= MAX_BITRATE_BPS.
+# The ceilings sit a hair above the ffmpeg.targetResolution / ffmpeg.maxBitrate
+# caps so a freshly-produced transcode isn't re-flagged.
+#
+# 720 (not 1080): the Allwinner sun50iw10 WebView <video> decoder stutters on
+# 1080p60 h264 (~124M px/s) even at 8 Mbps on a healthy 5GHz link — verified the
+# link is not the bottleneck. 720p halves pixels/sec and clears both the 60fps
+# and 30fps clips. Framerate itself is unfixable via Immich (no fps knob), so
+# resolution is the only decode-load lever the transcode pipeline exposes.
+MAX_SHORT=720            # short side; 1280x720 or 720x1280 both pass, 1080p stutters
+MAX_BITRATE_BPS=5500000  # ~5.5 Mbps; a hair over the 5 Mbps ffmpeg.maxBitrate cap
 
 # ---- args ----
 ASSUME_YES=0
@@ -84,8 +91,11 @@ die() { printf '\033[1;31m[FATAL] %s\033[0m\n' "$*" >&2; exit 1; }
 
 for bin in git gh flux kubectl op jq; do command -v "$bin" >/dev/null || die "missing dependency: $bin"; done
 
-KEY="$(op item get immich --fields immichframe_apikey --reveal 2>/dev/null)" || die "cannot read immich API key from 1Password"
-[ -n "$KEY" ] || die "empty immich API key"
+# Prefer a pre-fetched key from the environment (works when op's app-integration
+# unlock can't be reached from a detached/background shell); fall back to op.
+KEY="${IMMICH_API_KEY:-$(op item get immich --fields immichframe_apikey --reveal 2>/dev/null)}" \
+  || die "cannot read immich API key (set IMMICH_API_KEY or sign in to 1Password)"
+[ -n "$KEY" ] || die "empty immich API key (set IMMICH_API_KEY or sign in to 1Password)"
 
 # ---- helpers ----
 api() { # api METHOD PATH [JSON_BODY]
@@ -112,15 +122,19 @@ enc_path() { # enc_path <id> -> this asset's encoded-video file path (empty if n
   kubectl exec -n "$NS" "$POD" -c "$CTR" -- sh -c \
     'find /data/encoded-video -type f -name "'"$1"'*.mp4" 2>/dev/null | head -1'
 }
-probe_served() { # probe_served <id> <originalPath> -> "codec height bitrate" of what the frame gets
+probe_served() { # probe_served <id> <originalPath> -> "codec shortside bitrate" of what the frame gets
   # The frame fetches /video/playback, which serves the stored transcode if one
-  # exists, else the original — so probe the encoded file when present.
+  # exists, else the original — so probe the encoded file when present. The
+  # middle field is the SHORTER dimension (min of width,height): Immich's
+  # targetResolution scales the short side, so a 720 target yields 1280x720
+  # (landscape) or 720x1280 (portrait) — both short-side 720. Checking raw height
+  # would perpetually re-flag portrait clips.
   local enc path
   enc="$(enc_path "$1")"
   path="${enc:-$2}"
   kubectl exec -n "$NS" "$POD" -c "$CTR" -- sh -c \
-    'FF=$(command -v ffprobe || echo /usr/lib/jellyfin-ffmpeg/ffprobe); "$FF" -v error -select_streams v:0 -show_entries stream=codec_name,height:format=bit_rate -of default=noprint_wrappers=1 "'"$path"'" 2>/dev/null' \
-    | awk -F= '/^codec_name=/{c=$2} /^height=/{h=$2} /^bit_rate=/{b=$2} END{if(b==""||b=="N/A")b=0; if(h=="")h=0; print c, h, b}'
+    'FF=$(command -v ffprobe || echo /usr/lib/jellyfin-ffmpeg/ffprobe); "$FF" -v error -select_streams v:0 -show_entries stream=codec_name,width,height:format=bit_rate -of default=noprint_wrappers=1 "'"$path"'" 2>/dev/null' \
+    | awk -F= '/^codec_name=/{c=$2} /^width=/{w=$2} /^height=/{h=$2} /^bit_rate=/{b=$2} END{if(b==""||b=="N/A")b=0; if(w==""||w=="N/A")w=0; if(h==""||h=="N/A")h=0; s=(w<h?w:h); if(w==0)s=h; if(h==0)s=w; print c, s, b}'
 }
 
 set_policy_via_pr() { # set_policy_via_pr <disabled|bitrate> <subject>
@@ -182,20 +196,20 @@ trap cleanup EXIT
 # ---- 1. inventory album videos: probe what the frame ACTUALLY gets served ----
 # (no downloads; in-pod ffprobe of the encoded transcode if present, else original)
 c "current global policy: $(policy_live)"
-c "frame-conforming = h264 AND height<=${MAX_HEIGHT} AND bitrate<=$((MAX_BITRATE_BPS/1000000))Mbps"
+c "frame-conforming = h264 AND short-side<=${MAX_SHORT} AND bitrate<=$((MAX_BITRATE_BPS/1000000))Mbps"
 declare -a NEED=()          # asset ids whose SERVED stream is not frame-conforming
 for alb in "${ALBUMS[@]}"; do
   c "scanning album $alb"
   # NOTE: single search page (<=250 assets). Frame albums are small.
   while IFS=$'\t' read -r id path; do
     [ -n "$id" ] || continue
-    read -r codec height bitrate < <(probe_served "$id" "$path")
-    : "${codec:=?}" "${height:=0}" "${bitrate:=0}"
+    read -r codec short bitrate < <(probe_served "$id" "$path")
+    : "${codec:=?}" "${short:=0}" "${bitrate:=0}"
     mbps=$(( bitrate / 1000000 ))
-    if [ "$codec" = "h264" ] && [ "$height" -le "$MAX_HEIGHT" ] && [ "$bitrate" -le "$MAX_BITRATE_BPS" ]; then
-      c "  ok      $id  (${codec} ${height}p ~${mbps}Mbps)"
+    if [ "$codec" = "h264" ] && [ "$short" -le "$MAX_SHORT" ] && [ "$bitrate" -le "$MAX_BITRATE_BPS" ]; then
+      c "  ok      $id  (${codec} ${short}p ~${mbps}Mbps)"
     else
-      c "  needs   $id  (${codec} ${height}p ~${mbps}Mbps)"
+      c "  needs   $id  (${codec} ${short}p ~${mbps}Mbps)"
       NEED+=("$id")
     fi
   done < <(api POST /api/search/metadata "{\"albumIds\":[\"$alb\"],\"type\":\"VIDEO\"}" \
@@ -209,7 +223,7 @@ fi
 c "${#NEED[@]} video(s) need a (re-)transcode: ${NEED[*]}"
 
 if [ "$ASSUME_YES" != 1 ]; then
-  printf '\nThis will temporarily flip Immich transcode policy to "bitrate" (cap: 1080p / 8 Mbps) and RESTART %s TWICE (household-facing photo/frame blip). Proceed? [y/N] ' "$STS"
+  printf '\nThis will temporarily flip Immich transcode policy to "bitrate" (cap: 720p / 5 Mbps) and RESTART %s TWICE. Proceed? [y/N] ' "$STS"
   read -r ans; [ "$ans" = y ] || [ "$ans" = Y ] || die "aborted by user"
 fi
 
@@ -217,7 +231,7 @@ fi
 mapfile -t BASELINE < <(encoded_ids)
 c "baseline: ${#BASELINE[@]} assets already have an encoded video"
 
-set_policy_via_pr bitrate "chore(immich): temporarily cap frame-album video (1080p/8Mbps)"
+set_policy_via_pr bitrate "chore(immich): temporarily cap frame-album video (720p/5Mbps)"
 FLIPPED=1
 
 ids_json="$(printf '%s\n' "${NEED[@]}" | jq -R . | jq -sc .)"
@@ -247,18 +261,18 @@ set_policy_via_pr disabled "chore(immich): revert transcode policy to disabled (
 FLIPPED=0
 
 # ---- 4. verify each targeted asset now serves frame-conforming h264 ----
-c "verifying targeted assets serve h264 <=${MAX_HEIGHT}p <=$((MAX_BITRATE_BPS/1000000))Mbps"
+c "verifying targeted assets serve h264 short-side<=${MAX_SHORT}p <=$((MAX_BITRATE_BPS/1000000))Mbps"
 ok=1
 for id in "${NEED[@]}"; do
   enc="$(enc_path "$id")"
   if [ -z "$enc" ]; then warn "  $id: NO encoded file produced"; ok=0; continue; fi
-  read -r codec height bitrate < <(probe_served "$id" "")
-  : "${codec:=?}" "${height:=0}" "${bitrate:=0}"
+  read -r codec short bitrate < <(probe_served "$id" "")
+  : "${codec:=?}" "${short:=0}" "${bitrate:=0}"
   mbps=$(( bitrate / 1000000 ))
-  if [ "$codec" = "h264" ] && [ "$height" -le "$MAX_HEIGHT" ] && [ "$bitrate" -le "$MAX_BITRATE_BPS" ]; then
-    c "  $id: encoded ${codec} ${height}p ~${mbps}Mbps ✓"
+  if [ "$codec" = "h264" ] && [ "$short" -le "$MAX_SHORT" ] && [ "$bitrate" -le "$MAX_BITRATE_BPS" ]; then
+    c "  $id: encoded ${codec} ${short}p ~${mbps}Mbps ✓"
   else
-    warn "  $id: encoded ${codec} ${height}p ~${mbps}Mbps (want h264 <=${MAX_HEIGHT}p <=$((MAX_BITRATE_BPS/1000000))Mbps)"; ok=0
+    warn "  $id: encoded ${codec} ${short}p ~${mbps}Mbps (want h264 short-side<=${MAX_SHORT}p <=$((MAX_BITRATE_BPS/1000000))Mbps)"; ok=0
   fi
 done
 

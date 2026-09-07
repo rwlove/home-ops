@@ -142,7 +142,14 @@ mcp_servers:
     # that fronts the broker and admits fromEntities:[cluster] on :8080.
     url: "http://mcp-gateway-istio.mcp-system.svc.cluster.local:8080/mcp"
     enabled: true
-    connect_timeout: 30
+    # 180s (was 30, below the 60 default — my mistake). At BUSY gateway startup
+    # (concurrent profile reconcile + dashboard + …) the connect+list of the
+    # broker's ~1,200 tools exceeds 30s → asyncio.wait_for times out inside
+    # _discover_and_register_server → the server PARKS and is skipped by every
+    # later register pass (it's now in _servers/cooldown), so agents get 0 tools.
+    # `hermes mcp test` connects idle in ~6s, which is why the tools were always
+    # discoverable there. Give the startup connect ample room.
+    connect_timeout: 180
     timeout: 120
     tools:
       include: []

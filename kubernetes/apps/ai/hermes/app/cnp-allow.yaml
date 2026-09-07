@@ -52,3 +52,19 @@ spec:
         - ports:
             - port: "8642"
               protocol: TCP
+    # Internal gateway (envoy) → the board dashboard (:9119, Authelia-fronted)
+    # and the api_server / peer endpoint (:8642, bearer-key). Without this the
+    # board + hermes-api HTTPRoutes resolve but Cilium default-denies the
+    # gateway→backend hop, so Envoy returns "503 upstream connection timeout".
+    # Same pattern as ai/khoj. Auth is enforced at the gateway (Authelia) and by
+    # the api_server's own bearer key — the CNP only opens the network path.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "9119"
+              protocol: TCP
+            - port: "8642"
+              protocol: TCP

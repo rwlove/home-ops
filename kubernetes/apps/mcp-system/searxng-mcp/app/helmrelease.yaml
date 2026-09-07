@@ -26,10 +26,8 @@ spec:
           app:
             image:
               repository: docker.io/isokoliuk/mcp-searxng
-              # 2.0.0 needs MCP_HTTP_STATELESS=true to federate through the
-              # Kuadrant mcp-gateway broker (workaround annotation is on that
-              # env below). Renovate <2.0.0 pin removed 2026-08-22 — 2.0.0
-              # verified working with stateless mode (mcp-searxng#256).
+              # Renovate <2.0.0 pin removed 2026-08-22. Federates through the
+              # Kuadrant mcp-gateway broker in full stateful mode (see env).
               tag: "2.1.0@sha256:b4cf227a6459a5071a9b455c060bdd6912ee4fd4d2275abfdb30bc4f9e539136"
             env:
               SEARXNG_URL: http://searxng.collab.svc.cluster.local:8080
@@ -44,8 +42,12 @@ spec:
               # CIDR) — not spoofable from outside the mesh. Parallels
               # github-mcp-server's --trust-proxy-headers.
               MCP_HTTP_TRUST_PROXY: "10.42.0.0/16"
-              # workaround: https://github.com/Kuadrant/mcp-gateway/issues/1419 — remove when the mcp-gateway broker carries the session-ID/protocol-version for the stateful 2026-07-28 handshake instead of sending a session-less request. Until then 2.0.0's strict streamable-HTTP layer rejects the broker POST as `hasInitializeRequest=false, sessionId=undefined`; POST-only stateless mode accepts it. Dropping this env restores legacy GET/DELETE /mcp + subscriptions + server->client notifications, none of which a request/response search tool needs. Verified working 2026-08-22 (mcp-searxng#256). Tracking issue #13682.
-              MCP_HTTP_STATELESS: "true"
+              # Runs stateful (full streamable-HTTP: GET/DELETE /mcp +
+              # subscriptions + notifications). The MCP_HTTP_STATELESS=true
+              # workaround for Kuadrant/mcp-gateway#1419 was dropped once the
+              # 0.9.0 broker was verified to carry a valid session to a strict
+              # stateful upstream and re-federate across upstream restarts
+              # (retested 2026-09-07, broker 0.9.0 + searxng 2.1.0, in-mesh).
             resources:
               requests:
                 cpu: 10m

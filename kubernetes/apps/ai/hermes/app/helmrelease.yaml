@@ -132,6 +132,10 @@ spec:
               # LightRAG knowledge-graph endpoint for the query/ingest skill and
               # the pre_llm_call auto-RAG hook. LIGHTRAG_API_KEY comes via envFrom.
               LIGHTRAG_URL: http://lightrag.ai.svc.cluster.local:9621
+              # The materialised Obsidian vault (the `claude` DB), synced by the
+              # vault-bridge sidecar. Hermes' note-taking/obsidian skill reads &
+              # writes markdown here (also the substrate for the LLM-Wiki flow).
+              OBSIDIAN_VAULT_PATH: /vault
             envFrom:
               - secretRef:
                   name: hermes-secret
@@ -187,6 +191,33 @@ spec:
                 memory: 2Gi
               limits:
                 memory: 4Gi
+          # vault-bridge — the official Self-hosted LiveSync CLI (same author +
+          # core as the Obsidian plugin) in `daemon` mode: continuously
+          # replicates the `claude` CouchDB DB <-> the local filesystem via the
+          # _changes feed, materialising the vault as files the agent reads/writes.
+          # CouchDB stays the source of truth; the laptop is the canonical editor.
+          # Single pod → the RWO vault PVC is shared with the app container.
+          vault-bridge:
+            image:
+              repository: ghcr.io/vrtmrz/livesync-cli
+              tag: 1.0.24-cli
+            # Entrypoint prepends LIVESYNC_DB_PATH as argv[1], so args become:
+            #   /db --settings /config/settings.json --vault /vault daemon
+            args:
+              - --settings
+              - /config/settings.json
+              - --vault
+              - /vault
+              - daemon
+            env:
+              LIVESYNC_DB_PATH: /db
+              TZ: America/New_York
+            resources:
+              requests:
+                cpu: 25m
+                memory: 128Mi
+              limits:
+                memory: 512Mi
     service:
       app:
         controller: hermes
@@ -197,6 +228,30 @@ spec:
           dashboard:
             port: 9119
     persistence:
+      # The materialised Obsidian vault (the `claude` DB) — ceph-block, shared
+      # RWO between the app (reads/writes markdown at /vault) and vault-bridge
+      # (LiveSync materialises files at /vault, PouchDB local db at /db).
+      vault:
+        existingClaim: hermes-vault-data
+        advancedMounts:
+          hermes:
+            app:
+              - path: /vault
+                subPath: vault
+            vault-bridge:
+              - path: /vault
+                subPath: vault
+              - path: /db
+                subPath: db
+      # LiveSync settings.json (couchDB creds templated) → vault-bridge only.
+      vault-bridge-config:
+        type: secret
+        name: hermes-vault-bridge-secret
+        advancedMounts:
+          hermes:
+            vault-bridge:
+              - path: /config
+                readOnly: true
       # The single source of truth for all Hermes state (SQLite, config, .env,
       # profiles, skills, memories, sessions) — mounted into both the seed init
       # container and the app.

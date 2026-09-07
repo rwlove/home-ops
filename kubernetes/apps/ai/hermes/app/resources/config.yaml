@@ -40,6 +40,37 @@ auxiliary:
     base_url: http://vllm-driver-spark.ai.svc.cluster.local:8000/v1
     model: qwen3.6-35b-a3b
   # vision aux deferred — the driver is text-only.
+# Gateway health export — redacted operational diagnostics (health metrics plus
+# diagnostic and warning/error events) exported as OTLP/HTTP spans to the
+# in-cluster OpenTelemetry Collector, which forwards them to Tempo. Content-free
+# by construction: NO prompts, messages, tool args/results, session history, or
+# trajectories ever leave the pod (HOMELAB-SPEC L5 — safe to export). This is
+# the gateway's health/error signal path. Board *state* (blocked / needs-input
+# cards) is NOT here — it lives in kanban.db and surfaces in the dashboard; a
+# log-based alert would be dead by construction (state is DB rows, not log
+# lines). The `opentelemetry-exporter-otlp-proto-http` dep is already in the
+# image venv (v1.39.1), so no lazy pip-install runs on first export.
+monitoring:
+  gateway_health_export:
+    enabled: true
+    metrics_enabled: true
+    diagnostic_events_enabled: true
+    warning_error_events_enabled: true
+    export_interval_seconds: 60
+    logs_export_interval_seconds: 5
+    resource_attributes:
+      service.name: hermes-gateway
+      deployment.environment.name: production
+  export:
+    otlp:
+      enabled: true
+      # OTLP/HTTP span exporter → the collector's :4318 receiver. The endpoint
+      # MUST include the /v1/traces path: Hermes passes it verbatim to
+      # OTLPSpanExporter(endpoint=...), which (unlike the OTEL_EXPORTER_OTLP_*
+      # env form) does NOT append the signal path. Collector admits
+      # fromEntities:[cluster]; the hermes CNP adds the matching egress.
+      endpoint: http://opentelemetry-collector.observability.svc.cluster.local:4318/v1/traces
+      headers_env: {}
 agent:
   # Hermes' native control is a fail-OPEN denylist; the fail-CLOSED gate is the
   # pre_tool_call hook below. Keep arbitrary web disabled (egress + exfil

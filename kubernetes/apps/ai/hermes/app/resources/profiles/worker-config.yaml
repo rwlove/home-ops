@@ -1,0 +1,28 @@
+# Worker profile config (operator-owned; seeded cp -f = authoritative, so a
+# worker can never be pinned to a remote provider or lose its gate). Loaded
+# with HERMES_HOME=<profile dir>, so this is SELF-CONTAINED on purpose: every
+# safety block (LOCAL provider, web disabled, fail-closed gate) is repeated here
+# rather than assumed-inherited from the base config. Shared by all worker
+# profiles (generalist + the domain specialists). Workers spawn on the `cli`
+# platform (full toolset incl kanban_*), so no platform_toolsets override.
+model:
+  default: qwen3.6-35b-a3b
+  provider: vllm
+  base_url: http://vllm-driver-spark.ai.svc.cluster.local:8000/v1
+  context_length: 131072
+  streaming: false
+auxiliary:
+  free_only: true
+  compression:
+    provider: vllm
+    base_url: http://vllm-driver-spark.ai.svc.cluster.local:8000/v1
+    model: qwen3.6-35b-a3b
+agent:
+  disabled_toolsets:
+    - web
+hooks:
+  pre_tool_call:
+    - matcher: "terminal"
+      command: "python3 /opt/hooks/gate.py"
+      timeout: 10
+      fail_closed: true

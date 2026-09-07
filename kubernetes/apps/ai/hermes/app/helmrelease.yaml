@@ -79,6 +79,12 @@ spec:
                 for p in orchestrator generalist ml network observability smart-home storage; do
                   cp -n "/seed-profiles/$${p}.SOUL.md" "/opt/data/profiles/$${p}/SOUL.md" || true
                 done
+                # LightRAG skill (operator-owned, cp -f authoritative).
+                mkdir -p /opt/data/skills/lightrag/scripts
+                cp -f /seed-skills/SKILL.md /opt/data/skills/lightrag/SKILL.md
+                cp -f /seed-skills/query.py /opt/data/skills/lightrag/scripts/query.py
+                cp -f /seed-skills/ingest.py /opt/data/skills/lightrag/scripts/ingest.py
+                chmod +x /opt/data/skills/lightrag/scripts/query.py /opt/data/skills/lightrag/scripts/ingest.py
           # One-time install of the `claude` CLI onto the PVC for the escalation
           # skill. Lands in /opt/data/.local/bin (already on $PATH) so no PATH
           # override is needed. Idempotent: skips if already present, so only
@@ -123,6 +129,9 @@ spec:
               HERMES_DASHBOARD: "true"
               HERMES_DASHBOARD_HOST: 0.0.0.0
               HERMES_DASHBOARD_PORT: "9119"
+              # LightRAG knowledge-graph endpoint for the query/ingest skill and
+              # the pre_llm_call auto-RAG hook. LIGHTRAG_API_KEY comes via envFrom.
+              LIGHTRAG_URL: http://lightrag.ai.svc.cluster.local:9621
             envFrom:
               - secretRef:
                   name: hermes-secret
@@ -218,6 +227,16 @@ spec:
           hermes:
             config-seed:
               - path: /seed-profiles
+                readOnly: true
+      # LightRAG skill seed files (SKILL.md + query.py + ingest.py), placed onto
+      # /opt/data/skills/lightrag/ by the seed init container.
+      skills-seed:
+        type: configMap
+        name: hermes-skills-lightrag
+        advancedMounts:
+          hermes:
+            config-seed:
+              - path: /seed-skills
                 readOnly: true
       # The fail-closed pre_tool_call gate, mounted READ-ONLY at /opt/hooks —
       # physically outside the writable /opt/data PVC, so the agent cannot

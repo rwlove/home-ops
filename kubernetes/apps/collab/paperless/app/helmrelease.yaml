@@ -87,6 +87,32 @@ spec:
               # Configure redis integration (celery broker). Own db index
               # (db7) so it no longer shares db0 with other tenants.
               PAPERLESS_REDIS: redis://dragonfly.databases.svc.cluster.local:6379/7
+              # Native paperless-ngx AI (v3.1.x). Hybrid GPU routing keeps the
+              # steady embedding load on the cheap, already-warm P40 path and
+              # sends only occasional generation to the Spark 35B:
+              #   embeddings -> P40 ollama bge-m3        (native ollama API)
+              #   generation -> Spark vLLM qwen3.6-35b-a3b (OpenAI /v1)
+              # Both endpoints are in-cluster ONLY — paperless documents are
+              # internal-tier and must never reach a remote API (key below is a
+              # placeholder, not a secret). CNP holes: this app's egress in
+              # cnp-allow.yaml + ingress in ai/ollama and ai/vllm-driver-spark.
+              PAPERLESS_AI_ENABLED: "true"
+              # Generation -> Spark vLLM (OpenAI-compatible; api_base needs /v1).
+              # Model is the driver's --served-model-name, stable across image
+              # bumps.
+              PAPERLESS_AI_LLM_BACKEND: openai-like
+              PAPERLESS_AI_LLM_MODEL: qwen3.6-35b-a3b
+              PAPERLESS_AI_LLM_ENDPOINT: http://vllm-driver-spark.ai.svc.cluster.local:8000/v1
+              # vLLM enforces no key; a non-empty placeholder stops the
+              # OpenAI-compatible client refusing to send with an empty key.
+              # NOT a secret — never leaves the cluster.
+              PAPERLESS_AI_LLM_API_KEY: not-needed
+              # Embeddings -> P40 ollama bge-m3 (native ollama API, bare root,
+              # NO /v1). Reuses the embedder already resident + validated for
+              # this corpus.
+              PAPERLESS_AI_LLM_EMBEDDING_BACKEND: ollama
+              PAPERLESS_AI_LLM_EMBEDDING_MODEL: bge-m3
+              PAPERLESS_AI_LLM_EMBEDDING_ENDPOINT: http://ollama.ai.svc.cluster.local:11434
 
             envFrom: *envFrom
 

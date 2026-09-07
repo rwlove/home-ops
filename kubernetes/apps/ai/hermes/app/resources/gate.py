@@ -63,6 +63,12 @@ if is_escalation:
         r"\bExternalSecret\b",
         r"op://",  # 1Password refs
         r"(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}",  # MAC address
+        # LightRAG knowledge-graph content is LOCAL-only (Rob's personal
+        # finance/property/tax docs). The pre_llm_call auto-RAG hook wraps every
+        # injected block in this sentinel; refusing it here keeps that content
+        # from being copy-forwarded into a claude -p prompt (L2 #1: local yes,
+        # Claude no). Verbatim-forward is blocked; paraphrase can't be caught.
+        r"LIGHTRAG-KG",
     ]
     for pat in RESTRICTED:
         if re.search(pat, blob):

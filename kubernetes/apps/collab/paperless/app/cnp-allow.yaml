@@ -99,3 +99,26 @@ spec:
         - ports:
             - port: "10443"
               protocol: TCP
+    # Native paperless-ngx AI (PAPERLESS_AI_*). Hybrid GPU routing:
+    #   embeddings -> ai/ollama            (bge-m3)          on 11434
+    #   generation -> ai/vllm-driver-spark (qwen3.6-35b-a3b) on 8000
+    # Both are in-cluster local models — no remote-API egress. Without these
+    # holes the connection is a silent default-deny drop that reads as a wrong
+    # model/endpoint (cf. the blackbox-exporter label trap, #13264). Ingress
+    # counterparts live in ai/ollama and ai/vllm-driver-spark cnp-allow.yaml.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: ollama
+      toPorts:
+        - ports:
+            - port: "11434"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: vllm-driver-spark
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP

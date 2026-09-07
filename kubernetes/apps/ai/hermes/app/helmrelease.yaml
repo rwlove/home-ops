@@ -93,6 +93,16 @@ spec:
               # The driver has no --api-key, so any non-empty value satisfies
               # the OpenAI client. Real secrets come via envFrom below.
               OPENAI_API_KEY: sk-noauth-local-vllm
+              # Kanban dashboard — the bundled s6 service (UI + /api/plugins/
+              # kanban/* + /events WS) on :9119. It is already supervised by
+              # /init; this flag brings it up. A non-loopback bind REQUIRES an
+              # auth provider (a June-2026 hardening SystemExits otherwise), so
+              # HERMES_DASHBOARD_BASIC_AUTH_{USERNAME,PASSWORD} arrive via envFrom
+              # from hermes-secret; the board HTTPRoute is additionally fronted by
+              # Authelia (defense in depth, admin-tier group:lldap_admin).
+              HERMES_DASHBOARD: "true"
+              HERMES_DASHBOARD_HOST: 0.0.0.0
+              HERMES_DASHBOARD_PORT: "9119"
             envFrom:
               - secretRef:
                   name: hermes-secret
@@ -151,6 +161,9 @@ spec:
         ports:
           http:
             port: 8642
+          # Bundled Kanban dashboard s6 service (board.${SECRET_DOMAIN} route).
+          dashboard:
+            port: 9119
     persistence:
       # The single source of truth for all Hermes state (SQLite, config, .env,
       # profiles, skills, memories, sessions) — mounted into both the seed init

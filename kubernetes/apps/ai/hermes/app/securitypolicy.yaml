@@ -1,0 +1,35 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/gateway.envoyproxy.io/securitypolicy_v1alpha1.json
+#
+# extAuth via Authelia — same pattern as ai/khoj (#12767). failOpen:false so
+# Authelia down means deny, not an open board. board.${SECRET_DOMAIN} is
+# admin-tier (group:lldap_admin) in the authelia access_control block. The
+# dashboard additionally enforces its own basic-auth (defense in depth).
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: hermes-board-extauth
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: hermes-board
+  extAuth:
+    failOpen: false
+    headersToExtAuth:
+      - accept
+      - cookie
+      - authorization
+      - proxy-authorization
+      - x-forwarded-proto
+    http:
+      backendRefs:
+        - name: authelia
+          namespace: auth
+          port: 9091
+      path: /api/authz/ext-authz/
+      headersToBackend:
+        - Remote-User
+        - Remote-Groups
+        - Remote-Name
+        - Remote-Email

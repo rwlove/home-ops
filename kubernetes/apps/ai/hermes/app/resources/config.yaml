@@ -39,7 +39,17 @@ auxiliary:
     provider: vllm
     base_url: http://vllm-driver-spark.ai.svc.cluster.local:8000/v1
     model: qwen3.6-35b-a3b
-  # vision aux deferred — the driver is text-only.
+  # Vision describer for image/screenshot input. The driver (qwen 35B) is
+  # text-only, so Hermes routes attached images through this vision model, which
+  # describes them → text (agent/image_routing.py). qwen2.5-VL 3B on ollama (P40)
+  # — the same warm instance Frigate GenAI uses; OpenAI-compatible /v1, reachable
+  # intra-namespace (hermes and ollama are both in `ai`, allow-intra-namespace),
+  # so no CNP change. Zero Anthropic quota. Low-QPS/interactive; shares the P40
+  # instance with Frigate (queuing, not crash, risk).
+  vision:
+    provider: vllm
+    base_url: http://ollama.ai.svc.cluster.local:11434/v1
+    model: qwen2.5vl:3b
 # Gateway health export — redacted operational diagnostics (health metrics plus
 # diagnostic and warning/error events) exported as OTLP/HTTP spans to the
 # in-cluster OpenTelemetry Collector, which forwards them to Tempo. Content-free

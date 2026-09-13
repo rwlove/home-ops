@@ -18,17 +18,20 @@ spec:
       retries: 3
   values:
     config:
-      devices:
-        - /dev/sda
-        - /dev/sdb
-        - /dev/sdc
-        - /dev/sdd
-        - /dev/sde
-        - /dev/sdf
-        - /dev/sdg
-        - /dev/nvme0n1
-        - /dev/nvme1n1
-        - /dev/nvme2n1
+      # Auto-scan instead of a hard-coded device list. The prior static
+      # list (/dev/sda-sdg, /dev/nvme{0,1,2}n1) assumed every node in
+      # the DaemonSet has the same 7-SCSI + 3-NVMe inventory. The
+      # cluster mixes physical hosts (varying SATA/NVMe counts) with
+      # beast-hosted KVM VM nodes whose only disk is /dev/vdb — a
+      # virtio block device with no SMART/IDENTIFY path. Every node ran
+      # the full static list regardless of fit, so nodes missing an
+      # entry logged a per-device ERROR every scrape interval:
+      #   Smartctl open device: /dev/sdX failed: No such device
+      #   /dev/nvmeXn1 ... did not return an IDENTIFY DEVICE structure
+      # The exporter auto-scans when no explicit `devices` are given;
+      # device_exclude keeps loop/dm/ram/optical/virtio-block devices
+      # out of the scan so it doesn't grow new noise on the VM nodes.
+      device_exclude: ^/dev/(loop|dm-|ram|sr|vd)
     fullnameOverride: *app
     image:
       repository: ghcr.io/joryirving/smartctl_exporter

@@ -59,6 +59,16 @@ spec:
             name: *secret
 
     extraArgs:
+      # external-dns v0.22.0 changed the default annotation prefix to
+      # external-dns.kubernetes.io/ with NO fallback, so it silently ignored
+      # every external-dns.alpha.kubernetes.io/* annotation this repo carries
+      # (notably the external gateway's /target=external.${SECRET_DOMAIN}).
+      # It then fell back to the gateway's private LB IP and tried to publish
+      # proxied A-records → Cloudflare err 9003, breaking all public DNS.
+      # Pin the alpha prefix to keep 0.22.0 reading the annotations we already
+      # use. Ref: https://github.com/kubernetes-sigs/external-dns/releases/tag/v0.22.0
+      # TODO: migrate annotations to external-dns.kubernetes.io/ and drop this.
+      - --annotation-prefix=external-dns.alpha.kubernetes.io/
       - --cloudflare-dns-records-per-page=1000
       - --cloudflare-proxied
       - --crd-source-apiversion=externaldns.k8s.io/v1alpha1

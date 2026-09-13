@@ -31,12 +31,25 @@ transforms:
       # Drop pod_labels
       del(.pod_labels)
 
+  # Drop gonic's benign unauthenticated-Subsonic-ping log. gonic's readiness
+  # probe intentionally hits /rest/ping.view to gate Ready on the API actually
+  # serving (Music Assistant's one-shot OpenSubsonic loader must not bind a
+  # not-yet-serving gonic) — gonic logs `subsonic error code 10: please
+  # provide a "u" parameter` on each probe (~every 10s). The probe is
+  # correct-on-purpose; drop the cosmetic line at the collector instead of
+  # weakening the probe.
+  drop_gonic_ping_noise:
+    type: filter
+    inputs:
+      - kubernetes_remap
+    condition: '!(.custom_app_name == "gonic" && contains(to_string(.message) ?? "", "please provide a \"u\" parameter"))'
+
 # Sinks
 sinks:
   loki_kubernetes:
     type: loki
     inputs:
-      - kubernetes_remap
+      - drop_gonic_ping_noise
     endpoint: http://loki.observability.svc.cluster.local:3100
     encoding:
       codec: json

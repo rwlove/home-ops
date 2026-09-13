@@ -7,9 +7,14 @@ sources:
   internal_metrics_source:
     type: internal_metrics
 
-  journald_source:
-    type: journald
-    journal_directory: /var/log/journal
+  # journald source disabled: these CRI-O/CentOS nodes keep only a volatile
+  # journal (/run/log/journal), not the persistent /var/log/journal this
+  # source (and the agent's /var/log hostPath mount) expect — so it failed
+  # every read and flooded WARN ("Failed to open /var/log/journal";
+  # "Journalctl process stopped"). We were collecting zero journald data,
+  # so disabling loses nothing. Re-enable with journal_directory:
+  # /run/log/journal + a /run/log hostPath mount if node journald
+  # persistence is standardized later.
 
   kubernetes_source:
     type: kubernetes_logs
@@ -40,12 +45,8 @@ sources:
 
 # Sinks
 sinks:
-  journald:
-    type: vector
-    compression: true
-    version: "2"
-    address: vector-aggregator-app.observability.svc.cluster.local:6002
-    inputs: ["journald_source"]
+  # journald sink removed with journald_source above (nothing to forward).
+  # The aggregator's :6002 journald listener is now unused but harmless.
 
   kubernetes:
     type: vector

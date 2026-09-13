@@ -61,25 +61,12 @@ spec:
     webhook:
       enabled: false
 
-    # One VolumeSnapshotClass per driver that already has its csi-snapshotter
-    # sidecar enabled (see ../../rook-ceph/rook-ceph/csi-drivers/helmrelease.yaml
-    # for the driver-level snapshotPolicy that governs the sidecar). Additive
-    # only — declaring a class does not take a snapshot; nothing calls these
-    # yet, but CNPG's snapshot-recovery bootstrap mode
-    # (databases/cloudnative-pg/app/cnp-allow-recovery-jobs.yaml) is the
-    # documented future consumer.
-    volumeSnapshotClasses:
-      - name: ceph-block
-        driver: rook-ceph.rbd.csi.ceph.com
-        deletionPolicy: Delete
-        parameters:
-          clusterID: rook-ceph
-          csi.storage.k8s.io/snapshotter-secret-name: rook-csi-rbd-provisioner
-          csi.storage.k8s.io/snapshotter-secret-namespace: rook-ceph
-      - name: ceph-filesystem
-        driver: rook-ceph.cephfs.csi.ceph.com
-        deletionPolicy: Delete
-        parameters:
-          clusterID: rook-ceph
-          csi.storage.k8s.io/snapshotter-secret-name: rook-csi-cephfs-provisioner
-          csi.storage.k8s.io/snapshotter-secret-namespace: rook-ceph
+    # VolumeSnapshotClass CRs are intentionally NOT declared here. Helm cannot
+    # create a snapshot.storage.k8s.io/v1 custom resource in the same release
+    # that first installs its CRD — the install fails with "no matches for kind
+    # VolumeSnapshotClass". Installing the CRDs + controller is all the rook
+    # csi-snapshotter sidecars need to stop their watch loop. When a consumer
+    # actually needs snapshots (e.g. CNPG snapshot-recovery,
+    # databases/cloudnative-pg/app/cnp-allow-recovery-jobs.yaml), add the
+    # ceph-block / ceph-filesystem VolumeSnapshotClass objects as separate
+    # manifests applied after these CRDs are established.

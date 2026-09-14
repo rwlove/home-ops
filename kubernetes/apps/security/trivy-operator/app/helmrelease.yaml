@@ -25,6 +25,13 @@ spec:
       # is sparse (reactive to workload changes).
       scanJobsConcurrentLimit: 2
       scanJobsRetryDelay: 30s
+      # ClientServer mode: run a single in-cluster Trivy server that holds the
+      # vuln DB; scan Jobs become thin clients that do NOT initialize a local DB
+      # cache. Fixes the Standalone cache-lock race — multi-image workloads spawn
+      # one scanner container per image sharing the pod's cache emptyDir, which
+      # deadlocked on the fs cache lock ("cache may be in use by another
+      # process: timeout"). Also pulls the DB once (server) instead of per-Job.
+      builtInTrivyServer: true
       # v1 scope = image vulnerabilities only. The config-audit, RBAC-assessment,
       # infra-assessment and cluster-compliance scanners are OFF: they multiply
       # the report/alert surface, and infra/compliance require the node-collector
@@ -95,6 +102,14 @@ spec:
       severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
       # slow: trade scan wall-time for lower CPU/memory — right for a home cluster.
       slow: true
+      # Built-in Trivy server DB storage (builtInTrivyServer above). The vuln DB
+      # is regenerable (re-pulled from mirror.gcr.io) → ceph-block per
+      # storage-class.instructions.md rule 2. storageClassEnabled defaults true.
+      storageClassName: ceph-block
+      storageSize: 5Gi
+      # resources here are the client scan-Job containers (lightweight in
+      # ClientServer mode — no DB download). The server's own resources use the
+      # chart default (200m/512Mi req, 1/1Gi limit).
       resources:
         requests:
           cpu: 100m

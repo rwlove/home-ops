@@ -3,35 +3,30 @@
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
-  name: trivy-operator-scan-jobs-allow
+  name: trivy-operator-egress-allow
 spec:
-  # Egress allowlist for the operator-spawned scan-Job pods. These are created
-  # dynamically at runtime (NOT part of this Flux kustomization, so they do NOT
-  # carry the ks commonMetadata label) — match by the batch job-name label-key
-  # presence, robust against trivy chart label churn. Mirrors the
-  # renovate-jobs-allow / ARC allow-job-container-egress precedent.
+  # Namespace-wide :443 egress. security/ is single-purpose (only trivy runs
+  # here) and both of its internet-bound workloads legitimately need it:
+  #   - the Trivy SERVER pulls the vuln DB + java-DB from mirror.gcr.io;
+  #   - the scan-Job CLIENTS pull each target workload's image from its source
+  #     registry (ghcr.io, docker.io, quay.io, registry.k8s.io, mcr, gcr, lscr…).
+  # Scan Jobs are created dynamically with churny labels, and the server pod
+  # carries chart labels — so endpointSelector:{} (all pods) is both robust to
+  # label churn and simpler than two selectors. The operator pod also matches
+  # but never egresses :443 (apiserver + embedded policies only), so it's inert.
   #
-  # The operator pod itself needs no extra egress: it only talks to the
-  # kube-apiserver (baseline allow-apiserver) and uses the chart's embedded rego
-  # policies (no download). Prometheus scrape ingress comes from baseline
-  # allow-monitoring-scrape.
-  endpointSelector:
-    matchExpressions:
-      - key: batch.kubernetes.io/job-name
-        operator: Exists
+  # The registry set is open-ended (grows with every new image), so an FQDN
+  # allowlist would silently break scans; Cilium 1.19 toFQDNs matchPattern is
+  # also unreliable for A-only names (project_cilium_matchpattern_fqdn_limits.md)
+  # — use toEntities:[world]:443, matching the khoj-allow / alertmanager-allow
+  # precedent. Scan-client → in-cluster server (4975) is covered by baseline
+  # allow-intra-namespace; Prometheus scrape by baseline allow-monitoring-scrape.
+  endpointSelector: {}
   # Additive — default-deny is what triggers the lockdown.
   enableDefaultDeny:
     egress: false
     ingress: false
   egress:
-    # Scan Jobs pull (a) the target workload's image from its source registry —
-    # ghcr.io, docker.io, quay.io, registry.k8s.io, mcr, gcr, lscr, etc. — and
-    # (b) the Trivy vuln DB + java-DB from mirror.gcr.io. The registry set is
-    # open-ended (grows with every new image in the cluster), so an FQDN
-    # allowlist would silently break scans on image churn. Cilium 1.19 toFQDNs
-    # matchPattern is also unreliable for A-only canonical names (see
-    # project_cilium_matchpattern_fqdn_limits.md) — use toEntities: [world]:443,
-    # matching the khoj-allow / alertmanager-allow precedent.
     - toEntities:
         - world
       toPorts:

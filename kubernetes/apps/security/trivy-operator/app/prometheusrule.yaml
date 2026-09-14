@@ -19,10 +19,11 @@ spec:
         # freshly rolled image (a same-day Renovate bump can clear it before it
         # ever pages).
         #
-        # DAY-ONE FLOOD CONTROL: this alert is muted by a 14-day Silence CR
-        # (observability/silence-operator/silences/trivy-critical-vulns.yaml)
-        # while the ~100-image backlog is triaged. The cluster-wide meta-alert
-        # below is NOT silenced and still pages on a systemic problem.
+        # No silence — these fire live to Pushover (Rob's call 2026-09-14). At the
+        # current baseline that's ~42 per-image alerts. The former cluster-wide
+        # meta-alert was dropped: with every vulnerable image already paging
+        # per-image, a count-of-images alert is pure duplicate noise, and a static
+        # threshold just fires constantly at a non-zero baseline.
         - alert: TrivyImageCriticalVulnerabilities
           annotations:
             summary: >-
@@ -40,29 +41,3 @@ spec:
           for: 6h
           labels:
             severity: warning
-    - name: trivy.vulnerabilities.clusterwide
-      rules:
-        # Meta-alert: a high count of distinct vulnerable images cluster-wide
-        # signals something systemic (a base-image CVE hitting many apps, or the
-        # scanner misbehaving) rather than one app's problem. NOT silenced — this
-        # is the escape hatch that still pages while the per-image alert is muted.
-        # Threshold 15 is a PLACEHOLDER: reset it from the measured
-        # count(...trivy_image_vulnerabilities{severity="Critical"}...) after the
-        # first full scan (rollout step).
-        - alert: TrivyClusterWideCriticalVulnerabilities
-          annotations:
-            summary: >-
-              {{ $value }} images cluster-wide have fixable Critical CVEs
-            description: >-
-              Trivy reports Critical vulnerabilities in {{ $value }} distinct
-              images cluster-wide — possible systemic base-image issue or scanner
-              misconfiguration. Review the Trivy metrics in Grafana.
-          expr: |-
-            count(
-              sum by (namespace, image_repository, image_tag) (
-                trivy_image_vulnerabilities{severity="Critical"}
-              ) > 0
-            ) > 15
-          for: 1h
-          labels:
-            severity: critical

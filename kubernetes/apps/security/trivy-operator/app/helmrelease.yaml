@@ -1,0 +1,109 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: trivy-operator
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: trivy-operator
+  interval: 1h
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+  values:
+    operator:
+      replicas: 1
+      # Load-shaping for a home cluster: cap concurrent scan Jobs so the
+      # first-install backlog (~100 unique running images) drains as a slow
+      # trickle instead of a thundering herd across every node. Steady state
+      # is sparse (reactive to workload changes).
+      scanJobsConcurrentLimit: 2
+      scanJobsRetryDelay: 30s
+      # v1 scope = image vulnerabilities only. The config-audit, RBAC-assessment,
+      # infra-assessment and cluster-compliance scanners are OFF: they multiply
+      # the report/alert surface, and infra/compliance require the node-collector
+      # (hostPath + privileged) which would violate this namespace's PSA posture.
+      # Revisit once vuln alerting has been tuned. sbomGeneration off too — the
+      # VulnerabilityReport is what feeds metrics; SbomReport CRs are dead weight
+      # for v1.
+      vulnerabilityScannerEnabled: true
+      exposedSecretScannerEnabled: true
+      sbomGenerationEnabled: false
+      configAuditScannerEnabled: false
+      rbacAssessmentScannerEnabled: false
+      infraAssessmentScannerEnabled: false
+      clusterComplianceEnabled: false
+      # metricsFindingsEnabled (default true) exports trivy_image_vulnerabilities,
+      # which the PrometheusRule alerts on. metricsVulnIdEnabled stays false
+      # (per-CVE-id labels blow up cardinality).
+      metricsFindingsEnabled: true
+    # Operator pod hardening (helmrelease.security.md). Chart is not app-template,
+    # so these use the chart's own top-level securityContext keys. RO rootfs is
+    # fine — the operator only writes the embedded policy bundle to the /tmp
+    # emptyDir the chart mounts.
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+      seccompProfile:
+        type: RuntimeDefault
+    securityContext:
+      privileged: false
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop:
+          - ALL
+      seccompProfile:
+        type: RuntimeDefault
+    resources:
+      requests:
+        cpu: 25m
+        memory: 128Mi
+      limits:
+        memory: 256Mi
+    trivyOperator:
+      # Harden the operator-spawned scan-Job pods to be restricted-PSA compliant
+      # (image-scan mode does not need root). If a scan fails to write its cache
+      # under runAsUser 1000 at test time, relax runAsUser here.
+      scanJobPodTemplatePodSecurityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      scanJobPodTemplateContainerSecurityContext:
+        privileged: false
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop:
+            - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    trivy:
+      # ignoreUnfixed: only surface CVEs with an available fix — cuts day-one
+      # noise at the source (Rob's call). Reports still carry all severities;
+      # the alert rule filters to Critical.
+      ignoreUnfixed: true
+      severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+      # slow: trade scan wall-time for lower CPU/memory — right for a home cluster.
+      slow: true
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          memory: 1Gi
+    # ServiceMonitor is the value-add: lands trivy_image_vulnerabilities in
+    # kube-prometheus-stack (discovered cluster-wide — serviceMonitorSelectorNil...
+    # is false on the stack).
+    serviceMonitor:
+      enabled: true
+      interval: 5m

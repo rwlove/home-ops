@@ -1,0 +1,27 @@
+---
+# yaml-language-server: $schema=https://k8s-schemas.home-operations.com/observability.giantswarm.io/silence_v1alpha2.json
+#
+# Day-one flood guard for trivy-operator's first-scan backlog. On initial
+# install the operator scans ~100 running images and TrivyImageCriticalVulnerabilities
+# (security/trivy-operator/app/prometheusrule.yaml) is expected to fire for many
+# of them at once. This silence mutes ONLY that per-image alert while the backlog
+# is triaged.
+#
+# duration: 14d — mechanically expires (the operator sets endsAt = creation +
+# duration), so the alert resumes paging with no revert PR. At expiry, review the
+# real finding volume and either let it lapse or delete/extend this file. The
+# cluster-wide meta-alert (TrivyClusterWideCriticalVulnerabilities) is deliberately
+# NOT covered here — a systemic problem still pages.
+#
+# NOTE: the 14d clock starts when this CR is created (on merge), not when the
+# operator is unsuspended. Unsuspend trivy-operator promptly after merge so the
+# window covers the actual first scan.
+apiVersion: observability.giantswarm.io/v1alpha2
+kind: Silence
+metadata:
+  name: trivy-image-critical-vulns-dayone
+spec:
+  duration: 14d
+  matchers:
+    - name: alertname
+      value: TrivyImageCriticalVulnerabilities

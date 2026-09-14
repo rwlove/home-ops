@@ -1,0 +1,23 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/kustomization-kustomize-v1.json
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: &app trivy-operator
+spec:
+  commonMetadata:
+    labels:
+      app.kubernetes.io/name: *app
+  targetNamespace: security
+  path: ./kubernetes/apps/security/trivy-operator/app
+  interval: 30m
+  # Ship suspended: on merge the namespace + CNPs reconcile, but the operator
+  # does NOT start scanning ~100 images until a deliberate `flux resume`
+  # (rollout step). Remove once verified. See PR body / plan.
+  suspend: true
+  wait: true
+  dependsOn:
+    # ServiceMonitor CR is created by the HelmRelease (serviceMonitor.enabled),
+    # so its CRD must exist first.
+    - name: prometheus-operator-crds
+      namespace: observability

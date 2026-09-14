@@ -4,6 +4,17 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: security
+  annotations:
+    # Disable k8tz timezone injection namespace-wide. k8tz (cluster-wide
+    # mutating webhook, initContainer strategy) injects a `k8tz` init into every
+    # pod; trivy scan Jobs inherit a `k8tz` container from the target workload
+    # they scan, so the webhook's injected init collides →
+    #   spec.initContainers[N].name: Duplicate value: "k8tz"
+    # and no scan pod can be created. These pods don't need a timezone. k8tz
+    # honors this annotation at the namespace level (precedence Pod → Namespace
+    # → defaults), which is reliable — unlike the operator's scanJobAnnotations,
+    # which lands on the Job, not the Pod.
+    k8tz.io/inject: "false"
   labels:
     kustomize.toolkit.fluxcd.io/prune: disabled
     # PSA audit-only (cluster does not enforce — see docs/src/pod_security_audit.md).

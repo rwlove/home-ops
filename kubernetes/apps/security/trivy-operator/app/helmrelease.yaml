@@ -69,12 +69,16 @@ spec:
           - ALL
       seccompProfile:
         type: RuntimeDefault
+    # The operator watches many controllers cluster-wide and caches every
+    # VulnerabilityReport CR, so memory scales with report count/size. 256Mi
+    # OOMKilled it into CrashLoopBackOff (215 restarts / 20h, exit 137) once the
+    # ~117-report backlog landed. 1Gi gives headroom.
     resources:
       requests:
         cpu: 25m
-        memory: 128Mi
-      limits:
         memory: 256Mi
+      limits:
+        memory: 1Gi
     trivyOperator:
       # Harden the operator-spawned scan-Job pods to be restricted-PSA compliant
       # (image-scan mode does not need root). If a scan fails to write its cache
@@ -88,7 +92,12 @@ spec:
       scanJobPodTemplateContainerSecurityContext:
         privileged: false
         allowPrivilegeEscalation: false
-        readOnlyRootFilesystem: true
+        # readOnlyRootFilesystem must be false: the trivy client writes its
+        # analyzer temp workspace under /tmp/trivy-* and FATALs on a RO rootfs
+        # ("create temp error: /tmp/trivy-2: no such file or directory"),
+        # failing every scan. The other hardening (non-root, drop ALL, seccomp,
+        # no-priv-esc) still applies.
+        readOnlyRootFilesystem: false
         capabilities:
           drop:
             - ALL

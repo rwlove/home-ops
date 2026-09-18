@@ -279,6 +279,17 @@ spec:
           - {name: Prometheus, orgId: 1}
           - {name: home_assistant, orgId: 1}
           - {name: langgraph_checkpoints, orgId: 1}
+    # Recreate, not RollingUpdate: this is a single-replica Deployment
+    # whose only "state" is the plugin cache below. RollingUpdate would
+    # (a) surge a second pod that cannot mount the RWO plugins PVC held
+    # by the outgoing pod, and (b) with maxSurge run two pods
+    # re-resolving the 12 unsigned plugins at once. Recreate tears the
+    # old pod down first; the new one warm-mounts the cached plugins.
+    # Grafana keeps no local state (Postgres-less, ConfigMap-provisioned),
+    # so the ~20s gap is cosmetic — the HA gpu.yaml iframe degrades to a
+    # blank panel briefly, then recovers.
+    deploymentStrategy:
+      type: Recreate
     env:
       GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: false
       GF_ANALYTICS_CHECK_FOR_UPDATES: false
@@ -296,6 +307,17 @@ spec:
       GF_SERVER_ROOT_URL: https://grafana.${SECRET_DOMAIN}
     envFromSecrets:
       - name: &secret grafana-secret
+
+    # Persist the plugin dir so the 12 unsigned plugins are downloaded
+    # from grafana.com ONCE (cold cache) and reused on every subsequent
+    # rollout. The per-rollout re-download is what exceeded even the 10m
+    # timeout on 2026-09-14 (#14187) and stalled the HelmRelease. The
+    # cache is fully regenerable → ceph-block, not Longhorn (no backup
+    # labels). Requires deploymentStrategy: Recreate above (RWO).
+    extraVolumeMounts:
+      - name: plugins
+        mountPath: /var/lib/grafana/plugins
+        existingClaim: grafana-plugins
 
     grafana.ini:
       analytics:

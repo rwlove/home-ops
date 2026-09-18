@@ -117,6 +117,50 @@ spec:
           http:
             port: *port
 
+    externalSecrets:
+      external-dns-bind:
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: onepassword-connect
+        target:
+          name: external-dns-bind-secret
+          template:
+            engineVersion: v2
+            data:
+              EXTERNAL_DNS_RFC2136_TSIG_SECRET: "{{ .BIND_MAIN_RNDC_KEY }}"
+        dataFrom:
+          - extract:
+              key: bind
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: external-dns-bind-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: external-dns-bind
+        # Additive — default-deny is what triggers the lockdown; these rules
+        # punch holes through it.
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        # Ingress :7979 (metrics) covered by baseline allow-monitoring-scrape
+        # + allow-host-probes.
+        egress:
+          # bind9 on the home router (brain, 192.168.1.1) — RFC2136 dynamic
+          # DNS updates + AXFR zone transfers (TSIG signed). Both TCP and
+          # UDP/53 — small updates ride UDP, AXFR forces TCP. CIDR rule
+          # because brain is the home router (host-network identity, not a
+          # k8s pod), and Cilium's `kube-apiserver` entity matcher won't
+          # cover non-cluster LAN hosts.
+          - toCIDR:
+              - 192.168.1.1/32
+            toPorts:
+              - ports:
+                  - port: "53"
+                    protocol: TCP
+                  - port: "53"
+                    protocol: UDP
+
     serviceMonitor:
       app:
         serviceName: *app

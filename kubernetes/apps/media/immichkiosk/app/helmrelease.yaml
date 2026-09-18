@@ -172,3 +172,55 @@ spec:
           immichkiosk:
             app:
               - path: /tmp
+
+    externalSecrets:
+      immichkiosk:
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: onepassword-connect
+        target:
+          name: immichkiosk
+          creationPolicy: Owner
+          template:
+            data:
+              KIOSK_IMMICH_API_KEY: "{{ .immichframe_apikey }}"
+              KIOSK_IMMICH_URL: "{{ .immich_url }}"
+        dataFrom:
+          - extract:
+              key: immich
+
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: immichkiosk-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: immichkiosk
+        # Additive — default-deny is what triggers the lockdown. Egress to
+        # immich-server (same ns, :2283) covered by baseline.
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # HTTPRoute on internal envoy gateway → immichkiosk:3000.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: network
+                  app.kubernetes.io/name: envoy
+            toPorts:
+              - ports:
+                  - port: "3000"
+                    protocol: TCP
+        egress:
+          # immichkiosk reaches Immich via the public photos.${SECRET_DOMAIN}
+          # URL (KIOSK_IMMICH_URL is set to the public FQDN per the kiosk
+          # config, so traffic loops back through the external envoy gateway
+          # on container port 10443).
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: network
+                  app.kubernetes.io/name: envoy
+            toPorts:
+              - ports:
+                  - port: "10443"
+                    protocol: TCP

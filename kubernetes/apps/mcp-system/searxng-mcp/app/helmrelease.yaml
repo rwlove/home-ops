@@ -26,10 +26,10 @@ spec:
           app:
             image:
               repository: docker.io/isokoliuk/mcp-searxng
-              # 2.0.0 needs MCP_HTTP_STATELESS=true to federate through the
-              # Kuadrant mcp-gateway broker (workaround annotation is on that
-              # env below). Renovate <2.0.0 pin removed 2026-08-22 — 2.0.0
-              # verified working with stateless mode (mcp-searxng#256).
+              # 2.x needs MCP_HTTP_STATELESS=true to federate through the
+              # Kuadrant mcp-gateway broker (see the env comment below).
+              # Renovate <2.0.0 pin removed 2026-08-22 — 2.x verified working
+              # with stateless mode (mcp-searxng#256).
               tag: "2.3.0@sha256:4f0704ca4b2cad575db6b16d559a84ed9b9574099b7efb1f8023f1e0dcb588b5"
             env:
               SEARXNG_URL: http://searxng.collab.svc.cluster.local:8080
@@ -44,7 +44,15 @@ spec:
               # CIDR) — not spoofable from outside the mesh. Parallels
               # github-mcp-server's --trust-proxy-headers.
               MCP_HTTP_TRUST_PROXY: "10.42.0.0/16"
-              # workaround: https://github.com/Kuadrant/mcp-gateway/issues/1419 — remove when the mcp-gateway broker carries the session-ID/protocol-version for the stateful 2026-07-28 handshake instead of sending a session-less request. Until then 2.0.0's strict streamable-HTTP layer rejects the broker POST as `hasInitializeRequest=false, sessionId=undefined`; POST-only stateless mode accepts it. Dropping this env restores legacy GET/DELETE /mcp + subscriptions + server->client notifications, none of which a request/response search tool needs. Verified working 2026-08-22 (mcp-searxng#256). Tracking issue #13682.
+              # Permanent config, not a workaround: the mcp-gateway broker connects to
+              # upstreams with session-less stateless POSTs by design — Kuadrant/mcp-gateway#1419
+              # (the request that the broker instead carry a session-ID/protocol-version for a
+              # stateful 2026-07-28 handshake) was closed not-planned, so this will not change.
+              # searxng-mcp 2.x's strict streamable-HTTP layer rejects a session-less POST
+              # (`hasInitializeRequest=false, sessionId=undefined`) unless POST-only stateless
+              # mode is enabled; a request/response search tool needs none of the legacy
+              # GET/DELETE /mcp subscriptions this drops. Verified working 2026-08-22
+              # (mcp-searxng#256).
               MCP_HTTP_STATELESS: "true"
             resources:
               requests:

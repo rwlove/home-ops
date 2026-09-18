@@ -92,3 +92,70 @@ spec:
         type: emptyDir
         globalMounts:
           - path: /tmp
+    externalSecrets:
+      nametag:
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: onepassword-connect
+        target:
+          name: nametag-secret
+          template:
+            engineVersion: v2
+            data:
+              # App
+              NEXTAUTH_SECRET: "{{ .NEXTAUTH_SECRET }}"
+              CRON_SECRET: "{{ .CRON_SECRET }}"
+              # REDIS_PASSWORD: "{{ .REDIS_PASSWORD }}"
+              DATABASE_URL: postgres://{{ .POSTGRES_USER }}:{{ .POSTGRES_PASS }}@postgres-nametag-rw.databases.svc.cluster.local:5432/nametag
+              # Postgres Init
+              INIT_POSTGRES_DBNAME: nametag
+              INIT_POSTGRES_HOST: postgres-nametag-rw.databases.svc.cluster.local
+              INIT_POSTGRES_USER: "{{ .POSTGRES_USER }}"
+              INIT_POSTGRES_PASS: "{{ .POSTGRES_PASS }}"
+              INIT_POSTGRES_SUPER_PASS: "{{ .POSTGRES_SUPER_PASS }}"
+        dataFrom:
+          - extract:
+              key: cloudnative-pg
+          - extract:
+              key: nametag
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: nametag-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: nametag
+        # Additive — default-deny is what triggers the lockdown; these rules
+        # punch holes through it.
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # HTTPRoute on internal gateway → nametag:3000
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: network
+                  app.kubernetes.io/name: envoy
+            toPorts:
+              - ports:
+                  - port: "3000"
+                    protocol: TCP
+        egress:
+          # CNPG cluster postgres-nametag in databases ns (Pattern B).
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: databases
+                  cnpg.io/cluster: postgres-nametag
+            toPorts:
+              - ports:
+                  - port: "5432"
+                    protocol: TCP
+          # Redis via shared dragonfly (REDIS_URL env).
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: databases
+                  app.kubernetes.io/name: dragonfly
+            toPorts:
+              - ports:
+                  - port: "6379"
+                    protocol: TCP

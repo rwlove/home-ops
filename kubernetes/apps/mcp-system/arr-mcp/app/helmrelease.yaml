@@ -88,3 +88,79 @@ spec:
             backendRefs:
               - identifier: app
                 port: 3000
+    externalSecrets:
+      arr-mcp:
+        refreshInterval: 5m
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: onepassword-connect
+        target:
+          name: arr-mcp-secret
+          creationPolicy: Owner
+          template:
+            data:
+              SONARR_API_KEY: "{{ .SONARR__API_KEY }}"
+              RADARR_API_KEY: "{{ .RADARR__API_KEY }}"
+              LIDARR_API_KEY: "{{ .LIDARR__API_KEY }}"
+              PROWLARR_API_KEY: "{{ .PROWLARR__API_KEY }}"
+        dataFrom:
+          - extract:
+              key: sonarr
+          - extract:
+              key: radarr
+          - extract:
+              key: lidarr
+          - extract:
+              key: prowlarr
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: arr-mcp-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: arr-mcp
+        # Additive — default-deny is what triggers the lockdown; these rules
+        # punch holes through it. Ingress from same-ns mcp-gateway broker is
+        # covered by baseline allow-intra-namespace.
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        egress:
+          # Sonarr / Radarr / Lidarr in media ns (Pattern E). Env vars set:
+          #   SONARR_URL: http://sonarr.media.svc.cluster.local:8989
+          #   RADARR_URL: http://radarr.media.svc.cluster.local:7878
+          #   LIDARR_URL: http://lidarr.media.svc.cluster.local:8686
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: media
+                  app.kubernetes.io/name: sonarr
+            toPorts:
+              - ports:
+                  - port: "8989"
+                    protocol: TCP
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: media
+                  app.kubernetes.io/name: radarr
+            toPorts:
+              - ports:
+                  - port: "7878"
+                    protocol: TCP
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: media
+                  app.kubernetes.io/name: lidarr
+            toPorts:
+              - ports:
+                  - port: "8686"
+                    protocol: TCP
+          # Prowlarr in downloads ns. Env: PROWLARR_URL points to
+          # http://prowlarr.downloads.svc.cluster.local:9696
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: downloads
+                  app.kubernetes.io/name: prowlarr
+            toPorts:
+              - ports:
+                  - port: "9696"
+                    protocol: TCP

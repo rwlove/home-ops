@@ -64,7 +64,7 @@ long-lived token Secret `omada-cert-reader-token`) is applied by Flux from
 5. Verify Omada now serves the LE cert on the portal port:
 
    ```bash
-   echo | openssl s_client -connect 10.10.30.1:8843 -servername guest-portal.thesteamedcrab.com 2>/dev/null \
+   echo | openssl s_client -connect <controller-ip>:8843 -servername guest-portal.thesteamedcrab.com 2>/dev/null \
      | openssl x509 -noout -issuer -subject
    # issuer should be Let's Encrypt; subject CN *.thesteamedcrab.com
    ```

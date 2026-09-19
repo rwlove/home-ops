@@ -78,10 +78,10 @@ Storage tiers are picked deliberately per workload — see [`storage-class.instr
 | **TLS**          | cert-manager                        | Let's Encrypt + internal CA                           |
 | **Tunnel**       | cloudflared                         | Public ingress without exposing home WAN              |
 | **AuthN/Z**      | Authelia + Envoy extAuth            | SSO; per-route `SecurityPolicy` ext-authz gates apps  |
-| **Secrets**      | External Secrets Operator + 1Password | 116 ExternalSecrets, zero plain-text in Git         |
+| **Secrets**      | External Secrets Operator + 1Password | Zero plain-text in Git                               |
 | **VPN**          | wg-easy                             | Operator OOB WireGuard access                         |
 | **Storage**      | Rook-Ceph, Longhorn, Garage, direct NFS | Tiered by durability requirement                  |
-| **Databases**    | CloudNative-PG, Dragonfly, Qdrant   | 24 Postgres clusters, KV, vector                      |
+| **Databases**    | CloudNative-PG, Dragonfly, Qdrant   | Postgres clusters, KV store, vector search            |
 | **Observability**| kube-prometheus-stack, Loki, Tempo, Grafana | Metrics, logs, traces, dashboards                    |
 | **Telemetry**    | OpenTelemetry Collector + Vector    | Trace pipeline (→ Tempo) + log shipping (→ Loki)      |
 | **Images**       | ZOT                                 | Pull-through registry / local cache                   |
@@ -150,7 +150,7 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 | **EMQX** | MQTT broker |
 | **Node-RED** | Visual automation flows |
 | **Zigbee2MQTT** | Zigbee bridge (Sonoff stick on worker3) |
-| **Z-Wave JS UI** | Z-Wave bridge (ZWA-2 stick on worker1) |
+| **Z-Wave JS UI** | Z-Wave bridge (ZWA-2 stick on worker2) |
 | **Matter Server** | Matter protocol bridge |
 | **Frigate** | NVR + ML camera analysis (7+ cameras, Frigate+ trained model) |
 | **NetBox** | IPAM / DCIM |
@@ -215,7 +215,7 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 
 | App | Purpose |
 |-----|---------|
-| **CloudNative-PG** | 24 Postgres clusters with WAL archiving to Garage |
+| **CloudNative-PG** | Postgres clusters with WAL archiving to Garage |
 | **Dragonfly** | Redis-compatible in-memory store |
 | **Qdrant** | Vector DB for embeddings / RAG |
 | **pgAdmin** | Postgres admin UI |
@@ -444,7 +444,7 @@ Four tiers, picked by what the data has to survive — node loss, Ceph loss, clu
 
 ### 🔐 Secrets — zero plain-text in Git
 
-All 116 ExternalSecrets resolve through External Secrets Operator from 1Password. Application credentials are templated into `ExternalSecret` resources and never live in YAML. Cross-namespace mirrors use the reflector pattern when consumer charts hard-code secret names.
+All ExternalSecrets resolve through External Secrets Operator from 1Password. Application credentials are templated into `ExternalSecret` resources and never live in YAML. Cross-namespace mirrors use the reflector pattern when consumer charts hard-code secret names.
 
 ### 🪪 Authentication — single sign-on everywhere
 

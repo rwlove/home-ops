@@ -79,3 +79,35 @@ spec:
         type: emptyDir
         globalMounts:
           - path: /tmp
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: kube-ops-view-allow
+        #
+        # Cilium 1.19 requires at least one ingress or egress rule when
+        # endpointSelector is set — empty rules with enableDefaultDeny:false
+        # failed schema validation and never applied. Same bug class as the
+        # goldilocks-allow fix (PR #11597).
+        #
+        # Explicit endpointSelector preserves the pre-inline selector
+        # (app.kubernetes.io/name) instead of the chart's controller-derived
+        # default, keeping the policy byte-identical across the migration.
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: kube-ops-view
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # HTTPRoute on internal gateway → kube-ops-view:8080. Auth is
+          # enforced at the gateway by the extAuth SecurityPolicy
+          # (securitypolicy.yaml) — the oauth2-proxy hop was retired in the
+          # #12767 pilot.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: network
+                  app.kubernetes.io/name: envoy
+            toPorts:
+              - ports:
+                  - port: "8080"
+                    protocol: TCP

@@ -89,3 +89,49 @@ spec:
             backendRefs:
               - identifier: app
                 port: 3000
+    externalSecrets:
+      omada-mcp:
+        refreshInterval: 5m
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: onepassword-connect
+        target:
+          name: omada-mcp-secret
+          creationPolicy: Owner
+          template:
+            data:
+              OMADA_BASE_URL: "{{ .omada_base_url }}"
+              OMADA_CLIENT_ID: "{{ .omada_client_id }}"
+              OMADA_CLIENT_SECRET: "{{ .omada_client_secret }}"
+              OMADA_OMADAC_ID: "{{ .omada_omadac_id }}"
+        dataFrom:
+          - extract:
+              key: omada
+            rewrite:
+              - regexp:
+                  source: "(.*)"
+                  target: "omada_$1"
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: omada-mcp-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: omada-mcp
+        # Additive — default-deny is what triggers the lockdown.
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        egress:
+          # Omada controller on brain (192.168.1.1) port 8043. Env:
+          # OMADA_BASE_URL = https://brain:8043. Brain runs the controller
+          # on the host network, so this is a CIDR egress not a pod
+          # selector. Per project_cilium_ipblock_apiserver.md: CIDR rules
+          # are safe for non-apiserver targets; only `reserved:kube-apiserver`
+          # needs entity matching.
+          - toCIDR:
+              - "192.168.1.1/32"
+            toPorts:
+              - ports:
+                  - port: "8043"
+                    protocol: TCP

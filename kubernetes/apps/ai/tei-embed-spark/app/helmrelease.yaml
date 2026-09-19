@@ -178,3 +178,79 @@ spec:
           tei:
             app:
               - path: /tmp
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: tei-embed-spark-allow
+        # Explicit endpointSelector preserves the pre-inline selector
+        # instead of the chart's controller-derived default, keeping the
+        # policy byte-identical across the migration.
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: tei-embed-spark
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # API + metrics share port 3000 (TEI HTTP variant — /metrics on the
+          # main port; same finding as tei-spark). Embedding consumers are
+          # listed up front; the matching egress rule lands on each consumer's
+          # CNP in the embedding-cutover PR, so this is inert until then.
+          # Consumers: Open WebUI RAG embed, LightRAG, memory-mcp, the
+          # paperless-RAG Windmill flow, and the blackbox synthetic embed probe.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: collab
+                  app.kubernetes.io/name: open-webui
+              - matchLabels:
+                  io.kubernetes.pod.namespace: ai
+                  app.kubernetes.io/name: lightrag
+              - matchLabels:
+                  io.kubernetes.pod.namespace: mcp-system
+                  app.kubernetes.io/name: memory-mcp
+              # Windmill executes scripts on its WORKER pods, labelled
+              # `windmill-workers`. Nothing is labelled plain `windmill` (the
+              # others are `windmill-app` / `windmill-extra`), so the short name
+              # silently selected nothing — same failure class as the blackbox
+              # selector below. Verified against live pod labels, and matches how
+              # lightrag's CNP already names this same ingest pusher.
+              - matchLabels:
+                  io.kubernetes.pod.namespace: home
+                  app.kubernetes.io/name: windmill-workers
+              # The chart names the pod `prometheus-blackbox-exporter`, not
+              # `blackbox-exporter` — the Release name and the app label differ.
+              # Matching the short name silently selects nothing, so the probe
+              # gets dropped rather than rejected. Same selector as ollama-spark's
+              # working rule; verified against the live pod label.
+              - matchLabels:
+                  io.kubernetes.pod.namespace: observability
+                  app.kubernetes.io/name: prometheus-blackbox-exporter
+              - matchLabels:
+                  io.kubernetes.pod.namespace: observability
+                  app.kubernetes.io/name: prometheus
+            toPorts:
+              - ports:
+                  - port: "3000"
+                    protocol: TCP
+        egress:
+          # HuggingFace Hub model download — bge-m3 weights pulled to the model
+          # cache PVC on first start. Reuses the world:443 pattern from
+          # tei-spark / ollama-spark (HF / CDN IPs are not FQDN-stable enough
+          # for toFQDNs).
+          - toEntities: [world]
+            toPorts:
+              - ports:
+                  - port: "443"
+                    protocol: TCP
+          # OTLP trace export to the collector in observability. Without this
+          # the export is a silent drop — TEI logs nothing and no span ever
+          # reaches Tempo, the same failure shape as the blackbox-exporter
+          # label trap in #13264.
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: observability
+                  app.kubernetes.io/name: opentelemetry-collector
+            toPorts:
+              - ports:
+                  - port: "4317"
+                    protocol: TCP

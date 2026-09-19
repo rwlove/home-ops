@@ -101,3 +101,27 @@ spec:
             backendRefs:
               - identifier: app
                 port: 9100
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: comfyui-mcp-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: comfyui-mcp
+        # Additive — default-deny is what triggers the lockdown; these rules
+        # punch holes through it. Ingress from same-ns mcp-gateway broker is
+        # covered by baseline allow-intra-namespace.
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        egress:
+          # ComfyUI in ai ns. Env: COMFYUI_URL points to
+          # http://comfyui-spark.ai.svc.cluster.local:8188 (Spark/GB10 backend).
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: ai
+                  app.kubernetes.io/name: comfyui-spark
+            toPorts:
+              - ports:
+                  - port: "8188"
+                    protocol: TCP

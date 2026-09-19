@@ -193,3 +193,98 @@ spec:
           lightrag:
             app:
               - path: /tmp
+    externalSecrets:
+      lightrag:
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: onepassword-connect
+        refreshInterval: 5m
+        target:
+          name: lightrag-secret
+          creationPolicy: Owner
+          template:
+            engineVersion: v2
+            data:
+              # Server-to-server API key (the future paperless→LightRAG ingest
+              # pusher authenticates with this) and the WebUI login accounts.
+              # Ollama itself needs no key — LLM + embedding calls are
+              # unauthenticated intra-cluster.
+              LIGHTRAG_API_KEY: "{{ .api_key }}"
+              AUTH_ACCOUNTS: "{{ .auth_accounts }}"
+              TOKEN_SECRET: "{{ .token_secret }}"
+        dataFrom:
+          - extract:
+              key: lightrag
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: lightrag-allow
+        # Explicit endpointSelector preserves the pre-inline selector
+        # instead of the chart's controller-derived default, keeping the
+        # policy byte-identical across the migration.
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: lightrag
+        # Additive — default-deny is what triggers the lockdown; these rules
+        # punch holes through it.
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # HTTPRoute on internal gateway → lightrag:9621 (lightrag.${SECRET_DOMAIN}
+          # for the WebUI + REST API).
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: network
+                  app.kubernetes.io/name: envoy
+            toPorts:
+              - ports:
+                  - port: "9621"
+                    protocol: TCP
+          # Ingest pusher: a Windmill flow reads the paperless corpus and POSTs
+          # documents into LightRAG's REST API (mirrors the existing
+          # paperless-rag-ingest → Qdrant flow). Windmill workers live in home ns.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: home
+                  app.kubernetes.io/name: windmill-workers
+            toPorts:
+              - ports:
+                  - port: "9621"
+                    protocol: TCP
+        egress:
+          # LLM (graph extraction + query synthesis) → vllm-driver-spark:8000
+          # (OpenAI /v1) as of the 2026-07-24 cutover. Embeddings (bge-m3) →
+          # tei-embed-spark:3000 (OpenAI /v1) as of the 2026-07-25 cutover; the
+          # ollama-spark:11434 hole retires with it.
+          # Baseline allow-intra-namespace already covers ai→ai; explicit here
+          # for grep-ability (paperless-ai pattern).
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: ai
+                  app.kubernetes.io/name: vllm-driver-spark
+            toPorts:
+              - ports:
+                  - port: "8000"
+                    protocol: TCP
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: ai
+                  app.kubernetes.io/name: tei-embed-spark
+            toPorts:
+              - ports:
+                  - port: "3000"
+                    protocol: TCP
+          # tiktoken downloads its BPE vocab (o200k_base) from
+          # openaipublic.blob.core.windows.net on first startup, or LightRAG
+          # CrashLoops at import. Azure blob is an A-record FQDN where Cilium's
+          # toFQDNs.matchPattern silently fails (see
+          # project_cilium_matchpattern_fqdn_limits.md), so world:443 per the
+          # github-mcp / khoj precedent. The vocab is cached to the data PVC
+          # (TIKTOKEN_CACHE_DIR) so this fires once, not every cold start.
+          - toEntities:
+              - world
+            toPorts:
+              - ports:
+                  - port: "443"
+                    protocol: TCP

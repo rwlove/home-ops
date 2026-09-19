@@ -169,3 +169,53 @@ spec:
           - backendRefs:
               - identifier: app
                 port: *httpPort
+
+    externalSecrets:
+      immichkiosk-party:
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: onepassword-connect
+        target:
+          name: immichkiosk-party
+          creationPolicy: Owner
+          template:
+            data:
+              KIOSK_IMMICH_API_KEY: "{{ .immichframe_apikey }}"
+              KIOSK_IMMICH_URL: "{{ .immich_url }}"
+        dataFrom:
+          - extract:
+              key: immich
+
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: immichkiosk-party-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: immichkiosk-party
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # HTTPRoute on internal envoy gateway → immichkiosk-party:3000.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: network
+                  app.kubernetes.io/name: envoy
+            toPorts:
+              - ports:
+                  - port: "3000"
+                    protocol: TCP
+        egress:
+          # Kiosk reaches Immich via the public FQDN (KIOSK_IMMICH_URL is the
+          # public address; traffic loops back through the external envoy
+          # gateway on container port 10443). Matches the existing immichkiosk
+          # hairpin pattern.
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: network
+                  app.kubernetes.io/name: envoy
+            toPorts:
+              - ports:
+                  - port: "10443"
+                    protocol: TCP

@@ -169,5 +169,3 @@ respectively.
 ## References
 
 - [MCP Tool-Level Authorization Design](mcp_tool_authz_design.md)
-- [Orchestration substrate](orchestration_substrate.md) — why the
-  guardian queue does not exist yet

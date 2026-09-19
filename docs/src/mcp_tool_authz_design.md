@@ -94,10 +94,9 @@ runtime via `select_tools`. It reduces accidental tool use; it does not
 bound a compromised or badly-steered agent.
 
 HOMELAB-SPEC Layer 4 anticipates a guardian mode that gates destructive
-operations through a queue, but
-[`orchestration_substrate.md`](orchestration_substrate.md) records that
-the queue substrate does not exist yet. Until it does, tool-level authz
-at the gateway is the only enforcement point available.
+operations through a queue, but that queue substrate does not exist yet.
+Until it does, tool-level authz at the gateway is the only enforcement
+point available.
 
 ## What the gateway already supports
 
@@ -288,5 +287,3 @@ tightens the inner one.
 
 - [Advanced authentication and authorization for MCP Gateway](https://developers.redhat.com/articles/2025/12/12/advanced-authentication-authorization-mcp-gateway)
 - [Kuadrant MCP Gateway request flows](https://docs.kuadrant.io/dev/mcp-gateway/docs/design/flows/)
-- [Orchestration substrate](orchestration_substrate.md) — why the guardian queue does not exist yet
-- [Task queue substrate design](task_queue_substrate_design.md)

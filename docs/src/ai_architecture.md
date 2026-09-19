@@ -264,10 +264,10 @@ The entire approval loop below — the langgraph pause/resume state
 machine, the two Windmill bridges, the Zulip `#approvals` stream, and
 the ntfy tap-to-approve buttons — was removed with the fleet
 2026-07-06. There is no replacement approval mechanism today because
-there is no automated task pipeline producing anything to approve. See
-[Workflow Automation § Historical design](workflow_automation.md#historical-design-as-originally-built)
-for the full original design writeup (same diagram, kept there as the
-canonical historical record so it isn't duplicated in two places).
+there is no automated task pipeline producing anything to approve. The
+original approval-loop design (state machine, Windmill bridges, Zulip
+stream, ntfy tap-to-approve buttons) lives in git history if it is ever
+needed.
 
 Cost caps used to fire before Claude API egress, polling
 `/admin/costs/today` on langgraph-agents — moot now; there is no
@@ -365,13 +365,7 @@ the app itself. Nothing else in the cluster depended on any of it.
   per-server health
 - [Memory MCP — Cross-Agent Knowledge Graph](memory_mcp.md) — KG schema
   and ingest path
-- [Workflow Automation: Agents, Approvals, and Push](workflow_automation.md)
-  — current state + historical design record of the removed approval loop
-- [Orchestration Substrate](orchestration_substrate.md) — why a real
-  task queue is still the missing piece (langgraph-agents was the
-  closest thing to one; it's gone too now)
-- [Task Queue Substrate — design proposal](task_queue_substrate_design.md)
-  — superseded 2026-07-06; the evaluation assumed langgraph-agents' own
-  Postgres checkpointer
+- [Workflow Automation (Windmill)](workflow_automation.md)
+  — current state of the Windmill workflows after the approval loop was removed
 - [TEI on Spark — reranker for RAG](tei_spark.md) — text-embedding-
   inference deployment (vault-canonical runbook)

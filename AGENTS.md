@@ -121,7 +121,7 @@ Per HOMELAB-SPEC Layer 5 blast-radius rules.
 HOMELAB-SPEC Layer 4 defines Observer and Guardian modes that watch
 cluster health and gate destructive operations through a queue with
 TTL. This cluster doesn't have the queue substrate yet, so both
-modes are aspirational. See `docs/src/orchestration_substrate.md`.
+modes are aspirational.
 
 Until the substrate lands, destructive operations follow the
 propose-then-execute pattern from `.agents/instructions/persona.md`
@@ -142,7 +142,6 @@ with Rob as the human-in-the-loop gate.
 - Agent-loaded conventions: `/.agents/instructions/` (auto-imported via this CLAUDE.md)
 - Agent skills: `/.agents/skills/` (invoked on demand)
 - AI pipeline architecture: `docs/src/ai_architecture.md` (component map)
-- AI pipeline DoD: `docs/src/homeaiops_dod.md` (verification rubric — Stage 1 stabilization)
 
 ### Adding Documentation
 

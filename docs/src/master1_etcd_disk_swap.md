@@ -1,5 +1,7 @@
 # master1 etcd-Disk Swap Plan
 
+> **Status: PLAN — not yet executed (captured 2026-05-05).**
+
 Active plan to fix master1's degraded etcd performance by replacing
 the NVMe under `/`. Captured 2026-05-05 from a diagnostic session.
 

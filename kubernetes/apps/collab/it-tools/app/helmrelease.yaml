@@ -59,3 +59,30 @@ spec:
           - backendRefs:
               - identifier: app
                 port: *port
+
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: it-tools-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: it-tools
+        # Additive — default-deny is what triggers the lockdown; these rules
+        # punch holes through it.
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # HTTPRoute on internal gateway → it-tools:80
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: network
+                  app.kubernetes.io/name: envoy
+            toPorts:
+              - ports:
+                  - port: "80"
+                    protocol: TCP
+        # No egress holes needed — it-tools is a pure client-side utility
+        # site (encoders/decoders/converters). All computation runs in the
+        # browser; the container only serves static assets. DNS + apiserver
+        # are covered by baseline.

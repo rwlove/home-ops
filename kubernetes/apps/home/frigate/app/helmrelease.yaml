@@ -238,3 +238,241 @@ spec:
           frigate:
             app:
               - path: /dev/bus/usb
+    externalSecrets:
+      frigate:
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: onepassword-connect
+        target:
+          name: frigate
+          creationPolicy: Owner
+          template:
+            engineVersion: v2
+            data:
+              # App
+              PLUS_API_KEY: "{{ .PLUS_API_KEY }}"
+              FRIGATE_AMCREST_RTSP_PASSWORD: "{{ .FRIGATE_AMCREST_RTSP_PASSWORD }}"
+              FRIGATE_WYZECAM_RTSP_PASSWORD: "{{ .FRIGATE_WYZECAM_RTSP_PASSWORD }}"
+              FRIGATE_REOLINK_RTSP_PASSWORD: "{{ .reolink_password }}"
+              FRIGATE_LORYTA_RTSP_PASSWORD: "{{ .loryta_password }}"
+              FRIGATE_BIRDCAM_RTSP_PASSWORD: "{{ .FRIGATE_BIRDCAM_RTSP_PASSWORD }}"
+              # FRIGATE_PLUS_MODEL — intentionally NOT injected. Frigate can't
+              # env-substitute model.path (plain str, not EnvString), so the id
+              # stays literal in the live config and is redacted at snapshot time.
+              # # FRIGATE_PLUS_MODEL: "{{ .frigate_plus_custom_model }}"
+              # go2rtc publish: target — substituted into rtmp://.../live2/{BIRDCAM_YOUTUBE_KEY}
+              BIRDCAM_YOUTUBE_KEY: "{{ .BIRDCAM_STREAM_KEY }}"
+              # EMQX
+              FRIGATE_MQTT_USERNAME: "{{ .user_1_username }}"
+              FRIGATE_MQTT_PASSWORD: "{{ .user_1_password }}"
+        dataFrom:
+          - extract:
+              key: emqx
+          - extract:
+              key: frigate
+          - extract:
+              key: youtube
+      frigate-snapshot:
+        forceRename: frigate-snapshot
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: onepassword-connect
+        target:
+          name: frigate-snapshot
+          creationPolicy: Owner
+          template:
+            engineVersion: v2
+            data:
+              id_ed25519: "{{ .private_key }}"
+        dataFrom:
+          - extract:
+              key: frigate-snapshot-deploy-key
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: frigate-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: frigate
+        # Additive — default-deny is what triggers the lockdown; these rules
+        # punch holes through it.
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # Internal gateway (envoy) → frigate:5000. Auth is enforced at the
+          # gateway by the extAuth SecurityPolicy (#12767); the oauth2-proxy
+          # hop is retired.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: network
+                  app.kubernetes.io/name: envoy
+            toPorts:
+              - ports:
+                  - port: "5000"
+                    protocol: TCP
+          # home-assistant native Frigate integration polls the Frigate API
+          # (port 5000) and pulls go2rtc streams (1984 TCP/UDP, 8554 RTSP).
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: home
+                  app.kubernetes.io/name: home-assistant
+            toPorts:
+              - ports:
+                  - port: "5000"
+                    protocol: TCP
+                  - port: "1984"
+                    protocol: TCP
+                  - port: "1984"
+                    protocol: UDP
+                  - port: "8554"
+                    protocol: TCP
+                  - port: "8971"
+                    protocol: TCP
+        # NOTE: most cameras live on the SECURITY VLAN and are reached via
+        # the multus-attached secondary NIC (frigate-security-static).
+        # Those pulls bypass Cilium entirely.
+        #
+        # birdcam is the exception — it sits on the main LAN at
+        # 192.168.1.31, so its RTSP + HTTP pulls go via eth0 and ARE
+        # governed by Cilium. Explicit toCIDR egress required after the
+        # home-namespace default-deny rollout (PR #11592, 2026-05-18).
+        egress:
+          - toCIDR:
+              - 192.168.1.31/32
+            toPorts:
+              - ports:
+                  - port: "554"
+                    protocol: TCP
+                  - port: "80"
+                    protocol: TCP
+          # Frigate+ cloud API. Used for model submission, license verification,
+          # and pulling custom-trained models (model_path `plus://<id>` in the
+          # Frigate config). Three hostnames in active use:
+          #   * api.frigate.video  — REST API (AWS us-east-2 ELB)
+          #   * plus.frigate.video — portal UI (CloudFront)
+          #   * frigate.video      — apex (AWS us-east-2)
+          # matchPattern only matches one DNS label (see
+          # [[project_cilium_matchpattern_fqdn_limits]]), so the apex needs an
+          # explicit matchName. DNS resolution is via the Cilium DNS proxy
+          # provisioned by the baseline allow-dns component.
+          - toFQDNs:
+              - matchName: frigate.video
+              - matchPattern: "*.frigate.video"
+            toPorts:
+              - ports:
+                  - port: "443"
+                    protocol: TCP
+          # Frigate+ serves model blobs and snapshot uploads from an S3 bucket in
+          # us-east-2 (api.frigate.video hands back a presigned S3 URL). That host
+          # isn't covered by *.frigate.video, so the fetch was POLICY_DENIED and
+          # fired FrigateUnauthorizedEgressAttempt. matchPattern only matches one
+          # DNS label (see [[project_cilium_matchpattern_fqdn_limits]]), so the
+          # path-style host needs an explicit matchName while the virtual-hosted
+          # bucket form (<bucket>.s3.us-east-2.amazonaws.com) needs the pattern.
+          # NOTE: Frigate caches DNS, so a fresh resolution (pod restart) is
+          # required for the cached S3 IPs to bind to this rule — same caveat as
+          # the YouTube RTMP path above.
+          - toFQDNs:
+              - matchName: s3.us-east-2.amazonaws.com
+              - matchPattern: "*.s3.us-east-2.amazonaws.com"
+            toPorts:
+              - ports:
+                  - port: "443"
+                    protocol: TCP
+          # go2rtc birdcam publish destination — RTMP to YouTube Live
+          # (rtmp://a.rtmp.youtube.com/live2/{BIRDCAM_YOUTUBE_KEY} in
+          # snapshots/config.yml). YouTube ingest IPs are AWS-fronted Google
+          # load balancers (142.x).
+          #
+          # NOTE: A toFQDNs(matchPattern "*.rtmp.youtube.com") rule was tried
+          # first (PR #11786) but didn't take effect — frigate's long-lived
+          # DNS cache predates the Cilium DNS proxy interception, so the
+          # cached IPs are never bound to the FQDN policy. Falling back to
+          # toEntities:world+1935 is broader (any 1935 destination), but
+          # since 1935 is RTMP-specific and frigate doesn't have other RTMP
+          # destinations, the actual exposure is unchanged.
+          - toEntities:
+              - world
+            toPorts:
+              - ports:
+                  - port: "1935"
+                    protocol: TCP
+          # Frigate genai integration — Ollama VLM descriptions for detection
+          # events. Retargeted 2026-07-26 from ollama-spark to the P40 `ollama`
+          # (small VLM, ~3.2 GiB) as part of retiring ollama-spark.
+          #
+          # This rule is why GenAI never worked. The policy halves were authored
+          # for DIFFERENT targets at different times and never matched:
+          #   frigate egress → ollama-spark : present     ollama-spark ingress ← frigate : ABSENT
+          #   frigate egress → ollama       : ABSENT      ollama       ingress ← frigate : present
+          # Cilium silently dropped every request, Frigate's provider timed out
+          # at init and never retried, and the DB accumulated 13,017 events with
+          # ZERO descriptions. `ai/ollama`'s ingress has carried a frigate rule
+          # (commented "Frigate genai integration") the whole time — only this
+          # egress side was missing, so this closes the pair.
+          #
+          # The old comment argued the P40 was too full for an 11b VLM. That was
+          # correct for 11b: measured today, the P40 has ~12.7 GiB free and
+          # coder(4.6) + bge-m3(0.6) + an 11b(7.3) leaves ~0 for Immich CLIP
+          # bursts. A ~3 GiB VLM fits with ~5.5 GiB of burst headroom, which is
+          # what makes the P40 viable now where it wasn't before.
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: ai
+                  app.kubernetes.io/name: ollama
+            toPorts:
+              - ports:
+                  - port: "11434"
+                    protocol: TCP
+          # SSH to github.com for the `snapshot` NATIVE SIDECAR that runs inside
+          # frigate-0 (initContainers.snapshot, restartPolicy: Always). It is a
+          # different pod from the nightly CronJob, so it does NOT inherit
+          # frigate-snapshot-allow — that policy selects
+          # `app.kubernetes.io/name: frigate-snapshot`, while the sidecar lives
+          # under `app.kubernetes.io/name: frigate` and lands here.
+          #
+          # Without this the sidecar has never worked. Its git clone was denied,
+          # so there was no .git, so every later git call failed with "not a git
+          # repository" and it gave up after 5 attempts — then slept forever by
+          # design ("so the pod stays Ready"), which is why the pod looked
+          # healthy while the startup snapshot silently did nothing. The feature
+          # it exists for — capturing a version-bump auto-migration the moment
+          # it happens, before the daily CronJob overwrites that state with a
+          # later edit — has therefore never once run.
+          #
+          # Same destination and port the CronJob already reaches, so this
+          # widens frigate-0's egress no further than the snapshot path already
+          # had cluster-wide.
+          - toEntities:
+              - world
+            toPorts:
+              - ports:
+                  - port: "22"
+                    protocol: TCP
+      snapshot-allow:
+        type: cilium
+        forceRename: frigate-snapshot-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: frigate-snapshot
+        # Additive — default-deny in `home` ns is what triggers the lockdown;
+        # this rule punches a hole for the nightly snapshot run (init
+        # container kubectl-execs into frigate-0, main container pushes to
+        # github via SSH).
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        egress:
+          # SSH to github.com to commit + push the config snapshot. world:22
+          # is narrow enough for this single-purpose pod (mirrors the
+          # home-assistant-config-sync-allow pattern).
+          - toEntities:
+              - world
+            toPorts:
+              - ports:
+                  - port: "22"
+                    protocol: TCP
+          # kubectl-exec from the init container hits kube-apiserver — that
+          # is covered by the baseline allow-apiserver component (intra-
+          # cluster control plane access). No explicit rule needed here.

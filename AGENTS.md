@@ -116,24 +116,6 @@ prefer to split if the change can be split.
 
 Per HOMELAB-SPEC Layer 5 blast-radius rules.
 
-### Maintenance windows
-
-Non-emergency disruptive changes wait for one of these windows
-(US Eastern):
-
-- **Routine** (internal services, Windmill,
-  MCP servers, observability, storage backends): any night,
-  02:00–05:00.
-- **household-facing** (Home Assistant, Music Assistant, Jellyfin,
-  Frigate, voice services, lighting / climate / locks): Tuesday
-  02:00–04:00 only.
-
-Emergency changes (security, data-loss prevention) bypass with Rob's
-explicit approval.
-
-Today these windows are advisory — there is no scheduler enforcing
-them. See `docs/src/orchestration_substrate.md` for why.
-
 ### Observer and Guardian modes (deferred)
 
 HOMELAB-SPEC Layer 4 defines Observer and Guardian modes that watch

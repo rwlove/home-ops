@@ -92,3 +92,38 @@ spec:
         existingClaim: esphome-config
         globalMounts:
           - path: /config
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: esphome-code-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: esphome-code
+        # Additive — default-deny is what triggers the lockdown; these rules
+        # punch holes through it.
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # Internal HTTPRoute (envoy → esphome-code:8080) — code-server UI.
+          # Runs with --auth none; internal gateway is LAN-only so no oauth.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: network
+                  app.kubernetes.io/name: envoy
+            toPorts:
+              - ports:
+                  - port: "8080"
+                    protocol: TCP
+        egress:
+          # code-server fetches extensions / opens a terminal that can pull
+          # from the web (git clone, npm install, etc). User-driven, scope
+          # unbounded — toEntities:world.
+          - toEntities:
+              - world
+            toPorts:
+              - ports:
+                  - port: "443"
+                    protocol: TCP
+                  - port: "80"
+                    protocol: TCP

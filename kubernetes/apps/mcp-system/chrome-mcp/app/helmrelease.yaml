@@ -29,7 +29,7 @@ spec:
           app:
             image:
               repository: mcr.microsoft.com/playwright/mcp
-              tag: v0.0.81@sha256:76c66ac16cb6703bc13a6c23f925da28f53a4000bd3c7781a21b1da60b4cdbe8
+              tag: v0.0.81@sha256:96999343986104be5a3755b2d873b039e2089f74bc4f449facd2608e789a9911
             # Image entrypoint is:
             #   node /app/cli.js --headless --browser chromium --no-sandbox
             # We append HTTP transport flags. --no-sandbox is acceptable
@@ -114,3 +114,44 @@ spec:
             backendRefs:
               - identifier: app
                 port: 8931
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: chrome-mcp-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: chrome-mcp
+        # Additive — default-deny is what triggers the lockdown.
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        egress:
+          # True-external HTTPS — Chromium hits public sites (example.com)
+          # AND traverses the Cloudflared tunnel back to the cluster for
+          # apps whose public DNS doesn't resolve to a LAN address.
+          - toEntities:
+              - world
+            toPorts:
+              - ports:
+                  - port: "443"
+                    protocol: TCP
+          # Internal apps via their public hostname. Split-horizon bind9
+          # resolves them to the Cilium LB pool (10.45.0.0/24), but Cilium's
+          # L4LB NATs to the backend pod identity AND its containerPort
+          # before policy evaluation. envoy-gateway listens on 10443 inside
+          # the pod (mapped to LB :443), so the rule has to allow 10443.
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: network
+                  app.kubernetes.io/name: envoy
+            toPorts:
+              - ports:
+                  - port: "10443"
+                    protocol: TCP
+                  # HTTP/3 is enabled on the gateway (envoy.yaml: http3 {}), so
+                  # envoy advertises Alt-Svc on :10443 and clients retry over QUIC
+                  # (UDP). chrome-mcp runs a real browser and does this; without the
+                  # UDP sibling the attempt is default-denied (it falls back to TCP,
+                  # but the drop flaps the CiliumPolicyDrop alerts).
+                  - port: "10443"
+                    protocol: UDP

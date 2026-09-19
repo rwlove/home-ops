@@ -159,3 +159,52 @@ spec:
             backendRefs:
               - identifier: app
                 port: *httpPort
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: memory-mcp-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: memory-mcp
+        # Additive — default-deny enforces; these punch holes. Ingress from
+        # same-ns mcp-gateway broker is covered by baseline allow-intra-ns.
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        # No explicit ingress: the only cross-namespace caller was ai/opencode
+        # (retired), which connected directly to bypass the broker's ~319k-token
+        # schema payload. The same-ns mcp-gateway broker is covered by the baseline
+        # allow-intra-namespace rule. Re-add a narrow fromEndpoints here if a future
+        # cross-ns client (e.g. Hermes) needs a direct memory-mcp connection.
+        egress:
+          # langgraph-memory CNPG primary in databases ns. Per
+          # project_cilium_l4_port_targetport, toPorts matches container port.
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: databases
+                  cnpg.io/cluster: postgres-langgraph-memory
+            toPorts:
+              - ports:
+                  - port: "5432"
+                    protocol: TCP
+          # Embeddings → tei-embed-spark (OpenAI /v1) as of the 2026-07-25
+          # cutover. Selector verified against the live pod label rather than
+          # assumed — see rwlove/home-ops#13264 and #13269, where two rules in
+          # this cluster named pods that don't exist and silently dropped all
+          # traffic.
+          #
+          # The two transitional Ollama rollback holes that sat below this rule
+          # are RETIRED as of 2026-07-26. Their stated condition ("drop these
+          # once the TEI path has soaked") is met: v0.3.0 has run against
+          # tei-embed-spark with 0 restarts and /readyz — which in v0.3.0
+          # performs a REAL embed rather than a metadata GET — passing
+          # throughout. A rollback would now also require an image revert, so it
+          # is a deliberate operation that can carry its own CNP change.
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: ai
+                  app.kubernetes.io/name: tei-embed-spark
+            toPorts:
+              - ports:
+                  - port: "3000"
+                    protocol: TCP

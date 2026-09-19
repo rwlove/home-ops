@@ -101,3 +101,37 @@ spec:
             backendRefs:
               - identifier: app
                 port: 3000
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: searxng-mcp-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: searxng-mcp
+        # Additive — default-deny is what triggers the lockdown.
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        egress:
+          # searxng in collab ns. Env: SEARXNG_URL =
+          # http://searxng.collab.svc.cluster.local:8080
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: collab
+                  app.kubernetes.io/name: searxng
+            toPorts:
+              - ports:
+                  - port: "8080"
+                    protocol: TCP
+          # search_web_url_read does a DIRECT fetch from this pod to arbitrary
+          # result URLs (not via searxng), so it needs world egress or it aborts
+          # on every external host. Same pattern as github-mcp / chrome-mcp;
+          # mirrors searxng's own egress in collab/searxng/app/cnp-allow.yaml.
+          - toEntities:
+              - world
+            toPorts:
+              - ports:
+                  - port: "443"
+                    protocol: TCP
+                  - port: "80"
+                    protocol: TCP

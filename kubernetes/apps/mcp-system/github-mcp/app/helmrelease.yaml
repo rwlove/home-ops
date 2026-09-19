@@ -176,3 +176,71 @@ spec:
           github-mcp:
             github:
               - path: /tmp
+    externalSecrets:
+      github-mcp:
+        refreshInterval: 5m
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: onepassword-connect
+        target:
+          name: github-mcp-secret
+          creationPolicy: Owner
+          template:
+            data:
+              # Fine-grained PAT minted at github.com/settings/personal-access-tokens.
+              # Scope to the rwlove/home-ops + rwlove/containers repos only.
+              GITHUB_PERSONAL_ACCESS_TOKEN: "{{ .pat }}"
+        dataFrom:
+          - extract:
+              key: github-mcp
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: github-mcp-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: github-mcp
+        # Additive — default-deny is what triggers the lockdown.
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        egress:
+          # GitHub API surface. The github-mcp-server proxies REST + GraphQL
+          # tools to api.github.com (and the v4 GraphQL endpoint lives at
+          # api.github.com/graphql, not a separate hostname). Also touches
+          # uploads.github.com for release artifact uploads and
+          # codeload.github.com / raw.githubusercontent.com for repo content.
+          #
+          # api.github.com and codeload.github.com are at their canonical
+          # DNS form (A-records only, no CNAME chain), so Cilium 1.19's
+          # toFQDNs.matchPattern silently fails — see
+          # project_cilium_matchpattern_fqdn_limits.md. PR #11498 originally
+          # moved these to toEntities:world; PR #11499 reverted to
+          # matchPattern based on PR #11492's pattern; that revert was
+          # wrong for canonical FQDNs. Restore world:443.
+          #
+          # FQDNs covered by the world:443 rule below:
+          #   - api.github.com       (canonical, A-only)
+          #   - codeload.github.com  (canonical, A-only)
+          #
+          # graphql.github.com REMOVED — NXDOMAIN, dead rule (GraphQL is
+          # actually served from api.github.com/graphql, already covered).
+          #
+          # uploads.github.com (CNAME → alambic-origin.githubusercontent.com)
+          # and *.githubusercontent.com matchPattern entries retained per
+          # audit classification (CDN-fronted, CNAME-walk works).
+          - toEntities:
+              - world
+            toPorts:
+              - ports:
+                  - port: "443"
+                    protocol: TCP
+          - toFQDNs:
+              - matchPattern: "uploads.github.com"
+              - matchPattern: "uploads.github.com.*"
+              - matchPattern: "*.githubusercontent.com"
+              - matchPattern: "*.githubusercontent.com.*"
+            toPorts:
+              - ports:
+                  - port: "443"
+                    protocol: TCP

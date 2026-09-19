@@ -200,3 +200,132 @@ spec:
           romm:
             app:
               - path: /tmp
+    externalSecrets:
+      romm:
+        refreshInterval: 15m
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: onepassword-connect
+        target:
+          name: romm-secret
+          template:
+            engineVersion: v2
+            data:
+              # App
+              ROMM_AUTH_SECRET_KEY: "{{ .ROMM_AUTH_SECRET_KEY }}"
+
+              # OIDC (Authelia)
+              OIDC_ENABLED: "true"
+              OIDC_PROVIDER: authelia
+              OIDC_CLIENT_ID: romm
+              OIDC_CLIENT_SECRET: "{{ .ROMM_OIDC_CLIENT_SECRET }}"
+              OIDC_REDIRECT_URI: https://romm.${SECRET_DOMAIN}/api/oauth/openid
+              OIDC_SERVER_APPLICATION_URL: https://auth.${SECRET_DOMAIN}
+              OIDC_SERVER_METADATA_URL: https://auth.${SECRET_DOMAIN}/.well-known/openid-configuration
+
+              # Database
+              DB_HOST: postgres-romm-rw.databases.svc.cluster.local
+              DB_PORT: "5432"
+              DB_NAME: romm
+              DB_USER: "{{ .POSTGRES_USER }}"
+              DB_PASSWD: "{{ .POSTGRES_PASS }}"
+
+              # Redis — dedicated dragonfly-romm instance. RomM caches the full
+              # LaunchBox Games DB (~760Mi) here to match ROMs; on the shared
+              # `dragonfly` that filled the 768Mi noeviction cap and rejected every
+              # other tenant's writes. Split off like immich (#13785) / auth
+              # (#13787) so romm's cache can only wedge romm.
+              REDIS_HOST: dragonfly-romm.databases.svc.cluster.local
+              REDIS_PORT: "6379"
+
+              # Postgres init
+              INIT_POSTGRES_DBNAME: romm
+              INIT_POSTGRES_HOST: postgres-romm-rw.databases.svc.cluster.local
+              INIT_POSTGRES_USER: "{{ .POSTGRES_USER }}"
+              INIT_POSTGRES_PASS: "{{ .POSTGRES_PASS }}"
+              INIT_POSTGRES_SUPER_PASS: "{{ .POSTGRES_SUPER_PASS }}"
+
+              # Metadata providers (RomM enables each only when creds are non-empty)
+              IGDB_CLIENT_ID: "{{ .IGDB_CLIENT_ID }}"
+              IGDB_CLIENT_SECRET: "{{ .IGDB_CLIENT_SECRET }}"
+              STEAMGRIDDB_API_KEY: "{{ .STEAMGRIDDB_API_KEY }}"
+              RETROACHIEVEMENTS_API_KEY: "{{ .RETROACHIEVEMENTS_API_KEY }}"
+              SCREENSCRAPER_USER: "{{ .SCREENSCRAPER_USER }}"
+              SCREENSCRAPER_PASSWORD: "{{ .SCREENSCRAPER_PASSWORD }}"
+        dataFrom:
+          - extract:
+              key: cloudnative-pg
+          - extract:
+              key: romm
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: romm-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: romm
+        # Additive — default-deny is what triggers the lockdown.
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # HTTPRoute on internal envoy gateway → romm:8080.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: network
+                  app.kubernetes.io/name: envoy
+            toPorts:
+              - ports:
+                  - port: "8080"
+                    protocol: TCP
+        egress:
+          # CNPG: postgres-romm in databases ns (Pattern B). The init-db
+          # postgres-init initContainer also needs this on cold start.
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: databases
+                  cnpg.io/cluster: postgres-romm
+            toPorts:
+              - ports:
+                  - port: "5432"
+                    protocol: TCP
+          # Dragonfly (Redis) in databases ns — used as romm's task/cache
+          # broker.
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: databases
+                  app.kubernetes.io/name: dragonfly
+            toPorts:
+              - ports:
+                  - port: "6379"
+                    protocol: TCP
+          # External: 7+ ROM metadata providers (IGDB, TheGamesDB, Flashpoint,
+          # HLTB, Hasheous, Launchbox, PlayMatch, etc.), Switch titleDB
+          # updates, MAME XML feed. Provider set rotates; world keeps the
+          # policy maintenance-free.
+          - toEntities:
+              - world
+            toPorts:
+              - ports:
+                  - port: "443"
+                    protocol: TCP
+                  - port: "80"
+                    protocol: TCP
+          # OIDC discovery + token exchange against Authelia. RomM uses
+          # Authlib server-side OIDC with OIDC_SERVER_METADATA_URL pointing
+          # at the external issuer auth.${SECRET_DOMAIN}, so every OIDC
+          # request hits split-horizon DNS which returns the internal envoy
+          # LB IP. Cilium socket-lb rewrites the connect() to the envoy pod
+          # IP + targetPort 10443 BEFORE policy evaluation, so the policy
+          # must allow the envoy pod on its container port (10443) — NOT
+          # world:443 (doesn't match cluster LB IPs) and NOT authelia:9091
+          # (RomM never connects there directly given this config). Mirrors
+          # the working paperless egress (kubernetes/apps/collab/paperless).
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: network
+                  app.kubernetes.io/name: envoy
+            toPorts:
+              - ports:
+                  - port: "10443"
+                    protocol: TCP

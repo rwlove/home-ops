@@ -1,25 +1,50 @@
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/daemonset-apps-v1.json
-# Persists node-level sysctl tunings that can't be set per-pod.
+# Persists node-level tunings that can't be set per-pod.
 #
-# Currently:
-#   fs.inotify.max_user_instances=8192   # default 128 is too low for clusters
-#                                        # with many file-watching apps (slskd,
-#                                        # prowlarr, etc.). Hitting it shows up
-#                                        # as "configured user limit (128) on
-#                                        # the number of inotify instances has
-#                                        # been reached".
+# 1. sysctls (initContainer, one-shot — a sysctl stays set for the node's
+#    uptime, and the pod restarts with the node):
+#      fs.inotify.max_user_instances=8192   # default 128 is too low for
+#      fs.inotify.max_user_watches=524288   # clusters with many file-watching
+#                                           # apps (slskd, prowlarr, etc.).
+#                                           # Hitting it shows up as "configured
+#                                           # user limit (128) on the number of
+#                                           # inotify instances has been reached".
 #
-# Implementation: a privileged DaemonSet whose initContainer applies the sysctl
-# at pod start (i.e. node boot, since the DaemonSet pod restarts with the
-# node). The main container is a no-op `pause` so kubelet keeps the pod
-# scheduled and re-runs the initContainer if the kubelet restarts.
+# 2. static ARP/neighbor entries (main container, reconciled every 5 min):
+#      A few IoT sensors do not answer ARP-for-themselves; they only ever talk
+#      to their gateway. A cluster node on their VLAN therefore can't L2-resolve
+#      them, so the in-cluster blackbox ICMP probe (which egresses from whatever
+#      node it runs on, masqueraded onto vid20) gets ARP FAILED and false-alerts
+#      BlackboxIoTDeviceUnreachable — even though the devices are healthy (Home
+#      Assistant and the gateway reach them fine). Priming a PERMANENT neighbor
+#      entry fixes it: the device replies to ICMP happily once the node already
+#      knows its MAC. Applied on every node so blackbox can schedule anywhere,
+#      and reconciled on a loop to self-heal a neighbor flush (e.g. an interface
+#      flap) without waiting for a pod restart.
+#
+#      The "<hostname>=<mac>" map comes from the node-tuning-secret (1Password),
+#      not git — so the specific devices/MACs stay out of the public repo. Each
+#      hostname is resolved to its IP via DNS at runtime, so a DHCP address
+#      change self-heals; only a device *replacement* (new MAC) needs the
+#      1Password value updated (reloader then restarts this DaemonSet). The
+#      host's iproute2 + resolver are invoked via `nsenter` into PID 1's
+#      mount+net namespace (hostPID) so this works regardless of the per-node
+#      vid20 interface name (enp0s31f6.20 / enp1s0.20 / 7s7.20 — auto-detected
+#      as the interface holding a 10.10.20.x address).
+#
+# Implementation: a privileged DaemonSet. The initContainer applies sysctls at
+# pod start (i.e. node boot). The main container reconciles the neighbor entries
+# in a loop, which also keeps the pod scheduled so the kubelet re-runs the
+# initContainer if the kubelet restarts.
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: node-tuning
   labels:
     app.kubernetes.io/name: node-tuning
+  annotations:
+    reloader.stakater.com/auto: "true"
 spec:
   selector:
     matchLabels:
@@ -29,23 +54,6 @@ spec:
       labels:
         app.kubernetes.io/name: node-tuning
     spec:
-      containers:
-        - image: registry.k8s.io/pause:3.10@sha256:ee6521f290b2168b6e0935a181d4cff9be1ac3f505666ef0e3c98fae8199917a
-          name: pause
-          resources:
-            limits:
-              memory: 16Mi
-            requests:
-              cpu: 1m
-              memory: 8Mi
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: [ALL]
-            readOnlyRootFilesystem: true
-            runAsNonRoot: true
-            runAsUser: 65535
-            seccompProfile: { type: RuntimeDefault }
       hostPID: true
       initContainers:
         - command:
@@ -61,6 +69,47 @@ spec:
             requests:
               cpu: 1m
               memory: 8Mi
+          securityContext:
+            privileged: true
+      containers:
+        - command:
+            - /bin/sh
+            - -c
+            - |
+              set -u
+              # NEIGH (from node-tuning-secret): "<hostname>=<mac> ..." pairs.
+              # Resolve each hostname to its vid20 IP via DNS, then prime a
+              # PERMANENT neighbor so blackbox probes reach devices that won't
+              # answer ARP-for-themselves.
+              while true; do
+                IF="$(nsenter -t 1 -m -n -- ip -br -4 addr show \
+                  | awk '/10\.10\.20\./{split($1,a,"@"); print a[1]; exit}')"
+                if [ -n "$IF" ]; then
+                  for pair in $${NEIGH:-}; do
+                    host="$${pair%%=*}"
+                    mac="$${pair#*=}"
+                    ip="$(nsenter -t 1 -m -n -- getent hosts "$host" \
+                      | awk '{print $1; exit}')"
+                    [ -n "$ip" ] && nsenter -t 1 -m -n -- \
+                      ip neigh replace "$ip" lladdr "$mac" dev "$IF" nud permanent || true
+                  done
+                fi
+                sleep 300
+              done
+          env:
+            - name: NEIGH
+              valueFrom:
+                secretKeyRef:
+                  name: node-tuning-secret
+                  key: NEIGH
+          image: ghcr.io/home-operations/busybox:1.38@sha256:7e2c04dd50ede647bf4a7a4c8dbd629dd4971cd139b9b88fb22bfc3c7a6c13df
+          name: static-neighbors
+          resources:
+            requests:
+              cpu: 1m
+              memory: 8Mi
+            limits:
+              memory: 32Mi
           securityContext:
             privileged: true
       tolerations:

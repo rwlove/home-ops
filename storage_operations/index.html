@@ -1,0 +1,3193 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="GitOps-managed home Kubernetes cluster — runbooks, design docs, audits.">
+      
+      
+        <meta name="author" content="Bubba">
+      
+      
+        <link rel="canonical" href="https://rwlove.github.io/home-ops/storage_operations/">
+      
+      
+        <link rel="prev" href="../power-outage/">
+      
+      
+        <link rel="next" href="../rook_ceph_dr/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Storage Operations - Home Operations</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#storage-operations" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Home Operations" class="md-header__button md-logo" aria-label="Home Operations" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Home Operations
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Storage Operations
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/rwlove/home-ops" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rwlove/home-ops
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Home Operations" class="md-nav__button md-logo" aria-label="Home Operations" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Home Operations
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/rwlove/home-ops" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rwlove/home-ops
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+          
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href=".." class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Welcome
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_1" id="__nav_1_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Welcome
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../introduction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI & Workflow
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    AI & Workflow
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ai_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hermes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hermes — the local-first agent front door
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflow_automation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow Automation (Windmill)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../khoj/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Khoj — personal RAG surface
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../memory_mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Memory MCP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hermes_board/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hermes Board — Operations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tei_spark/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TEI on Spark — reranker for RAG
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vllm_spark_migration_plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    vLLM on Spark — reasoning/driver serving migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../coral/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coral Edge TPU
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../p40/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NVIDIA Tesla P40
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cluster Lifecycle
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Cluster Lifecycle
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cluster_rebuild/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cluster Rebuild Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cluster_upgrade/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cluster Upgrade Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../promote_worker_to_control_plane/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Promote a Worker to a Schedulable Control Plane
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../init_teardown/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Initialization &amp; Teardown
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../master1_etcd_disk_swap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    master1 etcd-Disk Swap Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../etcd_raft_timers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    etcd Raft Timer Tuning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../power-outage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Whole-home power outage / cold-start recovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Storage & DR
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Storage & DR
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Storage Operations
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Storage Operations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#rookceph-ceph-block" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rook/Ceph (ceph-block)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Rook/Ceph (ceph-block)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#no-toolbox-pod--use-a-mon-pod" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        No toolbox pod — use a mon pod
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#health-checks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Health checks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#capacity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capacity
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#if-ceph-looks-unhealthy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        If Ceph looks unhealthy
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#longhorn" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Longhorn
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Longhorn">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#node-and-replica-health" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Node and replica health
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#degraded-volume-triage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Degraded-volume triage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#backup-recency-verification--how-the-labeling-actually-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backup-recency verification — how the labeling actually works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#capacity_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capacity
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#garage-s3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Garage (S3)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Garage (S3)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#health-and-layout-checks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Health and layout checks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#capacity--two-different-numbers-dont-confuse-them" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capacity — two different numbers, don't confuse them
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#known-consumers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known consumers
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pvc-troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PVC troubleshooting
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="PVC troubleshooting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pending-pvc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pending PVC
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pod-stuck-mounting-a-pvc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pod stuck mounting a PVC
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changing-an-immutable-pvc-field" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changing an immutable PVC field
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#capacity-checks-before-approving-growth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capacity checks before approving growth
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        See also
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rook_ceph_dr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rook-Ceph DR Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../longhorn_restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Longhorn Restore Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../garage_restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Garage Substrate Restore Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cnpg_operations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CNPG Day-2 Operations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cnpg_restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CNPG Cluster Restore Template
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../immich_cnpg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Importing an Immich DB backup into a new CNPG database
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../frigate_dr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Frigate + direct-NFS DR Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../offsite_recovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Offsite Recovery — Immich and Paperless
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Network & Security
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Network & Security
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cilium_operations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cilium Operations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../per-route-cert-migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Per-Route Cert Migration Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../apiserver_audit_logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Apiserver Audit Logging — Phase 5.P operator runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../networkpolicy_rollout_plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NetworkPolicy Rollout Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../egress_restriction_design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Egress Restriction Design Proposal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mtls_rollout_design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Istio mTLS Rollout Design Proposal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp_tool_authz_design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Tool-Level Authorization Design Proposal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agent_github_identity_design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent GitHub Identity Design Proposal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pod_security_audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pod Security Baseline Audit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rbac_audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RBAC Audit Findings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Observability
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Observability
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../observability_runbook/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Observability Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp_observability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Fleet Observability
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audits
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Audits
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../audit/repo-audit-2026-07-01/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Repo audit — 2026-07-01
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../debugging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debugging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../failure_mode_runbooks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Failure-Mode Runbooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../flux_source_controller_wedge/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flux source-controller wedge: Recreate + a slow image pull
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../github_webhook/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub Webhook → Flux
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../limits/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resources: Limits and Requests Philosophy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#rookceph-ceph-block" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rook/Ceph (ceph-block)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Rook/Ceph (ceph-block)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#no-toolbox-pod--use-a-mon-pod" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        No toolbox pod — use a mon pod
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#health-checks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Health checks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#capacity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capacity
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#if-ceph-looks-unhealthy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        If Ceph looks unhealthy
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#longhorn" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Longhorn
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Longhorn">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#node-and-replica-health" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Node and replica health
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#degraded-volume-triage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Degraded-volume triage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#backup-recency-verification--how-the-labeling-actually-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backup-recency verification — how the labeling actually works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#capacity_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capacity
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#garage-s3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Garage (S3)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Garage (S3)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#health-and-layout-checks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Health and layout checks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#capacity--two-different-numbers-dont-confuse-them" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capacity — two different numbers, don't confuse them
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#known-consumers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known consumers
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pvc-troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PVC troubleshooting
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="PVC troubleshooting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pending-pvc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pending PVC
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pod-stuck-mounting-a-pvc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pod stuck mounting a PVC
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changing-an-immutable-pvc-field" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changing an immutable PVC field
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#capacity-checks-before-approving-growth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capacity checks before approving growth
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        See also
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/rwlove/home-ops/edit/main/docs/src/storage_operations.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="storage-operations">Storage Operations<a class="headerlink" href="#storage-operations" title="Permanent link">&para;</a></h1>
+<p>Day-2 health checks and troubleshooting for the cluster's three
+in-cluster storage backends — Rook/Ceph, Longhorn, and Garage — plus
+generic PVC troubleshooting. This is the <strong>operate a healthy cluster</strong>
+page. It is not a disaster-recovery runbook: for restore procedures see
+<a href="../rook_ceph_dr/"><code>rook_ceph_dr.md</code></a>, <a href="../longhorn_restore/"><code>longhorn_restore.md</code></a>,
+and <a href="../garage_restore/"><code>garage_restore.md</code></a>. For CNPG/Postgres storage
+concerns (PGData sizing, Barman ObjectStore recency) see
+<code>cnpg_operations.md</code>. For choosing a storage class for a new
+workload, see <code>.agents/instructions/storage-class.instructions.md</code> in
+the repo — that decision tree isn't repeated here.</p>
+<h2 id="rookceph-ceph-block">Rook/Ceph (<code>ceph-block</code>)<a class="headerlink" href="#rookceph-ceph-block" title="Permanent link">&para;</a></h2>
+<p>Deployment: <code>kubernetes/apps/rook-ceph/rook-ceph/</code>. Three StorageClasses
+come out of the <code>rook-ceph-cluster</code> HelmRelease: <code>ceph-block</code> (RBD,
+3-way replicated, the cluster default), <code>ceph-filesystem</code> (CephFS), and
+<code>ceph-bucket</code> (RGW-backed object storage). <code>ceph-block</code> is what almost
+every app-level PVC in this cluster uses.</p>
+<h3 id="no-toolbox-pod--use-a-mon-pod">No toolbox pod — use a mon pod<a class="headerlink" href="#no-toolbox-pod--use-a-mon-pod" title="Permanent link">&para;</a></h3>
+<p>This cluster does <strong>not</strong> run the <code>rook-ceph-tools</code> deployment (the
+operator HelmRelease has no <code>toolbox.enabled: true</code>). All <code>ceph</code> CLI
+work goes through a mon pod with explicit connection flags:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nv">MON</span><span class="o">=</span><span class="k">$(</span>kubectl<span class="w"> </span>get<span class="w"> </span>pod<span class="w"> </span>-n<span class="w"> </span>rook-ceph<span class="w"> </span>-l<span class="w"> </span><span class="nv">app</span><span class="o">=</span>rook-ceph-mon<span class="w"> </span>-o<span class="w"> </span>name<span class="w"> </span><span class="p">|</span><span class="w"> </span>head<span class="w"> </span>-1<span class="k">)</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>kubectl<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-n<span class="w"> </span>rook-ceph<span class="w"> </span><span class="s2">"</span><span class="nv">$MON</span><span class="s2">"</span><span class="w"> </span>-c<span class="w"> </span>mon<span class="w"> </span>--<span class="w"> </span>bash<span class="w"> </span>-c<span class="w"> </span><span class="s2">"</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="s2">  ceph --conf /etc/ceph/ceph.conf --keyring /etc/ceph/keyring-store/keyring -s</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="s2">"</span>
+</span></code></pre></div>
+<p>If the <code>kubectl rook-ceph</code> krew plugin is installed locally, it wraps
+the same mechanics more conveniently:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>kubectl<span class="w"> </span>rook-ceph<span class="w"> </span>-n<span class="w"> </span>rook-ceph<span class="w"> </span>--<span class="w"> </span>ceph<span class="w"> </span>-s
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>kubectl<span class="w"> </span>rook-ceph<span class="w"> </span>-n<span class="w"> </span>rook-ceph<span class="w"> </span>--<span class="w"> </span>ceph<span class="w"> </span>osd<span class="w"> </span>tree
+</span></code></pre></div>
+<p>Adding the toolbox is a tracked quality-of-life follow-up (see
+<a href="../failure_mode_runbooks/"><code>failure_mode_runbooks.md</code></a>); until it lands,
+budget the extra typing above for anything beyond a one-off check.</p>
+<h3 id="health-checks">Health checks<a class="headerlink" href="#health-checks" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># Overall cluster health</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>kubectl<span class="w"> </span>rook-ceph<span class="w"> </span>-n<span class="w"> </span>rook-ceph<span class="w"> </span>--<span class="w"> </span>ceph<span class="w"> </span>-s
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>kubectl<span class="w"> </span>rook-ceph<span class="w"> </span>-n<span class="w"> </span>rook-ceph<span class="w"> </span>--<span class="w"> </span>ceph<span class="w"> </span>health<span class="w"> </span>detail
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="c1"># OSD tree — up/down/in/out per OSD, per-host layout</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>kubectl<span class="w"> </span>rook-ceph<span class="w"> </span>-n<span class="w"> </span>rook-ceph<span class="w"> </span>--<span class="w"> </span>ceph<span class="w"> </span>osd<span class="w"> </span>tree
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>kubectl<span class="w"> </span>rook-ceph<span class="w"> </span>-n<span class="w"> </span>rook-ceph<span class="w"> </span>--<span class="w"> </span>ceph<span class="w"> </span>osd<span class="w"> </span>status
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="c1"># Mon quorum</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>kubectl<span class="w"> </span>rook-ceph<span class="w"> </span>-n<span class="w"> </span>rook-ceph<span class="w"> </span>--<span class="w"> </span>ceph<span class="w"> </span>mon<span class="w"> </span>stat
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>kubectl<span class="w"> </span>rook-ceph<span class="w"> </span>-n<span class="w"> </span>rook-ceph<span class="w"> </span>--<span class="w"> </span>ceph<span class="w"> </span>quorum_status
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="c1"># Pool capacity / usage</span>
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>kubectl<span class="w"> </span>rook-ceph<span class="w"> </span>-n<span class="w"> </span>rook-ceph<span class="w"> </span>--<span class="w"> </span>ceph<span class="w"> </span>df
+</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>kubectl<span class="w"> </span>rook-ceph<span class="w"> </span>-n<span class="w"> </span>rook-ceph<span class="w"> </span>--<span class="w"> </span>ceph<span class="w"> </span>osd<span class="w"> </span>pool<span class="w"> </span>stats
+</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>
+</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="c1"># OSD pods + which node each lives on</span>
+</span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>rook-ceph<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-l<span class="w"> </span><span class="nv">app</span><span class="o">=</span>rook-ceph-osd<span class="w"> </span>-o<span class="w"> </span>wide
+</span><span id="__span-2-19"><a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>
+</span><span id="__span-2-20"><a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="c1"># PG state (recovery/backfill in progress, degraded/misplaced counts)</span>
+</span><span id="__span-2-21"><a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>kubectl<span class="w"> </span>rook-ceph<span class="w"> </span>-n<span class="w"> </span>rook-ceph<span class="w"> </span>--<span class="w"> </span>ceph<span class="w"> </span>pg<span class="w"> </span>stat
+</span></code></pre></div>
+<p>The cluster runs 8 OSDs across <code>master1</code> + <code>worker2</code>-<code>worker8</code> (one
+device per node) with <code>ceph-block</code> at <code>replicated size: 3</code> and
+<code>ceph-filesystem</code> the same. <code>ceph-bucket</code> (RGW) is erasure-coded
+(2 data + 1 coding chunk). Losing a single OSD is fully tolerated;
+don't lose a second one during the recovery window.</p>
+<p>Read-only Prometheus alternative (no exec needed):</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Ceph health status as a Prometheus alert</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>observability<span class="w"> </span>get<span class="w"> </span>prometheusrules<span class="w"> </span>prometheus-ceph-rules<span class="w"> </span>-o<span class="w"> </span>yaml
+</span></code></pre></div>
+<p>Ceph dashboard (visual OSD tree, pool graphs, PG state) is reachable at
+<code>rook.${SECRET_DOMAIN}</code>; password via
+<a href="https://github.com/rwlove/home-ops/blob/main/tools/get-ceph-password.sh"><code>tools/get-ceph-password.sh</code></a>.</p>
+<h3 id="capacity">Capacity<a class="headerlink" href="#capacity" title="Permanent link">&para;</a></h3>
+<p><code>ceph df</code> is the source of truth for pool-level usage. Before approving
+any change that grows <code>ceph-block</code> footprint (new large PVC, volume
+expansion), confirm free capacity in the target pool is comfortably
+above the request — this is an 8-OSD cluster with no automatic
+node-add path, so headroom doesn't self-correct.</p>
+<h3 id="if-ceph-looks-unhealthy">If Ceph looks unhealthy<a class="headerlink" href="#if-ceph-looks-unhealthy" title="Permanent link">&para;</a></h3>
+<p>Don't improvise past a <code>HEALTH_WARN</code>/<code>HEALTH_ERR</code> — check
+<a href="../failure_mode_runbooks/"><code>failure_mode_runbooks.md</code></a> first for the
+"Stuck CSI RBD unmap (Ceph PG ghost-stuck)" runbook, which covers the
+specific ghost-PG failure mode this cluster has hit more than once
+(mount stuck <code>ContainerCreating</code>, <code>rbd unmap</code> returns <code>EBUSY</code> with no
+holders). For OSD loss, mon quorum loss, or full-cluster loss, that's
+DR territory — go to <a href="../rook_ceph_dr/"><code>rook_ceph_dr.md</code></a>.</p>
+<h2 id="longhorn">Longhorn<a class="headerlink" href="#longhorn" title="Permanent link">&para;</a></h2>
+<p>Deployment: <code>kubernetes/apps/longhorn-system/longhorn/</code>. This is the
+cluster-destruction-survivable tier, reserved for irreplaceable data
+(per <code>storage-class.instructions.md</code>) — media-library metadata, HA's
+local store, similar. Backup target:
+<code>nfs://beast:/mnt/mass_storage/longhorn-backups</code>.</p>
+<h3 id="node-and-replica-health">Node and replica health<a class="headerlink" href="#node-and-replica-health" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Per-node Longhorn node state (scheduling, disk pressure)</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>nodes.longhorn.io<span class="w"> </span>-n<span class="w"> </span>longhorn-system
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1"># Per-node replica state — load-bearing during drains</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>kubectl<span class="w"> </span>get<span class="w"> </span>replicas.longhorn.io<span class="w"> </span>-n<span class="w"> </span>longhorn-system<span class="w"> </span>-o<span class="w"> </span>wide
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="c1"># Volume detail (state, robustness, engine image)</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>longhorn-system<span class="w"> </span>get<span class="w"> </span>volumes.longhorn.io
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>longhorn-system<span class="w"> </span>get<span class="w"> </span>volumes.longhorn.io<span class="w"> </span>&lt;volume-name&gt;<span class="w"> </span>-o<span class="w"> </span>yaml
+</span></code></pre></div>
+<p>A healthy volume reports <code>state: attached</code> and <code>robustness: healthy</code>.
+<code>robustness: degraded</code> means a replica is missing or rebuilding — not
+an outage by itself, but a SPOF until it clears. <code>faulted</code> needs
+investigation before it becomes data loss.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Backup target reachability</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>longhorn-system<span class="w"> </span>get<span class="w"> </span>backuptarget<span class="w"> </span>default
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="c1"># Should show Available=True</span>
+</span></code></pre></div>
+<p>If <code>Available</code> is <code>False</code>, the NFS export on beast is unreachable —
+check from a worker node:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>ssh<span class="w"> </span>beast<span class="w"> </span><span class="s1">'ls /mnt/mass_storage/longhorn-backups/'</span>
+</span></code></pre></div>
+<h3 id="degraded-volume-triage">Degraded-volume triage<a class="headerlink" href="#degraded-volume-triage" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Identify the affected volume:
+   <code>kubectl -n longhorn-system get volumes.longhorn.io | grep -v healthy</code>.</li>
+<li>Check replica placement —
+   <code>kubectl get replicas.longhorn.io -n longhorn-system -l longhornvolume=&lt;volume&gt;</code>.
+   A replica stuck <code>Failed</code> or <code>Error</code> on a specific node points at
+   node-level disk pressure or a dead device.</li>
+<li>Longhorn normally self-heals a degraded volume by rebuilding a
+   replacement replica automatically (<code>replicaAutoBalance:
+   best-effort</code> is set cluster-wide). Give it time before intervening.</li>
+<li>If a node is unreachable, use the eviction pattern to drain its
+   replicas onto healthy nodes:</li>
+</ol>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>kubectl<span class="w"> </span>patch<span class="w"> </span>-n<span class="w"> </span>longhorn-system<span class="w"> </span>nodes.longhorn.io<span class="w"> </span>&lt;node&gt;<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span>--type<span class="o">=</span>merge<span class="w"> </span>-p<span class="w"> </span><span class="s1">'{"spec":{"allowScheduling":false,"evictionRequested":true}}'</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="c1"># wait for the node's replica count to reach 0, then:</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>kubectl<span class="w"> </span>patch<span class="w"> </span>-n<span class="w"> </span>longhorn-system<span class="w"> </span>nodes.longhorn.io<span class="w"> </span>&lt;node&gt;<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">  </span>--type<span class="o">=</span>merge<span class="w"> </span>-p<span class="w"> </span><span class="s1">'{"spec":{"allowScheduling":true,"evictionRequested":false}}'</span>
+</span></code></pre></div>
+<p>If <code>longhorn-manager-X</code> crash-loops with <code>bind: address already in
+use</code>, an orphaned daemon process survived a bad shutdown on the host —
+see <a href="../debugging/"><code>debugging.md</code></a> → Longhorn.</p>
+<h3 id="backup-recency-verification--how-the-labeling-actually-works">Backup-recency verification — how the labeling actually works<a class="headerlink" href="#backup-recency-verification--how-the-labeling-actually-works" title="Permanent link">&para;</a></h3>
+<p>Recurring jobs live at
+<a href="https://github.com/rwlove/home-ops/blob/main/kubernetes/apps/longhorn-system/longhorn/config/recurring-jobs.yaml"><code>kubernetes/apps/longhorn-system/longhorn/config/recurring-jobs.yaml</code></a>:</p>
+<table>
+<thead>
+<tr>
+<th>Job</th>
+<th>Schedule</th>
+<th>Task</th>
+<th>Groups</th>
+<th>Retain</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>daily-snapshots</code></td>
+<td><code>0 0 * * *</code> (daily, 00:00 UTC)</td>
+<td>snapshot</td>
+<td><code>default</code>, <code>daily-snapshot</code>, <code>weekly-snapshot</code></td>
+<td>7</td>
+</tr>
+<tr>
+<td><code>weekly-backups</code></td>
+<td><code>0 0 * * 6</code> (Saturdays, 00:00 UTC)</td>
+<td>backup</td>
+<td><code>default</code>, <code>weekly-backup</code></td>
+<td>4</td>
+</tr>
+<tr>
+<td><code>monthly-backups</code></td>
+<td><code>0 0 1 * *</code> (1st of month, 00:00 UTC)</td>
+<td>backup</td>
+<td><code>default</code>, <code>monthly-backup</code></td>
+<td>6</td>
+</tr>
+<tr>
+<td><code>weekly-filesystem-trim</code></td>
+<td><code>0 3 * * 0</code> (Sundays, 03:00 UTC)</td>
+<td>filesystem-trim</td>
+<td><code>default</code></td>
+<td>0</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Recurring-job labels live on the Volume CR, not the PV.</strong> Longhorn's
+job selection matches <code>recurring-job-group.longhorn.io/&lt;group&gt;</code> labels
+on the <em>Volume</em> custom resource. A label on the PV does nothing —
+labels don't propagate PV → Volume CR.</p>
+<p><strong><code>default</code> is what actually protects almost everything.</strong> Longhorn
+auto-applies the <code>default</code> recurring-job group to any Volume CR that
+carries no explicit recurring-job labels at all, and every job above
+lists <code>default</code> in its <code>groups</code>. In practice this means most volumes
+in this cluster get daily snapshots + weekly backups + monthly
+backups + weekly trim without any per-volume labeling. The named groups
+(<code>daily-snapshot</code>, <code>weekly-snapshot</code>, <code>weekly-backup</code>, <code>monthly-backup</code>)
+exist so that a volume whose CR <em>does</em> carry one of those labels
+(typically after a manual restore that copied PV labels onto the new
+Volume CR) still gets picked up by a real job instead of silently
+falling out of <code>default</code> — check for exactly this after any manual
+Volume CR recreation.</p>
+<p><strong>Detached volumes are still covered.</strong> <code>allowRecurringJobWhileVolumeDetached:
+true</code> is set in the Longhorn HelmRelease <code>defaultSettings</code>. A detached
+or scale-to-zero volume gets auto-attached, the recurring job runs,
+then it detaches again. Don't design around the old "detached volumes
+never get backed up" limitation — that gap was closed cluster-wide.
+One side effect: if a workload starts while its volume is mid-job, it
+waits for the auto-attach/detach cycle to finish — only relevant to a
+volume that was already detached when the job fired.</p>
+<p>To check a specific volume's actual last-backup timestamp:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>longhorn-system<span class="w"> </span>get<span class="w"> </span>volumes.longhorn.io<span class="w"> </span>&lt;volume-name&gt;<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{.status.lastBackupAt}{"\n"}'</span>
+</span></code></pre></div>
+<p>Or via Prometheus — <code>LonghornVolumeBackupStale</code> (in
+<code>kubernetes/apps/longhorn-system/longhorn/app/prometheus-rule.yaml</code>)
+fires when an actively-used volume (PVC exists, a pod referenced it in
+the last 7 days) has gone &gt;14 days without a completed backup:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>observability<span class="w"> </span>get<span class="w"> </span>prometheusrules<span class="w"> </span>longhorn-backup-rules<span class="w"> </span>-o<span class="w"> </span>yaml
+</span></code></pre></div>
+<p>An orphaned or parked volume (no PVC, or no pod using its PVC recently)
+is deliberately excluded from that alert — a frozen volume's last
+backup stays a valid recovery point no matter how old it gets.</p>
+<h3 id="capacity_1">Capacity<a class="headerlink" href="#capacity_1" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>nodes.longhorn.io<span class="w"> </span>-n<span class="w"> </span>longhorn-system<span class="w"> </span>-o<span class="w"> </span>yaml<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span>yq<span class="w"> </span><span class="s1">'.items[] | .metadata.name + ": " + (.status.diskStatus | to_entries[] | .value.storageAvailable | tostring)'</span>
+</span></code></pre></div>
+<p>Or use the Longhorn UI (<code>longhorn.${SECRET_DOMAIN}</code>) → Node page, which
+renders per-node/per-disk usage directly.
+<code>storageMinimalAvailablePercentage: 10</code> is the cluster-wide floor —
+Longhorn stops scheduling new replicas to a disk below that threshold.</p>
+<h2 id="garage-s3">Garage (S3)<a class="headerlink" href="#garage-s3" title="Permanent link">&para;</a></h2>
+<p>Deployment: <code>kubernetes/apps/storage/garage/</code>, namespace <code>storage</code>,
+StatefulSet <code>garage</code>. Exposed at <code>s3.${SECRET_DOMAIN}</code> externally and
+<code>garage.storage.svc.cluster.local:3900</code> (S3 API) /
+<code>:3903</code> (admin API) in-cluster. Substrate is two NFS-backed PVCs on
+brain (<code>/mnt/kubernetes/garage/data</code>, <code>/mnt/kubernetes/garage/meta</code>),
+provisioned as static PV/PVC pairs via
+<code>kubernetes/apps/storage/garage/app/nfs-pvc.yaml</code> — not a StorageClass
+provisioner.</p>
+<p>This cluster runs Garage as a <strong>single-node deployment</strong>
+(<code>replication_factor = 1</code> in <code>resources/configuration.toml</code>) — layout
+health checks below are simple accordingly; there's no multi-node
+quorum to reason about.</p>
+<h3 id="health-and-layout-checks">Health and layout checks<a class="headerlink" href="#health-and-layout-checks" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># Pod health</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>storage<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-l<span class="w"> </span>app.kubernetes.io/name<span class="o">=</span>garage
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="c1"># Garage's own status — node health, layout, capacity as Garage sees it</span>
+</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>storage<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>sts/garage<span class="w"> </span>--<span class="w"> </span>garage<span class="w"> </span>status
+</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>
+</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="c1"># Bucket listing</span>
+</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>storage<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>sts/garage<span class="w"> </span>--<span class="w"> </span>garage<span class="w"> </span>bucket<span class="w"> </span>list
+</span><span id="__span-11-9"><a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a>
+</span><span id="__span-11-10"><a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="c1"># Per-bucket size/object count</span>
+</span><span id="__span-11-11"><a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>storage<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>sts/garage<span class="w"> </span>--<span class="w"> </span>garage<span class="w"> </span>bucket<span class="w"> </span>info<span class="w"> </span>&lt;bucket-name&gt;
+</span><span id="__span-11-12"><a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a>
+</span><span id="__span-11-13"><a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a><span class="c1"># Cluster layout (node roles, assigned capacity)</span>
+</span><span id="__span-11-14"><a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>storage<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>sts/garage<span class="w"> </span>--<span class="w"> </span>garage<span class="w"> </span>layout<span class="w"> </span>show
+</span></code></pre></div>
+<p><code>garage repair --yes scrub</code> is available for metadata corruption
+symptoms (<code>lmdb error: MDB_CORRUPTED</code> in logs) — that's DR territory,
+covered in <a href="../garage_restore/"><code>garage_restore.md</code></a>.</p>
+<h3 id="capacity--two-different-numbers-dont-confuse-them">Capacity — two different numbers, don't confuse them<a class="headerlink" href="#capacity--two-different-numbers-dont-confuse-them" title="Permanent link">&para;</a></h3>
+<p><strong>Garage's own capacity setting</strong> (what <code>garage layout show</code> reports,
+configured per-node in Garage's layout) is separate from <strong>the
+underlying NFS filesystem capacity</strong> on brain
+(<code>/mnt/mass_storage</code>, RAID6). Garage can report headroom against its
+configured layout capacity while the underlying brain filesystem is
+actually tight, or vice versa. Check both before approving growth:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># Garage's view</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>storage<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>sts/garage<span class="w"> </span>--<span class="w"> </span>garage<span class="w"> </span>layout<span class="w"> </span>show
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="c1"># The actual filesystem underneath</span>
+</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>ssh<span class="w"> </span>brain<span class="w"> </span><span class="s1">'df -h /mnt/mass_storage'</span>
+</span></code></pre></div>
+<h3 id="known-consumers">Known consumers<a class="headerlink" href="#known-consumers" title="Permanent link">&para;</a></h3>
+<p>Per the CiliumNetworkPolicy in
+<code>kubernetes/apps/storage/garage/app/helmrelease.yaml</code>, in-cluster S3
+clients reaching Garage directly (no envoy hop) are namespace-scoped:
+<code>databases</code> (CNPG Barman ObjectStores — 20+ clusters), <code>media</code>
+(offsite-backup rclone CronJob), and <code>collab</code> (offsite-backup rclone
+CronJob). External S3 traffic comes in via the internal Envoy gateway
+at <code>s3.${SECRET_DOMAIN}</code>.</p>
+<h2 id="pvc-troubleshooting">PVC troubleshooting<a class="headerlink" href="#pvc-troubleshooting" title="Permanent link">&para;</a></h2>
+<h3 id="pending-pvc">Pending PVC<a class="headerlink" href="#pending-pvc" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>describe<span class="w"> </span>pvc<span class="w"> </span>&lt;pvc-name&gt;
+</span></code></pre></div>
+<p>Check the events at the bottom. Common causes:</p>
+<ul>
+<li><strong>No matching StorageClass</strong> — <code>storageClassName</code> in the PVC spec
+  doesn't exist. <code>kubectl get storageclass</code> to confirm the real name
+  (<code>ceph-block</code>, <code>ceph-filesystem</code>, <code>ceph-bucket</code>, or an app-specific
+  Longhorn/NFS class declared per-app).</li>
+<li><strong>Ceph pool capacity exhausted</strong> — the CSI provisioner will report
+  this in events; cross-check with <code>ceph df</code> above.</li>
+<li><strong>Provisioner pod stuck</strong> — check the relevant CSI provisioner
+  Deployment is <code>Running</code>
+  (<code>kubectl -n rook-ceph get pods -l app=csi-rbdplugin-provisioner</code>
+  for <code>ceph-block</code>; <code>kubectl -n longhorn-system get pods -l
+  app=longhorn-manager</code> for Longhorn).</li>
+<li><strong>Static PV/PVC name/namespace mismatch</strong> — for NFS or other
+  statically-provisioned PVs (Garage's substrate, per-app Longhorn
+  PVs), the PVC's <code>volumeName</code> must exactly match an existing,
+  unbound PV. <code>kubectl get pv &lt;name&gt; -o yaml</code> to check
+  <code>spec.claimRef</code>.</li>
+</ul>
+<h3 id="pod-stuck-mounting-a-pvc">Pod stuck mounting a PVC<a class="headerlink" href="#pod-stuck-mounting-a-pvc" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>describe<span class="w"> </span>pod<span class="w"> </span>&lt;pod&gt;<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-A5<span class="w"> </span>-E<span class="w"> </span><span class="s1">'FailedMount|FailedAttachVolume'</span>
+</span></code></pre></div>
+<ul>
+<li><strong>Multi-attach error</strong> (<code>Volume is already exclusively attached to
+  one node</code>) — a RWO PVC's previous pod didn't detach cleanly. Confirm
+  the old pod is actually gone (<code>kubectl get pods -A -o wide | grep
+  &lt;pvc-name&gt;</code>), then let the CSI driver's attach/detach cycle finish;
+  forcing it early risks a dirty volume.</li>
+<li><strong>Node affinity mismatch</strong> — for a statically-bound PV with
+  <code>nodeAffinity</code> (some NFS PVs pin a node), a pod scheduled elsewhere
+  can't mount it. Check <code>spec.nodeAffinity</code> on the PV against the
+  pod's actual node.</li>
+<li><strong>Ceph RBD ghost-stuck PG</strong> — if the mount hangs specifically with
+  <code>rpc error: code = Aborted ... an operation with the given Volume ID
+  ... already exists</code>, that's the known failure mode in
+  <a href="../failure_mode_runbooks/"><code>failure_mode_runbooks.md</code></a> → "Stuck CSI
+  RBD unmap." Don't improvise past that; the runbook has the
+  confirm-then-recover sequence.</li>
+</ul>
+<h3 id="changing-an-immutable-pvc-field">Changing an immutable PVC field<a class="headerlink" href="#changing-an-immutable-pvc-field" title="Permanent link">&para;</a></h3>
+<p><code>storageClassName</code>, <code>accessModes</code>, and <code>resources.requests.storage</code>
+(downward) are immutable once a PVC is bound. Editing them in place —
+even via a Flux-managed manifest change — doesn't recreate the PVC;
+Flux does a server-side <strong>patch</strong> on the same-named object, which
+Kubernetes rejects, and the failure <strong>blocks the entire Kustomization</strong>
+containing that PVC (every other object in it stops applying too,
+<code>ReconciliationFailed</code>, <code>last_applied_revision</code> pinned to the old
+commit).</p>
+<p>The fix is a <strong>new PVC with a distinct name</strong>, not an in-place edit:</p>
+<ol>
+<li>Add the new PVC (new storage class / access mode / size) under a
+   <strong>different <code>metadata.name</code></strong>.</li>
+<li>Repoint the consumer's <code>persistence.&lt;x&gt;.existingClaim</code> (or
+   <code>volumeName</code>, for static PVs) to the new name.</li>
+<li>Remove the old PVC/PV from Git — Flux prunes it once nothing
+   references it.</li>
+<li>If the old PV's reclaim policy is <code>Retain</code>, its backing data is
+   orphaned, not deleted — reclaim manually once you've confirmed the
+   new claim is serving correctly.</li>
+</ol>
+<p>Growing a PVC's size <strong>upward</strong> on the same storage class doesn't hit
+this — <code>resources.requests.storage</code> can increase in place (<code>ceph-block</code>
+and <code>ceph-filesystem</code> both have <code>allowVolumeExpansion: true</code>); only
+storage-class/access-mode changes, or a size <em>decrease</em>, need the
+distinct-name migration above.</p>
+<h2 id="capacity-checks-before-approving-growth">Capacity checks before approving growth<a class="headerlink" href="#capacity-checks-before-approving-growth" title="Permanent link">&para;</a></h2>
+<p>Before approving any PVC creation or volume-size increase, confirm
+free capacity in the target backend is comfortably above the request:</p>
+<table>
+<thead>
+<tr>
+<th>Backend</th>
+<th>Check</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ceph-block</code> / <code>ceph-filesystem</code> / <code>ceph-bucket</code></td>
+<td><code>ceph df</code> via a mon pod (see above)</td>
+</tr>
+<tr>
+<td>Longhorn</td>
+<td>Node page in the UI, or the <code>diskStatus</code> query above</td>
+</tr>
+<tr>
+<td>Garage</td>
+<td><code>garage layout show</code> <strong>and</strong> <code>ssh brain 'df -h /mnt/mass_storage'</code> — both numbers, not just one</td>
+</tr>
+<tr>
+<td>Direct NFS (beast/brain)</td>
+<td><code>ssh &lt;host&gt; 'df -h /mnt/mass_storage'</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../rook_ceph_dr/"><code>rook_ceph_dr.md</code></a>, <a href="../longhorn_restore/"><code>longhorn_restore.md</code></a>,
+  <a href="../garage_restore/"><code>garage_restore.md</code></a> — restore procedures for
+  each backend</li>
+<li><a href="../failure_mode_runbooks/"><code>failure_mode_runbooks.md</code></a> — named,
+  recurring failure modes including the stuck-CSI-RBD-unmap runbook</li>
+<li><a href="../debugging/"><code>debugging.md</code></a> — general cluster-wide triage
+  (events, logs, Flux state) this page doesn't repeat</li>
+<li><code>.agents/instructions/storage-class.instructions.md</code> — which
+  storage class to pick for a new workload</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../power-outage/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Whole-home power outage / cold-start recovery">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Whole-home power outage / cold-start recovery
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../rook_ceph_dr/" class="md-footer__link md-footer__link--next" aria-label="Next: Rook-Ceph DR Runbook">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Rook-Ceph DR Runbook
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "navigation.footer", "search.highlight", "search.share", "search.suggest", "content.code.copy", "content.code.annotate", "content.action.edit", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

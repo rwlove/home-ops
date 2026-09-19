@@ -88,6 +88,59 @@ spec:
           http:
             port: *port
 
+    externalSecrets:
+      omada-exporter:
+        refreshInterval: 5m
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: onepassword-connect
+        target:
+          name: omada-exporter-secret
+          creationPolicy: Owner
+          template:
+            engineVersion: v2
+            data:
+              OMADA_HOST: "{{ .omada_base_url }}"
+              OMADA_USER: "{{ .omada_user }}"
+              OMADA_PASS: "{{ .omada_pass }}"
+              OMADA_CLIENT_ID: "{{ .omada_client_id }}"
+              OMADA_SECRET_ID: "{{ .omada_client_secret }}"
+              OMADA_SITE: "{{ .omada_site }}"
+        dataFrom:
+          - extract:
+              key: omada
+            rewrite:
+              - regexp:
+                  source: "(.*)"
+                  target: "omada_$1"
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: omada-exporter-allow
+        # Explicit endpointSelector preserves the pre-inline selector
+        # (app.kubernetes.io/name) instead of the chart's controller-derived
+        # default, keeping the policy byte-identical across the migration.
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: omada-exporter
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        egress:
+          # Omada controller on brain (LAN host, NOT in cluster). URL is
+          # `https://brain:8043` from `omada-exporter-secret`. brain is the
+          # home router and resolves to a RFC1918 LAN address; route is via
+          # node network. `world` is the right Cilium identity for an
+          # off-cluster LAN host.
+          - toEntities:
+              - world
+              - host
+              - remote-node
+            toPorts:
+              - ports:
+                  - port: "8043"
+                    protocol: TCP
+
     serviceMonitor:
       app:
         serviceName: *app

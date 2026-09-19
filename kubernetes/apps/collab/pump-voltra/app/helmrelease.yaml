@@ -114,6 +114,73 @@ spec:
           metrics:
             port: 8080
 
+    externalSecrets:
+      pump-voltra:
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: onepassword-connect
+        target:
+          name: pump-voltra-secret
+          template:
+            engineVersion: v2
+            data:
+              # Same API_KEY the pump-cv sidecar uses — one server, one key.
+              PUMP_API_KEY: "{{ .API_KEY }}"
+              # ESPHome native-API encryption key for bluetooth-proxy-gym. That
+              # proxy is the only one of the three with an encrypted API, because
+              # it is an active-connection path to a device that can command a
+              # motor. The value is `bluetooth_proxy_gym_api_key` in the ESPHome
+              # secrets.yaml on the esphome PVC.
+              #
+              # Add a "VOLTRA_PROXY_PSK" field to the 1Password "pump" item with
+              # that value — the ExternalSecret will not resolve until you do.
+              VOLTRA_PROXY_PSK: "{{ .VOLTRA_PROXY_PSK }}"
+              # The trainer's BLE MAC. Site-specific and deliberately kept out of
+              # git — the PUMP repo is public and the sidecar's own README says so.
+              #
+              # Add a "VOLTRA_ADDRESS" field to the 1Password "pump" item.
+              VOLTRA_ADDRESS: "{{ .VOLTRA_ADDRESS }}"
+        dataFrom:
+          - extract:
+              key: pump
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: pump-voltra-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: pump-voltra
+        # Additive — collab's default-deny is what triggers the lockdown; this
+        # rule punches the one hole through it.
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        egress:
+          # Intra-ns pump-api:8851 (PUMP_API_BASE_URL, and the /api/sets/stream SSE
+          # subscription) is covered by baseline allow-intra-namespace, so the one
+          # rule below is the whole of this sidecar's external reach.
+          #
+          # The ESPHome native API on bluetooth-proxy-gym (M5Stack ATOM Lite,
+          # 10.10.20.69, IoT VLAN), Noise-encrypted, TCP 6053. This is the whole
+          # of the sidecar's external reach.
+          #
+          # Pinned to a /32 rather than the VLAN /24 that pump-cv uses for the
+          # camera pair: this path can open a GATT session that commands a motor,
+          # so the blast radius stays one host. If the DHCP reservation ever
+          # moves, this and VOLTRA_PROXY_HOST in the HelmRelease change together.
+          #
+          # Routed egress via the pod network, not macvlan. The other IoT-VLAN
+          # consumers (home-assistant, esphome, matter-server) take net-attach
+          # because they need multicast/mDNS discovery and inbound connections;
+          # this is a plain outbound TCP dial to a known address, so it needs
+          # neither, and skipping macvlan avoids burning a static IP.
+          - toCIDR:
+              - 10.10.20.69/32
+            toPorts:
+              - ports:
+                  - port: "6053"
+                    protocol: TCP
+
     serviceMonitor:
       app:
         endpoints:

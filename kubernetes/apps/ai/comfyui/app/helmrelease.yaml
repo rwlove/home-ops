@@ -127,3 +127,53 @@ spec:
         existingClaim: comfyui-workspace-pvc
         globalMounts:
           - path: /workspace
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: comfyui-allow
+        # Explicit endpointSelector preserves the pre-inline selector
+        # instead of the chart's controller-derived default, keeping the
+        # policy byte-identical across the migration.
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: comfyui
+        # Additive — default-deny is what triggers the lockdown; these rules
+        # punch holes through it.
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # HTTPRoute on internal gateway → comfyui:8188, and the comfyui-mcp
+          # MCP server (mcp-system) that fronts ComfyUI for the lovenet-gateway.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: network
+                  app.kubernetes.io/name: envoy
+              - matchLabels:
+                  io.kubernetes.pod.namespace: mcp-system
+                  app.kubernetes.io/name: comfyui-mcp
+            toPorts:
+              - ports:
+                  - port: "8188"
+                    protocol: TCP
+        egress:
+          # External HTTPS for provisioning. The ai-dock/comfyui provisioning
+          # script pulls model weights + custom nodes from these hosts on
+          # first start and on AUTO_UPDATE.
+          # Intended endpoints:
+          #   github.com family, *.githubusercontent.com (CNAME-fronted)
+          #   huggingface.co + *.huggingface.co + *.hf.co (CNAME-fronted)
+          #   civitai.com (CNAME-fronted)
+          #   pypi.org + files.pythonhosted.org (canonical — matchPattern
+          #     silently fails per project_cilium_matchpattern_fqdn_limits.md,
+          #     same gap immich-mcp hit in PR #11533)
+          #
+          # Since the pypi family alone forces a toEntities:[world]+443 to
+          # avoid silent breakage, the whole rule collapses to world:443 —
+          # adding matchPattern allows for the CNAME-fronted ones would be
+          # redundant. Matches the precedent in PRs #11498/#11512/#11517/#11533.
+          - toEntities: [world]
+            toPorts:
+              - ports:
+                  - port: "443"
+                    protocol: TCP

@@ -69,3 +69,25 @@ spec:
             backendRefs:
               - identifier: app
                 port: 8080
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: prometheus-mcp-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: prometheus-mcp
+        # Additive — default-deny is what triggers the lockdown.
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        egress:
+          # Prometheus in observability ns. Env: PROMETHEUS_URL =
+          # http://kube-prometheus-stack-prometheus.observability.svc.cluster.local:9090
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: observability
+                  app.kubernetes.io/name: prometheus
+            toPorts:
+              - ports:
+                  - port: "9090"
+                    protocol: TCP

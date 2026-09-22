@@ -1,0 +1,185 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app lubelogger
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+
+  interval: 30m
+  values:
+    controllers:
+      lubelogger:
+        pod:
+          securityContext:
+            # LubeLogger's upstream image runs as root and writes its
+            # ASP.NET DataProtection keys to /root/.aspnet. We run it
+            # non-root (1000) instead and relocate the key ring onto the
+            # persisted /App/data PVC via HOME=/App/data (see the `app`
+            # container env). fsGroup 1000 makes the Longhorn volume root
+            # group-writable so the non-root process can write documents,
+            # images, config, and the key ring.
+            fsGroup: 1000
+            fsGroupChangePolicy: OnRootMismatch
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        # Single replica over an RWO Longhorn volume — statefulset
+        # serializes pod replacement so the new pod never races the old
+        # one for the volume attachment during a rollout.
+        type: statefulset
+
+        initContainers:
+          # Creates the `lubelogger` database + owner role on the CNPG
+          # cluster using the superuser (Pattern B, same as medikeep).
+          # LubeLogger creates its own tables on first boot but does NOT
+          # create the database itself.
+          init-db:
+            image:
+              repository: ghcr.io/home-operations/postgres-init
+              tag: 18.6.0@sha256:b6d3af974df781c673d37e49bdddfa14a6f5be28b18d2cb7713f0449bea4057b
+            envFrom: &envFrom
+              - secretRef:
+                  name: lubelogger
+
+        containers:
+          app:
+            image:
+              repository: ghcr.io/hargata/lubelogger
+              tag: v1.7.3@sha256:c9d2bbb48c7f84d90e54496e2cd60422e56a5f2345c8a539ebe09f77e629d321
+            env:
+              TZ: America/New_York
+              # Relocate the ASP.NET DataProtection key ring off the
+              # (root-owned, ephemeral) /root onto the persisted PVC. If
+              # this ring is lost, existing auth cookies are invalidated
+              # and every user is logged out — hence it must persist.
+              HOME: /App/data
+            # envFrom the same secret: the app reads POSTGRES_CONNECTION;
+            # the init container reads the INIT_POSTGRES_* keys.
+            envFrom: *envFrom
+            resources:
+              requests:
+                cpu: 15m
+                memory: 128Mi
+              limits:
+                memory: 512Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              # readOnlyRootFilesystem intentionally left OFF for the
+              # initial bring-up: LubeLogger is a .NET app and its full
+              # set of runtime write paths (beyond /App/data + $HOME) is
+              # unverified. Tighten to `true` (with tmpfs mounts for any
+              # observed scratch paths) after the suspended-first soak
+              # confirms what it actually writes. See helmrelease.security.md.
+              readOnlyRootFilesystem: false
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+
+    service:
+      app:
+        controller: lubelogger
+        ports:
+          http:
+            port: 8080
+
+    route:
+      app:
+        annotations:
+          glance/name: "LubeLogger"
+          glance/show: "true"
+          glance/id: "Self-Hosted"
+          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/lubelogger.png"
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: 8080
+
+    persistence:
+      # Service history, fuel/cost records live in Postgres, but uploaded
+      # documents (receipts, warranty PDFs), vehicle images, the config
+      # file, and the DataProtection key ring (via HOME) all live on disk
+      # here — hand-entered and irreplaceable, so Longhorn (survives
+      # cluster loss via the NFS backup target), not ceph-block. Auto
+      # covered by Longhorn's `default` recurring-job group (daily
+      # snapshot + weekly/monthly backup).
+      data:
+        type: persistentVolumeClaim
+        accessMode: ReadWriteOnce
+        size: 5Gi
+        storageClass: longhorn
+        globalMounts:
+          - path: /App/data
+
+    externalSecrets:
+      lubelogger:
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: onepassword-connect
+        target:
+          name: lubelogger
+          creationPolicy: Owner
+          template:
+            engineVersion: v2
+            data:
+              # LubeLogger's single Npgsql connection string (app container).
+              POSTGRES_CONNECTION: "Host=postgres-lubelogger-rw.databases.svc.cluster.local:5432;Username={{ .POSTGRES_USER }};Password={{ .POSTGRES_PASS }};Database=lubelogger;"
+              # postgres-init initContainer (db + owner-role bootstrap).
+              INIT_POSTGRES_DBNAME: lubelogger
+              INIT_POSTGRES_HOST: postgres-lubelogger-rw.databases.svc.cluster.local
+              INIT_POSTGRES_USER: "{{ .POSTGRES_USER }}"
+              INIT_POSTGRES_PASS: "{{ .POSTGRES_PASS }}"
+              INIT_POSTGRES_SUPER_PASS: "{{ .POSTGRES_SUPER_PASS }}"
+        dataFrom:
+          - extract:
+              key: lubelogger
+          - extract:
+              key: cloudnative-pg
+
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: lubelogger-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: lubelogger
+        # Additive — the selfhosted-ns default-deny is what triggers the
+        # lockdown; these rules punch holes through it. DNS + intra-ns are
+        # covered by the baseline network-policy component.
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # Internal Gateway (Envoy) → lubelogger :8080.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: network
+                  app.kubernetes.io/name: envoy
+            toPorts:
+              - ports:
+                  - port: "8080"
+                    protocol: TCP
+        egress:
+          # CNPG cluster postgres-lubelogger in databases ns (Pattern B).
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: databases
+                  cnpg.io/cluster: postgres-lubelogger
+            toPorts:
+              - ports:
+                  - port: "5432"
+                    protocol: TCP

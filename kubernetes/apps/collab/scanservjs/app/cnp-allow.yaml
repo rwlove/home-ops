@@ -1,0 +1,39 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: scanservjs-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: scanservjs
+  # Additive — the collab default-deny component triggers the lockdown;
+  # these rules punch the holes. Intra-namespace (scanservjs -> paperless)
+  # and DNS are already covered by the baseline component.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # Home Assistant (home ns) fires the scan via a rest_command hitting the
+    # scanservjs REST API. This is the primary trigger (an HA dashboard
+    # button / NFC tag). The HA egress counterpart is added with the button.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: home-assistant
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+  egress:
+    # eSCL scan pull from the Brother MFC-J1170DW (off-cluster, 192.168.5.29).
+    # HA already reaches this host on :631 (IPP), so the cross-VLAN L3 path
+    # is already open at the gateway; this adds the :80 eSCL hole so the
+    # scanserv pod can pull the scan.
+    - toCIDR:
+        - 192.168.5.29/32
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP

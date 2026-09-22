@@ -1,0 +1,82 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: scanservjs
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 30m
+  values:
+    controllers:
+      scanservjs:
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        pod:
+          # scanservjs' upstream image is built to run as root (SANE backends
+          # + a runtime config merge into its app dir). Rather than fight the
+          # image with a uid override on first deploy, it runs as the image
+          # default with the rest of the container hardening kept. Tightening
+          # to non-root is tracked as a follow-up.
+          securityContext: {}
+
+        containers:
+          app:
+            image:
+              repository: docker.io/sbs20/scanservjs
+              tag: v3.3.0@sha256:7a0c0dfd546f483c2fe8c5ccdcd8fc96301a41fb0d4309747fc8268108defb6a
+            envFrom:
+              # PAPERLESS_TOKEN — optional so the pod starts before the
+              # 1Password field exists (see externalsecret.yaml).
+              - secretRef:
+                  name: scanservjs-secret
+                  optional: true
+            resources:
+              requests:
+                cpu: 10m
+                memory: 128Mi
+              limits:
+                memory: 512Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              # scanservjs writes runtime state (config merge, per-scan
+              # working files) into its app dir + /tmp; it is not
+              # read-only-rootfs clean. Scratch is ephemeral (scans are
+              # uploaded to paperless then discarded), so this is low-risk.
+              readOnlyRootFilesystem: false
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+
+    service:
+      app:
+        controller: scanservjs
+        ports:
+          http:
+            port: 8080
+
+    persistence:
+      # In-container scratch for the SANE scan + pipeline (imagemagick,
+      # curl). Ephemeral: the assembled PDF is POSTed to paperless and
+      # dropped.
+      tmp:
+        type: emptyDir
+        globalMounts:
+          - path: /tmp
+      config:
+        type: configMap
+        name: scanservjs-config
+        advancedMounts:
+          scanservjs:
+            app:
+              - path: /etc/scanservjs/config.local.js
+                subPath: config.local.js
+                readOnly: true
+              - path: /etc/sane.d/airscan.conf
+                subPath: airscan.conf
+                readOnly: true

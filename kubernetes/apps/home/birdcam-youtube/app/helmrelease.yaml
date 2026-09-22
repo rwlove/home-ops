@@ -35,15 +35,18 @@ spec:
             # 10s — the container stays Running (no CrashLoopBackOff) and
             # self-heals when the far end returns. This is what the in-Frigate
             # go2rtc `publish:` could NOT do (one-shot at startup, no retry).
-            # YOUTUBE_KEY is injected from the birdcam-youtube Secret (envFrom);
-            # ${YOUTUBE_KEY} is expanded by the shell, never committed to git.
+            # YOUTUBE_KEY is injected from the birdcam-youtube Secret (envFrom).
+            # It is written $${YOUTUBE_KEY} so Flux's postBuild envsubst (strict)
+            # renders it to a literal ${YOUTUBE_KEY}, which the container shell
+            # then expands from env — the key stays out of git and out of the
+            # pod spec args.
             command:
               - /bin/sh
               - -c
             args:
               - |
                 while true; do
-                  ffmpeg -hide_banner -loglevel warning -nostdin -rtsp_transport tcp -rw_timeout 5000000 -fflags +genpts -i rtsp://frigate.home:8554/birdcam -c copy -f flv "rtmp://a.rtmp.youtube.com/live2/${YOUTUBE_KEY}"
+                  ffmpeg -hide_banner -loglevel warning -nostdin -rtsp_transport tcp -rw_timeout 5000000 -fflags +genpts -i rtsp://frigate.home:8554/birdcam -c copy -f flv "rtmp://a.rtmp.youtube.com/live2/$${YOUTUBE_KEY}"
                   echo "[birdcam-youtube] ffmpeg exited (rc=$?); reconnecting in 10s" >&2
                   sleep 10
                 done

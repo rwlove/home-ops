@@ -16,12 +16,20 @@ spec:
           reloader.stakater.com/auto: "true"
 
         pod:
-          # scanservjs' upstream image is built to run as root (SANE backends
-          # + a runtime config merge into its app dir). Rather than fight the
-          # image with a uid override on first deploy, it runs as the image
-          # default with the rest of the container hardening kept. Tightening
-          # to non-root is tracked as a follow-up.
-          securityContext: {}
+          # Run as the image's own scanservjs user (uid 102), which owns
+          # /var/lib/scanservjs (the writable data dir: device cache, temp,
+          # output). The image's entrypoint runs as root and relies on
+          # CAP_DAC_OVERRIDE to write that dir — but we drop ALL caps, so root
+          # gets EACCES there. Running as the owning uid needs no caps and no
+          # root. gid 100 (users) = the data dir's group; fsGroup 100 makes the
+          # mounted secret + tmp readable/writable. eSCL scanning is pure HTTP,
+          # so no privilege is required.
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 102
+            runAsGroup: 100
+            fsGroup: 100
+            fsGroupChangePolicy: OnRootMismatch
 
         containers:
           app:

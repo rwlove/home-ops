@@ -1,0 +1,111 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app birdcam-youtube
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 30m
+  values:
+    controllers:
+      birdcam-youtube:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        type: deployment
+        replicas: 1
+        pod:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+        containers:
+          app:
+            image:
+              repository: ghcr.io/jrottenberg/ffmpeg
+              tag: 8.1-vaapi@sha256:ce71f3ed264ec98fc9dba52d6a70b8c3bc816f4cbff3338b5c7250b296002e3c
+            # Resilient restreamer. Pull Frigate's birdcam restream (already
+            # H264+AAC from go2rtc) and remux (-c copy, no transcode) to
+            # YouTube Live. The retry loop is the whole point: a YouTube/Studio
+            # outage, a Frigate restart, or an early start just reconnects every
+            # 10s — the container stays Running (no CrashLoopBackOff) and
+            # self-heals when the far end returns. This is what the in-Frigate
+            # go2rtc `publish:` could NOT do (one-shot at startup, no retry).
+            # YOUTUBE_KEY is injected from the birdcam-youtube Secret (envFrom);
+            # ${YOUTUBE_KEY} is expanded by the shell, never committed to git.
+            command:
+              - /bin/sh
+              - -c
+            args:
+              - |
+                while true; do
+                  ffmpeg -hide_banner -loglevel warning -nostdin -rtsp_transport tcp -rw_timeout 5000000 -fflags +genpts -i rtsp://frigate.home:8554/birdcam -c copy -f flv "rtmp://a.rtmp.youtube.com/live2/${YOUTUBE_KEY}"
+                  echo "[birdcam-youtube] ffmpeg exited (rc=$?); reconnecting in 10s" >&2
+                  sleep 10
+                done
+            envFrom:
+              - secretRef:
+                  name: *app
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+            resources:
+              requests:
+                cpu: 50m
+                memory: 128Mi
+              limits:
+                memory: 256Mi
+    persistence:
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          birdcam-youtube:
+            app:
+              - path: /tmp
+    externalSecrets:
+      birdcam-youtube:
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: onepassword-connect
+        target:
+          name: birdcam-youtube
+          creationPolicy: Owner
+          template:
+            engineVersion: v2
+            data:
+              YOUTUBE_KEY: "{{ .BIRDCAM_STREAM_KEY }}"
+        dataFrom:
+          - extract:
+              key: youtube
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: birdcam-youtube-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: birdcam-youtube
+        # Additive — home default-deny does the lockdown; this punches the one
+        # hole the baseline doesn't already cover.
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        egress:
+          # YouTube Live RTMP ingest (a.rtmp.youtube.com/live2/<key> on :1935).
+          # Ingest IPs are Google load balancers; toFQDNs proved unreliable for
+          # long-lived RTMP here (see the frigate CNP note), so scope to
+          # world:1935 — 1935 is RTMP-specific and this pod has no other RTMP
+          # destination. The pull of Frigate's :8554 restream is intra-namespace
+          # and already covered by the home baseline allow-intra-namespace CNP.
+          - toEntities:
+              - world
+            toPorts:
+              - ports:
+                  - port: "1935"
+                    protocol: TCP

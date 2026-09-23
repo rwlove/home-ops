@@ -37,6 +37,8 @@ GIT_NAME = os.environ.get("GIT_USER_NAME", "kagent-doer")
 GIT_EMAIL = os.environ.get("GIT_USER_EMAIL", "kagent-doer@users.noreply.github.com")
 CLONE = "/tmp/repo"
 CRON_RE = re.compile(r"^(\S+\s+){4}\S+$")
+RETAIN_RE = re.compile(r"^\d+$")
+FOR_RE = re.compile(r"^\d+[smhdwy]$")
 
 
 def log(m):
@@ -107,10 +109,15 @@ def validate(p):
     if not p.get("target"):
         return "missing target"
     nv = p.get("new_value")
-    if not isinstance(nv, str) or not nv.strip():
+    if nv is None or (isinstance(nv, str) and not nv.strip()):
         return "missing/blank new_value"
-    if action == "set_cron" and not CRON_RE.match(nv.strip()):
+    nv = str(nv).strip()
+    if action == "set_cron" and not CRON_RE.match(nv):
         return "new_value %r is not a 5-field cron" % nv
+    if action == "set_retain" and not RETAIN_RE.match(nv):
+        return "new_value %r is not a non-negative integer (retain)" % nv
+    if action == "set_for" and not FOR_RE.match(nv):
+        return "new_value %r is not a Prometheus duration like 5m/1h (for)" % nv
     f = p.get("file")
     if f is not None:
         if ".." in f or f.startswith("/") or not f.startswith(PATH_PREFIX) or not f.endswith((".yaml", ".yml")):
@@ -134,18 +141,89 @@ def gh_api(method, path, payload=None):
         return json.loads(r.read().decode())
 
 
-def find_and_apply(action, target, new_value):
-    """Locate the target object and change ONLY the one field's line (minimal diff).
-    A full YAML round-trip reformats the file (list indent, doc separators, blank
-    lines) producing a noisy, hard-to-review diff — so identify the doc by parsing,
-    but edit the single field line as text. Returns the repo-relative path changed,
-    or None if not found / already correct (no-op → no PR)."""
-    from ruamel.yaml import YAML
-    yaml = YAML(typ="safe")
-    kind, field = {"set_cron": ("RecurringJob", "cron")}[action]
+DOC_SEP = re.compile(r"^---\s*$")
+NOOP = "NOOP"  # apply() sentinel: target found but already correct (→ no PR)
+
+
+def _apply_scalar(lines, target, new_value, field, quote):
+    """Replace the single `<field>:` line inside the doc whose metadata.name ==
+    target. Returns the line index changed, NOOP if already correct, or None if the
+    target's field is not in these lines. Minimal 1-line diff."""
     name_re = re.compile(r"^\s*name:\s*%s\s*$" % re.escape(target))
     field_re = re.compile(r"^(\s*%s:\s*).*$" % re.escape(field))
-    doc_sep = re.compile(r"^---\s*$")
+    ni = next((i for i, ln in enumerate(lines) if name_re.match(ln)), None)
+    if ni is None:
+        return None
+    for j in range(ni + 1, len(lines)):
+        if DOC_SEP.match(lines[j]):
+            break
+        m = field_re.match(lines[j])
+        if m:
+            val = ('"%s"' % new_value) if quote else new_value
+            new_line = m.group(1) + val
+            return NOOP if lines[j] == new_line else (lines.__setitem__(j, new_line) or j)
+    return None
+
+
+def _apply_for(lines, target, new_value):
+    """Set (or insert) the `for:` clause on the alert rule named `target` inside a
+    PrometheusRule. Replaces an existing `for:`; otherwise inserts one right after
+    the `- alert:` line at the rule-field indent. Minimal diff (1 line changed or
+    1 line added)."""
+    alert_re = re.compile(r"^(\s*)-\s+alert:\s*%s\s*$" % re.escape(target))
+    ai = next((i for i, ln in enumerate(lines) if alert_re.match(ln)), None)
+    if ai is None:
+        return None
+    indent = alert_re.match(lines[ai]).group(1)
+    field_indent = indent + "  "
+    for_re = re.compile(r"^%sfor:\s*.*$" % re.escape(field_indent))
+    for j in range(ai + 1, len(lines)):
+        if DOC_SEP.match(lines[j]):
+            break
+        # dedent back to the list-item level or above → out of this rule block
+        if lines[j].strip() and (len(lines[j]) - len(lines[j].lstrip())) <= len(indent):
+            break
+        if for_re.match(lines[j]):
+            new_line = '%sfor: "%s"' % (field_indent, new_value)
+            return NOOP if lines[j] == new_line else (lines.__setitem__(j, new_line) or j)
+    lines.insert(ai + 1, '%sfor: "%s"' % (field_indent, new_value))
+    return ai + 1
+
+
+def _guard_retain_increase_only(docs, target, new_value):
+    """Storage prime directive: retain may only INCREASE (never drop backups)."""
+    for d in docs:
+        if (isinstance(d, dict) and d.get("kind") == "RecurringJob"
+                and (d.get("metadata") or {}).get("name") == target):
+            cur = (d.get("spec") or {}).get("retain")
+            try:
+                if int(new_value) <= int(cur):
+                    return "set_retain must INCREASE retention (%s -> %s rejected)" % (cur, new_value)
+            except (TypeError, ValueError):
+                return "retain values must be integers"
+            return None
+    return "SKIP"  # target not a RecurringJob in this file — keep scanning
+
+
+# action -> {kind, locate substring, apply(lines,target,new_value), optional guard}
+ACTIONS = {
+    "set_cron": {"kind": "RecurringJob", "locate": lambda t: "name: " + t,
+                 "apply": lambda ls, t, v: _apply_scalar(ls, t, v, "cron", quote=True)},
+    "set_retain": {"kind": "RecurringJob", "locate": lambda t: "name: " + t,
+                   "apply": lambda ls, t, v: _apply_scalar(ls, t, v, "retain", quote=False),
+                   "guard": _guard_retain_increase_only},
+    "set_for": {"kind": "PrometheusRule", "locate": lambda t: "alert: " + t,
+                "apply": _apply_for},
+}
+
+
+def find_and_apply(action, target, new_value):
+    """Locate the target and apply the action's deterministic minimal edit. Returns
+    the repo-relative path changed, or None if not found / already correct (no-op)."""
+    from ruamel.yaml import YAML
+    yaml = YAML(typ="safe")
+    spec = ACTIONS[action]
+    kind, locate, apply = spec["kind"], spec["locate"](target), spec["apply"]
     root = os.path.join(CLONE, PATH_PREFIX)
     for dirpath, _, files in os.walk(root):
         for fn in files:
@@ -156,51 +234,47 @@ def find_and_apply(action, target, new_value):
                 text = open(full, encoding="utf-8").read()
             except Exception:
                 continue
-            if kind not in text or ("name: " + target) not in text:
+            if kind not in text or locate not in text:
                 continue
-            # Confirm a real doc has kind+name, and read its current field value.
-            current = None
-            try:
-                for doc in yaml.load_all(text):
-                    if (isinstance(doc, dict) and doc.get("kind") == kind
-                            and (doc.get("metadata") or {}).get("name") == target):
-                        current = str((doc.get("spec") or {}).get(field))
-            except Exception:
-                continue
-            if current is None:
-                continue
-            if current == new_value:
-                return None  # already correct — no-op, no PR
-            # Surgical: the target's metadata name line, then the next `<field>:`
-            # line before the next doc boundary. Change ONLY that one line.
+            guard = spec.get("guard")
+            if guard:
+                try:
+                    docs = list(yaml.load_all(text))
+                except Exception:
+                    continue
+                verdict = guard(docs, target, new_value)
+                if verdict == "SKIP":
+                    continue
+                if verdict:
+                    raise ValueError(verdict)
             lines = text.split("\n")
-            ni = next((i for i, ln in enumerate(lines) if name_re.match(ln)), None)
-            if ni is None:
-                continue
-            for j in range(ni + 1, len(lines)):
-                if doc_sep.match(lines[j]):
-                    break
-                m = field_re.match(lines[j])
-                if m:
-                    lines[j] = m.group(1) + '"%s"' % new_value
-                    open(full, "w", encoding="utf-8").write("\n".join(lines))
-                    return os.path.relpath(full, CLONE)
+            idx = apply(lines, target, new_value)
+            if idx == NOOP:
+                return None      # already correct — no PR
+            if idx is None:
+                continue         # not in this file — keep scanning
+            open(full, "w", encoding="utf-8").write("\n".join(lines))
+            return os.path.relpath(full, CLONE)
     return None
 
 
+STORAGE_PROMPT = (
+    "Using your read-only tools, sweep for storage-durability risks (stale Longhorn "
+    "backups, misconfigured RecurringJob schedules, too-low backup retention, capacity, "
+    "orphans). Give a terse human triage first. THEN, only if there is a concrete, safe, "
+    "config-level fix, append a fenced ```json block with EXACTLY these keys: "
+    "{\"action\":\"<set_cron|set_retain>\",\"target\":\"<RecurringJob name>\","
+    "\"new_value\":\"<a 5-field cron for set_cron, or an integer for set_retain>\","
+    "\"rationale\":\"<one sentence>\"}. set_cron only for a clearly-wrong schedule; "
+    "set_retain only to INCREASE retention (never reduce it). If there is no safe config "
+    "fix, emit NO json block. Never propose deletions or anything that reduces protection.")
+
+
 def main():
-    # PROMPT_OVERRIDE is a testability hook: it changes only what the agent is ASKED,
-    # never what the pipeline ACCEPTS — every proposal still passes the same schema +
-    # path allowlist + action allowlist below, so it cannot widen the blast radius.
-    prompt = os.environ.get("PROMPT_OVERRIDE") or (
-        "Using your read-only tools, sweep for storage-durability risks (stale "
-        "Longhorn backups, misconfigured RecurringJob schedules, capacity, orphans). "
-        "Give a terse human triage first. THEN, only if there is a concrete, safe, "
-        "config-level fix, append a fenced ```json block with EXACTLY these keys: "
-        "{\"action\":\"set_cron\",\"target\":\"<RecurringJob name>\","
-        "\"new_value\":\"<valid 5-field cron>\",\"rationale\":\"<one sentence>\"}. "
-        "Only propose set_cron for a RecurringJob whose schedule is clearly wrong. "
-        "If there is no safe config fix, emit NO json block. Never propose deletions.")
+    # PROMPT_OVERRIDE / DOER_PROMPT change only what the agent is ASKED, never what the
+    # pipeline ACCEPTS — every proposal still passes the same schema + path allowlist +
+    # action allowlist below, so they cannot widen the blast radius.
+    prompt = os.environ.get("PROMPT_OVERRIDE") or os.environ.get("DOER_PROMPT") or STORAGE_PROMPT
     text, state = ask_agent(prompt)
     log("agent state=%s" % state)
     log("----- triage -----\n%s\n------------------" % text)
@@ -221,7 +295,7 @@ def main():
 
     action = proposal["action"]
     target = proposal["target"]
-    new_value = proposal["new_value"].strip()
+    new_value = str(proposal["new_value"]).strip()
     rationale = re.sub(r"[^\x20-\x7e]", " ", str(proposal.get("rationale", "")))[:300]
     log("proposal ACCEPTED: %s %s -> %r" % (action, target, new_value))
 

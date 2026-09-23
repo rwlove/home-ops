@@ -39,6 +39,7 @@ CLONE = "/tmp/repo"
 CRON_RE = re.compile(r"^(\S+\s+){4}\S+$")
 RETAIN_RE = re.compile(r"^\d+$")
 FOR_RE = re.compile(r"^\d+[smhdwy]$")
+MEM_RE = re.compile(r"^\d+(\.\d+)?(Ki|Mi|Gi|Ti|Pi|K|M|G|T|P)$")
 
 
 def log(m):
@@ -118,6 +119,8 @@ def validate(p):
         return "new_value %r is not a non-negative integer (retain)" % nv
     if action == "set_for" and not FOR_RE.match(nv):
         return "new_value %r is not a Prometheus duration like 5m/1h (for)" % nv
+    if action == "set_mem_limit" and not MEM_RE.match(nv):
+        return "new_value %r is not a memory quantity like 2Gi/512Mi" % nv
     f = p.get("file")
     if f is not None:
         if ".." in f or f.startswith("/") or not f.startswith(PATH_PREFIX) or not f.endswith((".yaml", ".yml")):
@@ -215,6 +218,62 @@ def _guard_retain_increase_only(docs, target, new_value):
     return "SKIP"  # target not a RecurringJob in this file — keep scanning
 
 
+_MEM_MULT = {"": 1, "K": 1e3, "M": 1e6, "G": 1e9, "T": 1e12, "P": 1e15,
+             "Ki": 2 ** 10, "Mi": 2 ** 20, "Gi": 2 ** 30, "Ti": 2 ** 40, "Pi": 2 ** 50}
+
+
+def _mem_bytes(s):
+    m = re.match(r"^(\d+(?:\.\d+)?)\s*(Ki|Mi|Gi|Ti|Pi|K|M|G|T|P|)$", str(s).strip().strip("\"'"))
+    return float(m.group(1)) * _MEM_MULT[m.group(2)] if m else None
+
+
+def _apply_mem_limit(lines, target, new_value):
+    """Set `resources.limits.memory` on the HelmRelease named `target`, INCREASE-only.
+    SAFETY: acts only when there is EXACTLY ONE `memory:` under a `limits:` block in
+    the target's doc (unambiguous single-container app) — otherwise no-op (no PR). A
+    decrease is rejected (never shrink a limit an app may need). Minimal 1-line diff."""
+    name_re = re.compile(r"^\s*name:\s*%s\s*$" % re.escape(target))
+    ni = next((i for i, ln in enumerate(lines) if name_re.match(ln)), None)
+    if ni is None:
+        return None
+    # bound the target's YAML document
+    start = ni
+    while start > 0 and not DOC_SEP.match(lines[start - 1]):
+        start -= 1
+    end = ni + 1
+    while end < len(lines) and not DOC_SEP.match(lines[end]):
+        end += 1
+    # collect `memory:` lines directly under a `limits:` block
+    limits_re = re.compile(r"^(\s*)limits:\s*$")
+    mem_re = re.compile(r"^(\s*)memory:\s*(.*)$")
+    matches = []
+    j = start
+    while j < end:
+        lm = limits_re.match(lines[j])
+        if lm:
+            lim_ind = len(lm.group(1))
+            k = j + 1
+            while k < end and (not lines[k].strip()
+                               or (len(lines[k]) - len(lines[k].lstrip())) > lim_ind):
+                mm = mem_re.match(lines[k])
+                if mm and (len(mm.group(1)) == lim_ind + 2):
+                    matches.append((k, mm.group(1), mm.group(2).strip()))
+                k += 1
+        j += 1
+    if len(matches) != 1:
+        return None  # zero or ambiguous → no-op, no PR
+    idx, prefix, cur = matches[0]
+    curb, newb = _mem_bytes(cur), _mem_bytes(new_value)
+    if curb is None or newb is None:
+        raise ValueError("unparseable memory quantity: cur=%r new=%r" % (cur, new_value))
+    if newb == curb:
+        return NOOP
+    if newb < curb:
+        raise ValueError("set_mem_limit must INCREASE the limit (%s -> %s rejected)" % (cur, new_value))
+    lines[idx] = prefix + "memory: " + new_value
+    return idx
+
+
 # action -> {kind, locate substring, apply(lines,target,new_value), optional guard}
 ACTIONS = {
     "set_cron": {"kind": "RecurringJob", "locate": lambda t: "name: " + t,
@@ -224,6 +283,8 @@ ACTIONS = {
                    "guard": _guard_retain_increase_only},
     "set_for": {"kind": "PrometheusRule", "locate": lambda t: "alert: " + t,
                 "apply": _apply_for},
+    "set_mem_limit": {"kind": "HelmRelease", "locate": lambda t: "name: " + t,
+                      "apply": _apply_mem_limit},
 }
 
 

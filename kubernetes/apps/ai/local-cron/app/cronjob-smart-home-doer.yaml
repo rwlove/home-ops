@@ -1,0 +1,125 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/cronjob-batch-v1.json
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: local-cron-smart-home-doer
+  labels:
+    app.kubernetes.io/name: local-cron
+spec:
+  # Write-gate DOER (PR-only) for the smart-home stack. ALLOWED_ACTIONS=set_mem_limit.
+  # SCOPE (respects the prime directive "cannot break HA"): it proposes ONLY home-ops
+  # config PRs — raising the memory limit of an OOMing home-namespace app (HA-adjacent
+  # services, Music Assistant, brokers, the HA Postgres, etc.). It NEVER actuates Home
+  # Assistant and NEVER touches the home-assistant-config repo. The agent reads OOM
+  # signal from Prometheus (cluster-wide) since its k8s RBAC is ai-scoped; the pipeline
+  # edits the HelmRelease in git regardless of namespace. Ships SUSPENDED — unsuspend
+  # after a manual test produced a clean PR:
+  #   kubectl -n ai create job --from=cronjob/local-cron-smart-home-doer sh-doer-test
+  suspend: true
+  schedule: "10 10 * * *"
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 600
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: local-cron
+          annotations:
+            k8tz.io/inject: "false"
+        spec:
+          nodeSelector:
+            kubernetes.io/arch: amd64
+          serviceAccountName: local-cron
+          automountServiceAccountToken: false
+          restartPolicy: OnFailure
+          containers:
+            - name: doer
+              image: docker.io/library/python:3.12
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -ceu
+                - |
+                  pip install --quiet --no-cache-dir --target /tmp/pylib 'ruamel.yaml>=0.18,<0.19'
+                  exec python3 /app/doer_pipeline.py
+              env:
+                - name: HOME
+                  value: /tmp
+                - name: TZ
+                  value: America/New_York
+                - name: PYTHONPATH
+                  value: /tmp/pylib
+                - name: AGENT_URL
+                  value: http://smart-home-operator.ai:8080/
+                - name: AGENT_NAME
+                  value: smart-home
+                - name: ALLOWED_ACTIONS
+                  value: set_mem_limit
+                - name: REPO
+                  value: rwlove/home-ops
+                - name: PATH_PREFIX
+                  value: kubernetes/apps/
+                - name: GIT_USER_NAME
+                  value: kagent-doer
+                - name: GIT_USER_EMAIL
+                  value: kagent-doer@users.noreply.github.com
+                - name: DOER_PROMPT
+                  value: |
+                    Using your read-only tools (Prometheus especially), find ONE app in
+                    the smart-home / Home Assistant stack (the `home` namespace: HA and
+                    its brokers, Music Assistant, the HA Postgres, etc.) that is OOMing —
+                    an OOMKilled restart or memory pinned at its container limit. Give a
+                    terse triage first. THEN, only if one app clearly needs more headroom,
+                    append a fenced ```json block with EXACTLY these keys:
+                    {"action":"set_mem_limit","target":"<app / HelmRelease name>","new_value":"<a larger memory quantity like 2Gi>","rationale":"<one sentence>"}.
+                    Only INCREASE a limit (never reduce), only for a single-container app
+                    you can name confidently. This proposes a home-ops config PR ONLY —
+                    NEVER actuate Home Assistant, never edit automations. If nothing
+                    clearly needs it, emit NO json block. Never propose deletions.
+              envFrom:
+                - secretRef:
+                    name: local-cron-secret
+                    optional: false
+                - secretRef:
+                    name: kagent-doer-secret
+                    optional: false
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: "1"
+                  memory: 512Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: script
+                  mountPath: /app
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: script
+              configMap:
+                name: doer-pipeline
+                defaultMode: 0o555
+            - name: tmp
+              emptyDir:
+                medium: Memory
+                sizeLimit: 256Mi

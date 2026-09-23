@@ -159,9 +159,14 @@ def _apply_scalar(lines, target, new_value, field, quote):
             break
         m = field_re.match(lines[j])
         if m:
+            # NOOP if the value already matches SEMANTICALLY (ignore quoting) — never
+            # open a PR just to add/remove quotes.
+            cur = lines[j][len(m.group(1)):].strip().strip("\"'")
+            if cur == new_value:
+                return NOOP
             val = ('"%s"' % new_value) if quote else new_value
-            new_line = m.group(1) + val
-            return NOOP if lines[j] == new_line else (lines.__setitem__(j, new_line) or j)
+            lines[j] = m.group(1) + val
+            return j
     return None
 
 
@@ -184,9 +189,14 @@ def _apply_for(lines, target, new_value):
         if lines[j].strip() and (len(lines[j]) - len(lines[j].lstrip())) <= len(indent):
             break
         if for_re.match(lines[j]):
-            new_line = '%sfor: "%s"' % (field_indent, new_value)
-            return NOOP if lines[j] == new_line else (lines.__setitem__(j, new_line) or j)
-    lines.insert(ai + 1, '%sfor: "%s"' % (field_indent, new_value))
+            # NOOP if the for: already matches semantically (ignore quoting). Write
+            # UNQUOTED to match the repo's PrometheusRule convention (`for: 5m`).
+            cur = lines[j].split("for:", 1)[1].strip().strip("\"'")
+            if cur == new_value:
+                return NOOP
+            lines[j] = "%sfor: %s" % (field_indent, new_value)
+            return j
+    lines.insert(ai + 1, "%sfor: %s" % (field_indent, new_value))
     return ai + 1
 
 

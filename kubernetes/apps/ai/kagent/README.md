@@ -64,6 +64,10 @@ canonical persona source is `~/.claude-personal/agents/*.md`.
 - `otel.tracing.enabled: true` → the cluster OTLP/Tempo endpoint.
 - Expose the controller's agents over MCP behind the lovenet gateway for Claude
   Code delegation.
+- **grafana-mcp** (enabled Phase 3a) pulls `docker.io/mcp/grafana:latest` — the parent
+  chart exposes no image override and pins `:latest` (hence the allowlist entry). It also
+  duplicates `mcp-system/grafana-mcp`. Follow-up: pin it, or point the observability agent
+  at the existing gateway grafana-mcp instead of bundling a second one.
 
 ## Revert
 

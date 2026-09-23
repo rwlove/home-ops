@@ -345,7 +345,6 @@ the app itself. Nothing else in the cluster depended on any of it.
 - **ollama** (P40) — `kubernetes/apps/ai/ollama/app/`
 - **vllm-driver-spark** (GB10) — `kubernetes/apps/ai/vllm-driver-spark/app/`
 - **tei-embed-spark** (GB10) — `kubernetes/apps/ai/tei-embed-spark/app/`
-- **paperless-ai** — `kubernetes/apps/ai/paperless-ai/app/helmrelease.yaml`
 - **tei-spark** — `kubernetes/apps/ai/tei-spark/` (unsuspended 2026-05-21, PR #11893; PrometheusRule added in PR #11906)
 - **open-webui** — `kubernetes/apps/collab/open-webui/app/helmrelease.yaml`
 - **windmill** — `kubernetes/apps/home/windmill/app/helmrelease.yaml`

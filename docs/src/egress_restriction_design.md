@@ -249,7 +249,7 @@ A focused, targeted second pass on the existing CNPs:
   matchName: <fqdn>` per FQDN, using the paired `matchPattern:
   foo.com` and `matchPattern: foo.com.*` workaround for canonical
   FQDNs. Already the pattern in actions-runner-controller,
-  media-pull-stack quality-rules app, pump-cv, github-mcp, paperless-ai.
+  media-pull-stack quality-rules app, pump-cv, github-mcp.
 - For apps with **inherently unbounded** egress (home-assistant,
   esphome, node-red, searxng, glance, glance-user, open-webui,
   runners, esphome/code, home-assistant/code): leave `world:443` and

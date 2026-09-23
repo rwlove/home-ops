@@ -232,7 +232,9 @@ def _apply_mem_limit(lines, target, new_value):
     SAFETY: acts only when there is EXACTLY ONE `memory:` under a `limits:` block in
     the target's doc (unambiguous single-container app) — otherwise no-op (no PR). A
     decrease is rejected (never shrink a limit an app may need). Minimal 1-line diff."""
-    name_re = re.compile(r"^\s*name:\s*%s\s*$" % re.escape(target))
+    # Match `name: X` OR `name: &anchor X` — home-ops HelmReleases commonly write
+    # `metadata.name: &app <name>`, which a bare-name regex would miss.
+    name_re = re.compile(r"^\s*name:\s*(?:&\S+\s+)?%s\s*$" % re.escape(target))
     ni = next((i for i, ln in enumerate(lines) if name_re.match(ln)), None)
     if ni is None:
         return None
@@ -283,7 +285,7 @@ ACTIONS = {
                    "guard": _guard_retain_increase_only},
     "set_for": {"kind": "PrometheusRule", "locate": lambda t: "alert: " + t,
                 "apply": _apply_for},
-    "set_mem_limit": {"kind": "HelmRelease", "locate": lambda t: "name: " + t,
+    "set_mem_limit": {"kind": "HelmRelease", "locate": lambda t: t,
                       "apply": _apply_mem_limit},
 }
 

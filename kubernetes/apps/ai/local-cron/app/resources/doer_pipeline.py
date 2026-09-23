@@ -451,7 +451,7 @@ def main():
     git("checkout", "-b", branch)
     git("add", changed_file)
     git("commit", "-m",
-        "fix(storage): %s %s (kagent doer proposal)\n\n%s" % (action, target, rationale))
+        "fix(%s): %s %s (kagent doer proposal)\n\n%s" % (AGENT_NAME, action, target, rationale))
     git("push", "origin", branch)
 
     body = (
@@ -464,7 +464,7 @@ def main():
         "_Read-only agent + non-LLM pipeline; the model never held a credential._"
         % (action, target, new_value, changed_file, rationale or "(none given)"))
     pr = gh_api("POST", "/repos/%s/pulls" % REPO, {
-        "title": "fix(storage): %s %s (kagent doer)" % (action, target),
+        "title": "fix(%s): %s %s (kagent doer)" % (AGENT_NAME, action, target),
         "head": branch, "base": "main", "body": body})
     url = pr.get("html_url")
     log("opened PR: %s" % url)

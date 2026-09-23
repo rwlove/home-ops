@@ -1,0 +1,28 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+#
+# Internal gateway (envoy) → kagent UI (:8080, Authelia-fronted) and the
+# agents-as-MCP endpoint on the controller (:8083, LAN-only — see home-ops#14362).
+# The `ai` namespace is default-deny; without this the kagent + kagent-mcp
+# HTTPRoutes resolve but Cilium default-denies the gateway→backend hop and Envoy
+# returns 503. Same pattern as ai/hermes — but kagent is not app-template, so this
+# CNP is standalone rather than inline in the HelmRelease.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: kagent-allow-gateway
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/instance: kagent
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+            - port: "8083"
+              protocol: TCP

@@ -35,6 +35,7 @@ PUSH_USER = os.environ.get("PUSHOVER_USER", "")
 PATH_PREFIX = os.environ.get("PATH_PREFIX", "kubernetes/apps/")
 GIT_NAME = os.environ.get("GIT_USER_NAME", "kagent-doer")
 GIT_EMAIL = os.environ.get("GIT_USER_EMAIL", "kagent-doer@users.noreply.github.com")
+PROM_URL = os.environ.get("PROM_URL", "").rstrip("/")  # Prometheus base for capacity checks
 CLONE = "/tmp/repo"
 CRON_RE = re.compile(r"^(\S+\s+){4}\S+$")
 RETAIN_RE = re.compile(r"^\d+$")
@@ -331,6 +332,42 @@ def find_and_apply(action, target, new_value):
     return None
 
 
+def _prom_query(expr):
+    """Instant single-value Prometheus query; returns a float or None on any failure."""
+    if not PROM_URL:
+        return None
+    try:
+        url = PROM_URL + "/api/v1/query?query=" + urllib.parse.quote(expr)
+        d = json.loads(urllib.request.urlopen(url, timeout=15).read().decode())
+        r = d.get("data", {}).get("result", [])
+        return float(r[0]["value"][1]) if r else None
+    except Exception as e:
+        log("prometheus query failed (%s...): %r" % (expr[:40], e))
+        return None
+
+
+def _capacity_check(new_value):
+    """Reject a memory limit the cluster can't safely hold. Capacity is queried LIVE
+    from Prometheus every run — nothing about the cluster's size is hardcoded (only the
+    safety fraction). FAIL-CLOSED: if capacity can't be verified, refuse rather than
+    raise a limit blind. Returns an error string to reject, or None to allow."""
+    newb = _mem_bytes(new_value)
+    if newb is None:
+        return "unparseable memory quantity %r" % new_value
+    max_node = _prom_query('max(kube_node_status_allocatable{resource="memory"})')
+    if max_node is None:
+        return "CANNOT VERIFY capacity (Prometheus unreachable) — refusing to raise a limit blind"
+    if newb > 0.9 * max_node:
+        return ("limit %s exceeds 90%% of the largest node's memory (%.0f GiB) — no node could hold it"
+                % (new_value, max_node / 2 ** 30))
+    free = _prom_query('sum(kube_node_status_allocatable{resource="memory"}) '
+                       '- sum(kube_pod_container_resource_requests{resource="memory"})')
+    if free is not None and newb > free:
+        return ("limit %s exceeds current cluster free memory headroom (%.0f GiB)"
+                % (new_value, free / 2 ** 30))
+    return None
+
+
 STORAGE_PROMPT = (
     "Using your read-only tools, sweep for storage-durability risks (stale Longhorn "
     "backups, misconfigured RecurringJob schedules, too-low backup retention, capacity, "
@@ -371,6 +408,16 @@ def main():
     new_value = str(proposal["new_value"]).strip()
     rationale = re.sub(r"[^\x20-\x7e]", " ", str(proposal.get("rationale", "")))[:300]
     log("proposal ACCEPTED: %s %s -> %r" % (action, target, new_value))
+
+    # Capacity gate (deterministic, live-queried) for anything that raises a resource
+    # ceiling — never propose a memory limit the cluster can't actually hold.
+    if action == "set_mem_limit":
+        cap = _capacity_check(new_value)
+        if cap:
+            log("REJECTED (capacity): %s" % cap)
+            pushover("%s doer: rejected (capacity)" % AGENT_NAME,
+                     "%s %s -> %s\n%s" % (action, target, new_value, cap))
+            return
 
     if not TOKEN:
         log("INERT (no GITHUB_PR_TOKEN) — would open a PR for the above")

@@ -87,10 +87,10 @@ container level. Likely candidates for one-PR-each remediation:
 - `collab/{it-tools,nametag,paperless,pump,pump-cv,swiparr,kitchenowl}`
 - `media/{flaresolverr,immich-power-tools,videodupfinder,theme-park,immichkiosk}`
 - `home/wyoming-services-{kokoro,openwakeword,whisper}`
-- `ai/{paperless-ai,sync-receiver}` — **`sync-receiver` moot, removed 2026-07-06**:
-  deleted along with the langgraph-agents fleet it existed solely to
-  serve (rsync-over-ssh access to the now-deleted langgraph-vault
-  PVCs). `paperless-ai` remediation is still open.
+- `ai/sync-receiver` — **moot, removed 2026-07-06**: deleted along with
+  the langgraph-agents fleet it existed solely to serve (rsync-over-ssh
+  access to the now-deleted langgraph-vault PVCs). (`paperless-ai`, once
+  listed here, was retired 2026-09-23 in favor of paperless-ngx native AI.)
 
 Each is a stateless or near-stateless app reading from a configMap or
 PVC; readOnlyRootFilesystem should land with at most a `tmpfs`
@@ -141,7 +141,7 @@ test cycle:
 - `home/esphome-code`, `home/home-assistant-code` (code-server: writes
   to `/home/coder` — already PVC-backed, ROOTFS itself should be
   fine; needs test)
-- `ai/{comfyui,khoj,ollama,paperless-ai}` (ML model caches; some are
+- `ai/{comfyui,khoj,ollama}` (ML model caches; some are
   already PVC-mounted)
 - `collab/{obsidian-couchdb,zulip,open-webui,paperless}`
 - `network/wg-easy` (writes config at startup)

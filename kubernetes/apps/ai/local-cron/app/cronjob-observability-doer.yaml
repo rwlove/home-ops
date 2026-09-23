@@ -3,24 +3,22 @@
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: local-cron-storage-doer
+  name: local-cron-observability-doer
   labels:
     app.kubernetes.io/name: local-cron
 spec:
-  # Write-gate DOER pilot (PR-only). The deterministic pipeline (doer_pipeline.py)
-  # asks the read-only storage-operator agent to triage AND emit a structured intent
-  # proposal; it validates (schema + path allowlist + action allowlist=set_cron),
-  # applies the intent to a fresh clone (the PIPELINE writes the diff, not the model),
-  # opens a PR with a scoped token, and NEVER merges. Invalid/absent/no-op → Pushover
-  # only. The local-model agent never holds the token. See
-  # ~/.claude-personal/plans/kagent-write-gate-design.md.
+  # Write-gate DOER (PR-only) for observability — second domain after storage. Same
+  # deterministic pipeline (doer_pipeline.py); ALLOWED_ACTIONS=set_for. It asks the
+  # read-only observability-operator (on the 35B) to find a flapping alert rule that
+  # lacks a `for:` clause and propose adding one; the pipeline validates + applies a
+  # minimal edit (add/lengthen the rule's `for:`) + opens a PR + NEVER merges.
   #
-  # LIVE as of 2026-09-23 (home-ops#14385 hardening verified: 35B emits clean
-  # proposals, applier produces a minimal 1-line diff, git image opens the PR). It
-  # opens a PR ONLY when it finds a real, safe, config-level fix, and is silent (or
-  # Pushover-only) otherwise. To pause without tearing down, set `suspend: true`.
-  suspend: false
-  schedule: "50 7 * * *"
+  # Ships SUSPENDED: set_for is a new applier (it can INSERT a line, unlike the
+  # storage field-replacements). Unsuspend only after a manual test run has produced
+  # a clean PR you inspected:
+  #   kubectl -n ai create job --from=cronjob/local-cron-observability-doer obs-doer-test
+  suspend: true
+  schedule: "40 8 * * *"
   timeZone: Etc/UTC
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
@@ -44,9 +42,7 @@ spec:
           restartPolicy: OnFailure
           containers:
             - name: doer
-              # Full python image (NOT -slim) — it bundles git (via buildpack-deps),
-              # which the pipeline's clone/branch/push needs. -slim lacks git and the
-              # pipeline dies with FileNotFoundError on the git binary.
+              # Full python image (has git via buildpack-deps); -slim would break the clone.
               image: docker.io/library/python:3.12
               imagePullPolicy: IfNotPresent
               command:
@@ -63,11 +59,11 @@ spec:
                 - name: PYTHONPATH
                   value: /tmp/pylib
                 - name: AGENT_URL
-                  value: http://storage-operator.ai:8080/
+                  value: http://observability-operator.ai:8080/
                 - name: AGENT_NAME
-                  value: storage
+                  value: observability
                 - name: ALLOWED_ACTIONS
-                  value: set_cron,set_retain
+                  value: set_for
                 - name: REPO
                   value: rwlove/home-ops
                 - name: PATH_PREFIX
@@ -76,12 +72,21 @@ spec:
                   value: kagent-doer
                 - name: GIT_USER_EMAIL
                   value: kagent-doer@users.noreply.github.com
+                - name: DOER_PROMPT
+                  value: |
+                    Using your read-only tools, look for a PrometheusRule alert that flaps
+                    because it lacks a `for:` clause (or has one shorter than 5m) on a metric
+                    that can be transient. Give a terse triage first. THEN, only if there is a
+                    clearly-flapping rule that should have a longer `for:`, append a fenced
+                    ```json block with EXACTLY these keys:
+                    {"action":"set_for","target":"<alert name>","new_value":"<duration like 5m>","rationale":"<one sentence>"}.
+                    Only ADD or LENGTHEN a for: clause (never shorten it, never below 5m). If
+                    nothing clearly needs it, emit NO json block. Never propose deleting,
+                    muting, or disabling a rule or receiver.
               envFrom:
-                # Pushover (notify sink).
                 - secretRef:
                     name: local-cron-secret
                     optional: false
-                # GitHub PR-create token (GITHUB_PR_TOKEN) — ONLY this cron gets it.
                 - secretRef:
                     name: kagent-doer-secret
                     optional: false

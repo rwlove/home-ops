@@ -1,0 +1,71 @@
+---
+# kagent 0.10.1 — values verified against
+#   helm show values oci://ghcr.io/kagent-dev/kagent/helm/kagent --version 0.10.1
+# Trial posture: controller-only, everything on LOCAL inference, contained to `ai`.
+
+# Keep the whole trial on local models — no cloud provider keys, no external egress.
+# `providers.default: ollama` makes the chart generate the default ModelConfig from
+# this block; the native Ollama provider needs no apiKey (sidesteps kagent#57, the
+# keyless-OpenAI-compatible crashloop).
+providers:
+  default: ollama
+  ollama:
+    provider: Ollama
+    model: qwen2.5:7b  # served by the P40 ollama (kubernetes/apps/ai/ollama); swap per taste
+    config:
+      host: ollama.ai.svc.cluster.local:11434
+      options:
+        num_ctx: "16000"  # P40-safe; chart default is 64000
+
+# Contain the controller to `ai` for the trial: Role/RoleBinding in `ai` only and
+# WATCH_NAMESPACES=ai, instead of the default cluster-wide ClusterRole. Widen later
+# when an operator legitimately needs to watch other namespaces.
+rbac:
+  namespaces:
+    - ai
+
+# Start CONTROLLER-ONLY. Every built-in agent is off; enable one deliberately (mapped
+# to an operator persona, with its RBAC/model validated) per the transition plan.
+k8s-agent:
+  enabled: false
+kgateway-agent:
+  enabled: false
+istio-agent:
+  enabled: false
+promql-agent:
+  enabled: false
+observability-agent:
+  enabled: false
+argo-rollouts-agent:
+  enabled: false
+helm-agent:
+  enabled: false
+cilium-policy-agent:
+  enabled: false
+cilium-manager-agent:
+  enabled: false
+cilium-debug-agent:
+  enabled: false
+
+# grafana-mcp needs a Grafana endpoint/creds — enable it with the observability agent,
+# not before, so it doesn't error in a bare controller install.
+grafana-mcp:
+  enabled: false
+
+# Bundled dev/eval Postgres on ceph-block (regenerable trial state).
+# PRODUCTION TODO: point database.postgres.url at a CNPG cluster with pgvector
+# (set database.postgres.vectorEnabled: true) to enable long-term agent memory,
+# per the repo storage-class convention. Bundled is explicitly "not for production".
+database:
+  postgres:
+    bundled:
+      enabled: true
+      storage: 1Gi
+      storageClassName: ceph-block
+
+controller:
+  replicas: 1
+
+# FOLLOW-UPS (left at chart defaults for the scaffold):
+# - ui.enabled: true + an HTTPRoute behind Authelia for the kagent web UI (interaction plan).
+# - otel.tracing.enabled: true → the cluster OTLP/Tempo endpoint, once confirmed.

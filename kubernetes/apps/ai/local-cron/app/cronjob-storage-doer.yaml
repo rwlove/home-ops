@@ -1,0 +1,116 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/cronjob-batch-v1.json
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: local-cron-storage-doer
+  labels:
+    app.kubernetes.io/name: local-cron
+spec:
+  # Write-gate DOER pilot (PR-only). The deterministic pipeline (doer_pipeline.py)
+  # asks the read-only storage-operator agent to triage AND emit a structured intent
+  # proposal; it validates (schema + path allowlist + action allowlist=set_cron),
+  # applies the intent to a fresh clone (the PIPELINE writes the diff, not the model),
+  # opens a PR with a scoped token, and NEVER merges. Invalid/absent/no-op → Pushover
+  # only. The local-model agent never holds the token. See
+  # ~/.claude-personal/plans/kagent-write-gate-design.md.
+  #
+  # Ships SUSPENDED: unsuspend only after a manual test run
+  # (`kubectl -n ai create job --from=cronjob/local-cron-storage-doer doer-test`)
+  # has produced a PR you have inspected.
+  suspend: true
+  schedule: "50 7 * * *"
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 600
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: local-cron
+          annotations:
+            k8tz.io/inject: "false"
+        spec:
+          nodeSelector:
+            kubernetes.io/arch: amd64
+          serviceAccountName: local-cron
+          automountServiceAccountToken: false
+          restartPolicy: OnFailure
+          containers:
+            - name: doer
+              image: docker.io/library/python:3.12-slim
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -ceu
+                - |
+                  pip install --quiet --no-cache-dir --target /tmp/pylib 'ruamel.yaml>=0.18,<0.19'
+                  exec python3 /app/doer_pipeline.py
+              env:
+                - name: HOME
+                  value: /tmp
+                - name: TZ
+                  value: America/New_York
+                - name: PYTHONPATH
+                  value: /tmp/pylib
+                - name: AGENT_URL
+                  value: http://storage-operator.ai:8080/
+                - name: AGENT_NAME
+                  value: storage
+                - name: ALLOWED_ACTIONS
+                  value: set_cron
+                - name: REPO
+                  value: rwlove/home-ops
+                - name: PATH_PREFIX
+                  value: kubernetes/apps/
+                - name: GIT_USER_NAME
+                  value: kagent-doer
+                - name: GIT_USER_EMAIL
+                  value: kagent-doer@users.noreply.github.com
+              envFrom:
+                # Pushover (notify sink).
+                - secretRef:
+                    name: local-cron-secret
+                    optional: false
+                # GitHub PR-create token (GITHUB_PR_TOKEN) — ONLY this cron gets it.
+                - secretRef:
+                    name: kagent-doer-secret
+                    optional: false
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: "1"
+                  memory: 512Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: script
+                  mountPath: /app
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: script
+              configMap:
+                name: doer-pipeline
+                defaultMode: 0o555
+            - name: tmp
+              emptyDir:
+                medium: Memory
+                sizeLimit: 256Mi

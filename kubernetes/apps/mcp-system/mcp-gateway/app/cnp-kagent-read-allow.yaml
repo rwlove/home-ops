@@ -1,0 +1,55 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+#
+# Cross-namespace ingress allow: kagent AGENT pods (ai/part-of=kagent) → the
+# in-cluster MCP servers they read from, on those servers' MCP ports.
+#
+# Why here and why this shape:
+# - mcp-system is default-deny ingress (the baseline `default-deny` CNP, selector
+#   {}). The MCP gateway reaches these servers via `allow-intra-namespace`; a
+#   CROSS-namespace client (kagent, in `ai`) is dropped unless explicitly allowed.
+#   memory-mcp already carries its own such allow inline; this grants the same to
+#   the five servers the read-only kagent operators consume.
+# - A namespaced CiliumNetworkPolicy only selects endpoints in its own namespace,
+#   so this must live in mcp-system (not in the kagent app, which is in `ai`).
+# - Purely ADDITIVE: these pods are already ingress-enforced by the baseline
+#   default-deny, so this allow does not change their posture for any other client
+#   (the gateway's intra-namespace path is untouched).
+# - The kagent egress side (which pins each exact server:port) lives in
+#   kubernetes/apps/ai/kagent/app/cnp-allow.yaml. Tool-level read-only scoping is
+#   enforced by each agent's `toolNames` allowlist, not by this L4 policy.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: kagent-mcp-read-allow
+spec:
+  endpointSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          - ha-mcp
+          - omada-mcp
+          - netbox-mcp
+          - github-mcp
+          - esphome-mcp
+  # Additive — the baseline default-deny is what enforces ingress; this only opens
+  # the kagent path. Do not flip enableDefaultDeny here.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/part-of: kagent
+      toPorts:
+        - ports:
+            - port: "3000" # omada-mcp
+              protocol: TCP
+            - port: "8000" # netbox-mcp
+              protocol: TCP
+            - port: "8080" # github-mcp / esphome-mcp
+              protocol: TCP
+            - port: "8086" # ha-mcp
+              protocol: TCP

@@ -74,6 +74,47 @@ spec:
             - recent
             - list_entities
             - graph_walk
+      - type: McpServer
+        mcpServer:
+          apiGroup: kagent.dev
+          kind: RemoteMCPServer
+          name: omada-mcp
+          # Read-only health subset of the Omada SDN controller. omada-mcp is
+          # entirely get*/list*/search* (no mutators), but bind a focused set —
+          # AP/client/gateway/WAN/threat/alert health — not all ~280 tools.
+          toolNames:
+            - listSites
+            - getGlobalDashboardOverview
+            - getDashboardOverview
+            - listDevices
+            - listDevicesStats
+            - getFirmwareInfo
+            - getGatewayWanStatus
+            - getWanHealthDetail
+            - getInternetInfo
+            - listClients
+            - listMostActiveClients
+            - getClientsDistribution
+            - getThreatList
+            - getRogueAps
+            - getWids
+            - listSiteAlerts
+            - listSiteEvents
+            - getMeshStatistics
+            - getInterference
+            - getRFScanResult
+      - type: McpServer
+        mcpServer:
+          apiGroup: kagent.dev
+          kind: RemoteMCPServer
+          name: netbox-mcp
+          # READ-ONLY allowlist — netbox-mcp has a large create/update/delete
+          # surface; bind ONLY the reads (source-of-truth lookups + change log).
+          toolNames:
+            - netbox_get_objects
+            - netbox_get_object_by_id
+            - netbox_search_objects
+            - netbox_get_changelogs
     systemMessage: |
       # Network Operator (read-only, in-cluster layer)
 
@@ -91,14 +132,21 @@ spec:
       advance, the action is propose-only regardless of phrasing.
 
       ## Scope boundary — read this
-      You cover only the **in-cluster-observable** network layer: Cilium BGP peering
-      and advertisements, CiliumNetworkPolicy drops, cert-manager Certificate expiry,
-      DNS (external-dns / in-cluster resolver) health, Gateway/HTTPRoute and
-      LoadBalancer reachability. **Out of scope:** the SDN controller, access points,
-      VLANs, switch/firewall config, and any physical-network change — you have no tool
-      for them and core network infrastructure is changed by humans only. If a finding
-      points there, say so and hand it back; do not speculate a config change you can't
-      see.
+      You **observe** two layers, read-only:
+      - **In-cluster:** Cilium BGP peering/advertisements, CiliumNetworkPolicy drops,
+        cert-manager Certificate expiry, DNS health, Gateway/HTTPRoute/LoadBalancer
+        reachability (k8s + Prometheus).
+      - **Physical network (read-only):** the Omada SDN controller — AP / client /
+        gateway / WAN / threat / alert health (omada-mcp) — and NetBox IPAM/DCIM as the
+        network source-of-truth (netbox-mcp). Use these to *see* AP flaps, rogue APs,
+        WAN degradation, client-count anomalies, and config-vs-reality drift.
+
+      **Hard limit — you never change the physical network.** Access points, VLANs,
+      switch/firewall/gateway config, SDN settings, and NetBox records are **read-only
+      to you**; you have no write tool for them and core network infrastructure is
+      changed by humans only. When a finding calls for an Omada/NetBox/physical change,
+      **propose it and mark it human-only** — never narrate it as done. In-cluster
+      remediations are also propose-only (you have no write tools at all).
 
       ## The failure mode you exist to catch — and its twin
       - **false page** — a policy-drop or flap that looks like a block but is a known

@@ -135,12 +135,17 @@ def gh_api(method, path, payload=None):
 
 
 def find_and_apply(action, target, new_value):
-    """Scan the clone for the target object and apply the intent deterministically.
-    Returns the repo-relative file path changed, or None if not found/no-op."""
+    """Locate the target object and change ONLY the one field's line (minimal diff).
+    A full YAML round-trip reformats the file (list indent, doc separators, blank
+    lines) producing a noisy, hard-to-review diff — so identify the doc by parsing,
+    but edit the single field line as text. Returns the repo-relative path changed,
+    or None if not found / already correct (no-op → no PR)."""
     from ruamel.yaml import YAML
-    yaml = YAML()
-    yaml.preserve_quotes = True
-    kind = {"set_cron": "RecurringJob"}[action]
+    yaml = YAML(typ="safe")
+    kind, field = {"set_cron": ("RecurringJob", "cron")}[action]
+    name_re = re.compile(r"^\s*name:\s*%s\s*$" % re.escape(target))
+    field_re = re.compile(r"^(\s*%s:\s*).*$" % re.escape(field))
+    doc_sep = re.compile(r"^---\s*$")
     root = os.path.join(CLONE, PATH_PREFIX)
     for dirpath, _, files in os.walk(root):
         for fn in files:
@@ -148,24 +153,38 @@ def find_and_apply(action, target, new_value):
                 continue
             full = os.path.join(dirpath, fn)
             try:
-                with open(full) as fh:
-                    docs = list(yaml.load_all(fh))
+                text = open(full, encoding="utf-8").read()
             except Exception:
                 continue
-            changed = False
-            for doc in docs:
-                if not isinstance(doc, dict):
-                    continue
-                if doc.get("kind") == kind and (doc.get("metadata") or {}).get("name") == target:
-                    if action == "set_cron":
-                        spec = doc.setdefault("spec", {})
-                        if str(spec.get("cron")) != new_value:
-                            spec["cron"] = new_value
-                            changed = True
-            if changed:
-                with open(full, "w") as fh:
-                    yaml.dump_all(docs, fh)
-                return os.path.relpath(full, CLONE)
+            if kind not in text or ("name: " + target) not in text:
+                continue
+            # Confirm a real doc has kind+name, and read its current field value.
+            current = None
+            try:
+                for doc in yaml.load_all(text):
+                    if (isinstance(doc, dict) and doc.get("kind") == kind
+                            and (doc.get("metadata") or {}).get("name") == target):
+                        current = str((doc.get("spec") or {}).get(field))
+            except Exception:
+                continue
+            if current is None:
+                continue
+            if current == new_value:
+                return None  # already correct — no-op, no PR
+            # Surgical: the target's metadata name line, then the next `<field>:`
+            # line before the next doc boundary. Change ONLY that one line.
+            lines = text.split("\n")
+            ni = next((i for i, ln in enumerate(lines) if name_re.match(ln)), None)
+            if ni is None:
+                continue
+            for j in range(ni + 1, len(lines)):
+                if doc_sep.match(lines[j]):
+                    break
+                m = field_re.match(lines[j])
+                if m:
+                    lines[j] = m.group(1) + '"%s"' % new_value
+                    open(full, "w", encoding="utf-8").write("\n".join(lines))
+                    return os.path.relpath(full, CLONE)
     return None
 
 

@@ -1,0 +1,36 @@
+---
+# TODO: apply schema
+# Spark vLLM ModelConfigs — the strong tier (qwen3.6-35b-a3b, ~35B MoE) served on the
+# DGX Spark, alongside the default P40 Ollama qwen2.5:7b. Two endpoints serve the same
+# model: `vllm-driver-spark` (general reasoning) and `vllm-coder-spark` (code/structured
+# work). Agents opt in per task; the read-only watchers stay on the cheap 7B default,
+# while work that needs reliable structured output / harder reasoning (e.g. the storage
+# DOER's proposal emission) points here.
+#
+# kagent's OpenAI provider REQUIRES an api key even for a no-auth endpoint (it crashes
+# with "OPENAI_API_KEY environment variable is not set"), so both reference the dummy
+# `vllm-api-key` Secret (generated in kustomization.yaml). The vLLM servers do not check
+# it — same no-auth placeholder hermes already uses.
+apiVersion: kagent.dev/v1alpha2
+kind: ModelConfig
+metadata:
+  name: vllm-driver-spark
+spec:
+  provider: OpenAI
+  model: qwen3.6-35b-a3b
+  apiKeySecret: vllm-api-key
+  apiKeySecretKey: OPENAI_API_KEY
+  openAI:
+    baseUrl: http://vllm-driver-spark.ai.svc.cluster.local:8000/v1
+---
+apiVersion: kagent.dev/v1alpha2
+kind: ModelConfig
+metadata:
+  name: vllm-coder-spark
+spec:
+  provider: OpenAI
+  model: qwen3.6-35b-a3b
+  apiKeySecret: vllm-api-key
+  apiKeySecretKey: OPENAI_API_KEY
+  openAI:
+    baseUrl: http://vllm-coder-spark.ai.svc.cluster.local:8000/v1

@@ -1,0 +1,41 @@
+# LiteLLM model gateway — one OpenAI-compatible endpoint fronting BOTH local
+# inference backends with automatic failover. kagent (and later open-webui / hermes /
+# opencode) point ModelConfigs at a model GROUP here, not a raw backend, so a single
+# GPU/pod outage degrades instead of blinding the agent.
+#
+#   strong -> Spark vLLM (qwen3.6-35b-a3b), falls back to P40 Ollama (qwen2.5:7b)
+#   fast   -> P40 Ollama (qwen2.5:7b),       falls back to Spark vLLM
+#
+# No-auth (internal, ai-namespace, CNP-gated — same posture as the vLLM/Ollama
+# backends). Callers still send the dummy sk-noauth-local-vllm key (kagent's OpenAI
+# provider requires *a* key); LiteLLM ignores it.
+model_list:
+  - model_name: strong
+    litellm_params:
+      model: openai/qwen3.6-35b-a3b
+      api_base: http://vllm-driver-spark.ai.svc.cluster.local:8000/v1
+      api_key: sk-noauth-local-vllm
+  - model_name: strong-fallback
+    litellm_params:
+      model: ollama_chat/qwen2.5:7b
+      api_base: http://ollama.ai.svc.cluster.local:11434
+  - model_name: fast
+    litellm_params:
+      model: ollama_chat/qwen2.5:7b
+      api_base: http://ollama.ai.svc.cluster.local:11434
+  - model_name: fast-fallback
+    litellm_params:
+      model: openai/qwen3.6-35b-a3b
+      api_base: http://vllm-driver-spark.ai.svc.cluster.local:8000/v1
+      api_key: sk-noauth-local-vllm
+
+router_settings:
+  num_retries: 2
+  timeout: 600
+  # Strict primary -> fallback (not load-balancing): `strong` always tries the Spark
+  # 35B first and only uses Ollama if it errors; `fast` is the inverse.
+  fallbacks: [{"strong": ["strong-fallback"]}, {"fast": ["fast-fallback"]}]
+
+litellm_settings:
+  drop_params: true
+  telemetry: false

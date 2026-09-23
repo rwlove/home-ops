@@ -29,10 +29,11 @@ spec:
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
 #
-# kagent AGENT pods → memory-mcp (mcp-system) for read-only curated-memory
-# search. Agents carry `app.kubernetes.io/part-of: kagent`; the controller/ui use
-# `instance=kagent` instead (a different label scheme), so this needs its own CNP
-# rather than sharing kagent-allow-gateway. Cross-ns; memory-mcp re-adds ingress.
+# kagent AGENT pods → in-cluster MCP servers they read from. Agents carry
+# `app.kubernetes.io/part-of: kagent`; the controller/ui use `instance=kagent`
+# instead (a different label scheme), so this needs its own CNP rather than
+# sharing kagent-allow-gateway. Cross-ns; memory-mcp re-adds matching ingress
+# (ha-mcp does not default-deny ingress, so no ha-mcp-side change is needed).
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -42,6 +43,7 @@ spec:
     matchLabels:
       app.kubernetes.io/part-of: kagent
   egress:
+    # Curated operator memory — read-only, all agents.
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: mcp-system
@@ -49,4 +51,13 @@ spec:
       toPorts:
         - ports:
             - port: "8070"
+              protocol: TCP
+    # Home Assistant MCP — read-only (allowlist-enforced), smart-home-operator.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+            app.kubernetes.io/name: ha-mcp
+      toPorts:
+        - ports:
+            - port: "8086"
               protocol: TCP

@@ -26,6 +26,18 @@ spec:
               protocol: TCP
             - port: "8083"
               protocol: TCP
+  egress:
+    # OTel tracing → the cluster OTLP collector (observability), gRPC :4317.
+    # The controller carries OTEL_TRACING_ENABLED; apiserver/DNS/intra-ns egress
+    # come from the ai baseline allows — this adds only the cross-ns trace sink.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: opentelemetry-collector
+      toPorts:
+        - ports:
+            - port: "4317"
+              protocol: TCP
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
 #
@@ -96,4 +108,15 @@ spec:
       toPorts:
         - ports:
             - port: "8000"
+              protocol: TCP
+    # OTel tracing → the cluster OTLP collector (observability), gRPC :4317.
+    # Agent pods emit a span per invocation + tool call; this opens the trace
+    # sink (the audit/trace surface, and the doer-tier prerequisite).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: opentelemetry-collector
+      toPorts:
+        - ports:
+            - port: "4317"
               protocol: TCP

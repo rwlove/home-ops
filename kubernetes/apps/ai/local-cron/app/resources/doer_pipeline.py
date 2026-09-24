@@ -41,6 +41,7 @@ CRON_RE = re.compile(r"^(\S+\s+){4}\S+$")
 RETAIN_RE = re.compile(r"^\d+$")
 FOR_RE = re.compile(r"^\d+[smhdwy]$")
 MEM_RE = re.compile(r"^\d+(\.\d+)?(Ki|Mi|Gi|Ti|Pi|K|M|G|T|P)$")
+CPU_RE = re.compile(r"^(\d+m|\d+(\.\d+)?)$")  # 500m (millicores) or 2 / 1.5 (cores)
 
 
 def log(m):
@@ -122,6 +123,8 @@ def validate(p):
         return "new_value %r is not a Prometheus duration like 5m/1h (for)" % nv
     if action == "set_mem_limit" and not MEM_RE.match(nv):
         return "new_value %r is not a memory quantity like 2Gi/512Mi" % nv
+    if action == "set_cpu_limit" and not CPU_RE.match(nv):
+        return "new_value %r is not a cpu quantity like 500m/2/1.5" % nv
     f = p.get("file")
     if f is not None:
         if ".." in f or f.startswith("/") or not f.startswith(PATH_PREFIX) or not f.endswith((".yaml", ".yml")):
@@ -228,11 +231,34 @@ def _mem_bytes(s):
     return float(m.group(1)) * _MEM_MULT[m.group(2)] if m else None
 
 
-def _apply_mem_limit(lines, target, new_value):
-    """Set `resources.limits.memory` on the HelmRelease named `target`, INCREASE-only.
-    SAFETY: acts only when there is EXACTLY ONE `memory:` under a `limits:` block in
-    the target's doc (unambiguous single-container app) — otherwise no-op (no PR). A
-    decrease is rejected (never shrink a limit an app may need). Minimal 1-line diff."""
+def _cpu_millicores(s):
+    """k8s CPU quantity -> millicores: '500m'->500, '2'->2000, '1.5'->1500."""
+    s = str(s).strip().strip("\"'")
+    if s.endswith("m"):
+        try:
+            return float(s[:-1])
+        except ValueError:
+            return None
+    try:
+        return float(s) * 1000
+    except ValueError:
+        return None
+
+
+# Per-resource capacity math. prom_scale converts a Prometheus allocatable value
+# (bytes for memory, cores for cpu) into the unit parse() returns.
+RESOURCES = {
+    "memory": {"parse": _mem_bytes, "prom_scale": 1, "div": 2 ** 30, "unit": "GiB"},
+    "cpu": {"parse": _cpu_millicores, "prom_scale": 1000, "div": 1000, "unit": "cores"},
+}
+
+
+def _apply_limit(lines, target, new_value, field):
+    """Set resources.limits.<field> (memory|cpu) on the HelmRelease named `target`,
+    INCREASE-only. SAFETY: acts only when EXACTLY ONE `<field>:` sits under a `limits:`
+    block in the target's doc (unambiguous single-container app) — otherwise no-op (no
+    PR). A decrease is rejected. Minimal 1-line diff."""
+    parse = RESOURCES[field]["parse"]
     # Match `name: X` OR `name: &anchor X` — home-ops HelmReleases commonly write
     # `metadata.name: &app <name>`, which a bare-name regex would miss.
     name_re = re.compile(r"^\s*name:\s*(?:&\S+\s+)?%s\s*$" % re.escape(target))
@@ -246,9 +272,9 @@ def _apply_mem_limit(lines, target, new_value):
     end = ni + 1
     while end < len(lines) and not DOC_SEP.match(lines[end]):
         end += 1
-    # collect `memory:` lines directly under a `limits:` block
+    # collect `<field>:` lines directly under a `limits:` block
     limits_re = re.compile(r"^(\s*)limits:\s*$")
-    mem_re = re.compile(r"^(\s*)memory:\s*(.*)$")
+    field_re = re.compile(r"^(\s*)%s:\s*(.*)$" % re.escape(field))
     matches = []
     j = start
     while j < end:
@@ -258,7 +284,7 @@ def _apply_mem_limit(lines, target, new_value):
             k = j + 1
             while k < end and (not lines[k].strip()
                                or (len(lines[k]) - len(lines[k].lstrip())) > lim_ind):
-                mm = mem_re.match(lines[k])
+                mm = field_re.match(lines[k])
                 if mm and (len(mm.group(1)) == lim_ind + 2):
                     matches.append((k, mm.group(1), mm.group(2).strip()))
                 k += 1
@@ -266,14 +292,15 @@ def _apply_mem_limit(lines, target, new_value):
     if len(matches) != 1:
         return None  # zero or ambiguous → no-op, no PR
     idx, prefix, cur = matches[0]
-    curb, newb = _mem_bytes(cur), _mem_bytes(new_value)
-    if curb is None or newb is None:
-        raise ValueError("unparseable memory quantity: cur=%r new=%r" % (cur, new_value))
-    if newb == curb:
+    curv, newv = parse(cur), parse(new_value)
+    if curv is None or newv is None:
+        raise ValueError("unparseable %s quantity: cur=%r new=%r" % (field, cur, new_value))
+    if newv == curv:
         return NOOP
-    if newb < curb:
-        raise ValueError("set_mem_limit must INCREASE the limit (%s -> %s rejected)" % (cur, new_value))
-    lines[idx] = prefix + "memory: " + new_value
+    if newv < curv:
+        raise ValueError("set_%s_limit must INCREASE the limit (%s -> %s rejected)"
+                         % (field, cur, new_value))
+    lines[idx] = prefix + field + ": " + new_value
     return idx
 
 
@@ -287,7 +314,9 @@ ACTIONS = {
     "set_for": {"kind": "PrometheusRule", "locate": lambda t: "alert: " + t,
                 "apply": _apply_for},
     "set_mem_limit": {"kind": "HelmRelease", "locate": lambda t: t,
-                      "apply": _apply_mem_limit},
+                      "apply": lambda ls, t, v: _apply_limit(ls, t, v, "memory")},
+    "set_cpu_limit": {"kind": "HelmRelease", "locate": lambda t: t,
+                      "apply": lambda ls, t, v: _apply_limit(ls, t, v, "cpu")},
 }
 
 
@@ -346,25 +375,31 @@ def _prom_query(expr):
         return None
 
 
-def _capacity_check(new_value):
-    """Reject a memory limit the cluster can't safely hold. Capacity is queried LIVE
-    from Prometheus every run — nothing about the cluster's size is hardcoded (only the
-    safety fraction). FAIL-CLOSED: if capacity can't be verified, refuse rather than
-    raise a limit blind. Returns an error string to reject, or None to allow."""
-    newb = _mem_bytes(new_value)
-    if newb is None:
-        return "unparseable memory quantity %r" % new_value
-    max_node = _prom_query('max(kube_node_status_allocatable{resource="memory"})')
+def _capacity_check(new_value, resource):
+    """Reject a cpu/memory limit the cluster can't safely hold. Capacity is queried LIVE
+    from Prometheus every run — the node's allocatable AND the cluster's overall free
+    headroom, nothing hardcoded but the safety fraction. FAIL-CLOSED: if capacity can't
+    be verified, refuse rather than raise a limit blind. Returns an error to reject, or
+    None to allow."""
+    r = RESOURCES[resource]
+    newv = r["parse"](new_value)
+    if newv is None:
+        return "unparseable %s quantity %r" % (resource, new_value)
+    max_node = _prom_query('max(kube_node_status_allocatable{resource="%s"})' % resource)
     if max_node is None:
-        return "CANNOT VERIFY capacity (Prometheus unreachable) — refusing to raise a limit blind"
-    if newb > 0.9 * max_node:
-        return ("limit %s exceeds 90%% of the largest node's memory (%.0f GiB) — no node could hold it"
-                % (new_value, max_node / 2 ** 30))
-    free = _prom_query('sum(kube_node_status_allocatable{resource="memory"}) '
-                       '- sum(kube_pod_container_resource_requests{resource="memory"})')
-    if free is not None and newb > free:
-        return ("limit %s exceeds current cluster free memory headroom (%.0f GiB)"
-                % (new_value, free / 2 ** 30))
+        return ("CANNOT VERIFY %s capacity (Prometheus unreachable) — refusing to raise a limit blind"
+                % resource)
+    max_node *= r["prom_scale"]
+    if newv > 0.9 * max_node:
+        return ("%s limit %s exceeds 90%% of the largest node (%.1f %s) — no node could hold it"
+                % (resource, new_value, max_node / r["div"], r["unit"]))
+    free = _prom_query('sum(kube_node_status_allocatable{resource="%s"}) '
+                       '- sum(kube_pod_container_resource_requests{resource="%s"})' % (resource, resource))
+    if free is not None:
+        free *= r["prom_scale"]
+        if newv > free:
+            return ("%s limit %s exceeds current cluster free headroom (%.1f %s)"
+                    % (resource, new_value, free / r["div"], r["unit"]))
     return None
 
 
@@ -414,9 +449,10 @@ def main():
     log("proposal ACCEPTED: %s %s -> %r" % (action, target, new_value))
 
     # Capacity gate (deterministic, live-queried) for anything that raises a resource
-    # ceiling — never propose a memory limit the cluster can't actually hold.
-    if action == "set_mem_limit":
-        cap = _capacity_check(new_value)
+    # ceiling — never propose a cpu/memory limit the cluster can't actually hold.
+    _RES = {"set_mem_limit": "memory", "set_cpu_limit": "cpu"}
+    if action in _RES:
+        cap = _capacity_check(new_value, _RES[action])
         if cap:
             log("REJECTED (capacity), silent: %s" % cap)
             return

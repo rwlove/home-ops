@@ -55,6 +55,21 @@ spec:
         - ports:
             - port: "8080"
               protocol: TCP
+    # smtp-relay (home ns) — the shared maddy relay's GUARDRAILED agent
+    # submission endpoint (:2526), NOT the human/app :2525 port. This is how
+    # the notify.sh helper (resources/notify.sh) hands mail to the relay; the
+    # relay then locks the sender to agents@<domain>, allows only Rob's
+    # recipient, and rate-caps it. The INGRESS side is punched through in
+    # home/smtp-relay/app/helmrelease.yaml (networkpolicies.allow) for exactly
+    # this ai/local-cron source on 2526. A wrong label here silent-drops.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: smtp-relay
+      toPorts:
+        - ports:
+            - port: "2526"
+              protocol: TCP
     # Ollama (ai ns, intra-namespace) — the local-model summarizer. NOT
     # given its own rule here: local-cron and ollama are both in `ai`, so
     # this hop is covered by the baseline `allow-intra-namespace` component.

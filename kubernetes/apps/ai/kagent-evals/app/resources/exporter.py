@@ -14,6 +14,7 @@ Per-agent breakdown (fix(<agent>): titles) is a later addition once a read-only 
 raises the rate limit. Stdlib only.
 """
 import json
+import re
 import threading
 import time
 import urllib.parse
@@ -23,18 +24,25 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 REPO = "rwlove/home-ops"
 REFRESH_SECONDS = 300
 SEARCH = "https://api.github.com/search/issues"
+# Only REAL doer PRs: the pipeline titles them `fix(<agent>): <action> <target>
+# (kagent doer)`. A plain "kagent doer" text search also matches unrelated infra PRs
+# that merely mention the words, so filter returned items by this exact shape.
+DOER_TITLE = re.compile(r"^fix\([a-z][a-z0-9-]*\): .+ \(kagent doer\)$")
 _state = {"metrics": "", "success": 0}
 _lock = threading.Lock()
 
 
 def _count(qualifier):
+    # Fetch the matching items (up to 100 — far more than the doer PR volume for a long
+    # while) and count only those whose title matches the exact doer shape.
     q = 'repo:%s is:pr in:title "kagent doer" %s' % (REPO, qualifier)
-    url = SEARCH + "?" + urllib.parse.urlencode({"q": q, "per_page": 1})
+    url = SEARCH + "?" + urllib.parse.urlencode({"q": q, "per_page": 100})
     req = urllib.request.Request(url, headers={
         "Accept": "application/vnd.github+json",
         "User-Agent": "kagent-evals-exporter"})
     with urllib.request.urlopen(req, timeout=20) as r:
-        return int(json.loads(r.read().decode()).get("total_count", 0))
+        items = json.loads(r.read().decode()).get("items", [])
+    return sum(1 for it in items if DOER_TITLE.match(it.get("title", "")))
 
 
 def refresh():

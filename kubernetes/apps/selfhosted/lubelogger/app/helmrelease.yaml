@@ -60,6 +60,21 @@ spec:
               # this ring is lost, existing auth cookies are invalidated
               # and every user is logged out — hence it must persist.
               HOME: /App/data
+              # SMTP for reminder / notification emails. ASP.NET binds the
+              # MailConfig model (Models/Configuration/MailConfig.cs:
+              # EmailServer, EmailFrom, Port, Username, Password) from
+              # MailConfig__* env vars. Target the in-cluster maddy relay
+              # (home/smtp-relay:2525, Pattern E) — same path authelia and
+              # netbox use. The relay runs `tls off` + no auth and rewrites
+              # From to @${SECRET_DOMAIN} before handing off to Mailgun, so
+              # we set NO Username/Password: LubeLogger's MailKit client
+              # (Helper/MailHelper.cs) skips authentication when both are
+              # blank and, with SecureSocketOptions.Auto, falls back to
+              # plain SMTP because the relay advertises no STARTTLS. No
+              # secret needed — there are no credentials to hold.
+              MailConfig__EmailServer: smtp-relay.home.svc.cluster.local
+              MailConfig__Port: "2525"
+              MailConfig__EmailFrom: cooter@${SECRET_DOMAIN}
             # envFrom the same secret: the app reads POSTGRES_CONNECTION;
             # the init container reads the INIT_POSTGRES_* keys.
             envFrom: *envFrom
@@ -194,4 +209,16 @@ spec:
             toPorts:
               - ports:
                   - port: "5432"
+                    protocol: TCP
+          # SMTP relay for reminder / notification emails — maddy in home
+          # ns on port 2525 (Pattern E, same shape as authelia's egress).
+          # The relay side allows this source in
+          # home/smtp-relay/app/helmrelease.yaml (networkpolicies ingress).
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: home
+                  app.kubernetes.io/name: smtp-relay
+            toPorts:
+              - ports:
+                  - port: "2525"
                     protocol: TCP

@@ -1,0 +1,240 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app lightrag-finance
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  install:
+    # First start creates the storage layout and warms the models;
+    # helm-controller's 5-min wait can outlast that cold path.
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+      strategy: rollback
+  values:
+    defaultPodOptions:
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+    controllers:
+      lightrag-finance:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        type: deployment
+        replicas: 1
+        strategy: Recreate  # single replica, RWO data PVC
+        containers:
+          app:
+            image:
+              repository: ghcr.io/hkuds/lightrag
+              tag: v1.5.7@sha256:5bdbd524931b011df246fe20888d110cef691e6804c12cde636a2b746d7de27e
+            env:
+              HOST: "0.0.0.0"
+              PORT: "9621"
+              # All durable paths live under the data PVC mount (/app/data).
+              # This is a SEPARATE working dir from the shared `lightrag`
+              # instance — the finance knowledge graph is isolated on its own
+              # PVC so Restricted finance content never commingles with the
+              # shared paperless-fed graph (which any fleet agent can query).
+              WORKING_DIR: /app/data/rag_storage
+              INPUT_DIR: /app/data/inputs
+              PROMPT_DIR: /app/data/prompts
+              LOG_DIR: /tmp
+              TIKTOKEN_CACHE_DIR: /app/data/tiktoken
+              # --- LLM: graph extraction + query synthesis via vLLM driver ---
+              # Local, on-network model (Qwen3.6-35B-A3B on the Spark) over the
+              # OpenAI /v1 API. Restricted finance text is only ever sent to
+              # this in-cluster model, never a remote provider.
+              LLM_BINDING: openai
+              LLM_BINDING_HOST: http://vllm-driver-spark.ai.svc.cluster.local:8000/v1
+              LLM_BINDING_API_KEY: vllm
+              LLM_MODEL: qwen3.6-35b-a3b
+              LLM_TIMEOUT: "900"
+              # Cap concurrency so we don't over-subscribe the shared GB10
+              # (the primary `lightrag` instance draws the same Spark).
+              MAX_ASYNC: "2"
+              MAX_PARALLEL_INSERT: "1"
+              # --- Embeddings: bge-m3 (1024-dim) on TEI, local on the Spark ---
+              EMBEDDING_BINDING: openai
+              EMBEDDING_BINDING_HOST: http://tei-embed-spark.ai.svc.cluster.local:3000/v1
+              EMBEDDING_MODEL: bge-m3
+              EMBEDDING_DIM: "1024"
+              EMBEDDING_BINDING_API_KEY: tei
+              EMBEDDING_BATCH_NUM: "16"
+            envFrom:
+              - secretRef:
+                  name: lightrag-finance-secret
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: &httpPort 9621
+                  initialDelaySeconds: 30
+                  periodSeconds: 30
+                  timeoutSeconds: 5
+                  failureThreshold: 5
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: *httpPort
+                  initialDelaySeconds: 15
+                  periodSeconds: 15
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: *httpPort
+                  initialDelaySeconds: 15
+                  periodSeconds: 10
+                  failureThreshold: 30
+            resources:
+              requests:
+                cpu: 100m
+                memory: 1Gi
+              limits:
+                memory: 4Gi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+              # readOnlyRootFilesystem omitted to match the primary lightrag
+              # instance: the image may write Python caches under / at startup.
+              # Durable state is on the data PVC; /tmp is tmpfs below.
+              seccompProfile:
+                type: RuntimeDefault
+    service:
+      app:
+        controller: lightrag-finance
+        ports:
+          http:
+            port: *httpPort
+    route:
+      app:
+        annotations:
+          glance/name: "LightRAG (finance)"
+          glance/show: "true"
+          glance/id: "AI"
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: *httpPort
+    persistence:
+      data:
+        existingClaim: lightrag-finance-data
+        advancedMounts:
+          lightrag-finance:
+            app:
+              - path: /app/data
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          lightrag-finance:
+            app:
+              - path: /tmp
+    externalSecrets:
+      lightrag-finance:
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: onepassword-connect
+        refreshInterval: 5m
+        target:
+          name: lightrag-finance-secret
+          creationPolicy: Owner
+          template:
+            engineVersion: v2
+            data:
+              # Server-to-server API key (warren authenticates with this to
+              # push finance docs and run deep-recall queries) and the WebUI
+              # login accounts. LLM + embedding calls are unauthenticated
+              # intra-cluster (placeholder keys in env above).
+              LIGHTRAG_API_KEY: "{{ .api_key }}"
+              AUTH_ACCOUNTS: "{{ .auth_accounts }}"
+              TOKEN_SECRET: "{{ .token_secret }}"
+        dataFrom:
+          - extract:
+              key: lightrag-finance
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: lightrag-finance-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: lightrag-finance
+        # Additive — default-deny is what triggers the lockdown; these rules
+        # punch holes through it.
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # HTTPRoute on internal gateway → lightrag-finance:9621
+          # (lightrag-finance.${SECRET_DOMAIN} for the WebUI + REST API).
+          # This is the ONLY ingress: unlike the shared `lightrag`, there is
+          # NO windmill-workers hole — finance is not fed by the paperless
+          # ingest flow. Warren pushes/queries via the REST API + the
+          # dedicated LIGHTRAG_API_KEY over the internal gateway.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: network
+                  app.kubernetes.io/name: envoy
+            toPorts:
+              - ports:
+                  - port: "9621"
+                    protocol: TCP
+        egress:
+          # LLM (graph extraction + query synthesis) → vllm-driver-spark:8000.
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: ai
+                  app.kubernetes.io/name: vllm-driver-spark
+            toPorts:
+              - ports:
+                  - port: "8000"
+                    protocol: TCP
+          # Embeddings (bge-m3) → tei-embed-spark:3000.
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: ai
+                  app.kubernetes.io/name: tei-embed-spark
+            toPorts:
+              - ports:
+                  - port: "3000"
+                    protocol: TCP
+          # tiktoken downloads its BPE vocab (o200k_base) from
+          # openaipublic.blob.core.windows.net on first startup, or LightRAG
+          # CrashLoops at import. Azure blob is an A-record FQDN where Cilium's
+          # toFQDNs.matchPattern silently fails, so world:443 per the existing
+          # lightrag / khoj precedent. Cached to the data PVC so this fires
+          # once. This is a download-only path — no finance text is emitted.
+          - toEntities:
+              - world
+            toPorts:
+              - ports:
+                  - port: "443"
+                    protocol: TCP

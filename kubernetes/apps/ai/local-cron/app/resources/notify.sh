@@ -28,7 +28,7 @@
 # this file is embedded verbatim into a ConfigMap by configMapGenerator. Every
 # shell `$` is therefore doubled (`$$`) so the rendered manifest carries a
 # literal `$` for /bin/sh — same convention as the cronjob inline scripts and
-# the app README. A bare ${VAR} would be read as a Flux substitution.
+# the app README. A bare $${VAR} would be read as a Flux substitution.
 set -eu
 
 RELAY="smtp-relay.home.svc.cluster.local"

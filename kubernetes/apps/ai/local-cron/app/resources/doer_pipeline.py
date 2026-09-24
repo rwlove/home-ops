@@ -385,22 +385,26 @@ def main():
     # pipeline ACCEPTS — every proposal still passes the same schema + path allowlist +
     # action allowlist below, so they cannot widen the blast radius.
     prompt = os.environ.get("PROMPT_OVERRIDE") or os.environ.get("DOER_PROMPT") or STORAGE_PROMPT
+    prompt += (
+        "\n\nSTRICT OUTPUT RULES — you are an unattended batch job; there is NO human "
+        "to reply to. Never ask a question or request confirmation. Never print a tool "
+        "call as text. If you found a safe fix, output ONLY the one fenced ```json "
+        "proposal block and nothing else. If you did not, output nothing at all.")
     text, state = ask_agent(prompt)
     log("agent state=%s" % state)
     log("----- triage -----\n%s\n------------------" % text)
 
+    # A doer pages ONLY when it opens a PR (you need to review it) or hard-fails.
+    # Everything else — no proposal, invalid proposal, rejected, no-op — is logged and
+    # SILENT. A doer that found nothing is supposed to be quiet, not page.
     proposal = extract_proposal(text)
     if not proposal:
-        if "ALL CLEAR" not in text and text.strip():
-            pushover("storage doer: triage (no PR)", text)
-        else:
-            log("no proposal, ALL CLEAR / empty — nothing to do")
+        log("no valid proposal — nothing actionable; silent (no page)")
         return
 
     err = validate(proposal)
     if err:
-        log("proposal REJECTED: %s :: %r" % (err, proposal))
-        pushover("storage doer: proposal rejected", "%s\n%s" % (err, json.dumps(proposal)[:400]))
+        log("proposal REJECTED (validation), silent: %s :: %r" % (err, proposal))
         return
 
     action = proposal["action"]
@@ -414,15 +418,11 @@ def main():
     if action == "set_mem_limit":
         cap = _capacity_check(new_value)
         if cap:
-            log("REJECTED (capacity): %s" % cap)
-            pushover("%s doer: rejected (capacity)" % AGENT_NAME,
-                     "%s %s -> %s\n%s" % (action, target, new_value, cap))
+            log("REJECTED (capacity), silent: %s" % cap)
             return
 
     if not TOKEN:
-        log("INERT (no GITHUB_PR_TOKEN) — would open a PR for the above")
-        pushover("storage doer: proposal (inert, no token)",
-                 "%s %s -> %s\n%s" % (action, target, new_value, rationale))
+        log("INERT (no token) — would open PR: %s %s -> %s" % (action, target, new_value))
         return
 
     subprocess.run(["git", "clone", "--depth", "1",
@@ -433,8 +433,7 @@ def main():
 
     changed_file = find_and_apply(action, target, new_value)
     if not changed_file:
-        log("target not found or already correct — no-op, no PR")
-        pushover("storage doer: no-op", "target %s not found / already %s" % (target, new_value))
+        log("target not found or already correct — no-op, silent")
         return
 
     key = hashlib.sha256(("%s|%s|%s" % (action, target, new_value)).encode()).hexdigest()[:10]
@@ -443,9 +442,7 @@ def main():
 
     existing = gh_api("GET", "/repos/%s/pulls?state=open&head=%s:%s" % (REPO, owner, branch))
     if existing:
-        url = existing[0].get("html_url")
-        log("PR already open: %s" % url)
-        pushover("storage doer: PR already open", url or branch)
+        log("PR already open (silent, no new PR): %s" % existing[0].get("html_url"))
         return
 
     git("checkout", "-b", branch)
@@ -455,20 +452,21 @@ def main():
     git("push", "origin", branch)
 
     body = (
-        "Proposed by the **storage doer** (local model), applied deterministically by "
+        "Proposed by the **%s doer** (local model), applied deterministically by "
         "the doer pipeline (the model did not write this diff).\n\n"
         "- **action:** `%s`\n- **target:** `%s`\n- **new value:** `%s`\n- **file:** `%s`\n\n"
         "**Rationale:** %s\n\n"
         "**Reversible:** `git revert` after merge. Review before merging — the model "
         "only proposed the intent; a human gate (this PR) is the approval.\n\n"
         "_Read-only agent + non-LLM pipeline; the model never held a credential._"
-        % (action, target, new_value, changed_file, rationale or "(none given)"))
+        % (AGENT_NAME, action, target, new_value, changed_file, rationale or "(none given)"))
     pr = gh_api("POST", "/repos/%s/pulls" % REPO, {
         "title": "fix(%s): %s %s (kagent doer)" % (AGENT_NAME, action, target),
         "head": branch, "base": "main", "body": body})
     url = pr.get("html_url")
     log("opened PR: %s" % url)
-    pushover("storage doer: PR opened", "%s\n%s %s -> %s" % (url, action, target, new_value))
+    pushover("%s doer: PR opened" % AGENT_NAME,
+             "%s\n%s %s -> %s" % (url, action, target, new_value))
 
 
 if __name__ == "__main__":
@@ -476,9 +474,9 @@ if __name__ == "__main__":
         main()
     except urllib.error.HTTPError as e:
         log("HTTP ERROR %s: %s" % (e.code, e.read().decode()[:300]))
-        pushover("storage doer: FAILED", "HTTP %s" % e.code)
+        pushover("%s doer: FAILED" % AGENT_NAME, "HTTP %s" % e.code)
         sys.exit(1)
     except Exception as e:
         log("FATAL: %r" % e)
-        pushover("storage doer: FAILED", repr(e)[:300])
+        pushover("%s doer: FAILED" % AGENT_NAME, repr(e)[:300])
         sys.exit(1)

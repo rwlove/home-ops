@@ -81,9 +81,10 @@ spec:
                   # route (Controllers/API/ReminderController.cs); the per-vehicle
                   # /api/vehicle/reminders carries a CollaboratorFilter and the
                   # /send route is root-only — neither is what we want. Each item
-                  # is a ReminderAPIExportModel: VehicleId, Description, Urgency
-                  # (NotUrgent|Urgent|VeryUrgent|PastDue), DueDate, DueOdometer,
-                  # DueDistance, DueDays.
+                  # is a ReminderAPIExportModel serialized with camelCase JSON
+                  # keys: vehicleId, description, urgency
+                  # (NotUrgent|Urgent|VeryUrgent|PastDue), dueDate, dueOdometer,
+                  # dueDistance, dueDays.
                   REM="$$(curl -sS --max-time 30 \
                             -H "x-api-key: $${LUBELOGGER_API_KEY}" \
                             "$$LUBE/api/vehicle/reminders/all")" || {
@@ -100,22 +101,36 @@ spec:
                   # DUE = the urgent tiers only (drop NotUrgent). Emit one line
                   # per due reminder as tab-separated fields for the shell loop;
                   # write to /tmp so the loop is not a pipe subshell.
+                  #
+                  # LubeLogger's ReminderAPIExportModel serializes with
+                  # camelCase JSON keys (`urgency`, `vehicleId`, `dueDate`, ...),
+                  # NOT the PascalCase C# member names. The `urgency` string is
+                  # one of NotUrgent | Urgent | VeryUrgent | PastDue. Read the
+                  # lowercase key first (fall back to Pascal for safety, same
+                  # tolerance as the /api/vehicles block above) and match the
+                  # three due tiers by their downcased literal. PastDue is what
+                  # the overdue Honda timing-belt reminder carries.
                   printf '%s' "$$REM" | jq -r '
                     .[]
-                    | select((.Urgency // "NotUrgent")
+                    | select(((.urgency // .Urgency) // "NotUrgent")
                              | ascii_downcase
-                             | (. == "urgent" or . == "veryurgent" or . == "pasturgent"
-                                or . == "pastdue" or . == "verypasturgent"))
-                    | [ (.VehicleId // ""),
-                        (.Urgency // ""),
-                        (.Description // ""),
-                        (.DueDate // ""),
-                        (.DueOdometer // ""),
-                        (.DueDistance // ""),
-                        (.DueDays // "") ]
+                             | (. == "urgent" or . == "veryurgent" or . == "pastdue"))
+                    | [ ((.vehicleId // .VehicleId) // ""),
+                        ((.urgency // .Urgency) // ""),
+                        ((.description // .Description) // ""),
+                        ((.dueDate // .DueDate) // ""),
+                        ((.dueOdometer // .DueOdometer) // ""),
+                        ((.dueDistance // .DueDistance) // ""),
+                        ((.dueDays // .DueDays) // "") ]
                     | @tsv' > /tmp/due.tsv 2>/dev/null || : > /tmp/due.tsv
 
-                  DUE="$$(grep -c . /tmp/due.tsv 2>/dev/null || echo 0)"
+                  # Single-integer total of due lines. `grep -c .` exits non-zero
+                  # (and its `|| echo 0` would append a SECOND `0`, yielding the
+                  # multi-line `0\n0` that broke the arithmetic below) when the
+                  # file is empty, so count with awk which always prints exactly
+                  # one number and exits 0.
+                  DUE="$$(awk 'NF{n++} END{print n+0}' /tmp/due.tsv 2>/dev/null)"
+                  [ -n "$$DUE" ] || DUE=0
                   echo "----- cooter service-due watch ($$VN vehicles, $$RN reminders, $$DUE due) -----"
                   if [ "$$DUE" = "0" ]; then
                     echo "ALL CLEAR — no service due; no email sent"

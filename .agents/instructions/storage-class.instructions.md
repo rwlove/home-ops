@@ -197,6 +197,60 @@ household-facing PVs → Tuesday 02:00–04:00). For the reference pattern
 - Keep server exports `sync` (durability) — `nconnect` + threads get the speed
   without the crash-consistency risk of `async`.
 
+## NFS export & mount reference
+
+Internal-tier reference for the direct-NFS substrate: mount roots,
+export options, UID/GID alignment, and the PV `mountOptions` end-state.
+This records the **corrected** classification after the actimeo fix
+(see the correction note at the bottom).
+
+### Brain exports (`${NFS_HOST_0}` / 192.168.1.1)
+
+All exports share the same option set:
+`192.168.0.0/16(sync,wdelay,nohide,no_subtree_check,sec=sys,rw,insecure,root_squash,no_all_squash)`
+
+| Export path | Consumers |
+|---|---|
+| `/mnt/mass_storage/storage/video/Television` | jellyfin (read-intent) + the TV media-manager (rw) |
+| `/mnt/kubernetes` | Garage substrate |
+| `/mnt/downloads/media` | download client + TV media-manager |
+| `/mnt/downloads-nvme` | download client + TV media-manager |
+| `/mnt/mass_storage/storage/Downloads` | download staging |
+
+### Cluster PV mountOptions (target end-state)
+
+| PV | Server | Path | Tier | mountOptions |
+|---|---|---|---|---|
+| `jellyfin-television-pv` | brain | `/mnt/mass_storage/storage/video/Television/` | **B** | `nfsvers=4.2,nconnect=8,hard,noatime` |
+| `jellyfin-movies-pv` | beast | `/mnt/mass_storage/storage/video/Movies/` | **B** | `nfsvers=4.2,nconnect=8,hard,noatime` |
+| `jellyfin-music-pv` | beast | `/mnt/mass_storage/storage/MP3s/` | **B** | `nfsvers=4.2,nconnect=8,hard,noatime` |
+| TV media-manager television-pv | brain | (Television) | **B** | already correct |
+| download-client mounts | brain | (downloads) | **B** | already correct |
+
+### UID/GID alignment
+
+Group `media` (GID 1001) members: the TV media-manager (UID 1101),
+the download client (UID 1106), jellyfin (UID 1111), plus the
+movie/music media-managers. Files land `1101:1001` mode `0664`;
+directories are `2775` with setgid, so new files inherit the `media`
+group. Alignment is clean — **no** squash / anon-uid / anon-gid change
+is needed on the exports (`root_squash,no_all_squash` stays as-is).
+
+### Correction note — actimeo dropped on media library mounts
+
+The Tier A/B table above originally routed the movies / music / TV
+read libraries to **Tier A** (`actimeo=600`, 10-min attribute cache).
+That was wrong for any mount a media-manager **actively writes**:
+TV, Movies, and Music are all written by the arr stack, not
+static-read. The 10-min attr cache was the accelerant behind a
+jellyfin bug where its realtime `LibraryMonitor` reacted to an
+in-flight import write, hit a stale-attribute NFS `EPERM`, treated the
+file as gone, and deleted the whole Season object. The three jellyfin
+media PVs are now **Tier B** (no `actimeo`); realtime monitoring is
+disabled on the jellyfin side as the primary fix. Treat any
+media-manager-written NFS mount as Tier B going forward — reserve
+Tier A's `actimeo=600` for genuinely static read-only libraries.
+
 ## What this is NOT
 
 - A cost-optimization guide. We don't bin-pack across backends; pick

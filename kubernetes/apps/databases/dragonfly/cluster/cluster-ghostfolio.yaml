@@ -1,0 +1,36 @@
+---
+# yaml-language-server: $schema=https://lds-schemas.pages.dev/dragonflydb.io/dragonfly_v1alpha1.json
+apiVersion: dragonflydb.io/v1alpha1
+kind: Dragonfly
+metadata:
+  name: dragonfly-ghostfolio
+spec:
+  labels:
+    dragonflydb.io/cluster: dragonfly-ghostfolio
+  image: ghcr.io/dragonflydb/dragonfly:v2.0.0@sha256:7426fdb31ddcf7bd9499b4205f36ebaa83b26149ba1609a0d5f8f474b3631233
+  # Dedicated Ghostfolio tier. Ghostfolio runs a Bull job queue for market-data
+  # gathering on Redis; an evicting cache can drop queued jobs mid-flight (same
+  # constraint as immich's BullMQ / romm's python-rq), so this stays NOEVICTION
+  # (no --cache_mode). Small footprint — Ghostfolio's cache is market quotes +
+  # session state, not bulk objects. Isolating it here keeps a Ghostfolio fill
+  # from starving other tenants (the fat-tenant blast radius that split off
+  # immich/auth/romm), and keeps Restricted finance cache off the shared tiers.
+  #
+  # Single replica: the Redis state is regenerable — quotes re-fetch from the
+  # data providers, sessions re-login, queued gather-jobs reschedule. Core data
+  # lives in Postgres. Node-loss HA is not worth 2x the RAM.
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 512Mi
+    limits:
+      memory: 512Mi
+  networkPolicyEnabled: false
+  # --maxmemory=384Mi sits below the 512Mi cgroup limit (mimalloc RSS overhead
+  # rides on top of --maxmemory; keep real headroom or the kernel OOM-kills the
+  # pod). Noeviction so the Bull queue never loses jobs.
+  args:
+    - "--maxmemory=384Mi"
+    - "--proactor_threads=2"
+    - "--cluster_mode=emulated"

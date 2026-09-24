@@ -1,0 +1,174 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app ghostfolio
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 30m
+  values:
+    controllers:
+      ghostfolio:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        # Stateless app — all durable state lives in Postgres (CNPG) and the
+        # Dragonfly cache; a Deployment (not StatefulSet) is correct and lets
+        # rollouts run without volume-attachment serialization.
+        type: deployment
+        replicas: 1
+        strategy: RollingUpdate
+        pod:
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+        initContainers:
+          # Creates the `ghostfolio` database + owner role on the CNPG cluster
+          # using the superuser (Pattern B, same as lubelogger/medikeep).
+          # Ghostfolio runs its own Prisma migrations on boot but does NOT
+          # create the database itself.
+          init-db:
+            image:
+              repository: ghcr.io/home-operations/postgres-init
+              tag: 18.6.0@sha256:b6d3af974df781c673d37e49bdddfa14a6f5be28b18d2cb7713f0449bea4057b
+            envFrom: &envFrom
+              - secretRef:
+                  name: ghostfolio-secret
+        containers:
+          app:
+            image:
+              repository: ghostfolio/ghostfolio
+              tag: 3.72.0@sha256:90354b396063952e3cf5e85552836e0475333ebecd002880687374a684cf4810
+            env:
+              NODE_ENV: production
+              PORT: "3333"
+              TZ: America/New_York
+              # Redis (Dragonfly) — non-secret; the dedicated dragonfly-ghostfolio
+              # instance is passwordless (CNP-gated, cluster norm). ioredis sends
+              # no AUTH when REDIS_PASSWORD is empty.
+              REDIS_HOST: dragonfly-ghostfolio.databases.svc.cluster.local
+              REDIS_PORT: "6379"
+              REDIS_PASSWORD: ""
+            # envFrom the ghostfolio-secret: DATABASE_URL, ACCESS_TOKEN_SALT,
+            # JWT_SECRET_KEY (app) + INIT_POSTGRES_* (init container).
+            envFrom: *envFrom
+            resources:
+              requests:
+                cpu: 25m
+                memory: 512Mi
+              limits:
+                memory: 1536Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              # readOnlyRootFilesystem left OFF for bring-up: Ghostfolio is a
+              # Node/Nest app and its full set of runtime write paths is
+              # unverified. Tighten to true (with tmpfs mounts) after soak.
+              readOnlyRootFilesystem: false
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+    service:
+      app:
+        controller: ghostfolio
+        ports:
+          http:
+            port: 3333
+    route:
+      app:
+        annotations:
+          glance/name: "Ghostfolio"
+          glance/show: "true"
+          glance/id: "Self-Hosted"
+          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/ghostfolio.png"
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: 3333
+    externalSecrets:
+      ghostfolio:
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: onepassword-connect
+        target:
+          name: ghostfolio-secret
+          creationPolicy: Owner
+          template:
+            engineVersion: v2
+            data:
+              # Ghostfolio's Prisma connection string (app container).
+              DATABASE_URL: "postgresql://{{ .POSTGRES_USER }}:{{ .POSTGRES_PASS }}@postgres-ghostfolio-rw.databases.svc.cluster.local:5432/ghostfolio?connect_timeout=300"
+              ACCESS_TOKEN_SALT: "{{ .ACCESS_TOKEN_SALT }}"
+              JWT_SECRET_KEY: "{{ .JWT_SECRET_KEY }}"
+              # postgres-init initContainer (db + owner-role bootstrap).
+              INIT_POSTGRES_DBNAME: ghostfolio
+              INIT_POSTGRES_HOST: postgres-ghostfolio-rw.databases.svc.cluster.local
+              INIT_POSTGRES_USER: "{{ .POSTGRES_USER }}"
+              INIT_POSTGRES_PASS: "{{ .POSTGRES_PASS }}"
+              INIT_POSTGRES_SUPER_PASS: "{{ .POSTGRES_SUPER_PASS }}"
+        dataFrom:
+          - extract:
+              key: ghostfolio
+          - extract:
+              key: cloudnative-pg
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: ghostfolio-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: ghostfolio
+        # Additive — the selfhosted-ns default-deny is what triggers the
+        # lockdown; these rules punch holes through it. DNS + intra-ns are
+        # covered by the baseline network-policy component.
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # Internal Gateway (Envoy) → ghostfolio :3333.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: network
+                  app.kubernetes.io/name: envoy
+            toPorts:
+              - ports:
+                  - port: "3333"
+                    protocol: TCP
+        egress:
+          # CNPG cluster postgres-ghostfolio in databases ns (Pattern B).
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: databases
+                  cnpg.io/cluster: postgres-ghostfolio
+            toPorts:
+              - ports:
+                  - port: "5432"
+                    protocol: TCP
+          # Dedicated Dragonfly (Redis) instance in databases ns.
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: databases
+                  app: dragonfly-ghostfolio
+            toPorts:
+              - ports:
+                  - port: "6379"
+                    protocol: TCP
+          # Market data providers (Yahoo Finance, CoinGecko, etc.) over HTTPS.
+          # These are A-record CDNs where Cilium toFQDNs.matchPattern is
+          # unreliable, so world:443 per the lightrag/khoj precedent.
+          - toEntities:
+              - world
+            toPorts:
+              - ports:
+                  - port: "443"
+                    protocol: TCP

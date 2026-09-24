@@ -174,11 +174,18 @@ retention), not provided by the tier itself.
 ### NFS mountOptions by workload class
 
 When declaring a direct-NFS PV, set `mountOptions` to its workload tier's full
-set in a **single** block — `mountOptions` are immutable, so each later change
-means deleting/recreating the PV and remounting the pod (a maintenance window;
-household-facing PVs → Tuesday 02:00–04:00). For the reference pattern
-(`["nfsvers=4.2","nconnect=8","hard","noatime"]`) see the already-tuned PVs at
-`kubernetes/apps/media/immich/app/nfs-pvc.yaml` and
+set up front where practical. `PersistentVolume.spec.mountOptions` is **not**
+an immutable field, though — Flux server-side-apply patches it on the bound PV
+in place (verified live 2026-09-24: same PV UID, PV stayed `Bound` throughout,
+no delete/recreate). What changing it does **not** do automatically is remount
+the volume inside any pod that already has it mounted — the running kernel NFS
+mount keeps the old options until the pod recycles. So a `mountOptions` change
+still needs a **rolling pod restart** to take effect, but that's ordinary
+pod-recycle disruption, not a PV/PVC delete/recreate and not a Longhorn-style
+maintenance window. For household-facing PVs, time the restart for low-traffic
+hours (Tuesday 02:00–04:00) as a courtesy, not because the change is
+destructive. For the reference pattern (`["nfsvers=4.2","nconnect=8","hard","noatime"]`)
+see the already-tuned PVs at `kubernetes/apps/media/immich/app/nfs-pvc.yaml` and
 `kubernetes/apps/storage/garage/app/nfs-pvc.yaml`.
 
 | Tier | Workloads | mountOptions |
@@ -250,6 +257,14 @@ media PVs are now **Tier B** (no `actimeo`); realtime monitoring is
 disabled on the jellyfin side as the primary fix. Treat any
 media-manager-written NFS mount as Tier B going forward — reserve
 Tier A's `actimeo=600` for genuinely static read-only libraries.
+
+Rollout mechanics: the `mountOptions` edit merged and Flux patched all
+three PVs in place — no PV/PVC deletion, no new UID, `Bound` the whole
+time. The jellyfin StatefulSet was scaled to 0 and back to 1 (a brief,
+authorized outage) purely to force the pod's kernel NFS mount to pick
+up the new options; the PV edit alone does not touch an already-live
+mount. See the mutability note in "NFS mountOptions by workload
+class" above.
 
 ## What this is NOT
 

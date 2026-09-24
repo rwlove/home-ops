@@ -1,0 +1,250 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/cronjob-batch-v1.json
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: local-cron-cooter-reminder-digest
+  labels:
+    app.kubernetes.io/name: local-cron
+spec:
+  # cooter (vehicle/garage operator) — weekly "service due" watch. Reads the
+  # fleet's DUE maintenance reminders from LubeLogger AT RUNTIME (so no private
+  # vehicle facts ever live in this PUBLIC repo) and emails Rob ONE message PER
+  # due concern through the shared guardrailed relay (notify.sh -> smtp-relay
+  # :2526). Silent when nothing is due (same discipline as the recall watch).
+  # First real consumer of the agent-notify mail path. Fully deterministic: no
+  # LLM, no k8s API. Reminders must be SEEDED in LubeLogger for this to have
+  # content; until then every run is ALL CLEAR and sends nothing.
+  schedule: "0 8 * * 1"
+  timeZone: America/New_York
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 600
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: local-cron
+          annotations:
+            k8tz.io/inject: "false"
+        spec:
+          nodeSelector:
+            kubernetes.io/arch: amd64
+          serviceAccountName: local-cron
+          automountServiceAccountToken: false
+          restartPolicy: OnFailure
+          containers:
+            - name: digest
+              image: docker.io/alpine/k8s:1.37.0@sha256:b421c2e9419edb98db39b6ab641669f4db7bb2acf354f22450c6b7e7176d1ff4
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -ceu
+                # Flux postBuild envsubst runs STRICT over this manifest: every
+                # shell `$` is doubled (`$$`) so the rendered manifest carries a
+                # literal `$` for /bin/sh (and for jq vars). A bare `$${VAR}`
+                # even in a comment is read as a Flux substitution and fails the
+                # whole kustomization. Same convention as recall/triage jobs.
+                - |
+                  LUBE="http://lubelogger.selfhosted:8080"
+                  DAY="$$(date +%Y-%m-%d)"
+                  # Hard cap so a pathological reminders response can never blast
+                  # mail. The relay also rate-caps at 20/hr, but do not loop
+                  # unbounded; truncate and note it if exceeded.
+                  MAX=12
+
+                  # --- fleet: id -> "Year Make Model" (fetched at runtime) -----
+                  VEH="$$(curl -sS --max-time 30 \
+                            -H "x-api-key: $${LUBELOGGER_API_KEY}" \
+                            "$$LUBE/api/vehicles")" || {
+                    echo "FATAL: LubeLogger /api/vehicles request errored"
+                    exit 1
+                  }
+                  VN="$$(printf '%s' "$$VEH" | jq -r 'if type=="array" then length else "ERR" end' 2>/dev/null || echo ERR)"
+                  if [ "$$VN" = "ERR" ]; then
+                    echo "FATAL: unexpected /api/vehicles response (auth/API-key?)"
+                    printf '%s' "$$VEH" | head -c 300
+                    exit 1
+                  fi
+                  # id<TAB>label lookup table (tolerant of camel/Pascal case).
+                  printf '%s' "$$VEH" \
+                    | jq -r '.[] | [((.id // .Id)|tostring),
+                              (((.year // .Year)|tostring) + " " + (.make // .Make) + " " + (.model // .Model))]
+                              | @tsv' > /tmp/fleet.tsv 2>/dev/null || : > /tmp/fleet.tsv
+
+                  # --- reminders: global list across all vehicles --------------
+                  # GET /api/vehicle/reminders/all is the API-key-readable list
+                  # route (Controllers/API/ReminderController.cs); the per-vehicle
+                  # /api/vehicle/reminders carries a CollaboratorFilter and the
+                  # /send route is root-only — neither is what we want. Each item
+                  # is a ReminderAPIExportModel: VehicleId, Description, Urgency
+                  # (NotUrgent|Urgent|VeryUrgent|PastDue), DueDate, DueOdometer,
+                  # DueDistance, DueDays.
+                  REM="$$(curl -sS --max-time 30 \
+                            -H "x-api-key: $${LUBELOGGER_API_KEY}" \
+                            "$$LUBE/api/vehicle/reminders/all")" || {
+                    echo "FATAL: LubeLogger /api/vehicle/reminders/all request errored"
+                    exit 1
+                  }
+                  RN="$$(printf '%s' "$$REM" | jq -r 'if type=="array" then length else "ERR" end' 2>/dev/null || echo ERR)"
+                  if [ "$$RN" = "ERR" ]; then
+                    echo "FATAL: unexpected /api/vehicle/reminders/all response (auth/API-key?)"
+                    printf '%s' "$$REM" | head -c 300
+                    exit 1
+                  fi
+
+                  # DUE = the urgent tiers only (drop NotUrgent). Emit one line
+                  # per due reminder as tab-separated fields for the shell loop;
+                  # write to /tmp so the loop is not a pipe subshell.
+                  printf '%s' "$$REM" | jq -r '
+                    .[]
+                    | select((.Urgency // "NotUrgent")
+                             | ascii_downcase
+                             | (. == "urgent" or . == "veryurgent" or . == "pasturgent"
+                                or . == "pastdue" or . == "verypasturgent"))
+                    | [ (.VehicleId // ""),
+                        (.Urgency // ""),
+                        (.Description // ""),
+                        (.DueDate // ""),
+                        (.DueOdometer // ""),
+                        (.DueDistance // ""),
+                        (.DueDays // "") ]
+                    | @tsv' > /tmp/due.tsv 2>/dev/null || : > /tmp/due.tsv
+
+                  DUE="$$(grep -c . /tmp/due.tsv 2>/dev/null || echo 0)"
+                  echo "----- cooter service-due watch ($$VN vehicles, $$RN reminders, $$DUE due) -----"
+                  if [ "$$DUE" = "0" ]; then
+                    echo "ALL CLEAR — no service due; no email sent"
+                    exit 0
+                  fi
+
+                  # Cap the number of individual mails; note truncation.
+                  TRUNC=0
+                  if [ "$$DUE" -gt "$$MAX" ]; then
+                    echo "NOTE: $$DUE due reminders exceed cap $$MAX — sending first $$MAX, $$(($$DUE - $$MAX)) truncated"
+                    TRUNC=$$(($$DUE - $$MAX))
+                    head -n "$$MAX" /tmp/due.tsv > /tmp/due.capped.tsv
+                    mv /tmp/due.capped.tsv /tmp/due.tsv
+                  fi
+
+                  # --- one email per due concern ------------------------------
+                  TAB="$$(printf '\t')"
+                  SENT=0
+                  FAILED=0
+                  while IFS="$$TAB" read -r VID URG DESC DDATE DODO DDIST DDAYS; do
+                    [ -z "$$DESC" ] && [ -z "$$VID" ] && continue
+
+                    # Resolve vehicle label from the fleet table; fall back to a
+                    # neutral id-based label if not found.
+                    VLABEL="$$(awk -F"$$TAB" -v id="$$VID" '$$1==id{print $$2; exit}' /tmp/fleet.tsv)"
+                    [ -z "$$VLABEL" ] && VLABEL="vehicle $$VID"
+
+                    # Compose the "due-by" phrase from whichever of date / odo /
+                    # distance / days LubeLogger populated.
+                    DUEBY=""
+                    [ -n "$$DDATE" ] && DUEBY="by $$DDATE"
+                    if [ -n "$$DODO" ]; then
+                      [ -n "$$DUEBY" ] && DUEBY="$$DUEBY / at $$DODO mi" || DUEBY="at $$DODO mi"
+                    fi
+                    EXTRA=""
+                    [ -n "$$DDAYS" ] && EXTRA="$$DDAYS"
+                    if [ -n "$$DDIST" ]; then
+                      [ -n "$$EXTRA" ] && EXTRA="$$EXTRA, $$DDIST" || EXTRA="$$DDIST"
+                    fi
+
+                    SUBJECT="Cooter: $$VLABEL — $$DESC due"
+
+                    # Plain-text summary to stdout (job log).
+                    printf 'DUE  %-24s | %-10s | %s | %s | %s\n' \
+                      "$$VLABEL" "$$URG" "$$DESC" "$$DUEBY" "$$EXTRA"
+
+                    # HTML body — small self-contained table for this one
+                    # concern. Assembled with printf (no heredoc) to stay
+                    # indentation-safe inside the YAML block scalar. Runtime
+                    # field values are HTML-safe here (LubeLogger reminder text
+                    # is plain user input; no markup is expected).
+                    HTML="$$(printf '%s' \
+                      '<html><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#222">' \
+                      "<h2 style=\"margin:0 0 8px\">Vehicle service due</h2>" \
+                      "<p style=\"margin:0 0 12px;color:#555\">Flagged by cooter (LubeLogger reminder) on $$DAY.</p>" \
+                      '<table cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:14px">' \
+                      "<tr><td style=\"border:1px solid #ddd;font-weight:600;background:#f6f6f6\">Vehicle</td><td style=\"border:1px solid #ddd\">$$VLABEL</td></tr>" \
+                      "<tr><td style=\"border:1px solid #ddd;font-weight:600;background:#f6f6f6\">Item</td><td style=\"border:1px solid #ddd\">$$DESC</td></tr>" \
+                      "<tr><td style=\"border:1px solid #ddd;font-weight:600;background:#f6f6f6\">Urgency</td><td style=\"border:1px solid #ddd\">$$URG</td></tr>" \
+                      "<tr><td style=\"border:1px solid #ddd;font-weight:600;background:#f6f6f6\">Due by</td><td style=\"border:1px solid #ddd\">$${DUEBY:--}</td></tr>" \
+                      "<tr><td style=\"border:1px solid #ddd;font-weight:600;background:#f6f6f6\">Remaining</td><td style=\"border:1px solid #ddd\">$${EXTRA:--}</td></tr>" \
+                      '</table>' \
+                      '<p style="margin:12px 0 0;color:#888;font-size:12px">Source of truth: LubeLogger. Log the service there when done to clear this reminder.</p>' \
+                      '</body></html>')"
+
+                    if printf '%s' "$$HTML" | sh /opt/notify/notify.sh \
+                         --subject "$$SUBJECT" --html; then
+                      SENT=$$(($$SENT + 1))
+                    else
+                      echo "FATAL: notify.sh failed for '$$SUBJECT'"
+                      FAILED=$$(($$FAILED + 1))
+                    fi
+                  done < /tmp/due.tsv
+
+                  echo "----- sent $$SENT email(s); $$FAILED failed; $$TRUNC truncated -----"
+                  [ "$$FAILED" -eq 0 ] || exit 1
+              env:
+                - name: HOME
+                  value: /tmp
+                - name: TZ
+                  value: America/New_York
+                # notify.sh's From address (agents@$SECRET_DOMAIN); the relay
+                # rewrites the envelope sender regardless, so this is
+                # non-critical. Injected via Flux postBuild var.
+                - name: SECRET_DOMAIN
+                  value: "${SECRET_DOMAIN}"
+              envFrom:
+                # AGENT_NOTIFY_RCPT (for notify.sh) lives here alongside the
+                # Pushover creds — shared read-only agent secret.
+                - secretRef:
+                    name: local-cron-secret
+                    optional: false
+                # LubeLogger Viewer API key — its OWN secret, shared with the
+                # recall cron (both are read-only cooter jobs). The triage/skim/
+                # doer jobs never see it.
+                - secretRef:
+                    name: cooter-recall-secret
+                    optional: false
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+                # Shared notify.sh helper (configMapGenerator `notify`), mounted
+                # read-only. Invoked as `sh /opt/notify/notify.sh`.
+                - name: notify
+                  mountPath: /opt/notify
+                  readOnly: true
+          volumes:
+            - name: tmp
+              emptyDir:
+                medium: Memory
+                sizeLimit: 64Mi
+            - name: notify
+              configMap:
+                name: notify

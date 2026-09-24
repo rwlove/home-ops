@@ -1,0 +1,144 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app ghostfolio-mcp
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  values:
+    defaultPodOptions:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+    controllers:
+      ghostfolio-mcp:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        type: deployment
+        replicas: 1
+        containers:
+          app:
+            image:
+              repository: ghcr.io/mhajder/ghostfolio-mcp
+              tag: v1.7.0
+            env:
+              # HTTP transport so kagent can reach it as a RemoteMCPServer
+              # (STREAMABLE_HTTP at /mcp on :8000).
+              MCP_TRANSPORT: http
+              MCP_HTTP_HOST: 0.0.0.0
+              MCP_HTTP_PORT: "8000"
+              # Talk to Ghostfolio over the in-cluster service (no TLS needed).
+              GHOSTFOLIO_URL: http://ghostfolio.selfhosted.svc.cluster.local:3333
+              # Full read+write surface for warren (advisory model + population).
+              READ_ONLY_MODE: "false"
+              TZ: America/New_York
+            # GHOSTFOLIO_TOKEN (the Ghostfolio admin security token) from 1P.
+            envFrom:
+              - secretRef:
+                  name: ghostfolio-mcp-secret
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: &port 8000
+                  initialDelaySeconds: 20
+                  periodSeconds: 30
+                  failureThreshold: 5
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: *port
+                  initialDelaySeconds: 10
+                  periodSeconds: 15
+                  failureThreshold: 3
+            resources:
+              requests:
+                cpu: 15m
+                memory: 128Mi
+              limits:
+                memory: 512Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              # readOnlyRootFilesystem left OFF for bring-up: the Python image's
+              # write paths (caches under /data, /tmp) are unverified. /data and
+              # /tmp are emptyDir below; tighten after soak.
+              readOnlyRootFilesystem: false
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+    service:
+      app:
+        controller: ghostfolio-mcp
+        ports:
+          http:
+            port: *port
+    persistence:
+      data:
+        type: emptyDir
+        advancedMounts:
+          ghostfolio-mcp:
+            app:
+              - path: /data
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          ghostfolio-mcp:
+            app:
+              - path: /tmp
+    externalSecrets:
+      ghostfolio-mcp:
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: onepassword-connect
+        target:
+          name: ghostfolio-mcp-secret
+          creationPolicy: Owner
+          template:
+            engineVersion: v2
+            data:
+              GHOSTFOLIO_TOKEN: "{{ .GHOSTFOLIO_TOKEN }}"
+        dataFrom:
+          - extract:
+              key: ghostfolio
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: ghostfolio-mcp-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: ghostfolio-mcp
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # kagent (ai ns) calls the MCP over STREAMABLE_HTTP on :8000. Scoped
+          # to the ai namespace — this is a full read+write Ghostfolio surface
+          # (Restricted finance), so it is NOT cluster-wide reachable.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: ai
+            toPorts:
+              - ports:
+                  - port: "8000"
+                    protocol: TCP
+        egress:
+          # → Ghostfolio REST API in selfhosted ns.
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: selfhosted
+                  app.kubernetes.io/name: ghostfolio
+            toPorts:
+              - ports:
+                  - port: "3333"
+                    protocol: TCP

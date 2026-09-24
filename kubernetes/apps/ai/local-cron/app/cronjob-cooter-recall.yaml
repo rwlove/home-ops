@@ -1,0 +1,174 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/cronjob-batch-v1.json
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: local-cron-cooter-recall
+  labels:
+    app.kubernetes.io/name: local-cron
+spec:
+  # cooter (vehicle/garage operator) — recall watch. First of the month it
+  # pulls the fleet's year/make/model from LubeLogger AT RUNTIME (so no
+  # private vehicle facts ever live in this PUBLIC repo), checks each against
+  # the NHTSA recalls API, and pages ONLY when a campaign was reported in the
+  # last ~45 days ("new recall" — not a monthly re-page of history). Nothing
+  # notable → no Pushover. Fully deterministic: no LLM, no k8s API. Per-VIN
+  # remedy status is not available from the public NHTSA API — this is a
+  # make/model/year campaign watch; the full cooter agent (Phase 2) can add
+  # per-VIN remedy state later.
+  schedule: "0 9 1 * *"
+  timeZone: America/New_York
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 600
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: local-cron
+          annotations:
+            k8tz.io/inject: "false"
+        spec:
+          nodeSelector:
+            kubernetes.io/arch: amd64
+          serviceAccountName: local-cron
+          automountServiceAccountToken: false
+          restartPolicy: OnFailure
+          containers:
+            - name: recall
+              image: docker.io/alpine/k8s:1.37.0@sha256:b421c2e9419edb98db39b6ab641669f4db7bb2acf354f22450c6b7e7176d1ff4
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -ceu
+                # Flux postBuild envsubst runs STRICT over this manifest: every
+                # shell `$` is doubled (`$$`) so the rendered manifest carries a
+                # literal `$` for /bin/sh (and for jq's `$cut`/`$days` vars).
+                # Same convention as the sibling triage jobs.
+                - |
+                  LUBE="http://lubelogger.selfhosted:8080"
+                  DAY="$$(date +%Y-%m-%d)"
+                  WINDOW=45
+
+                  VEH="$$(curl -sS --max-time 30 \
+                            -H "x-api-key: $${LUBELOGGER_API_KEY}" \
+                            "$$LUBE/api/vehicles")" || {
+                    echo "FATAL: LubeLogger /api/vehicles request errored"
+                    exit 1
+                  }
+
+                  N="$$(printf '%s' "$$VEH" | jq -r 'if type=="array" then length else "ERR" end' 2>/dev/null || echo ERR)"
+                  if [ "$$N" = "ERR" ]; then
+                    echo "FATAL: unexpected /api/vehicles response (auth/API-key?)"
+                    printf '%s' "$$VEH" | head -c 300
+                    exit 1
+                  fi
+                  if [ "$$N" = "0" ]; then
+                    echo "No vehicles in LubeLogger — nothing to check"
+                    exit 0
+                  fi
+
+                  # Fleet as year<TAB>make<TAB>model, tolerant of camelCase or
+                  # PascalCase JSON. Written to /tmp so the per-vehicle loop
+                  # below is not a pipe subshell (findings must survive it).
+                  printf '%s' "$$VEH" \
+                    | jq -r '.[] | [((.year // .Year)|tostring), (.make // .Make), (.model // .Model)] | @tsv' \
+                    > /tmp/fleet.tsv
+                  : > /tmp/findings.txt
+
+                  TAB="$$(printf '\t')"
+                  while IFS="$$TAB" read -r YEAR MAKE MODEL; do
+                    [ -z "$$YEAR" ] && continue
+                    [ -z "$$MAKE" ] && continue
+                    R="$$(curl -sS --max-time 30 -G \
+                          "https://api.nhtsa.gov/recalls/recallsByVehicle" \
+                          --data-urlencode "make=$$MAKE" \
+                          --data-urlencode "model=$$MODEL" \
+                          --data-urlencode "modelYear=$$YEAR")" || {
+                      echo "WARN: NHTSA query failed for $$YEAR $$MAKE $$MODEL"
+                      continue
+                    }
+                    # Campaigns whose ReportReceivedDate (DD/MM/YYYY) is within
+                    # the last $WINDOW days. Date math stays inside jq (busybox
+                    # date can't parse DD/MM/YYYY).
+                    RECENT="$$(printf '%s' "$$R" | jq -r --argjson days "$$WINDOW" '
+                      (now - ($$days*86400)) as $$cut
+                      | [ .results[]?
+                          | select(((.ReportReceivedDate // "01/01/1970")
+                                    | split("/") | .[2]+"-"+.[1]+"-"+.[0]+"T00:00:00Z"
+                                    | fromdateiso8601) >= $$cut)
+                          | "  \(.NHTSACampaignNumber) — \(.Component): \((.Summary // "")[0:160])" ]
+                      | .[]' 2>/dev/null || true)"
+                    if [ -n "$$RECENT" ]; then
+                      printf '%s %s %s:\n%s\n\n' "$$YEAR" "$$MAKE" "$$MODEL" "$$RECENT" >> /tmp/findings.txt
+                    fi
+                  done < /tmp/fleet.tsv
+
+                  echo "----- cooter recall watch ($$N vehicles, last $$WINDOW days) -----"
+                  if [ ! -s /tmp/findings.txt ]; then
+                    echo "ALL CLEAR — no recalls reported in the last $$WINDOW days; no Pushover sent"
+                    exit 0
+                  fi
+                  cat /tmp/findings.txt
+
+                  MSG="$$(printf 'New/recent recall campaigns (last %s days):\n\n%s' \
+                          "$$WINDOW" "$$(cat /tmp/findings.txt)" | cut -c1-1000)"
+                  HTTP="$$(curl -sS --max-time 30 -o /tmp/pushover.out -w '%{http_code}' \
+                            --form-string "token=$${PUSHOVER_TOKEN}" \
+                            --form-string "user=$${PUSHOVER_USER}" \
+                            --form-string "priority=-1" \
+                            --form-string "title=cooter recall watch $${DAY}" \
+                            --form-string "message=$${MSG}" \
+                            https://api.pushover.net/1/messages.json)" || {
+                    echo "FATAL: Pushover request errored"
+                    exit 1
+                  }
+                  case "$$HTTP" in
+                    2??) echo "Pushover sent (HTTP $$HTTP, priority=-1 quiet)";;
+                    *) echo "FATAL: Pushover returned HTTP $$HTTP"; cat /tmp/pushover.out; exit 1;;
+                  esac
+              env:
+                - name: HOME
+                  value: /tmp
+                - name: TZ
+                  value: America/New_York
+              envFrom:
+                # Pushover (the private digest sink) — shared read-only creds.
+                - secretRef:
+                    name: local-cron-secret
+                    optional: false
+                # LubeLogger Viewer API key — its OWN secret, mounted only here
+                # (least privilege; the triage/skim/digest jobs never see it).
+                - secretRef:
+                    name: cooter-recall-secret
+                    optional: false
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir:
+                medium: Memory
+                sizeLimit: 64Mi

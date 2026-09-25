@@ -52,6 +52,12 @@ spec:
               REDIS_HOST: dragonfly-ghostfolio.databases.svc.cluster.local
               REDIS_PORT: "6379"
               REDIS_PASSWORD: ""
+              # OIDC SSO via Authelia (adds a "Sign in with SSO" button; the
+              # native Security Token login still works alongside it).
+              # OIDC_CLIENT_SECRET comes from the ghostfolio-secret (ES) below.
+              ENABLE_FEATURE_AUTH_OIDC: "true"
+              OIDC_ISSUER: https://auth.${SECRET_DOMAIN}
+              OIDC_CLIENT_ID: ghostfolio
             # envFrom the ghostfolio-secret: DATABASE_URL, ACCESS_TOKEN_SALT,
             # JWT_SECRET_KEY (app) + INIT_POSTGRES_* (init container).
             envFrom: *envFrom
@@ -110,6 +116,8 @@ spec:
               DATABASE_URL: "postgresql://{{ .POSTGRES_USER }}:{{ .POSTGRES_PASS }}@postgres-ghostfolio-rw.databases.svc.cluster.local:5432/ghostfolio?connect_timeout=300"
               ACCESS_TOKEN_SALT: "{{ .ACCESS_TOKEN_SALT }}"
               JWT_SECRET_KEY: "{{ .JWT_SECRET_KEY }}"
+              # OIDC SSO client secret (Authelia ghostfolio client).
+              OIDC_CLIENT_SECRET: "{{ .OIDC_CLIENT_SECRET }}"
               # postgres-init initContainer (db + owner-role bootstrap).
               INIT_POSTGRES_DBNAME: ghostfolio
               INIT_POSTGRES_HOST: postgres-ghostfolio-rw.databases.svc.cluster.local
@@ -172,6 +180,20 @@ spec:
             toPorts:
               - ports:
                   - port: "6379"
+                    protocol: TCP
+          # OIDC discovery + token exchange against Authelia at
+          # auth.${SECRET_DOMAIN} (OIDC_ISSUER). Split-horizon DNS returns the
+          # envoy LB IP; Cilium socket-lb rewrites the connect() to the envoy
+          # pod on targetPort 10443 before policy eval, so allow the envoy pod
+          # on 10443 (NOT world:443, which doesn't match cluster LB IPs). Same
+          # pattern as kitchenowl's OIDC egress.
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: network
+                  app.kubernetes.io/name: envoy
+            toPorts:
+              - ports:
+                  - port: "10443"
                     protocol: TCP
           # Market data providers (Yahoo Finance, CoinGecko, etc.) over HTTPS.
           # These are A-record CDNs where Cilium toFQDNs.matchPattern is

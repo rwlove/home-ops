@@ -8,9 +8,11 @@ spec:
   endpointSelector:
     matchLabels:
       app.kubernetes.io/name: notify-mcp
-  # Additive — default-deny is what triggers the lockdown (same posture as
-  # paperless-mcp). This only ADDS the smtp-relay egress; it does not lock
-  # notify-mcp down, so DNS + the kagent-agent ingress hop keep working.
+  # Additive — the mcp-system default-deny is what enforces both directions;
+  # these rules punch the holes. NOTE: the kagent AGENTS' ingress to :8060 is
+  # NOT here — it lives in the shared kagent-mcp-read-allow (mcp-system) added in
+  # #14478 after this app shipped without it. This CNP adds notify-mcp's egress
+  # to the relay and the local-cron caller's ingress.
   enableDefaultDeny:
     egress: false
     ingress: false
@@ -25,4 +27,16 @@ spec:
       toPorts:
         - ports:
             - port: "2526"
+              protocol: TCP
+  ingress:
+    # local-cron (ai) POSTs the triage FYI digests to /send:8060 for themed,
+    # per-agent HTML mail. The kagent agents reach :8060 via kagent-mcp-read-allow
+    # (see the note above); this rule is only for the deterministic cron caller.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: local-cron
+      toPorts:
+        - ports:
+            - port: "8060"
               protocol: TCP

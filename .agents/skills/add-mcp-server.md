@@ -253,7 +253,7 @@ resources:
 ```yaml
 ---
 # TODO: apply schema   (mcp.kuadrant.io has no upstream JSON schema yet)
-apiVersion: mcp.kuadrant.io/v1alpha1
+apiVersion: mcp.kuadrant.io/v1
 kind: MCPServerRegistration
 metadata:
   name: <svc>-tools

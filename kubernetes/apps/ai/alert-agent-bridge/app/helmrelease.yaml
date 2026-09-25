@@ -1,0 +1,85 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: alert-agent-bridge
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 30m
+  values:
+    controllers:
+      alert-agent-bridge:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        pod:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+        containers:
+          app:
+            image:
+              repository: docker.io/library/python
+              tag: "3.14-slim"
+            command:
+              - python3
+              - /app/bridge.py
+            env:
+              # Where the bridge sends each firing group for triage. Intra-ns A2A
+              # (both in `ai`) — covered by the baseline allow-intra-namespace.
+              OBSERVABILITY_AGENT_URL: http://observability-operator.ai:8080/
+              # Local-model inference + optional one A2A delegation hop; generous.
+              AGENT_TIMEOUT_SECONDS: "400"
+              # Cap concurrent agent calls so an alert storm can't hammer the model.
+              MAX_INFLIGHT: "2"
+            envFrom:
+              # PUSHOVER_TOKEN / PUSHOVER_USER for the supplemental enrichment note.
+              - secretRef:
+                  name: alert-agent-bridge-secret
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /healthz
+                    port: 8080
+                  initialDelaySeconds: 10
+                  periodSeconds: 30
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /healthz
+                    port: 8080
+                  initialDelaySeconds: 10
+                  periodSeconds: 30
+            resources:
+              requests:
+                cpu: 10m
+                memory: 32Mi
+              limits:
+                memory: 96Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+    service:
+      app:
+        controller: alert-agent-bridge
+        ports:
+          http:
+            port: 8080
+    persistence:
+      bridge:
+        type: configMap
+        name: alert-agent-bridge
+        globalMounts:
+          - path: /app
+            readOnly: true

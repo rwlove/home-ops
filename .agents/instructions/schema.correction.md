@@ -171,8 +171,13 @@ Whenever requested to fix or correct schemas, follow these instructions:
 
 | apiVersion | kind | schema |
 |------------|------|--------|
-| `mcp.kuadrant.io/v1alpha1` | `MCPServerRegistration` | (no upstream JSON schema yet — append `# TODO: apply schema`) |
-| `mcp.kuadrant.io/v1alpha1` | `MCPGatewayExtension` | (no upstream JSON schema yet — append `# TODO: apply schema`) |
+| `mcp.kuadrant.io/v1` | `MCPServerRegistration` | (no upstream JSON schema yet — append `# TODO: apply schema`) |
+| `mcp.kuadrant.io/v1` | `MCPGatewayExtension` | (no upstream JSON schema yet — append `# TODO: apply schema`) |
+
+> `mcp.kuadrant.io/v1alpha1` was **retired** in mcp-gateway v1.0.0 (Kuadrant#1381
+> — `served: false`). The served + storage version is now `v1`; do not
+> reintroduce `v1alpha1`. `MCPVirtualServer` also exists on the CRD but is unused
+> in this repo.
 
 ### Renovate Operator
 

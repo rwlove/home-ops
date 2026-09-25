@@ -1,0 +1,120 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app owl
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 30m
+  values:
+    controllers:
+      owl:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        # Stateless — Owl (Streamlit) keeps everything in the browser session;
+        # no server-side persistence. A Deployment is correct.
+        type: deployment
+        replicas: 1
+        pod:
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+        containers:
+          app:
+            image:
+              repository: docker.io/owlplanner/owldocker
+              tag: 2026.9.21@sha256:c2d0aedae3f3c5c87fd649cf3d3eccd915bfb353687c83f23021e629a81d9a26
+            env:
+              TZ: America/New_York
+              # Non-root: point HOME + Streamlit config at the writable tmpfs.
+              HOME: /tmp
+              OWL_SKIP_DISCLAIMER: "1"
+              STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+              STREAMLIT_SERVER_ADDRESS: 0.0.0.0
+              STREAMLIT_SERVER_PORT: "8501"
+            resources:
+              requests:
+                cpu: 25m
+                memory: 256Mi
+              limits:
+                memory: 1Gi
+            securityContext:
+              allowPrivilegeEscalation: false
+              # readOnlyRootFilesystem left OFF for bring-up: Streamlit writes
+              # config/cache under $HOME and /tmp (both tmpfs below). Tighten
+              # after soak if the image's write paths are all covered.
+              readOnlyRootFilesystem: false
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+    service:
+      app:
+        controller: owl
+        ports:
+          http:
+            port: 8501
+    route:
+      app:
+        annotations:
+          glance/name: "Owl"
+          glance/show: "true"
+          glance/id: "Self-Hosted"
+          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/streamlit.png"
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: 8501
+    persistence:
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          owl:
+            app:
+              - path: /tmp
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: owl-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: owl
+        # Additive — the selfhosted-ns default-deny is what triggers the
+        # lockdown; these rules punch holes through it. DNS + intra-ns are
+        # covered by the baseline network-policy component.
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # Internal Gateway (Envoy) → owl :8501. Fronted by the Authelia
+          # extAuth SecurityPolicy (owl-extauth.yaml) — no anonymous access.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: network
+                  app.kubernetes.io/name: envoy
+            toPorts:
+              - ports:
+                  - port: "8501"
+                    protocol: TCP
+        egress:
+          # Owl bundles its historical/tax data, but some features fetch
+          # current market assumptions / rate tables over HTTPS. world:443
+          # (A-record CDNs, matchPattern unreliable) per the lightrag/khoj
+          # precedent. No secrets or user data leave — Owl is session-local.
+          - toEntities:
+              - world
+            toPorts:
+              - ports:
+                  - port: "443"
+                    protocol: TCP

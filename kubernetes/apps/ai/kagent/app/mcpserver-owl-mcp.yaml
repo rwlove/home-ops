@@ -1,0 +1,38 @@
+---
+# TODO: apply schema
+# kagent-hosted (kmcp) MCP server for the Owl retirement optimizer. Owl ships
+# only a stdio MCP (`owlcli serve`), so kagent runs it in-cluster and wraps the
+# stdio<->agent transport itself — no custom bridge image needed. The owlcli
+# binary lives in the owldocker image's venv at /app/owl/.venv/bin/owlcli.
+# Bound read+compute to the warren agent (agent-warren.yaml). All in-cluster;
+# Owl computes from inputs the agent passes, no external calls required.
+apiVersion: kagent.dev/v1alpha1
+kind: MCPServer
+metadata:
+  name: owl-mcp
+spec:
+  transportType: stdio
+  stdioTransport: {}
+  deployment:
+    image: docker.io/owlplanner/owldocker:2026.9.21@sha256:c2d0aedae3f3c5c87fd649cf3d3eccd915bfb353687c83f23021e629a81d9a26
+    cmd: /app/owl/.venv/bin/owlcli
+    args:
+      - serve
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: false
+      capabilities:
+        drop:
+          - ALL
+      seccompProfile:
+        type: RuntimeDefault
+    resources:
+      requests:
+        cpu: 25m
+        memory: 256Mi
+      limits:
+        memory: 1Gi

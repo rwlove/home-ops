@@ -1,0 +1,40 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: alert-agent-bridge-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: alert-agent-bridge
+  # Additive — the ai ns default-deny is what locks down; DNS/apiserver come from
+  # the baseline allows. The observability-operator A2A hop is intra-namespace
+  # (both in `ai`) and rides the baseline allow-intra-namespace — no rule here.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # Pushover notification API (the supplemental enrichment note). api.pushover.net
+    # is a canonical FQDN behind a CDN; Cilium matchPattern FQDN rules are unreliable
+    # there (see project_cilium_matchpattern_fqdn_limits), so this collapses to
+    # world:443 — same precedent as alertmanager/local-cron -> Pushover.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+  ingress:
+    # AlertManager (observability) POSTs firing critical groups to /alerts:8080.
+    # The egress side is punched through in
+    # observability/kube-prometheus-stack/app/cnp-allow.yaml (alertmanager-allow).
+    # A wrong label here silent-drops (see reference_cnp_blackbox_exporter_label_trap).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: alertmanager
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP

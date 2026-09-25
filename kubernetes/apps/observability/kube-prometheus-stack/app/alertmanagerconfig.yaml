@@ -32,6 +32,21 @@ spec:
           - name: alertname
             value: KubePodPendingBrief
             matchType: "="
+      # Additive enrichment (Rob-approved 2026-09-25, a knowing override of the
+      # 2026-07-06 enrichment removal noted below). Forward FIRING criticals to
+      # the in-cluster kagent observability-operator via the alert-agent-bridge
+      # webhook. `continue: true` keeps evaluation going so the alert STILL
+      # falls through to the root pushover receiver and pages exactly as before
+      # — the bridge note is a parallel, priority-0 enrichment, never a
+      # replacement for the page. Placed AFTER the null routes so Watchdog /
+      # InfoInhibitor / KubePodPendingBrief terminate first and are never
+      # forwarded. Scoped to severity=critical to bound enrichment volume.
+      - receiver: "agent-bridge"
+        continue: true
+        matchers:
+          - name: severity
+            value: critical
+            matchType: "="
   # Routing is by ALERTNAME, not by severity. The two routes above are
   # the only suppression: everything else — critical, warning, and info
   # alike — falls through to the root `pushover` receiver and notifies.
@@ -55,6 +70,14 @@ spec:
           matchType: "="
   receivers:
     - name: "null"
+    # Event-driven agent enrichment (see the agent-bridge route above). Posts the
+    # firing group to the in-cluster bridge, which asks observability-operator to
+    # triage it (and optionally delegate a domain deep-dive) and sends a
+    # supplemental Pushover. sendResolved:false — enrich onset only, not clears.
+    - name: "agent-bridge"
+      webhookConfigs:
+        - url: http://alert-agent-bridge.ai.svc.cluster.local:8080/alerts
+          sendResolved: false
     - name: "pushover"
       pushoverConfigs:
         - html: true

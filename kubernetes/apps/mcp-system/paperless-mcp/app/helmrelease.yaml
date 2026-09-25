@@ -25,20 +25,33 @@ spec:
         containers:
           app:
             image:
-              # De-forked to stock 2026-09-25 (#13804). The fork's only remaining
-              # patch was stateful transport for the 0.9.0 broker; mcp-gateway
-              # 1.0.1 tolerates stateless streamable-HTTP upstreams
-              # (Kuadrant/mcp-gateway#1485), so it is no longer needed. Stock
-              # v2.2.0 already carries the #138 schema fix (Zod v4 -> anyOf,
-              # baruchiro/paperless-mcp#140/#146/#148) and negotiates 2025-11-25
-              # natively (SDK >=1.30), so no protocol shim is needed either.
-              repository: ghcr.io/baruchiro/paperless-mcp
-              tag: 2.2.0@sha256:7c424f8d1e5168140ed14c4e7be2bdae7e781323e96e2fbaac3e2dd57d7ca5a9
+              # workaround: https://github.com/Kuadrant/mcp-gateway/issues/1419 — return to ghcr.io/baruchiro/paperless-mcp `latest` when this closes (umbrella: home-ops #13804)
+              # Fork build of baruchiro/paperless-mcp v2.2.0 carrying ONE fix the
+              # Kuadrant broker needs to federate paperless. v2.2.0 closed the other
+              # two gaps the earlier v2.0.1-based fork carried:
+              #   - #138 schema (array-form nullable `type`) — fixed upstream via
+              #     Zod v4 -> anyOf (baruchiro/paperless-mcp#140/#146/#148).
+              #   - protocol version — SDK >=1.30 negotiates "2025-11-25" natively,
+              #     so the old advertise-"2025-11-25" shim is unnecessary
+              #     (Kuadrant/mcp-gateway#1436).
+              # Remaining fork patch:
+              #   - stateful transport — v2.2.0 still runs the Streamable HTTP server
+              #     stateless (sessionIdGenerator: undefined, GET /mcp -> 405); a
+              #     2025-11-25 (stateful) broker needs a real session + notification
+              #     stream. Upstream: Kuadrant/mcp-gateway#1419 (see caveat below).
+              # CAVEAT (Kuadrant/mcp-gateway#1419, stale-session recovery): the
+              # broker does NOT re-federate this upstream on its own after the
+              # paperless pod restarts (Renovate bump, reconcile, node drain) — it
+              # holds a stale session and serves 0 paperless tools until the broker
+              # is restarted: `kubectl -n mcp-system rollout restart deploy/mcp-gateway`.
+              # Built from rwlove/paperless-mcp `rebase/v2.2.0-stateful`; tracked in #13804.
+              repository: ghcr.io/rwlove/paperless-mcp
+              tag: v2.2.0-stateful-20260907@sha256:a13e250c930449aab27738c732a46954d2a1fbb7fa64f991ab8507c4959948d4
             # v2.0.x makes a per-request `Authorization: Bearer` mandatory and drops
             # the env-token fallback, so every broker request 401s (the mcp-gateway
-            # route strips Authorization so backends use their own env cred).
-            # Stock v2.2.0 keeps this behavior, so --no-auth is still required to
-            # restore the env-token fallback (PAPERLESS_API_KEY, set by the ExternalSecret).
+            # route strips Authorization so backends use their own env cred). The
+            # fork is v2.2.0-based, so this is still required: --no-auth restores the
+            # env-token fallback (PAPERLESS_API_KEY, set by the ExternalSecret).
             # Safe here: CNP-gated to broker-only access behind Authelia — the
             # "trusted network" the flag documents. Appends to the image
             # entrypoint `node build/index.js --http --port 3000`.

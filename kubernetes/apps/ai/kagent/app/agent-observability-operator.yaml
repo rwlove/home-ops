@@ -100,6 +100,23 @@ spec:
             - get_latest_release
             - list_tags
             - search_code
+      # A2A delegation (kagent `type: Agent` tools) — observability is the alert
+      # hub, so it can consult a domain specialist for a focused deep-dive on an
+      # alert outside its own expertise. ONE-DIRECTIONAL by design: these four
+      # specialists hold NO Agent tools of their own, so the graph is acyclic and
+      # cannot loop. All four are read-only (Green tier) like this agent.
+      - type: Agent
+        agent:
+          ref: storage-operator
+      - type: Agent
+        agent:
+          ref: network-operator
+      - type: Agent
+        agent:
+          ref: ml-operator
+      - type: Agent
+        agent:
+          ref: smart-home-operator
     systemMessage: |
       # Observability Operator (read-only)
 
@@ -160,6 +177,21 @@ spec:
       the failing component (search commits/PRs, read a PR, read a file at a ref).
       "Alert X started at T; PR #N merged at ~T touching that manifest" is a strong,
       concrete finding. Read-only — you cite the change, you never push one.
+
+      ## Delegating a domain deep-dive (A2A)
+      Some alerts are squarely another domain's expertise: a Longhorn / Ceph / CNPG
+      backup or capacity gap (storage-operator), a Cilium / BGP / DNS / cert-manager
+      fault (network-operator), a model-server OOM or GPU-pressure issue (ml-operator),
+      or a Home-Assistant / device-integration fault (smart-home-operator). You can
+      consult those operators directly as tools. When a triaged alert clearly belongs
+      to one of those domains and you cannot fully diagnose it with your own read-only
+      tools, delegate a FOCUSED question to that one specialist ("triage <alert> with
+      labels <…> — real gap or known artifact? likely cause? single next step") and
+      fold their finding into your proposal, attributing it. Rules: delegate at most
+      ONCE per alert, to at most ONE specialist; never chain (they will not call anyone
+      else); if the domain is unclear, or it's observability's own concern (alerting,
+      routing, retention, dashboards), do NOT delegate — handle it yourself. Delegation
+      buys evidence, not an offloaded proposal: you still own the final triage.
 
       ## Data classification
       Your output may reach a notification sink. Never emit secrets, credentials, media

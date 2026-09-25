@@ -2,14 +2,22 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
 #
 # Cross-namespace ingress allow: kagent AGENT pods (ai/part-of=kagent) → the
-# in-cluster MCP servers they read from, on those servers' MCP ports.
+# in-cluster MCP servers they use, on those servers' MCP ports.
 #
 # Why here and why this shape:
 # - mcp-system is default-deny ingress (the baseline `default-deny` CNP, selector
 #   {}). The MCP gateway reaches these servers via `allow-intra-namespace`; a
 #   CROSS-namespace client (kagent, in `ai`) is dropped unless explicitly allowed.
 #   memory-mcp already carries its own such allow inline; this grants the same to
-#   the five servers the read-only kagent operators consume.
+#   the servers the kagent operators consume.
+# - notify-mcp (:8060) is included here even though it is an OUTBOUND emit tool
+#   (notify_rob), not a read source: it is bound into every agent's tools, so an
+#   agent's tool-set init POSTs `initialize` to notify-mcp:8060 on every run. Its
+#   own cnp-allow.yaml adds ONLY egress (→ smtp-relay) and NO ingress, so without
+#   this rule the kagent->notify-mcp:8060 hop is silently dropped by the ns
+#   default-deny — the init times out ("context deadline exceeded awaiting
+#   headers") and the WHOLE agent fails to list tools (fleet-wide break, home-ops
+#   #14476 shipped without this). This restores reachability.
 # - A namespaced CiliumNetworkPolicy only selects endpoints in its own namespace,
 #   so this must live in mcp-system (not in the kagent app, which is in `ai`).
 # - Purely ADDITIVE: these pods are already ingress-enforced by the baseline
@@ -33,6 +41,7 @@ spec:
           - netbox-mcp
           - github-mcp
           - esphome-mcp
+          - notify-mcp
   # Additive — the baseline default-deny is what enforces ingress; this only opens
   # the kagent path. Do not flip enableDefaultDeny here.
   enableDefaultDeny:
@@ -52,4 +61,6 @@ spec:
             - port: "8080" # github-mcp / esphome-mcp
               protocol: TCP
             - port: "8086" # ha-mcp
+              protocol: TCP
+            - port: "8060" # notify-mcp (notify_rob emit tool, bound fleet-wide)
               protocol: TCP

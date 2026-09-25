@@ -68,7 +68,7 @@ spec:
                     jsonrpc:"2.0", id:1, method:"message/send",
                     params:{ message:{
                       role:"user",
-                      parts:[{kind:"text", text:"Using your read-only tools, check the cluster for alerts that are currently firing or flapping. Triage the notable ones: for each, say whether it is a real signal or transient noise, the likely cause, and the single next step you would propose. If nothing is notable, reply with EXACTLY: ALL CLEAR. This is a one-way pager: never ask a question or request confirmation (nobody can reply) — state findings and the single proposed next step as declaratives. Keep the entire reply under 900 characters, plain text, no markdown."}],
+                      parts:[{kind:"text", text:"Using your read-only tools, check the cluster for alerts that are currently firing or flapping. Triage the notable ones: for each, say whether it is a real signal or transient noise, the likely cause, and the single next step you would propose. Classify overall urgency and BEGIN your reply with exactly one tag: URGENT: for a finding needing same-day attention (real outage, data-loss risk, or safety issue), or FYI: for something noteworthy but not urgent (worth knowing, no rush). If nothing is notable, reply with EXACTLY: ALL CLEAR (no tag). After the tag, state findings and the single proposed next step as declaratives. This is a one-way notification — never ask a question or request confirmation (nobody can reply). Keep the entire reply under 900 characters, plain text, no markdown."}],
                       messageId:"triage-cron", kind:"message"
                     }}
                   }')"
@@ -98,32 +98,61 @@ spec:
                   echo "----- observability-operator triage (state=$$STATE) -----"
                   printf '%s\n' "$$TEXT"
 
-                  # Suppress noise: page ONLY when there's something notable.
+                  # Route by urgency tag (the agent begins its reply with one):
+                  #   ALL CLEAR -> silent (nothing sent)
+                  #   URGENT:   -> Pushover pager (same-day-urgent)
+                  #   otherwise (FYI / noteworthy-not-urgent) -> email via notify.sh
+                  # Triage findings are Internal-tier cluster state (namespace /
+                  # app names) — fine for the private Pushover channel AND for the
+                  # guardrailed agent-notify relay (recipient-locked to Rob). The
+                  # FYI path was previously Pushover-only; routing it to mail keeps
+                  # the pager reserved for genuinely same-day-urgent signal.
                   case "$$TEXT" in
-                    *"ALL CLEAR"*) echo "ALL CLEAR — no Pushover sent"; exit 0;;
+                    *"ALL CLEAR"*) echo "ALL CLEAR — nothing sent"; exit 0;;
                   esac
 
-                  # Send ONE Pushover notification (private sink). 1024-char
-                  # limit; truncate to be safe.
+                  # 1000-char cap (Pushover limit; also keeps the mail terse).
                   MSG="$$(printf '%s' "$$TEXT" | cut -c1-1000)"
-                  HTTP="$$(curl -sS --max-time 30 -o /tmp/pushover.out -w '%{http_code}' \
-                            --form-string "token=$${PUSHOVER_TOKEN}" \
-                            --form-string "user=$${PUSHOVER_USER}" \
-                            --form-string "title=kagent obs triage $${DAY}" \
-                            --form-string "message=$${MSG}" \
-                            https://api.pushover.net/1/messages.json)" || {
-                    echo "FATAL: Pushover request errored"
-                    exit 1
-                  }
-                  case "$$HTTP" in
-                    2??) echo "Pushover sent (HTTP $$HTTP)";;
-                    *) echo "FATAL: Pushover returned HTTP $$HTTP"; cat /tmp/pushover.out; exit 1;;
+
+                  case "$$TEXT" in
+                    *"URGENT:"*)
+                      # Same-day-urgent -> ONE Pushover notification (pager sink).
+                      HTTP="$$(curl -sS --max-time 30 -o /tmp/pushover.out -w '%{http_code}' \
+                                --form-string "token=$${PUSHOVER_TOKEN}" \
+                                --form-string "user=$${PUSHOVER_USER}" \
+                                --form-string "title=kagent obs triage (URGENT) $${DAY}" \
+                                --form-string "message=$${MSG}" \
+                                https://api.pushover.net/1/messages.json)" || {
+                        echo "FATAL: Pushover request errored"
+                        exit 1
+                      }
+                      case "$$HTTP" in
+                        2??) echo "Pushover pager sent (HTTP $$HTTP)";;
+                        *) echo "FATAL: Pushover returned HTTP $$HTTP"; cat /tmp/pushover.out; exit 1;;
+                      esac
+                      ;;
+                    *)
+                      # Noteworthy-not-urgent -> ONE email via the shared guarded
+                      # relay (notify.sh -> smtp-relay :2526). Plain text on stdin.
+                      if printf '%s\n' "$$TEXT" | sh /opt/notify/notify.sh \
+                           --subject "kagent obs triage (FYI) $${DAY}"; then
+                        echo "FYI digest emailed"
+                      else
+                        echo "FATAL: notify.sh failed"
+                        exit 1
+                      fi
+                      ;;
                   esac
               env:
                 - name: HOME
                   value: /tmp
                 - name: TZ
                   value: America/New_York
+                # notify.sh's From address (agents@$SECRET_DOMAIN); the relay
+                # rewrites the envelope sender regardless. Injected via Flux
+                # postBuild var — used only on the FYI email branch below.
+                - name: SECRET_DOMAIN
+                  value: "${SECRET_DOMAIN}"
               envFrom:
                 - secretRef:
                     name: local-cron-secret
@@ -149,8 +178,17 @@ spec:
               volumeMounts:
                 - name: tmp
                   mountPath: /tmp
+                # Shared notify.sh helper (configMapGenerator `notify`), mounted
+                # read-only. Invoked as `sh /opt/notify/notify.sh` on the FYI
+                # (noteworthy-not-urgent) email branch.
+                - name: notify
+                  mountPath: /opt/notify
+                  readOnly: true
           volumes:
             - name: tmp
               emptyDir:
                 medium: Memory
                 sizeLimit: 64Mi
+            - name: notify
+              configMap:
+                name: notify

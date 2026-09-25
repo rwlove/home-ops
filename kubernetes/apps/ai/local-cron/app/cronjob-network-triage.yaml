@@ -52,7 +52,7 @@ spec:
                     jsonrpc:"2.0", id:1, method:"message/send",
                     params:{ message:{
                       role:"user",
-                      parts:[{kind:"text", text:"Using your read-only tools, check both network layers. In-cluster: Cilium BGP peering and advertised routes, CiliumNetworkPolicy drop signal (by protocol/endpoint), cert-manager Certificates inside or past their renewal window, DNS health, gateway/LoadBalancer reachability. Physical (read-only, Omada): AP/gateway/WAN health, flapping or rogue APs, WAN degradation, active threats, and recent site alerts. Triage the notable ones: for each, say whether it is a real loss or a known benign artifact (restart/ARP/QUIC/reconcile), the likely cause, and the single next step you would propose (flag anything that points at physical/core infra as human-only). If any of your tools errors or times out, do NOT emit generic troubleshooting steps or ask for more information — nobody can reply. Diagnose the failure yourself with your OTHER read-only tools (the failing component's pod health, recent events, logs, and related metrics) and report the SPECIFIC finding: which tool / service / datasource failed, the exact error, and what your own check showed. A failed tool is something to investigate, never to hand back. Classify overall urgency and BEGIN your reply with exactly one tag: URGENT: for a finding needing same-day attention (real outage, data-loss risk, or safety issue), or FYI: for something noteworthy but not urgent (worth knowing, no rush). If nothing is notable, reply with EXACTLY: ALL CLEAR (no tag). After the tag, state findings and the single proposed next step as declaratives. This is a one-way notification — never ask a question or request confirmation (nobody can reply). Keep the entire reply under 900 characters, plain text, no markdown."}],
+                      parts:[{kind:"text", text:"Using your read-only tools, check both network layers. In-cluster: Cilium BGP peering and advertised routes, CiliumNetworkPolicy drop signal (by protocol/endpoint), cert-manager Certificates inside or past their renewal window, DNS health, gateway/LoadBalancer reachability. Physical (read-only, Omada): AP/gateway/WAN health, flapping or rogue APs, WAN degradation, active threats, and recent site alerts. Triage the notable ones: for each, say whether it is a real loss or a known benign artifact (restart/ARP/QUIC/reconcile), the likely cause, and the single next step you would propose (flag anything that points at physical/core infra as human-only). If any of your tools errors or times out, do NOT emit generic troubleshooting steps or ask for more information — nobody can reply. Diagnose the failure yourself with your OTHER read-only tools (the failing component's pod health, recent events, logs, and related metrics) and report the SPECIFIC finding: which tool / service / datasource failed, the exact error, and what your own check showed. A failed tool is something to investigate, never to hand back. Classify overall urgency and BEGIN your reply with exactly one tag: URGENT: for a finding needing same-day attention (real outage, data-loss risk, or safety issue), or FYI: for something noteworthy but not urgent (worth knowing, no rush). If nothing is notable, reply with EXACTLY: ALL CLEAR (no tag). After the tag, state findings and the single proposed next step as declaratives. This is a one-way notification — never ask a question or request confirmation (nobody can reply). Keep the entire reply under 900 characters. You may use light markdown — **bold**, `code`, `- bullets`, short `#`/`##` headings, [links](url) — it is rendered into a themed HTML email; do not use tables or images."}],
                       messageId:"triage-cron", kind:"message"
                     }}
                   }')"
@@ -114,15 +114,24 @@ spec:
                       esac
                       ;;
                     *)
-                      # Noteworthy-not-urgent -> ONE email via the shared guarded
-                      # relay (notify.sh -> smtp-relay :2526). Plain text on stdin.
-                      if printf '%s\n' "$$TEXT" | sh /opt/notify/notify.sh \
-                           --subject "kagent network triage (FYI) $${DAY}"; then
-                        echo "FYI digest emailed"
-                      else
-                        echo "FATAL: notify.sh failed"
+                      # Noteworthy-not-urgent -> ONE themed, per-agent HTML email
+                      # via notify-mcp /send. It renders the markdown body in this
+                      # agent's theme and holds the SAME relay recipient-lock, so it
+                      # can still only ever email Rob. jq -n builds the JSON body so
+                      # the finding is safely escaped.
+                      REQ="$$(jq -n --arg s "network triage — $${DAY}" \
+                                    --arg b "$$TEXT" --arg a "network-operator" \
+                                '{subject:$$s, body:$$b, agent:$$a}')"
+                      HTTP="$$(curl -sS --max-time 30 -o /tmp/send.out -w '%{http_code}' \
+                                -H 'Content-Type: application/json' -d "$$REQ" \
+                                http://notify-mcp.mcp-system:8060/send)" || {
+                        echo "FATAL: notify-mcp /send request errored"
                         exit 1
-                      fi
+                      }
+                      case "$$HTTP" in
+                        2??) echo "themed FYI emailed (HTTP $$HTTP)";;
+                        *) echo "FATAL: notify-mcp /send returned HTTP $$HTTP"; cat /tmp/send.out; exit 1;;
+                      esac
                       ;;
                   esac
               env:

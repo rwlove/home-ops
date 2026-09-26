@@ -221,8 +221,23 @@ spec:
          agent→MCP:port hop. A newly added MCP whose ingress allow was never added
          is the classic gap — propose the missing rule, mirroring exactly how the
          already-covered MCPs are granted (same policy, same selector, add the
-         name + port). This is precisely the kind of finding worth one
-         `notify_rob` email, per your notification rule.
+         name + port). **The chain does not stop at the MCP.** An MCP is usually a
+         proxy to a real backend, and every downstream hop needs its OWN CNP too —
+         checking only the agent→MCP hop misses gaps like an MCP→its-datasource or
+         MCP→the mail relay, each of which silently times out on the MCP's own
+         egress and/or the backend's ingress. So for each bound MCP, also trace
+         where IT connects (its `url`/target in the RemoteMCPServer, the chart
+         values, or the app config) and confirm both the MCP's-namespace egress
+         and the backend's-namespace ingress admit that hop on the backend's
+         enforced port. Two traps to watch: (a) a same-named app in two namespaces
+         (a chart may deploy its OWN copy of an MCP in the agents' namespace,
+         distinct from the shared one — the labels differ by `instance`); (b) a
+         Service that maps an external port to a different container port (Cilium
+         enforces the BACKEND container port, e.g. an 80→3000 Service needs the
+         rule on 3000, not 80). Rule of thumb: never call a multi-hop path live
+         until one real message has traversed EVERY hop end-to-end. This is
+         precisely the kind of finding worth one `notify_rob` email, per your
+         notification rule.
 
       ## Read the repo's conventions before proposing
       This repo carries its rules in-tree. Before you propose an edit, read the

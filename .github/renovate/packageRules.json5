@@ -84,6 +84,28 @@
       matchPackageNames: ["ghcr.io/blakeblackshear/frigate"]
     },
     {
+      // rwlove/netbox is our wrapper image; its tag is the composite
+      // `v<core>-plugins-v<bundle>` (e.g. v4.7.1-plugins-v0.2.0). Renovate
+      // DETECTS the image (dashboard #10329 lists it) but default docker
+      // versioning can't order the composite string, so it silently offered
+      // ZERO bumps — the deployed image froze at v4.5.9 while rwlove/containers
+      // advanced the core. Same failure mode as the CNPG postgres rule above.
+      //
+      // This orders on the NetBox CORE (major.minor.patch), so core drift is
+      // caught; the plugin bundle is captured as `build` metadata. A pure
+      // bundle bump (same core, new plugins) is a manual rwlove/containers
+      // release, so it's repointed by hand in that same motion — Renovate's
+      // job here is to stop core from silently freezing again.
+      //
+      // NB: NetBox requires SEQUENTIAL minor migrations — let Renovate walk
+      // 4.5 -> 4.6 -> 4.7 one minor at a time; do not force a multi-minor jump.
+      // See home-ops#13303.
+      description: 'Custom versioning for rwlove/netbox composite tag',
+      matchDatasources: ['docker'],
+      versioning: 'regex:^v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-plugins-v(?<build>\\d+\\.\\d+\\.\\d+)$',
+      matchPackageNames: ['ghcr.io/rwlove/netbox'],
+    },
+    {
       // The ollama image serves the fleet's qwen3-next:80b-a3b reasoning
       // model (ollama-spark) which cold-loads in ~9min off ceph — novel
       // hybrid-attention arch + ~50GB weights. Any image bump restarts

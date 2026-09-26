@@ -1,0 +1,129 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/cronjob-batch-v1.json
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: network-drift
+  labels:
+    app.kubernetes.io/name: network-drift
+spec:
+  # Monthly network source-of-truth reconciliation on the CLAUDE tier (Max
+  # subscription via the headless `claude` CLI — NOT an Anthropic API key, and
+  # NOT the local qwen model, which produced off-prompt/wrong-language garbage).
+  # Claude reads the two records-of-record — NetBox (IPAM/DCIM) and the
+  # lovenet-network-configuration repo — plus live Omada reality, then calls
+  # notify_rob ITSELF (once) only if it finds real drift. ALL CLEAR -> it sends
+  # nothing. Read-only / propose-only: no NetBox or repo writes (no write tool is
+  # bound). Monthly (not weekly) to keep the Max-subscription draw negligible;
+  # this is an infrequent deep audit, not a watcher.
+  #
+  # Shipped SUSPENDED. Before unsuspending: (1) Rob mints the Max OAuth token into
+  # the 1Password `network-drift` item (see externalsecret.yaml); (2) manual-test
+  # one run and read the POD LOG (Claude only emails on real drift, so a broken
+  # run will NOT spam Rob's inbox) to confirm the reconcile is sane; then drop
+  # `suspend: true`.
+  suspend: true
+  schedule: "0 8 1 * *"
+  timeZone: America/New_York
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      # npm install of the CLI + a multi-tool reconcile across NetBox/Omada/GitHub.
+      activeDeadlineSeconds: 1800
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: network-drift
+          annotations:
+            k8tz.io/inject: "false"
+        spec:
+          # amd64 image; the ai ns also has arm64 Spark nodes — pin so the pod
+          # can't land on Spark and hit an exec-format error.
+          nodeSelector:
+            kubernetes.io/arch: amd64
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          containers:
+            - name: reconcile
+              # glibc node image (NOT alpine/musl): the claude CLI ships prebuilt
+              # binaries (ripgrep) that need glibc.
+              image: docker.io/library/node:22-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -ceu
+                # Flux postBuild runs envsubst in STRICT mode over this manifest:
+                # a bare ${VAR} is read as a Flux substitution and fails the whole
+                # Kustomization. Every shell `$` is doubled (`$$`) so the rendered
+                # manifest carries a literal `$` for /bin/sh. Same convention as
+                # the local-cron jobs.
+                - |
+                  cd /tmp
+                  export HOME=/tmp
+                  export XDG_CONFIG_HOME=/tmp/.config
+                  export npm_config_cache=/tmp/.npm
+                  export npm_config_prefix=/tmp/.npm-global
+                  export PATH="/tmp/.npm-global/bin:$${PATH}"
+                  # Reduce nonessential outbound chatter from the CLI.
+                  export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+
+                  echo "----- installing claude CLI -----"
+                  npm install -g @anthropic-ai/claude-code >/tmp/npm.log 2>&1 || {
+                    echo "FATAL: claude CLI install failed"; tail -30 /tmp/npm.log; exit 1;
+                  }
+                  claude --version || { echo "FATAL: claude CLI not runnable"; exit 1; }
+
+                  echo "----- network drift reconcile (claude tier) -----"
+                  # Headless. Explicit read-only --allowedTools allowlist (NEVER
+                  # --dangerously-skip-permissions): tools outside it are denied,
+                  # not prompted. Claude calls notify_rob itself only on real drift.
+                  claude -p "$$(cat /config/reconcile-prompt.txt)" \
+                    --mcp-config /config/mcp.json \
+                    --allowedTools "$$(cat /config/allowed-tools.txt)" \
+                    --max-turns 40 \
+                    --output-format text
+                  echo "----- reconcile complete -----"
+              env:
+                - name: TZ
+                  value: America/New_York
+              envFrom:
+                # CLAUDE_CODE_OAUTH_TOKEN — the Max subscription token (never an
+                # API key). Without it the CLI cannot authenticate; the job fails
+                # loudly rather than silently.
+                - secretRef:
+                    name: network-drift-secret
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  memory: 1Gi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+                - name: config
+                  mountPath: /config
+                  readOnly: true
+          volumes:
+            - name: tmp
+              emptyDir:
+                medium: Memory
+                sizeLimit: 512Mi
+            - name: config
+              configMap:
+                name: network-drift-config

@@ -1,0 +1,28 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/kustomization-kustomize-v1.json
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: &app network-drift
+spec:
+  # Monthly network source-of-truth reconciliation on the CLAUDE tier (Max
+  # subscription via the headless `claude` CLI — never an Anthropic API key).
+  # Replaces the local-model local-cron network-drift watcher, which the local
+  # qwen model could not do (off-prompt, wrong-language garbage). Ships SUSPENDED
+  # pending the Max OAuth token in 1Password + a log-verified test run.
+  commonMetadata:
+    labels:
+      app.kubernetes.io/name: *app
+  targetNamespace: ai
+  path: ./kubernetes/apps/ai/network-drift/app
+  interval: 1h
+  timeout: 5m
+  prune: true
+  wait: false
+  sourceRef:
+    kind: GitRepository
+    name: home-ops-kubernetes
+    namespace: flux-system
+  dependsOn:
+    - name: onepassword-connect
+      namespace: external-secrets

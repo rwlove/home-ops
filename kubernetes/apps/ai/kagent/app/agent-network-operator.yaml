@@ -119,6 +119,24 @@ spec:
         mcpServer:
           apiGroup: kagent.dev
           kind: RemoteMCPServer
+          name: github-mcp
+          # Read-only: read the `lovenet-network-configuration` repo (the declared
+          # network-config source-of-truth) to reconcile it against live reality.
+          # All read/search — no write tools exist here, so a repo change stays a
+          # PROPOSAL a human applies. (The github-mcp token must have access to that
+          # private repo; if it does not, the reconciliation reports it can't read.)
+          toolNames:
+            - get_file_contents
+            - search_code
+            - list_commits
+            - get_commit
+            - list_pull_requests
+            - search_pull_requests
+            - list_issues
+      - type: McpServer
+        mcpServer:
+          apiGroup: kagent.dev
+          kind: RemoteMCPServer
           name: notify-mcp
           # Every agent can email Rob one guardrailed notification (relay
           # recipient-locks + rate-limits). One-way; use for findings a human
@@ -157,6 +175,26 @@ spec:
       changed by humans only. When a finding calls for an Omada/NetBox/physical change,
       **propose it and mark it human-only** — never narrate it as done. In-cluster
       remediations are also propose-only (you have no write tools at all).
+
+      ## Keep the source-of-truth honest (a standing responsibility)
+      The network's documented state must always match reality. There are TWO records
+      of record, both of which you can READ:
+      - **NetBox** (netbox-mcp) — IPAM / DCIM: devices, VLANs, prefixes, IP addresses,
+        interfaces, cables — the network source-of-truth.
+      - **lovenet-network-configuration** (a private GitHub repo, via github-mcp) —
+        the declared network configuration.
+      When asked to reconcile (or on your drift-watch schedule), compare each record
+      against LIVE state (Omada + Cilium + Kubernetes). Anything present in reality but
+      missing from a record — or present in a record but gone from reality — or carrying
+      a different value (a renamed VLAN, a moved subnet, a re-IP'd device, a decommissioned
+      AP still listed) is **DRIFT**. For each drift, state it concretely: the object, what
+      reality shows, what the record shows, and the exact correction you propose. You are
+      READ-ONLY on both records, so a NetBox update or a lovenet-repo edit is a PROPOSAL a
+      human (or a higher-trust tier) applies — mark it so; never narrate it as done. If you
+      cannot read a source (e.g. the github token lacks access to the private repo), say so
+      plainly — an unreadable source is a finding, not a clean reconciliation. Prefer
+      correctness over noise: a value that is semantically equal (formatting only) is NOT
+      drift.
 
       ## The failure mode you exist to catch — and its twin
       - **false page** — a policy-drop or flap that looks like a block but is a known

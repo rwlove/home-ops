@@ -46,7 +46,7 @@ spec:
           app:
             image:
               repository: ghcr.io/rwlove/notify-mcp
-              tag: v0.3.0@sha256:9803cc2cf7adee15ef2cc5c4470207203fc85d19eeebe1d9e43aed33c442191e
+              tag: v0.4.0@sha256:00665bf6ea05851dbb77a6a688c560793bbfd5c5e99e6b3d19ce31350e162e54
             env:
               PORT: "8060"
               HOST: "0.0.0.0"
@@ -57,12 +57,23 @@ spec:
               MAIL_FROM: "agents@${SECRET_DOMAIN}"
               SMTP_RELAY_HOST: smtp-relay.home.svc.cluster.local
               SMTP_RELAY_PORT: "2526"
+              # Base URL for email action-button callbacks (agent-callback, ai ns,
+              # internal gateway). notify-mcp signs a token and points buttons at
+              # <base>/act?t=<token>. ${SECRET_DOMAIN} is a Flux postBuild var.
+              CALLBACK_BASE_URL: "https://agent-callback.${SECRET_DOMAIN}"
             envFrom:
               # Supplies AGENT_NOTIFY_RCPT — the single recipient the relay
               # permits (Rob). Same 1P item + property maddy reads for its
               # allowlist, so tool and relay agree on the one address.
               - secretRef:
                   name: notify-mcp-secret
+              # CALLBACK_HMAC_KEY for signing email action buttons. optional:true
+              # + a SEPARATE ExternalSecret so a not-yet-created 1P key can never
+              # break notify-mcp-secret (fleet-critical). Unset -> action buttons
+              # are dropped, normal email keeps working.
+              - secretRef:
+                  name: notify-mcp-callback-secret
+                  optional: true
             resources:
               requests:
                 cpu: 10m

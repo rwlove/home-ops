@@ -93,6 +93,21 @@ spec:
                     *"ALL CLEAR"*) echo "ALL CLEAR — nothing sent"; exit 0;;
                   esac
 
+                  # Positive gate (inbox-spam fix): only output carrying a
+                  # recognized urgency tag may reach a sink. Anything else —
+                  # untagged local-model garbage, a wrong-language reply, or a
+                  # tool-init error string ("failed to extract tools" / "session
+                  # not found") — is malformed; log a snippet and exit clean so a
+                  # bad run can NEVER notify Rob. (ALL CLEAR handled above.)
+                  case "$$TEXT" in
+                    *"URGENT:"*|*"FYI:"*) : ;;
+                    *)
+                      echo "no URGENT:/FYI: tag — malformed agent output, not notifying"
+                      printf '%s\n' "$$TEXT" | head -c 300 || true
+                      exit 0
+                      ;;
+                  esac
+
                   # 1000-char cap (Pushover limit; also keeps the mail terse).
                   MSG="$$(printf '%s' "$$TEXT" | cut -c1-1000)"
 

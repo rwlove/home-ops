@@ -117,6 +117,21 @@ spec:
                     *"ALL CLEAR"*) echo "ALL CLEAR — nothing sent"; exit 0;;
                   esac
 
+                  # Positive gate (inbox-spam fix): only a well-formed FYI: digest
+                  # may reach the mail sink. Anything else — untagged local-model
+                  # garbage, a wrong-language reply, or a tool-init error string
+                  # ("failed to extract tools" / "session not found") — is
+                  # malformed; log a snippet and exit clean so a bad run can NEVER
+                  # notify Rob. (ALL CLEAR handled above.)
+                  case "$$TEXT" in
+                    *"FYI:"*) : ;;
+                    *)
+                      echo "no FYI: tag — malformed agent output, not notifying"
+                      printf '%s\n' "$$TEXT" | head -c 300 || true
+                      exit 0
+                      ;;
+                  esac
+
                   # ONE themed, per-agent HTML email via notify-mcp /send. It
                   # renders the markdown body in this agent's theme and holds the
                   # SAME relay recipient-lock, so it can still only ever email Rob.

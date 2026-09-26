@@ -1,0 +1,73 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+# Egress allows for the network-drift claude-CLI CronJob (ai ns). Additive — the
+# ai namespace default-deny enforces both directions; these punch the holes.
+# DNS egress is provided cluster-wide by the baseline network-policy component,
+# so it is not repeated here.
+#
+# The matching INGRESS on the four MCP backends is granted by the shared
+# mcp-system `kagent-mcp-read-allow` CNP (a network-drift fromEndpoints entry was
+# added there). Tool-level read-only scoping is the claude CLI `--allowedTools`
+# allowlist + the mcp.json server set, not this L4 policy.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: network-drift-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: network-drift
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # External HTTPS: (a) api.anthropic.com — the headless `claude` CLI draws
+    # Rob's Max subscription; (b) the npm registry — one-time per-run install of
+    # the `claude` CLI onto tmpfs. toEntities:[world]:443 is the cluster's
+    # reliable external-egress pattern (Cilium toFQDNs.matchPattern is limited
+    # here; hermes' escalation skill uses the same world:443 rule). The exfil
+    # control is the read-only tool allowlist + recipient-locked notify_rob, not
+    # this CNP.
+    - toEntities: [world]
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    # NetBox MCP (record of record #1) — read-only IPAM/DCIM.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+            app.kubernetes.io/name: netbox-mcp
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+    # Omada MCP (live physical reality) — read-only SDN health/inventory.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+            app.kubernetes.io/name: omada-mcp
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+    # GitHub MCP (record of record #2 — the lovenet-network-configuration repo),
+    # read-only file/search.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+            app.kubernetes.io/name: github-mcp
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # notify-mcp — the ONLY notification channel: the agent calls notify_rob,
+    # which the relay recipient-locks to Rob.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+            app.kubernetes.io/name: notify-mcp
+      toPorts:
+        - ports:
+            - port: "8060"
+              protocol: TCP

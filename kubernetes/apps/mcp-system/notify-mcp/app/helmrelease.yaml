@@ -15,8 +15,28 @@ spec:
         runAsGroup: 1000
         runAsNonRoot: true
         runAsUser: 1000
+      # Spread the 2 replicas across nodes so a single node loss can't take the
+      # whole tool down. Soft (ScheduleAnyway) so it never blocks scheduling.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: notify-mcp
     controllers:
       notify-mcp:
+        # HA: notify-mcp is bound into EVERY kagent agent's tools, and kagent
+        # has no lazy/optional tool init — if this MCP is unreachable, the whole
+        # agent fails to list tools (fleet-wide dark). 2 replicas + a zero-
+        # maxUnavailable rollout keep it always-serving across pod loss and its
+        # own updates, so a single-pod blip can't dark the fleet. Pairs with the
+        # homeops-operator reachability audit (which catches CONFIG gaps).
+        replicas: 2
+        strategy: RollingUpdate
+        rollingUpdate:
+          maxUnavailable: 0
+          maxSurge: 1
         annotations:
           reloader.stakater.com/auto: "true"
         pod:

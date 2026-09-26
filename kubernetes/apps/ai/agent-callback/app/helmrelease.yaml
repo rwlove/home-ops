@@ -1,0 +1,100 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: agent-callback
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 30m
+  values:
+    controllers:
+      agent-callback:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        pod:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+        containers:
+          app:
+            image:
+              repository: docker.io/library/python
+              tag: "3.14-slim"
+            command:
+              - python3
+              - /app/server.py
+            env:
+              # A2A base for invoking a target agent (intra-ns; baseline covers it).
+              A2A_BASE: http://%s.ai:8080/
+            envFrom:
+              # CALLBACK_HMAC_KEY — the shared secret notify-mcp signs button URLs
+              # with and this service verifies. optional:true so the pod still
+              # runs before Rob adds the 1P key (the server fails CLOSED — with no
+              # key it rejects every token), rather than being stuck on a missing
+              # Secret. The ExternalSecret will show unsynced until the key exists.
+              - secretRef:
+                  name: agent-callback-secret
+                  optional: true
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /healthz
+                    port: 8080
+                  initialDelaySeconds: 10
+                  periodSeconds: 30
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /healthz
+                    port: 8080
+                  initialDelaySeconds: 10
+                  periodSeconds: 30
+            resources:
+              requests:
+                cpu: 10m
+                memory: 32Mi
+              limits:
+                memory: 96Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+    service:
+      app:
+        controller: agent-callback
+        ports:
+          http:
+            port: 8080
+    route:
+      app:
+        # Internal gateway only (LAN / wg-easy VPN) — an agent-action approval
+        # surface is deliberately NOT public. Authelia (admin group) gates it via
+        # the SecurityPolicy targeting this route.
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: 8080
+    persistence:
+      server:
+        type: configMap
+        name: agent-callback
+        globalMounts:
+          - path: /app
+            readOnly: true

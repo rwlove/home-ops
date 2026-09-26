@@ -82,7 +82,7 @@ spec:
                   # Route by urgency tag (the agent begins its reply with one):
                   #   ALL CLEAR -> silent (nothing sent)
                   #   URGENT:   -> Pushover pager (same-day-urgent)
-                  #   otherwise (FYI / noteworthy-not-urgent) -> email via notify.sh
+                  #   otherwise (FYI / noteworthy-not-urgent) -> themed email via notify-mcp /send
                   # Triage findings are Internal-tier cluster state (namespace /
                   # app names) — fine for the private Pushover channel AND for the
                   # guardrailed agent-notify relay (recipient-locked to Rob). The
@@ -138,11 +138,6 @@ spec:
                   value: /tmp
                 - name: TZ
                   value: America/New_York
-                # notify.sh's From address (agents@$SECRET_DOMAIN); the relay
-                # rewrites the envelope sender regardless. Injected via Flux
-                # postBuild var — used only on the FYI email branch below.
-                - name: SECRET_DOMAIN
-                  value: "${SECRET_DOMAIN}"
               envFrom:
                 - secretRef:
                     name: local-cron-secret
@@ -168,17 +163,8 @@ spec:
               volumeMounts:
                 - name: tmp
                   mountPath: /tmp
-                # Shared notify.sh helper (configMapGenerator `notify`), mounted
-                # read-only. Invoked as `sh /opt/notify/notify.sh` on the FYI
-                # (noteworthy-not-urgent) email branch.
-                - name: notify
-                  mountPath: /opt/notify
-                  readOnly: true
           volumes:
             - name: tmp
               emptyDir:
                 medium: Memory
                 sizeLimit: 64Mi
-            - name: notify
-              configMap:
-                name: notify

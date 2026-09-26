@@ -10,7 +10,7 @@ spec:
   # cooter (vehicle/garage operator) — weekly "service due" watch. Reads the
   # fleet's DUE maintenance reminders from LubeLogger AT RUNTIME (so no private
   # vehicle facts ever live in this PUBLIC repo) and emails Rob ONE message PER
-  # due concern through the shared guardrailed relay (notify.sh -> smtp-relay
+  # due concern via notify-mcp /send (which fronts the guardrailed relay
   # :2526). Silent when nothing is due (same discipline as the recall watch).
   # First real consumer of the agent-notify mail path. Fully deterministic: no
   # LLM, no k8s API. Reminders must be SEEDED in LubeLogger for this to have
@@ -177,32 +177,21 @@ spec:
                     printf 'DUE  %-24s | %-10s | %s | %s | %s\n' \
                       "$$VLABEL" "$$URG" "$$DESC" "$$DUEBY" "$$EXTRA"
 
-                    # HTML body — small self-contained table for this one
-                    # concern. Assembled with printf (no heredoc) to stay
-                    # indentation-safe inside the YAML block scalar. Runtime
-                    # field values are HTML-safe here (LubeLogger reminder text
-                    # is plain user input; no markup is expected).
-                    HTML="$$(printf '%s' \
-                      '<html><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#222">' \
-                      "<h2 style=\"margin:0 0 8px\">Vehicle service due</h2>" \
-                      "<p style=\"margin:0 0 12px;color:#555\">Flagged by cooter (LubeLogger reminder) on $$DAY.</p>" \
-                      '<table cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:14px">' \
-                      "<tr><td style=\"border:1px solid #ddd;font-weight:600;background:#f6f6f6\">Vehicle</td><td style=\"border:1px solid #ddd\">$$VLABEL</td></tr>" \
-                      "<tr><td style=\"border:1px solid #ddd;font-weight:600;background:#f6f6f6\">Item</td><td style=\"border:1px solid #ddd\">$$DESC</td></tr>" \
-                      "<tr><td style=\"border:1px solid #ddd;font-weight:600;background:#f6f6f6\">Urgency</td><td style=\"border:1px solid #ddd\">$$URG</td></tr>" \
-                      "<tr><td style=\"border:1px solid #ddd;font-weight:600;background:#f6f6f6\">Due by</td><td style=\"border:1px solid #ddd\">$${DUEBY:--}</td></tr>" \
-                      "<tr><td style=\"border:1px solid #ddd;font-weight:600;background:#f6f6f6\">Remaining</td><td style=\"border:1px solid #ddd\">$${EXTRA:--}</td></tr>" \
-                      '</table>' \
-                      '<p style="margin:12px 0 0;color:#888;font-size:12px">Source of truth: LubeLogger. Log the service there when done to clear this reminder.</p>' \
-                      '</body></html>')"
-
-                    if printf '%s' "$$HTML" | sh /opt/notify/notify.sh \
-                         --subject "$$SUBJECT" --html; then
-                      SENT=$$(($$SENT + 1))
-                    else
-                      echo "FATAL: notify.sh failed for '$$SUBJECT'"
-                      FAILED=$$(($$FAILED + 1))
-                    fi
+                    # ONE themed HTML email per due concern via notify-mcp /send
+                    # (agent=cooter): build a markdown body and let notify-mcp
+                    # render it in cooter's theme; it holds the SAME relay
+                    # recipient-lock. jq -n escapes the field values safely.
+                    BODY="$$(printf '**Vehicle:** %s\n**Item:** %s\n**Urgency:** %s\n**Due by:** %s\n**Remaining:** %s\n\n_Source of truth: LubeLogger — log the service there when done to clear this reminder._' \
+                      "$$VLABEL" "$$DESC" "$$URG" "$${DUEBY:--}" "$${EXTRA:--}")"
+                    REQ="$$(jq -n --arg s "$$SUBJECT" --arg b "$$BODY" --arg a "cooter" \
+                              '{subject:$$s, body:$$b, agent:$$a}')"
+                    HTTP="$$(curl -sS --max-time 30 -o /tmp/send.out -w '%{http_code}' \
+                              -H 'Content-Type: application/json' -d "$$REQ" \
+                              http://notify-mcp.mcp-system:8060/send)"
+                    case "$$HTTP" in
+                      2??) SENT=$$(($$SENT + 1));;
+                      *) echo "FATAL: notify-mcp /send HTTP $$HTTP for '$$SUBJECT'"; cat /tmp/send.out; FAILED=$$(($$FAILED + 1));;
+                    esac
                   done < /tmp/due.tsv
 
                   echo "----- sent $$SENT email(s); $$FAILED failed; $$TRUNC truncated -----"
@@ -212,17 +201,7 @@ spec:
                   value: /tmp
                 - name: TZ
                   value: America/New_York
-                # notify.sh's From address (agents@$SECRET_DOMAIN); the relay
-                # rewrites the envelope sender regardless, so this is
-                # non-critical. Injected via Flux postBuild var.
-                - name: SECRET_DOMAIN
-                  value: "${SECRET_DOMAIN}"
               envFrom:
-                # AGENT_NOTIFY_RCPT (for notify.sh) lives here alongside the
-                # Pushover creds — shared read-only agent secret.
-                - secretRef:
-                    name: local-cron-secret
-                    optional: false
                 # LubeLogger Viewer API key — its OWN secret, shared with the
                 # recall cron (both are read-only cooter jobs). The triage/skim/
                 # doer jobs never see it.
@@ -250,16 +229,8 @@ spec:
               volumeMounts:
                 - name: tmp
                   mountPath: /tmp
-                # Shared notify.sh helper (configMapGenerator `notify`), mounted
-                # read-only. Invoked as `sh /opt/notify/notify.sh`.
-                - name: notify
-                  mountPath: /opt/notify
-                  readOnly: true
           volumes:
             - name: tmp
               emptyDir:
                 medium: Memory
                 sizeLimit: 64Mi
-            - name: notify
-              configMap:
-                name: notify

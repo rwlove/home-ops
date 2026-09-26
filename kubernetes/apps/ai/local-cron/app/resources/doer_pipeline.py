@@ -423,8 +423,13 @@ def main():
     prompt += (
         "\n\nSTRICT OUTPUT RULES — you are an unattended batch job; there is NO human "
         "to reply to. Never ask a question or request confirmation. Never print a tool "
-        "call as text. If you found a safe fix, output ONLY the one fenced ```json "
-        "proposal block and nothing else. If you did not, output nothing at all.")
+        "call as text. If a tool errors or times out, do NOT conclude 'no data' or 'no "
+        "access' and stop — retry it, or reach the same signal with another of your "
+        "read-only tools; only conclude there is nothing to fix once your tools have "
+        "ACTUALLY returned data showing the component is healthy (an unconfirmed 'I "
+        "couldn't check' is a failure, not a clean run). If you found a safe fix, output "
+        "ONLY the one fenced ```json proposal block and nothing else. If you did not, "
+        "output nothing at all.")
     text, state = ask_agent(prompt)
     log("agent state=%s" % state)
     log("----- triage -----\n%s\n------------------" % text)

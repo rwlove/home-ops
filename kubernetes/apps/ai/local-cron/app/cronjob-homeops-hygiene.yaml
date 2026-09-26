@@ -13,7 +13,7 @@ spec:
   # drift, and git-vs-cluster drift, then emails Rob a concise ranked digest of
   # findings (ALL CLEAR → nothing sent). This is the scheduled-pull form and the
   # ONLY way the agent currently reaches Rob — the agent itself has no mail tool;
-  # this cron is the auditable glue that does the send (notify.sh → smtp-relay).
+  # this cron is the auditable glue that does the send (notify-mcp /send -> smtp-relay).
   #
   # Findings are PROPOSALS, never same-day-urgent — so there is no Pushover/pager
   # branch (unlike the observability triage): it either emails an FYI digest or
@@ -79,7 +79,7 @@ spec:
                     jsonrpc:"2.0", id:1, method:"message/send",
                     params:{ message:{
                       role:"user",
-                      parts:[{kind:"text", text:"Using your read-only tools, sweep the home-ops repo and the live cluster for repo-hygiene issues in your four areas: (1) deprecated/removed apiVersions vs the versions the cluster serves, (2) missing/wrong/dead yaml-language-server schema lines, (3) docs that no longer match the manifests they describe, (4) git-vs-cluster drift (respecting deliberate Flux suspensions). Read AGENTS.md and .agents/instructions/ first for the repo conventions. Report the TOP findings you are confident about (at most 8), ranked most-actionable first; for each give: file path, the one-line problem, and the one-line proposed fix. Do NOT include full diffs. If you find nothing confident, reply with EXACTLY: ALL CLEAR. Otherwise BEGIN your reply with exactly the tag FYI: then the findings list. This is a one-way notification — never ask a question or request confirmation (nobody can reply). Plain text, no markdown, under 3500 characters."}],
+                      parts:[{kind:"text", text:"Using your read-only tools, sweep the home-ops repo and the live cluster for repo-hygiene issues in your four areas: (1) deprecated/removed apiVersions vs the versions the cluster serves, (2) missing/wrong/dead yaml-language-server schema lines, (3) docs that no longer match the manifests they describe, (4) git-vs-cluster drift (respecting deliberate Flux suspensions). Read AGENTS.md and .agents/instructions/ first for the repo conventions. Report the TOP findings you are confident about (at most 8), ranked most-actionable first; for each give: file path, the one-line problem, and the one-line proposed fix. Do NOT include full diffs. If you find nothing confident, reply with EXACTLY: ALL CLEAR. Otherwise BEGIN your reply with exactly the tag FYI: then the findings list. This is a one-way notification — never ask a question or request confirmation (nobody can reply). Under 3500 characters. You may use light markdown — **bold**, `code`, `- bullets`, short `#`/`##` headings, [links](url) — it is rendered into a themed HTML email; do not use tables or images."}],
                       messageId:"homeops-hygiene-cron", kind:"message"
                     }}
                   }')"
@@ -117,31 +117,32 @@ spec:
                     *"ALL CLEAR"*) echo "ALL CLEAR — nothing sent"; exit 0;;
                   esac
 
-                  # Email via the shared guarded relay (notify.sh -> smtp-relay
-                  # :2526). Plain text on stdin; 3800-char cap keeps it terse.
+                  # ONE themed, per-agent HTML email via notify-mcp /send. It
+                  # renders the markdown body in this agent's theme and holds the
+                  # SAME relay recipient-lock, so it can still only ever email Rob.
+                  # jq -n builds the JSON body so the finding is safely escaped.
+                  # 3800-char cap keeps it terse.
                   MSG="$$(printf '%s' "$$TEXT" | cut -c1-3800)"
-                  if printf '%s\n' "$$MSG" | sh /opt/notify/notify.sh \
-                       --subject "kagent homeops hygiene (FYI) $${DAY}"; then
-                    echo "FYI digest emailed"
-                  else
-                    echo "FATAL: notify.sh failed"
+                  REQ="$$(jq -n --arg s "homeops hygiene — $${DAY}" \
+                                --arg b "$$MSG" --arg a "homeops-operator" \
+                            '{subject:$$s, body:$$b, agent:$$a}')"
+                  HTTP="$$(curl -sS --max-time 30 -o /tmp/send.out -w '%{http_code}' \
+                            -H 'Content-Type: application/json' -d "$$REQ" \
+                            http://notify-mcp.mcp-system:8060/send)" || {
+                    echo "FATAL: notify-mcp /send request errored"
                     exit 1
-                  fi
+                  }
+                  case "$$HTTP" in
+                    2??) echo "themed FYI digest emailed (HTTP $$HTTP)";;
+                    *) echo "FATAL: notify-mcp /send returned HTTP $$HTTP"; cat /tmp/send.out; exit 1;;
+                  esac
               env:
                 - name: HOME
                   value: /tmp
                 - name: TZ
                   value: America/New_York
-                # notify.sh's From address (agents@$SECRET_DOMAIN); the relay
-                # rewrites the envelope sender regardless. Injected via Flux
-                # postBuild var.
-                - name: SECRET_DOMAIN
-                  value: "${SECRET_DOMAIN}"
-              envFrom:
-                # Supplies AGENT_NOTIFY_RCPT (the recipient notify.sh sends to).
-                - secretRef:
-                    name: local-cron-secret
-                    optional: false
+              # No secrets: the digest reaches Rob via notify-mcp /send (which
+              # holds the recipient) and has no Pushover branch.
               resources:
                 requests:
                   cpu: 50m
@@ -163,16 +164,8 @@ spec:
               volumeMounts:
                 - name: tmp
                   mountPath: /tmp
-                # Shared notify.sh helper (configMapGenerator `notify`), mounted
-                # read-only. Invoked as `sh /opt/notify/notify.sh`.
-                - name: notify
-                  mountPath: /opt/notify
-                  readOnly: true
           volumes:
             - name: tmp
               emptyDir:
                 medium: Memory
                 sizeLimit: 64Mi
-            - name: notify
-              configMap:
-                name: notify

@@ -1,0 +1,80 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app snmp-exporter-omada-switches
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: prometheus-snmp-exporter
+  interval: 30m
+  dependsOn:
+    - name: kube-prometheus-stack
+      namespace: observability
+
+  install:
+    remediation:
+      retries: 3
+
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+      strategy: rollback
+  values:
+    # Two config files, merged by snmp_exporter: the image's built-in
+    # /etc/snmp_exporter/snmp.yml (ships the standard `if_mib` module,
+    # so no MIB is vendored into Git) plus an ExternalSecret-rendered
+    # auth file holding only the SNMPv3 credential (so no secret lands
+    # in Git). Added to poll Omada switch per-port error counters after
+    # the 2026-09-27 inter-switch packet-loss incident, which had zero
+    # switch-side telemetry to diagnose it.
+    extraArgs:
+      - --config.file=/etc/snmp_exporter/snmp.yml
+      - --config.file=/secret/auth/snmp.yaml
+    extraSecretMounts:
+      - name: snmp-auth
+        secretName: omada-switches-snmp-auth
+        defaultMode: 420
+        mountPath: /secret/auth/snmp.yaml
+        readOnly: true
+        subPath: snmp.yaml
+    fullnameOverride: *app
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        memory: 128Mi
+    serviceMonitor:
+      enabled: true
+      params:
+        - auth: ["omada_v3"]
+          module: ["if_mib"]
+          name: switch-core
+          target: 192.168.5.61
+        - auth: ["omada_v3"]
+          module: ["if_mib"]
+          name: switch-10
+          target: 192.168.5.60
+        - auth: ["omada_v3"]
+          module: ["if_mib"]
+          name: switch-poe
+          target: 192.168.5.48
+        - auth: ["omada_v3"]
+          module: ["if_mib"]
+          name: switch-familyroom
+          target: 192.168.5.62
+        - auth: ["omada_v3"]
+          module: ["if_mib"]
+          name: switch-basement
+          target: 192.168.5.2
+        - auth: ["omada_v3"]
+          module: ["if_mib"]
+          name: switch-office
+          target: 192.168.5.3
+      path: /snmp
+      relabelings:
+        - {sourceLabels: ["__param_target"], targetLabel: instance}
+      scrapeTimeout: 30s

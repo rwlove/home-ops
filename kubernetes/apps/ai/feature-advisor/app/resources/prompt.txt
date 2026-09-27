@@ -59,6 +59,16 @@ in your stdout:
 If a recommendation cannot be made without emitting any of the above, DROP it.
 
 ## Other rules
+- DO NOT propose pod-security hardening you cannot statically prove is runtime-safe —
+  specifically `readOnlyRootFilesystem: true`, `runAsNonRoot`, `runAsUser` changes, or
+  dropping capabilities. Release notes and chart templates DO NOT reveal what an image
+  actually writes at runtime or which port it binds, so these look safe on paper and then
+  crashloop the app (readOnlyRootFilesystem broke pgadmin: its entrypoint writes into its
+  own /pgadmin4 app dir — not a chart-mounted emptyDir — and gunicorn binds privileged
+  port 80, which non-root + drop-ALL cannot). Only propose such a change if the release
+  notes EXPLICITLY state the image is now rootless / read-only-rootfs-clean AND names every
+  writable path it needs. When in doubt, skip it. Prefer feature/config adoptions whose
+  safety is actually verifiable from the notes (new options, flags, capabilities).
 - Only edit files under kubernetes/apps/. Never touch Secrets, ExternalSecrets, or
   anything that would expose restricted data. Never edit files outside the repo.
 - Never merge (you can't) and never force-push or modify main directly.

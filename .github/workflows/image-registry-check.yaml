@@ -68,6 +68,21 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Authenticated docker.io pulls — the durable fix for the recurring
+      # "Extract images (pull)" 429s. flate resolves docker.io/* refs
+      # anonymously otherwise, and GitHub runners share IPs, so Docker Hub's
+      # anonymous per-IP limit is what the retries below exhaust against.
+      # No-op until a DOCKERHUB_USERNAME repo *variable* + DOCKERHUB_TOKEN
+      # *secret* (a free read-only Docker Hub access token) are set — so this
+      # is safe to merge before the credential exists.
+      - name: Login to docker.io
+        if: ${{ vars.DOCKERHUB_USERNAME != '' }}
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: docker.io
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Setup flate
         uses: home-operations/flate/action@631b76b69c4e58c6f4d1cb01e23616fa61aebafa # v0.6.5
 
@@ -84,8 +99,10 @@ jobs:
           FLATE_BASE: ""
         with:
           timeout_minutes: 10
-          max_attempts: 3
-          retry_wait_seconds: 30
+          # Bumped 3->6 / 30->60s: rides out short Docker Hub 429 spikes on the
+          # shared runner IP even when docker.io auth is not yet configured.
+          max_attempts: 6
+          retry_wait_seconds: 60
           shell: sh
           command: |
             flate get images \

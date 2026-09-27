@@ -15,21 +15,26 @@ spec:
         runAsGroup: 1000
         runAsNonRoot: true
         runAsUser: 1000
+      # Spread the replicas across nodes so a single node loss can't take the
+      # whole tool down. Soft (ScheduleAnyway) so it never blocks scheduling.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: notify-mcp
     controllers:
       notify-mcp:
-        # SINGLE replica — deliberate. notify-mcp is a FastMCP streamable-HTTP
-        # server: an MCP session is created in-memory on the pod that answers
-        # `initialize`, and every follow-up request (`notifications/initialized`,
-        # tool list/call) must reach THAT pod. With >1 replica behind a
-        # round-robin Service (sessionAffinity: None) the follow-ups land on the
-        # wrong pod → "session not found" → the agent's whole tool-init fails.
-        # Because notify-mcp is bound into EVERY kagent agent, 2 replicas darked
-        # ~50% of agent tool-inits fleet-wide (regression from the earlier HA
-        # attempt; reverted here). Real HA needs FastMCP `stateless_http=True`
-        # (no per-pod session) — a server-code change tracked separately, NOT a
-        # replica bump. The stateless `/send` HTTP route the local-cron digests
-        # use is unaffected either way (single self-contained request).
-        replicas: 1
+        # HA restored. notify-mcp v0.5.0 sets FastMCP `stateless_http=True` — no
+        # per-pod in-memory MCP session, so >1 replica behind a round-robin
+        # Service is safe (initialize/tool-call need not hit the same pod). This
+        # is what the earlier (stateful) 2-replica attempt lacked, which split the
+        # session and darked ~50% of fleet-wide agent tool-inits (home-ops#14511
+        # reverted to 1). notify-mcp is bound into EVERY kagent agent, so 2
+        # replicas + a zero-maxUnavailable roll + the PDB keep it always-serving
+        # across pod loss and its own updates.
+        replicas: 2
         strategy: RollingUpdate
         rollingUpdate:
           maxUnavailable: 0
@@ -43,7 +48,7 @@ spec:
           app:
             image:
               repository: ghcr.io/rwlove/notify-mcp
-              tag: v0.4.0@sha256:00665bf6ea05851dbb77a6a688c560793bbfd5c5e99e6b3d19ce31350e162e54
+              tag: v0.5.0@sha256:46465e32e04bc7fb86176a05c9d07f50eee76c1cb6fc7beb6f89fa2a8ecbd42a
             env:
               PORT: "8060"
               HOST: "0.0.0.0"

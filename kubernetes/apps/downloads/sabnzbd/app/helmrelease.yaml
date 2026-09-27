@@ -81,8 +81,27 @@ spec:
                   periodSeconds: 10
                   timeoutSeconds: 5
               readiness: *probes
+              # A startup probe gates liveness/readiness: k8s does not run them
+              # until startup first succeeds. Without one (and with liveness
+              # initialDelaySeconds: 0), a slow cold start — SABnzbd's
+              # single-threaded Python init on a resource-constrained/throttled
+              # node can take well over the 5×10s liveness window to bind :8080 —
+              # trips the liveness probe and SIGKILLs the container before it ever
+              # listens, an unbreakable crashloop (ob.: reads its INI, then killed
+              # ~44s later, port never bound). 30×10s gives cold start up to ~5min
+              # to come up on a struggling node; once it binds, liveness takes over
+              # at its normal (tight) cadence.
               startup:
-                enabled: false
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /api?mode=version
+                    port: *httpPort
+                  failureThreshold: 30
+                  initialDelaySeconds: 0
+                  periodSeconds: 10
+                  timeoutSeconds: 5
 
             # In-place resize (k8s 1.35 GA): apply a live memory/CPU bump
             # without restarting the container, so raising memory under a heavy

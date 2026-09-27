@@ -16,14 +16,22 @@ Design points:
   * A bounded worker semaphore caps concurrent agent calls so an alert storm can't spawn
     unbounded threads or hammer the local model; excess groups are dropped with a log
     (the alert still paged via AlertManager).
-  * Enrichment is best-effort: any failure is logged and surfaced as a low-priority
-    Pushover so silent breakage is visible, never a crash.
+  * Deterministic pre-gather (Prometheus): for pod-scoped alerts we fetch the hard
+    signal the local model most reliably fails to construct on its own — restart count,
+    the pod's NODE, and that node's temperature / load / CPU — and hand it to the agent
+    as evidence. This front-loads the node-health chain that distinguishes "the pod is
+    broken" from "the node is broken" (the failure mode a symptom-only triage misses).
+    Logs stay with the agent (it has query_loki_logs and fetching-by-pod is trivial).
+  * Enrichment is best-effort: any failure (incl. every Prometheus query) is logged and
+    degrades gracefully — the agent still gets the alert, never a crash.
 
 Stdlib only. Config via env:
   OBSERVABILITY_AGENT_URL   default http://observability-operator.ai:8080/
   AGENT_TIMEOUT_SECONDS     default 400
   MAX_INFLIGHT              default 2
   MAX_ALERTS_PER_GROUP      default 8
+  PROM_URL                  Prometheus base URL for pre-gather; unset -> pre-gather off
+  PREGATHER_TIMEOUT_SECONDS default 8 (per Prometheus query)
   PUSHOVER_TOKEN, PUSHOVER_USER   (required to send; missing -> log-only)
 """
 import json
@@ -38,9 +46,15 @@ AGENT_URL = os.environ.get("OBSERVABILITY_AGENT_URL", "http://observability-oper
 AGENT_TIMEOUT = int(os.environ.get("AGENT_TIMEOUT_SECONDS", "400"))
 MAX_INFLIGHT = int(os.environ.get("MAX_INFLIGHT", "2"))
 MAX_ALERTS = int(os.environ.get("MAX_ALERTS_PER_GROUP", "8"))
+PROM_URL = os.environ.get("PROM_URL", "")
+PREGATHER_TIMEOUT = int(os.environ.get("PREGATHER_TIMEOUT_SECONDS", "8"))
 PUSHOVER_TOKEN = os.environ.get("PUSHOVER_TOKEN", "")
 PUSHOVER_USER = os.environ.get("PUSHOVER_USER", "")
 PUSHOVER_URL = "https://api.pushover.net/1/messages.json"
+
+# Caps on how much we pre-gather per group, so an alert storm can't fan out queries.
+MAX_PREGATHER_PODS = 5
+MAX_PREGATHER_NODES = 4
 
 _sem = threading.BoundedSemaphore(MAX_INFLIGHT)
 
@@ -50,7 +64,7 @@ def log(msg):
 
 
 def _firing(payload):
-    """Extract firing alerts as compact (alertname, ns, severity, text) tuples."""
+    """Extract firing alerts as compact dicts (name, ns, severity, text, pod, node)."""
     out = []
     for a in payload.get("alerts", []):
         if a.get("status") != "firing":
@@ -63,26 +77,109 @@ def _firing(payload):
             "namespace": lbl.get("namespace", ""),
             "severity": lbl.get("severity", ""),
             "text": text,
+            "pod": lbl.get("pod", ""),
+            "node": lbl.get("node", ""),
         })
     return out
+
+
+def _prom(query):
+    """Prometheus instant query -> list of (labels, value_str). [] on any failure."""
+    if not PROM_URL:
+        return []
+    try:
+        url = PROM_URL.rstrip("/") + "/api/v1/query?" + urllib.parse.urlencode({"query": query})
+        with urllib.request.urlopen(url, timeout=PREGATHER_TIMEOUT) as r:
+            d = json.loads(r.read().decode())
+        if d.get("status") != "success":
+            return []
+        return [(x.get("metric", {}) or {}, (x.get("value") or [None, ""])[1])
+                for x in (d.get("data", {}) or {}).get("result", [])]
+    except Exception as e:  # noqa: BLE001
+        log("prom query failed (%s): %r" % (query[:60], e))
+        return []
+
+
+def _first(rows):
+    return rows[0][1] if rows else None
+
+
+def _pregather(alerts):
+    """Deterministic Prometheus evidence for pod-scoped alerts: restarts, the pod's node,
+    and that node's temp/load/cpu. Returns a compact text block, or '' (best-effort)."""
+    if not PROM_URL:
+        return ""
+    lines = []
+    nodes = []          # ordered, deduped full nodenames
+    seen_pods = set()
+    for a in alerts[:MAX_ALERTS]:
+        ns, pod = a.get("namespace"), a.get("pod")
+        if not pod or (ns, pod) in seen_pods:
+            continue
+        seen_pods.add((ns, pod))
+        if len(seen_pods) > MAX_PREGATHER_PODS:
+            break
+        sel = 'namespace="%s",pod="%s"' % (ns, pod)
+        restarts = _first(_prom('max(kube_pod_container_status_restarts_total{%s})' % sel))
+        info = _prom('kube_pod_info{%s}' % sel)
+        node = (info[0][0].get("node") if info else "") or a.get("node") or ""
+        seg = "  %s/%s:" % (ns, pod)
+        if restarts is not None:
+            seg += " restarts=%s" % str(restarts).split(".")[0]
+        if node:
+            seg += " node=%s" % node.split(".")[0]
+            if node not in nodes:
+                nodes.append(node)
+        lines.append(seg)
+
+    for node in nodes[:MAX_PREGATHER_NODES]:
+        inst = '%s.*' % node  # node-exporter instance is "<node>:9100"
+        temp = _first(_prom('max(node_hwmon_temp_celsius{instance=~"%s"})' % inst))
+        load = _first(_prom('max(node_load1{instance=~"%s"})' % inst))
+        cpu = _first(_prom('1 - avg(rate(node_cpu_seconds_total{instance=~"%s",mode="idle"}[5m]))' % inst))
+        parts = []
+        try:
+            if temp is not None:
+                parts.append("temp=%d°C" % round(float(temp)))
+            if load is not None:
+                parts.append("load1=%.1f" % float(load))
+            if cpu is not None:
+                parts.append("cpu=%d%%" % round(float(cpu) * 100))
+        except (TypeError, ValueError):
+            pass
+        if parts:
+            lines.append("  node %s: %s" % (node.split(".")[0], ", ".join(parts)))
+
+    if not lines:
+        return ""
+    return (
+        "\n\nPre-gathered evidence (Prometheus, live):\n" + "\n".join(lines) +
+        "\n(A node at temp>=90°C or load1 far above its core count means the NODE may "
+        "be the cause, not the pod. If a pod is unhealthy, pull its failing container's "
+        "logs via Loki to confirm before concluding.)"
+    )
 
 
 def _agent_prompt(alerts):
     lines = []
     for a in alerts[:MAX_ALERTS]:
         loc = (" ns=%s" % a["namespace"]) if a["namespace"] else ""
+        pod = (" pod=%s" % a["pod"]) if a["pod"] else ""
         sev = (" [%s]" % a["severity"]) if a["severity"] else ""
-        lines.append("- %s%s%s: %s" % (a["alertname"], sev, loc, a["text"][:200]))
+        lines.append("- %s%s%s%s: %s" % (a["alertname"], sev, loc, pod, a["text"][:200]))
     listing = "\n".join(lines)
+    evidence = _pregather(alerts)
     return (
         "An AlertManager group just fired. Triage it with your read-only tools. For each "
         "alert: real signal or transient noise, the likely cause, and the single next step "
-        "you would propose. If one alert is squarely another domain's expertise "
+        "you would propose. Live evidence is pre-gathered below where available — use it; "
+        "it already answers 'is the node healthy' for the affected pods, so don't re-query "
+        "that. If one alert is squarely another domain's expertise "
         "(storage / network / ml / smart-home), you MAY delegate ONE focused deep-dive to "
         "that specialist and fold their finding in. This is a one-way enrichment note that "
         "rides alongside the page AlertManager already sent — nobody can reply, so never ask "
         "a question. If it's all benign/known noise, say so briefly. Keep the whole reply "
-        "under 900 characters, plain text, no markdown.\n\nFiring alerts:\n" + listing
+        "under 900 characters, plain text, no markdown.\n\nFiring alerts:\n" + listing + evidence
     )
 
 
@@ -187,8 +284,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    log("starting on :8080 -> %s (timeout %ds, max_inflight %d)" % (
-        AGENT_URL, AGENT_TIMEOUT, MAX_INFLIGHT))
+    log("starting on :8080 -> %s (timeout %ds, max_inflight %d, pregather=%s)" % (
+        AGENT_URL, AGENT_TIMEOUT, MAX_INFLIGHT, "on" if PROM_URL else "off"))
     try:
         ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
     except KeyboardInterrupt:

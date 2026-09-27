@@ -1,0 +1,30 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+# Egress for the feature-advisor claude-CLI CronJob (ai ns). Additive — the ai
+# namespace default-deny enforces both directions; this punches the hole. DNS
+# egress is provided cluster-wide by the baseline network-policy component.
+#
+# Only external HTTPS is needed: api.anthropic.com (Max subscription), the npm
+# registry (one-time CLI install), github.com (clone / release notes / open PR),
+# and release-note/changelog web pages. toEntities:[world]:443 is the cluster's
+# reliable external-egress pattern (Cilium toFQDNs.matchPattern is limited here;
+# same rule hermes' claude escalation + network-drift use). It uses no in-cluster
+# MCP backend — release notes come via `gh`/`curl`/WebFetch, and PRs via the
+# GitHub API.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: feature-advisor-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: feature-advisor
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    - toEntities: [world]
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

@@ -6,12 +6,12 @@
 # AGENTS.md + .agents/instructions/ are the source of truth for conventions and
 # are read at runtime via github-mcp, never duplicated here.
 #
-# Read-only (Green tier): repo read/search (github-mcp), live-cluster read
-# (kagent-tool-server), curated memory (memory-mcp). It PROPOSES PR-ready changes;
-# it has NO write tools and never opens a PR itself. Actually opening PRs is a
-# deferred Yellow-tier step (needs github-mcp reconfigured with write + a scoped
-# token + a write CNP + Rob's sign-off). Same propose-don't-execute shape as the
-# observability-operator doer.
+# Read-mostly (Green + a guardrailed Yellow step): repo read/search (github-mcp),
+# live-cluster read (kagent-tool-server), curated memory (memory-mcp). It PROPOSES
+# PR-ready changes, and for a single-file, confidently-correct fix it may open a
+# PR via the `propose_pr` tool (pr-mcp) — the agent authors the content; pr-mcp
+# holds the scoped token, validates, and opens the PR; it can NEVER merge (Rob
+# reviews every PR). It holds no write credential of its own.
 apiVersion: kagent.dev/v1alpha2
 kind: Agent
 metadata:
@@ -169,8 +169,8 @@ spec:
           name: github-mcp
           # Read-only: read repo manifests/docs, search the tree, read existing
           # PRs/issues (avoid proposing a dup), and read upstream releases/tags
-          # for upgrade detection. All read/search — no write tools exist here,
-          # so it cannot open a PR (that is the deferred Yellow-tier step).
+          # for upgrade detection. All read/search — github-mcp has no write
+          # tools; PRs are opened via the separate `propose_pr` tool (pr-mcp).
           toolNames:
             - get_file_contents
             - search_code
@@ -250,6 +250,25 @@ spec:
       human reviews and merges. (Triage is the same shape: you may *propose* an
       immediate live action — "a human should cordon the node and delete the pod" —
       but you never run it, and the durable fix you pair it with is a Git change.)
+
+      ## Opening a PR (propose_pr) — your Yellow-tier capability
+      For a concrete, confidently-correct fix that is a SINGLE .yaml/.yml file
+      change under kubernetes/apps/, you MAY open a PR directly with the
+      `propose_pr` tool: you author the file's COMPLETE new content and pass it
+      (with a title + one-line rationale); the pr-mcp service validates it, commits
+      it to a fresh branch, and opens the PR. You can NEVER merge — the default
+      branch is protected and Rob reviews every PR, so a PR is just a Git-change
+      proposal (it does NOT bypass GitOps). A wrong PR costs only a decline.
+      - Use it only when the fix is unambiguous and reducible to ONE file. If it
+        spans multiple files, or you are not sure it is correct/safe, do NOT open a
+        PR — hand back a paste-ready proposal / email a finding via notify_rob.
+      - NEVER open a PR that adds `readOnlyRootFilesystem`, `runAsNonRoot`,
+        `runAsUser`, or capability-drops unless you can prove from the image/chart
+        it is runtime-safe — manifests and release notes do NOT reveal what an app
+        writes or which port it binds, and this class of change crashlooped pgadmin
+        (app-dir writes + privileged port 80). When in doubt, propose, don't PR.
+      - home-ops is PUBLIC: never put secrets, restricted app names, media file
+        names, or internal IP/MAC/hostnames in the file, title, or body.
 
       ## Never block on human input (you run unattended)
       You are invoked over A2A and on schedules with NO human in the loop. NEVER

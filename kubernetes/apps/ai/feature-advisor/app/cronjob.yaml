@@ -1,0 +1,143 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/cronjob-batch-v1.json
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: feature-advisor
+  labels:
+    app.kubernetes.io/name: feature-advisor
+spec:
+  # Weekly upstream feature-adoption advisor on the CLAUDE tier (Max subscription
+  # via the headless `claude` CLI — never an Anthropic API key). It git-logs the
+  # Renovate image/chart bumps from the last ~8 days, reads each new version's
+  # release notes, compares them against our current home-ops config, and OPENS A
+  # PR per worthwhile new feature we should adopt. Claude authors the diff (a 7B
+  # local model can't do this reasoning — see the network-drift precedent) but
+  # holds only a scoped Contents+PR-write token (NO merge); main is branch-
+  # protected, so every PR is Rob-reviewed. home-ops is a PUBLIC repo — the prompt
+  # carries a hard data-classification rule (no secrets / restricted app names /
+  # media names / internal IPs).
+  #
+  # Reuses existing ai-ns secrets (no new provisioning): network-drift-secret
+  # (CLAUDE_CODE_OAUTH_TOKEN, the Max sub) + kagent-doer-secret (GITHUB_PR_TOKEN,
+  # already scoped to rwlove/home-ops Contents+PR write, no merge — same token the
+  # doers use).
+  #
+  # Shipped SUSPENDED: manual-test one run, confirm the PR(s) are sane + leak-free,
+  # then drop `suspend: true`.
+  suspend: true
+  schedule: "0 9 * * 1"
+  timeZone: America/New_York
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      # npm install + shallow clone + a multi-upgrade research/author/PR pass.
+      activeDeadlineSeconds: 2700
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: feature-advisor
+          annotations:
+            k8tz.io/inject: "false"
+        spec:
+          # amd64 image; the ai ns also has arm64 Spark nodes — pin so the pod
+          # can't land on Spark and hit an exec-format error.
+          nodeSelector:
+            kubernetes.io/arch: amd64
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          containers:
+            - name: advisor
+              # node:22 FULL (buildpack-deps: has git + curl; glibc for the claude
+              # CLI's prebuilt binaries). -slim would lack git.
+              image: docker.io/library/node:22@sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -ceu
+                # Flux postBuild runs envsubst in STRICT mode over this manifest
+                # (AND over the ConfigMap data): every shell `$` is doubled (`$$`)
+                # so the rendered manifest carries a literal `$` for /bin/sh. The
+                # /config prompt files deliberately contain NO `$VAR` for the same
+                # reason.
+                - |
+                  cd /tmp
+                  export HOME=/tmp
+                  export XDG_CONFIG_HOME=/tmp/.config
+                  export npm_config_cache=/tmp/.npm
+                  export npm_config_prefix=/tmp/.npm-global
+                  export PATH="/tmp/.npm-global/bin:$${PATH}"
+                  export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+                  export GH_TOKEN="$${GITHUB_PR_TOKEN}"
+
+                  echo "----- installing claude CLI -----"
+                  npm install -g @anthropic-ai/claude-code >/tmp/npm.log 2>&1 || {
+                    echo "FATAL: claude CLI install failed"; tail -30 /tmp/npm.log; exit 1;
+                  }
+                  claude --version || { echo "FATAL: claude CLI not runnable"; exit 1; }
+
+                  echo "----- cloning home-ops (shallow, ~10d history) -----"
+                  git clone --shallow-since="10 days ago" \
+                    "https://x-access-token:$${GITHUB_PR_TOKEN}@github.com/rwlove/home-ops" \
+                    /tmp/home-ops 2>/tmp/clone.log || {
+                    echo "FATAL: clone failed"; tail -5 /tmp/clone.log; exit 1;
+                  }
+                  cd /tmp/home-ops
+                  git config user.name "kagent-feature-advisor"
+                  git config user.email "kagent-feature-advisor@users.noreply.github.com"
+
+                  echo "----- feature advisor run (claude tier) -----"
+                  # Headless. Explicit read/edit/git allowlist — never
+                  # --dangerously-skip-permissions. Claude authors the diff and
+                  # opens PRs with the scoped token; it cannot merge.
+                  claude -p "$$(cat /config/prompt.txt)" \
+                    --allowedTools "$$(cat /config/allowed-tools.txt)" \
+                    --max-turns 80 \
+                    --output-format text
+                  echo "----- advisor complete -----"
+              env:
+                - name: TZ
+                  value: America/New_York
+              envFrom:
+                # CLAUDE_CODE_OAUTH_TOKEN — Max subscription (never an API key).
+                - secretRef:
+                    name: network-drift-secret
+                # GITHUB_PR_TOKEN — scoped Contents+PR write on rwlove/home-ops,
+                # no merge (the doers' token; reused).
+                - secretRef:
+                    name: kagent-doer-secret
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 512Mi
+                limits:
+                  memory: 2Gi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+                - name: config
+                  mountPath: /config
+                  readOnly: true
+          volumes:
+            - name: tmp
+              emptyDir:
+                medium: Memory
+                sizeLimit: 1Gi
+            - name: config
+              configMap:
+                name: feature-advisor-config

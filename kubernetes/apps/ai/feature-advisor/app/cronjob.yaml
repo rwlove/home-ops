@@ -52,6 +52,11 @@ spec:
             kubernetes.io/arch: amd64
           automountServiceAccountToken: false
           restartPolicy: Never
+          # fsGroup so the non-root (1000) container can write the marker to the
+          # ceph-block state PVC. OnRootMismatch skips a needless recursive chown.
+          securityContext:
+            fsGroup: 1000
+            fsGroupChangePolicy: OnRootMismatch
           containers:
             - name: advisor
               # node:22 FULL (buildpack-deps: has git + curl; glibc for the claude
@@ -82,8 +87,8 @@ spec:
                   }
                   claude --version || { echo "FATAL: claude CLI not runnable"; exit 1; }
 
-                  echo "----- cloning home-ops (shallow, ~10d history) -----"
-                  git clone --shallow-since="10 days ago" \
+                  echo "----- cloning home-ops (shallow, ~45d history) -----"
+                  git clone --shallow-since="45 days ago" \
                     "https://x-access-token:$${GITHUB_PR_TOKEN}@github.com/rwlove/home-ops" \
                     /tmp/home-ops 2>/tmp/clone.log || {
                     echo "FATAL: clone failed"; tail -5 /tmp/clone.log; exit 1;
@@ -92,15 +97,35 @@ spec:
                   git config user.name "kagent-feature-advisor"
                   git config user.email "kagent-feature-advisor@users.noreply.github.com"
 
+                  # "Since last check-in": /state/last-sha holds the HEAD of the last
+                  # SUCCESSFUL run. Review exactly the commits since then; on the
+                  # first run (or if the marker predates the ~45d shallow window and
+                  # so isn't in the clone) fall back to an 8-day window.
+                  LAST="$$(cat /state/last-sha 2>/dev/null || true)"
+                  if [ -n "$$LAST" ] && git cat-file -e "$${LAST}^{commit}" 2>/dev/null; then
+                    RANGE_HINT="For step 1, review ONLY the dependency bumps in the git range $${LAST}..HEAD (run: git log $${LAST}..HEAD --no-merges) — the commits since your last check-in."
+                    echo "since-marker: $${LAST} (range $${LAST}..HEAD)"
+                  else
+                    RANGE_HINT="For step 1, no prior check-in marker is available — review the dependency bumps from: git log --since=\"8 days ago\"."
+                    echo "since-marker: none (first run / marker outside shallow window) — using 8-day window"
+                  fi
+
                   echo "----- feature advisor run (claude tier) -----"
                   # Headless. Explicit read/edit/git allowlist — never
                   # --dangerously-skip-permissions. Claude authors the diff and
                   # opens PRs with the scoped token; it cannot merge.
-                  claude -p "$$(cat /config/prompt.txt)" \
+                  claude -p "$$(cat /config/prompt.txt)
+
+                  $${RANGE_HINT}" \
                     --allowedTools "$$(cat /config/allowed-tools.txt)" \
                     --max-turns 80 \
                     --output-format text
-                  echo "----- advisor complete -----"
+
+                  # Reached only if claude exited 0 (set -e) — advance the marker so
+                  # the next run starts where this one ended. A failed run leaves the
+                  # marker unchanged and re-reviews the same range next time.
+                  git rev-parse HEAD > /state/last-sha
+                  echo "----- advisor complete (marker -> $$(git rev-parse --short HEAD)) -----"
               env:
                 - name: TZ
                   value: America/New_York
@@ -135,6 +160,8 @@ spec:
                 - name: config
                   mountPath: /config
                   readOnly: true
+                - name: state
+                  mountPath: /state
           volumes:
             - name: tmp
               emptyDir:
@@ -143,3 +170,6 @@ spec:
             - name: config
               configMap:
                 name: feature-advisor-config
+            - name: state
+              persistentVolumeClaim:
+                claimName: feature-advisor-state

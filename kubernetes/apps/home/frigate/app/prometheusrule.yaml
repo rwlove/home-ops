@@ -114,3 +114,23 @@ spec:
           for: 1m
           labels:
             severity: warning
+    - name: frigate.leak-monitor
+      rules:
+        # Standing signal for the Frigate 0.18.0 recording/ffmpeg memory leak
+        # (#12327). Recording rule (not an alert — no page, no flap risk):
+        # linear-regression slope of the frigate working-set over a trailing
+        # 14d window, expressed in GiB/day. On 0.18.0 the leak persists but is
+        # ~25-30x slower than the historical worst rate and decelerating; the
+        # weekly restart CronJob (app/restart-cronjob.yaml) still masks it.
+        #
+        # Retirement criterion for that CronJob workaround: retire only once
+        # this metric stays <= ~0.3 GiB/day (noise-floor-ish) for a full
+        # uninterrupted 14d window WITH the restart CronJob suspended — a
+        # deliberate, scheduled test, not an accidental one.
+        - record: frigate:memory_working_set:trend_gib_per_day
+          expr: |
+            deriv(
+              max by (namespace, pod) (
+                container_memory_working_set_bytes{namespace="home",pod=~"frigate-.*",container="app"}
+              )[14d:10m]
+            ) * 86400 / (1024 * 1024 * 1024)

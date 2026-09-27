@@ -1,0 +1,26 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+# Egress for pr-mcp. Additive — the mcp-system default-deny enforces both
+# directions; this punches the one hole pr-mcp needs: api.github.com (open the PR
+# via the REST API). toEntities:[world]:443 is the cluster's reliable external-
+# egress pattern. DNS egress comes from the baseline network-policy component.
+#
+# The matching INGRESS (kagent agents → pr-mcp :8090) is granted by the shared
+# mcp-system `kagent-mcp-read-allow` CNP (pr-mcp added to its selector + ports).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: pr-mcp-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: pr-mcp
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    - toEntities: [world]
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

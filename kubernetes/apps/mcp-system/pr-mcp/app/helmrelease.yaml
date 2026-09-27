@@ -1,0 +1,72 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: pr-mcp
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  values:
+    defaultPodOptions:
+      securityContext:
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+    controllers:
+      pr-mcp:
+        # STATELESS (server runs stateless_http=True) so replicas are safe — this
+        # deliberately avoids notify-mcp's per-pod in-memory-session trap. Start at
+        # 1; can scale to 2+ for HA without the session-split risk.
+        replicas: 1
+        annotations:
+          reloader.stakater.com/auto: "true"
+        pod:
+          annotations:
+            sidecar.istio.io/inject: "true"
+        containers:
+          app:
+            image:
+              repository: ghcr.io/rwlove/pr-mcp
+              tag: v0.1.0@sha256:7af595b03abdeccb3a12b78a6ec0e3c493b984e9f61b911536daa14cabc66abc
+            env:
+              PORT: "8090"
+              HOST: "0.0.0.0"
+              REPO: rwlove/home-ops
+              BASE_BRANCH: main
+            envFrom:
+              # GITHUB_PR_TOKEN — the doers' scoped Contents+PullRequests-write
+              # token (rwlove/home-ops only, NO merge). The agent never sees it;
+              # only this service holds it.
+              - secretRef:
+                  name: pr-mcp-secret
+            resources:
+              requests:
+                cpu: 10m
+                memory: 64Mi
+              limits:
+                memory: 256Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+              readOnlyRootFilesystem: true
+              seccompProfile:
+                type: RuntimeDefault
+    persistence:
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          pr-mcp:
+            app:
+              - path: /tmp
+                subPath: tmp
+    service:
+      app:
+        controller: pr-mcp
+        ports:
+          http:
+            port: 8090

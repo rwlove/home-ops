@@ -22,12 +22,28 @@ spec:
         runAsGroup: 1000
         runAsNonRoot: true
         runAsUser: 1000
+      # HA: keep the two replicas on separate nodes so a single node
+      # loss (or a stale-endpoint pod) can't take down all extAuth at
+      # once — see the 2026-09-27 outage.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: *app
     controllers:
       authelia:
         annotations:
           reloader.stakater.com/auto: "true"
         labels:
           postgres: "true"
+        # Two replicas with topology spread expresses HA intent, but
+        # without a PDB a node drain can take both at once.
+        podDisruptionBudget:
+          minAvailable: 1
+        replicas: 2
+        strategy: RollingUpdate
         type: deployment
         initContainers:
           init-db:

@@ -103,10 +103,7 @@ spec:
               # Qwen3.6's hybrid Gated-DeltaNet (Mamba) layers profiled to only
               # 1.44x KV concurrency + 95 Mamba cache blocks at 128k — under the
               # default max_num_seqs (256), so CUDA graph capture failed to init.
-              # 131072. Native max is 262144, and the KV cache already
-              # allocated at gpu-memory-utilization 0.36 holds 505,563 tokens
-              # (vLLM startup log), so this costs no additional memory — 65536
-              # was leaving 4x on the table.
+              # Native max is 262144; 131072 already leaves ample KV.
               #
               # Sized from measurement, not guesswork. opencode's in-cluster
               # baseline is 39,821 tokens with the read-only kubectl MCP set
@@ -115,20 +112,61 @@ spec:
               # ~57k, omada ~53k. At 131072 the ml-, storage- and
               # observability-operator personas fit whole (~98-102k each).
               #
-              # Cost is prefill latency: ~5,070 tok/s measured, so a full
-              # context is ~26s to first token (vs ~13s at 65536). Concurrency
-              # drops 7.71x -> 3.86x, still ample for a ~1-3 concurrent fleet.
-              # max-num-seqs stays 32, under the Mamba cache-block limit of 95
-              # at this length.
+              # LIVE ENGINE NUMBERS (re-measured 2026-09-29 from
+              # vllm:cache_config_info, NVFP4 build v0.30.0-gb10.2 — the earlier
+              # "505,563 tokens / 3.86x concurrency" figures were FP8-era and are
+              # now stale): num_gpu_blocks=889, block_size=mamba_block_size=2096
+              # (attention pages padded UP to the mamba page size — unified V1
+              # allocator), kv_cache_size_tokens=1,688,739, kv_cache_max_concurrency
+              # =12.88 at 131072.
               #
-              # 262144 would additionally fit network- and smart-home-operator
-              # but doubles prefill to ~52s. Not worth it until a persona
-              # actually needs omada_*/ha_* in-cluster.
+              # HOLD on 262144 (2026-09-29) — flagged for Rob, NOT auto-bumped.
+              # The physics: Mamba/Gated-DeltaNet state is a FIXED ~2.57 MiB per
+              # sequence, INDEPENDENT of context length (PyTorch "Hybrid models as
+              # first-class citizens in vLLM"). The unified pool (num_gpu_blocks,
+              # and thus the mamba cache-block count) is MEMORY-bound — set by
+              # gpu-memory-utilization 0.36, NOT by max-model-len — so raising the
+              # length does NOT shrink the mamba block pool; it halves *attention*
+              # concurrency (12.88 -> ~6.4). By that reasoning max-num-seqs 32 stays
+              # well under the ~95 mamba-block cap at 262144, and CUDA-graph capture
+              # (the assert num_cache_lines >= batch in causal_conv1d_update fixed by
+              # vllm-project/vllm#34571) would still pass.
+              #
+              # WHY IT IS STILL A HOLD, NOT AN EXECUTE: (1) the mamba-block count at
+              # 262144 cannot be LIVE-measured from here — the pod runs at 131072,
+              # the mamba gauge is not exported, the Spark's startup log is not in
+              # Loki, and the init lines have rotated out of the pod buffer; the
+              # "95 stays 95" conclusion is DERIVED, not observed. (2) this is a
+              # third-party dev build (the tag lies about the engine version), so it
+              # cannot be confirmed to carry #34571's mamba-cudagraph-cap safety net.
+              # If the derivation is wrong AND the safety cap is absent, the failure
+              # mode is CUDA-graph capture failing at startup -> the pod never
+              # becomes Ready -> cluster-wide inference outage (lightrag, hermes,
+              # opencode, paperless AI, every kagent agent). Prime directive: an
+              # inference-path change that cannot be PROVEN safe is propose-only.
+              # The overflow bug is fixed by the persona tool-footprint trims in this
+              # same PR; 262144 is not needed for the fix, only for extra headroom,
+              # so the risk is not worth taking unattended.
+              #
+              # TO BUMP SAFELY (Rob, on-box, low-traffic window): set 262144, restart
+              # vllm-driver-spark, and watch startup for the causal_conv1d_update
+              # assertion / a mamba-cache-block CUDA-graph failure. If it captures
+              # graphs and reaches Ready, it is good (prefill ~doubles to ~52s to
+              # first token; concurrency ~6.4, still ample for the ~1-3 fleet). If it
+              # fails, either revert to 131072 or lower --max-num-seqs to fit the
+              # observed mamba-block count. Do NOT bump max-model-len and max-num-seqs
+              # together.
               - --max-model-len
               - "131072"
-              # Cap concurrent sequences well under the Mamba cache-block limit
-              # (95 at 128k, more at 65k). 32 is ample for this low-traffic
-              # fleet (~1-3 concurrent) and lets CUDA graph capture proceed.
+              # Cap concurrent sequences under the Mamba cache-block count (~95;
+              # it is MEMORY-bound via gpu-memory-utilization, NOT context-bound —
+              # see the max-model-len note above, which corrects the earlier
+              # "more at 65k" framing). 32 is ample for this low-traffic fleet
+              # (~1-3 concurrent) and lets FULL-decode CUDA-graph capture proceed
+              # (max-num-seqs must stay <= available mamba blocks, else the
+              # causal_conv1d_update assert fires — vllm#34571). If max-model-len is
+              # ever raised to 262144, re-confirm this still holds on-box before
+              # accepting the change.
               - --max-num-seqs
               - "32"
               # Explicit cap. TUNED FROM LIVE MEASUREMENT (2026-07-23):

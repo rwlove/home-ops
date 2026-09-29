@@ -19,6 +19,13 @@ model_list:
     litellm_params:
       model: ollama_chat/qwen2.5:7b
       api_base: http://ollama.ai.svc.cluster.local:11434
+      # The 7B's real context window. Ollama does NOT enforce this — given an
+      # oversized prompt it silently truncates to num_ctx and returns garbage.
+      # Declaring it here lets LiteLLM's pre-call check (enable_pre_call_checks
+      # below) REJECT an over-window prompt with ContextWindowExceededError
+      # instead of forwarding it to be silently truncated. See the fix note in
+      # router_settings.fallbacks.
+      max_input_tokens: 32768
   - model_name: fast
     litellm_params:
       model: ollama_chat/qwen2.5:7b
@@ -32,8 +39,31 @@ model_list:
 router_settings:
   num_retries: 2
   timeout: 600
+  # Preflight token counting so an over-window prompt is caught BEFORE it is sent
+  # to a backend. Required for max_input_tokens (on strong-fallback) to be
+  # enforced; without it LiteLLM forwards regardless of input size and Ollama
+  # silently truncates. (Verified: LiteLLM's generic `fallbacks` chain has no
+  # context-window awareness on its own — it blindly re-sends the same oversized
+  # prompt to the smaller fallback. BerriAI/litellm#31557.)
+  enable_pre_call_checks: true
   # Strict primary -> fallback (not load-balancing): `strong` always tries the Spark
   # 35B first and only uses Ollama if it errors; `fast` is the inverse.
+  #
+  # FAIL-CLEAN ON OVERFLOW (2026-09-29): `strong-fallback` (qwen2.5:7b, 32k window)
+  # cannot hold an over-131k prompt any more than the 35B can. Before this change,
+  # when a heavy operator persona overflowed the 35B's 131072-token window, the
+  # `strong` chain fell back to the 7B, which SILENTLY TRUNCATED to num_ctx and
+  # returned garbage — the agent then looped/emitted malformed output and was
+  # SIGKILLed at the cron's 600s deadline (KubeJobFailed, no useful logs). With
+  # `enable_pre_call_checks` + the 7B's `max_input_tokens: 32768`, an over-window
+  # prompt now raises ContextWindowExceededError at the fallback instead of being
+  # truncated: the run fails with a diagnosable error, not silent garbage. The
+  # fallback is DELIBERATELY KEPT in the chain — for a genuine Spark/vLLM outage
+  # with a normal-sized (sub-32k) request it still serves degraded on the 7B,
+  # which is the whole point of the failover. The real fix for the overflow is
+  # trimming the persona tool footprint (see the kagent agent-*.yaml trims in the
+  # same PR); this change just makes the failure mode honest if a persona ever
+  # overflows again.
   fallbacks: [{"strong": ["strong-fallback"]}, {"fast": ["fast-fallback"]}]
 
 litellm_settings:

@@ -154,10 +154,12 @@ spec:
           # how we read a crashlooping container's last log lines. Same MCP the
           # observability-operator already binds in this namespace — no new
           # network path. Query subset ONLY, no write tools (Green tier).
+          # TRIMMED 2026-09-29 (context-overflow fix): dropped query_loki_stats
+          # (hygiene reads crash logs via query_loki_logs, never needs log-volume
+          # stats). Small saving, part of pulling this persona under 131072 tokens.
           toolNames:
             - query_prometheus
             - query_loki_logs
-            - query_loki_stats
             - list_prometheus_metric_names
             - list_prometheus_metric_metadata
             - list_prometheus_label_names
@@ -168,22 +170,24 @@ spec:
           kind: RemoteMCPServer
           name: github-mcp
           # Read-only: read repo manifests/docs, search the tree, read existing
-          # PRs/issues (avoid proposing a dup), and read upstream releases/tags
-          # for upgrade detection. All read/search — github-mcp has no write
-          # tools; PRs are opened via the separate `propose_pr` tool (pr-mcp).
+          # PRs (avoid proposing a dup), and read upstream releases for upgrade
+          # detection. All read/search — github-mcp has no write tools; PRs are
+          # opened via the separate `propose_pr` tool (pr-mcp).
+          # TRIMMED 2026-09-29 (context-overflow fix): 12 → 7. Repo-hygiene NEEDS
+          # get_file_contents + search_code (reads AGENTS.md/.agents/, diffs docs
+          # vs manifests), so those stay. Dropped the peripheral, heavy-schema
+          # tools: search_commits, pull_request_read, list_issues, search_issues,
+          # list_tags — hygiene lists recent PRs to dedup and reads latest releases
+          # for upgrade detection, but did not need issue-search or PR-body reads.
+          # The persona was overflowing the strong model's 131072-token window.
           toolNames:
             - get_file_contents
             - search_code
             - list_commits
             - get_commit
-            - search_commits
             - list_pull_requests
-            - pull_request_read
             - search_pull_requests
-            - list_issues
-            - search_issues
             - get_latest_release
-            - list_tags
       - type: McpServer
         mcpServer:
           apiGroup: kagent.dev

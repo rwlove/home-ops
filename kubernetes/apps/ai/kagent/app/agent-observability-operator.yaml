@@ -52,21 +52,22 @@ spec:
           kind: RemoteMCPServer
           name: kagent-grafana-mcp
           # Read-only subset ONLY — no update_dashboard / create / delete (Green tier).
+          # TRIMMED 2026-09-29 (context-overflow fix): dropped query_loki_stats,
+          # list_loki_label_names/_values, list_contact_points, list_incidents,
+          # search_dashboards — the 6h triage prompt queries metrics/logs and lists
+          # alert rules; it never enumerated loki labels, contact points, incidents,
+          # or dashboards. Each bound tool schema is prompt tokens; the persona was
+          # overflowing the strong model's 131072-token window and silently falling
+          # back to the truncating 7B. Restore individually if a use case needs one.
           toolNames:
             - query_prometheus
             - query_loki_logs
-            - query_loki_stats
             - list_prometheus_metric_names
             - list_prometheus_metric_metadata
             - list_prometheus_label_names
             - list_prometheus_label_values
-            - list_loki_label_names
-            - list_loki_label_values
             - list_datasources
             - list_alert_rules
-            - list_contact_points
-            - list_incidents
-            - search_dashboards
       - type: McpServer
         mcpServer:
           apiGroup: kagent.dev
@@ -87,19 +88,18 @@ spec:
           name: github-mcp
           # Read-only: correlate a firing alert to recent commits / PRs / releases
           # ("what changed?"). All read/search — no write tools exist here.
+          # TRIMMED 2026-09-29 (context-overflow fix): 12 → 3. The "what changed?"
+          # correlation needs only recent-commit + recent-PR listing; the dropped
+          # tools (get_file_contents, search_code, search_commits, pull_request_read,
+          # list/search_issues, get_latest_release, list_tags) carry the fattest
+          # schemas in this MCP (file-content ranges, code-search filters, PR-body
+          # payloads) and pushed the persona over the 131072-token window. The doer
+          # pipeline — not the agent — performs the git write for a `for:`-clause
+          # PR, so the agent never needed the file/PR-read surface.
           toolNames:
-            - get_commit
             - list_commits
-            - search_commits
-            - get_file_contents
-            - list_pull_requests
-            - pull_request_read
+            - get_commit
             - search_pull_requests
-            - list_issues
-            - search_issues
-            - get_latest_release
-            - list_tags
-            - search_code
       # A2A delegation (kagent `type: Agent` tools) — observability is the alert
       # hub, so it can consult a domain specialist for a focused deep-dive on an
       # alert outside its own expertise. ONE-DIRECTIONAL by design: these four

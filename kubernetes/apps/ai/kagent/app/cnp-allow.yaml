@@ -175,3 +175,46 @@ spec:
         - ports:
             - port: "3000"
               protocol: TCP
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: kagent-controller-mcp-discovery-allow
+spec:
+  # The kagent CONTROLLER (not an agent pod) reconciles every RemoteMCPServer CR
+  # itself, independent of any agent invocation — it dials each MCP's :8090/:8060
+  # directly to discover/refresh the tool list at controller startup and on every
+  # spec change. The controller carries `instance=kagent, component=controller`,
+  # NOT `part-of=kagent` (see kagent-agents-allow above), so neither that CNP's
+  # egress side nor mcp-system's kagent-mcp-read-allow ingress side admits it.
+  # Confirmed live 2026-09-29: pr-mcp and notify-mcp reconcile 100% failed
+  # ("context deadline exceeded") for the controller's whole observed lifetime,
+  # retrying every ~65s forever — grafana-mcp/github-mcp/memory-mcp are unaffected
+  # because they're each covered by an existing CNP that doesn't depend on
+  # part-of=kagent. mcp-system ingress half is in
+  # mcp-system/mcp-gateway/app/cnp-kagent-read-allow.yaml (kagent-mcp-read-allow).
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/instance: kagent
+      app.kubernetes.io/component: controller
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+            app.kubernetes.io/name: notify-mcp
+      toPorts:
+        - ports:
+            - port: "8060"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+            app.kubernetes.io/name: pr-mcp
+      toPorts:
+        - ports:
+            - port: "8090"
+              protocol: TCP

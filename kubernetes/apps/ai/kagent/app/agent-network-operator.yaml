@@ -82,27 +82,29 @@ spec:
           # Read-only health subset of the Omada SDN controller. omada-mcp is
           # entirely get*/list*/search* (no mutators), but bind a focused set —
           # AP/client/gateway/WAN/threat/alert health — not all ~280 tools.
+          # TRIMMED 2026-09-29 (context-overflow fix): 20 → 12. The 6h triage
+          # prompt covers AP/gateway/WAN health, flapping/rogue APs, WAN
+          # degradation, active threats, and recent site alerts — all retained.
+          # Dropped the deep RF/mesh diagnostic tools the scheduled triage never
+          # calls (getMeshStatistics, getInterference, getRFScanResult, getWids,
+          # getClientsDistribution, listMostActiveClients) plus getFirmwareInfo /
+          # getInternetInfo (covered by getGatewayWanStatus/getWanHealthDetail).
+          # network-operator was the heaviest persona and overflowed the strong
+          # model's 131072-token window; restore an RF tool individually if an
+          # interactive deep-dive needs it.
           toolNames:
             - listSites
             - getGlobalDashboardOverview
             - getDashboardOverview
             - listDevices
             - listDevicesStats
-            - getFirmwareInfo
             - getGatewayWanStatus
             - getWanHealthDetail
-            - getInternetInfo
             - listClients
-            - listMostActiveClients
-            - getClientsDistribution
             - getThreatList
             - getRogueAps
-            - getWids
             - listSiteAlerts
             - listSiteEvents
-            - getMeshStatistics
-            - getInterference
-            - getRFScanResult
       - type: McpServer
         mcpServer:
           apiGroup: kagent.dev
@@ -125,14 +127,15 @@ spec:
           # All read/search — no write tools exist here, so a repo change stays a
           # PROPOSAL a human applies. (The github-mcp token must have access to that
           # private repo; if it does not, the reconciliation reports it can't read.)
+          # TRIMMED 2026-09-29 (context-overflow fix): 7 → 3. The scheduled 6h
+          # network triage does no repo reconciliation — it is an interactive-only
+          # capability — so keep just the file-read + recent-commit + PR-search core
+          # and drop search_code/get_commit/list_pull_requests/list_issues. This
+          # persona was the heaviest in the fleet and overflowed the 131072 window.
           toolNames:
             - get_file_contents
-            - search_code
             - list_commits
-            - get_commit
-            - list_pull_requests
             - search_pull_requests
-            - list_issues
       - type: McpServer
         mcpServer:
           apiGroup: kagent.dev

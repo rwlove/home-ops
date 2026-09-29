@@ -30,9 +30,16 @@ spec:
           annotations:
             description: Port {{ $labels.ifName }} on {{ $labels.target }} is logging {{ $value | humanize }} RX+TX interface errors/s. CRC/frame errors point at a bad cable, SFP/DAC, or duplex mismatch — this is the fault class behind the 2026-09-27 inter-switch packet-loss incident.
             summary: Switch port {{ $labels.target }}/{{ $labels.ifName }} is accumulating interface errors.
+          # `and on (target, ifName) ifOperStatus == 1` guards against a
+          # link-down port emitting phantom error counters (a down,
+          # never-cabled port paged on a spurious burst 2026-09-28).
           expr: |
-            rate(ifInErrors{job=~".*snmp-exporter-omada-switches.*"}[5m])
-            + rate(ifOutErrors{job=~".*snmp-exporter-omada-switches.*"}[5m]) > 1
+            (
+              rate(ifInErrors{job=~".*snmp-exporter-omada-switches.*"}[5m])
+              + rate(ifOutErrors{job=~".*snmp-exporter-omada-switches.*"}[5m]) > 1
+            )
+            and on (target, ifName)
+            ifOperStatus{job=~".*snmp-exporter-omada-switches.*"} == 1
           for: 10m
           labels:
             severity: warning
@@ -40,9 +47,16 @@ spec:
           annotations:
             description: Port {{ $labels.ifName }} on {{ $labels.target }} is discarding {{ $value | humanize }} packets/s (RX+TX). Sustained discards indicate congestion or buffer exhaustion on that link.
             summary: Switch port {{ $labels.target }}/{{ $labels.ifName }} is discarding packets.
+          # `and on (target, ifName) ifOperStatus == 1` guards against a
+          # link-down port emitting phantom discard counters (a down,
+          # never-cabled port paged on a spurious burst 2026-09-28).
           expr: |
-            rate(ifInDiscards{job=~".*snmp-exporter-omada-switches.*"}[5m])
-            + rate(ifOutDiscards{job=~".*snmp-exporter-omada-switches.*"}[5m]) > 5
+            (
+              rate(ifInDiscards{job=~".*snmp-exporter-omada-switches.*"}[5m])
+              + rate(ifOutDiscards{job=~".*snmp-exporter-omada-switches.*"}[5m]) > 5
+            )
+            and on (target, ifName)
+            ifOperStatus{job=~".*snmp-exporter-omada-switches.*"} == 1
           for: 15m
           labels:
             severity: warning

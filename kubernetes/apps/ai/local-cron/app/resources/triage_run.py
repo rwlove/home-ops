@@ -24,11 +24,27 @@ Env: AGENT_URL AGENT_NAME TITLE PROMPT
 import datetime
 import json
 import os
+import re
 import sys
 import urllib.parse
 import urllib.request
 
 import a2a_client
+
+# The urgency tag must LEAD a line, but tolerate the light markdown the CONTRACT
+# explicitly permits (**bold**, ## heading, > quote, list dash). A genuine
+# `**URGENT**` finding must NOT be dropped just because it isn't the bare literal
+# `URGENT:` — that lost a real smart-home page (2026-09-30). Line-anchored + word
+# boundary so mid-prose "...is urgent" never matches. First leading tag wins.
+_TAG_RE = re.compile(r"(?im)^[ \t>*_#`.\-]*(ALL[ \t]+CLEAR|URGENT|FYI)\b")
+
+
+def classify_tag(text):
+    m = _TAG_RE.search(text)
+    if not m:
+        return None
+    tag = re.sub(r"\s+", " ", m.group(1).upper())
+    return {"ALL CLEAR": "allclear", "URGENT": "urgent", "FYI": "fyi"}.get(tag)
 
 AGENT_URL = os.environ["AGENT_URL"]
 AGENT_NAME = os.environ.get("AGENT_NAME", "operator")
@@ -117,22 +133,22 @@ def main():
     else:
         log("----- %s (state=%s) -----" % (TITLE, state))
         log(text)
-        if "ALL CLEAR" in text:
+        # Positive gate: only output whose leading tag is recognised may reach a
+        # sink. Untagged local-model garbage / wrong-language / tool-error strings
+        # classify as None → malformed → silent, so a bad run can NEVER notify Rob.
+        tag = classify_tag(text)
+        if tag == "allclear":
             result = "allclear"
             log("ALL CLEAR — nothing sent")
-        # Positive gate: only output carrying a recognised urgency tag may reach a
-        # sink. Untagged local-model garbage / wrong-language / tool-error strings
-        # are malformed — log a snippet and exit clean so a bad run can NEVER
-        # notify Rob.
-        elif "URGENT:" in text:
+        elif tag == "urgent":
             result = "sent-urgent"
             pushover("kagent %s (URGENT) %s" % (TITLE, day), text)
-        elif "FYI:" in text:
+        elif tag == "fyi":
             result = "sent-fyi"
             notify_email("%s — %s" % (TITLE, day), text)
         else:
             result = "malformed"
-            log("no URGENT:/FYI: tag — malformed agent output, not notifying")
+            log("no URGENT/FYI/ALL CLEAR tag — malformed agent output, not notifying")
             log(text[:300])
 
     log("TRIAGE_RESULT=%s agent=%s" % (result, AGENT_NAME))

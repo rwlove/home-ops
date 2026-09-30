@@ -82,29 +82,25 @@ spec:
           # Read-only health subset of the Omada SDN controller. omada-mcp is
           # entirely get*/list*/search* (no mutators), but bind a focused set —
           # AP/client/gateway/WAN/threat/alert health — not all ~280 tools.
-          # TRIMMED 2026-09-29 (context-overflow fix): 20 → 12. The 6h triage
-          # prompt covers AP/gateway/WAN health, flapping/rogue APs, WAN
-          # degradation, active threats, and recent site alerts — all retained.
-          # Dropped the deep RF/mesh diagnostic tools the scheduled triage never
-          # calls (getMeshStatistics, getInterference, getRFScanResult, getWids,
-          # getClientsDistribution, listMostActiveClients) plus getFirmwareInfo /
-          # getInternetInfo (covered by getGatewayWanStatus/getWanHealthDetail).
-          # network-operator was the heaviest persona and overflowed the strong
-          # model's 131072-token window; restore an RF tool individually if an
-          # interactive deep-dive needs it.
+          # TRIMMED 2026-09-30 (F2 response-accumulation fix): 12 → 6. Measurement
+          # (probe reading vLLM request_prompt_tokens) showed network's STATIC
+          # context is only ~14k — schemas are NOT the overflow cause. The 131072
+          # overflow comes from fat tool RESPONSES accumulating over a broad
+          # triage. So the trim now targets the big-PAYLOAD tools, not schema
+          # count: dropped listClients / listDevicesStats / listSiteEvents (large
+          # list/log dumps) plus the duplicative listSites (single site),
+          # getDashboardOverview (covered by getGlobalDashboardOverview), and
+          # getGatewayWanStatus (covered by getWanHealthDetail). The retained 6
+          # give AP/device + gateway/WAN + rogue-AP + threat + alert health with
+          # bounded responses. Restore a heavier tool individually for an
+          # interactive deep-dive if needed.
           toolNames:
-            - listSites
             - getGlobalDashboardOverview
-            - getDashboardOverview
             - listDevices
-            - listDevicesStats
-            - getGatewayWanStatus
             - getWanHealthDetail
-            - listClients
             - getThreatList
             - getRogueAps
             - listSiteAlerts
-            - listSiteEvents
       - type: McpServer
         mcpServer:
           apiGroup: kagent.dev

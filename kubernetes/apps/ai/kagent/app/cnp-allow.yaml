@@ -183,17 +183,21 @@ metadata:
   name: kagent-controller-mcp-discovery-allow
 spec:
   # The kagent CONTROLLER (not an agent pod) reconciles every RemoteMCPServer CR
-  # itself, independent of any agent invocation — it dials each MCP's :8090/:8060
-  # directly to discover/refresh the tool list at controller startup and on every
-  # spec change. The controller carries `instance=kagent, component=controller`,
-  # NOT `part-of=kagent` (see kagent-agents-allow above), so neither that CNP's
-  # egress side nor mcp-system's kagent-mcp-read-allow ingress side admits it.
-  # Confirmed live 2026-09-29: pr-mcp and notify-mcp reconcile 100% failed
-  # ("context deadline exceeded") for the controller's whole observed lifetime,
-  # retrying every ~65s forever — grafana-mcp/github-mcp/memory-mcp are unaffected
-  # because they're each covered by an existing CNP that doesn't depend on
-  # part-of=kagent. mcp-system ingress half is in
-  # mcp-system/mcp-gateway/app/cnp-kagent-read-allow.yaml (kagent-mcp-read-allow).
+  # itself, independent of any agent invocation — it dials each MCP server directly
+  # to discover/refresh its tool list at controller startup and on every spec
+  # change. The controller carries `instance=kagent, component=controller`, NOT
+  # `part-of=kagent` (see kagent-agents-allow above), so neither that CNP's egress
+  # side nor the mcp-system ingress allows keyed on part-of=kagent admit it.
+  # Confirmed live 2026-09-30: the controller's reconcile 100% failed ("context
+  # deadline exceeded", retrying every ~65s) for EVERY cross-namespace MCP server
+  # in mcp-system — esphome/github/ha/memory/netbox/omada — not just the
+  # pr-mcp/notify-mcp originally fixed in #14586 (that PR's assumption that
+  # github-mcp/memory-mcp were already covered did not hold against live data).
+  # grafana-mcp/ghostfolio-mcp/kagent-tool-server are intra-namespace (covered by
+  # the ai allow-intra-namespace baseline), so they are genuinely unaffected. This
+  # opens controller egress to each mcp-system server; the ingress halves are in
+  # mcp-system/mcp-gateway/app/cnp-kagent-read-allow.yaml (kagent-mcp-read-allow)
+  # and mcp-system/memory-mcp/app/helmrelease.yaml (memory-mcp-allow).
   endpointSelector:
     matchLabels:
       app.kubernetes.io/instance: kagent
@@ -205,10 +209,58 @@ spec:
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: mcp-system
+            app.kubernetes.io/name: esphome-mcp
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+            app.kubernetes.io/name: github-mcp
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+            app.kubernetes.io/name: ha-mcp
+      toPorts:
+        - ports:
+            - port: "8086"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+            app.kubernetes.io/name: memory-mcp
+      toPorts:
+        - ports:
+            - port: "8070"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+            app.kubernetes.io/name: netbox-mcp
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
             app.kubernetes.io/name: notify-mcp
       toPorts:
         - ports:
             - port: "8060"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+            app.kubernetes.io/name: omada-mcp
+      toPorts:
+        - ports:
+            - port: "3000"
               protocol: TCP
     - toEndpoints:
         - matchLabels:

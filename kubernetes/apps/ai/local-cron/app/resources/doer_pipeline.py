@@ -25,6 +25,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+import a2a_client
+
 AGENT_URL = os.environ["AGENT_URL"]
 AGENT_NAME = os.environ.get("AGENT_NAME", "doer")
 ALLOWED_ACTIONS = set(a.strip() for a in os.environ.get("ALLOWED_ACTIONS", "").split(",") if a.strip())
@@ -65,23 +67,12 @@ def pushover(title, message):
 
 
 def ask_agent(prompt):
-    body = json.dumps({
-        "jsonrpc": "2.0", "id": 1, "method": "message/send",
-        "params": {"message": {"role": "user", "parts": [{"kind": "text", "text": prompt}],
-                               "messageId": "doer", "kind": "message"}},
-    }).encode()
-    req = urllib.request.Request(AGENT_URL, data=body, headers={
-        "Content-Type": "application/json",
-        "Accept": "application/json, text/event-stream"})
-    raw = urllib.request.urlopen(req, timeout=400).read().decode()
-    d = json.loads(raw)
-    parts = []
-    for a in (d.get("result", {}).get("artifacts") or []):
-        parts += a.get("parts") or []
-    msg = (d.get("result", {}).get("status", {}) or {}).get("message") or {}
-    parts += msg.get("parts") or []
-    texts = [p.get("text", "") for p in parts if p.get("kind") == "text"]
-    return (texts[-1] if texts else ""), d.get("result", {}).get("status", {}).get("state", "?")
+    # Shared A2A contract with the triage crons: message/send then poll tasks/get
+    # to a terminal state, budget-bounded, never raising for an operational
+    # failure (returns ("", state)). AGENT_BUDGET leaves headroom under the cron's
+    # activeDeadlineSeconds for the clone→apply→PR steps that follow.
+    budget = int(os.environ.get("AGENT_BUDGET", "500"))
+    return a2a_client.call_agent(AGENT_URL, prompt, budget=budget, message_id="doer")
 
 
 def extract_proposal(text):

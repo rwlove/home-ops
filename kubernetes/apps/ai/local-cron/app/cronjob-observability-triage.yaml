@@ -7,14 +7,14 @@ metadata:
   labels:
     app.kubernetes.io/name: local-cron
 spec:
-  # Phase 3d — autonomous observability watcher. Every 6h it asks the
-  # kagent `observability-operator` agent (read-only, local qwen) to triage
-  # currently firing/flapping alerts and propose next steps, then pages ONLY
-  # when there's something notable ("ALL CLEAR" → no Pushover). This is the
-  # scheduled-pull form; an AlertManager-webhook push form is a later upgrade.
-  # Governed by the claude-runner trial policy — re-add `suspend: true` to
-  # pause without tearing down. 6h cadence + ALL-CLEAR suppression keeps the
-  # notification surface (and P40 load) low.
+  # Autonomous observability watcher. Every 6h it asks the kagent
+  # `observability-operator` agent (read-only, local qwen) to triage
+  # firing/flapping alerts and propose next steps, then pages ONLY when notable
+  # ("ALL CLEAR" → silent). :00 slot — staggered off the other every-6h watchers.
+  #
+  # The A2A call + send-gate live in the shared /app/triage_run.py (poll-to-
+  # terminal a2a_client): a slow/empty agent degrades to a SILENT skipped run
+  # instead of a KubeJobFailed page. This cron supplies only the domain prompt.
   schedule: "0 */6 * * *"
   timeZone: America/New_York
   concurrencyPolicy: Forbid
@@ -23,9 +23,9 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 2
-      # The only slow leg is the agent's local-model inference (~1-2 min on
-      # the P40, plus its tool round-trips). 10 min is a comfortable cap.
-      activeDeadlineSeconds: 600
+      # 900s (> the client's 800s budget) so the client's own graceful timeout
+      # fires first and exits 0 (silent), rather than the Job deadline killing it.
+      activeDeadlineSeconds: 900
       ttlSecondsAfterFinished: 86400
       template:
         metadata:
@@ -34,8 +34,6 @@ spec:
           annotations:
             k8tz.io/inject: "false"
         spec:
-          # amd64 image; ai ns also has arm64 Spark nodes — pin so the pod
-          # can't land on Spark and hit an exec-format error.
           nodeSelector:
             kubernetes.io/arch: amd64
           serviceAccountName: local-cron
@@ -43,135 +41,31 @@ spec:
           restartPolicy: OnFailure
           containers:
             - name: triage
-              # Carries curl + jq. Same image the other local-cron jobs use.
-              image: docker.io/alpine/k8s:1.37.1@sha256:712dc5385d1c1a3f83b747fa9e40f64d433a97f72ff42f9755ff7dd1f62846e4
+              image: docker.io/library/python:3.14
               imagePullPolicy: IfNotPresent
               command:
                 - /bin/sh
                 - -ceu
-                # Flux postBuild runs envsubst in STRICT mode over this
-                # manifest: a bare ${VAR} is read as a Flux substitution and
-                # fails the whole Kustomization. Every shell `$` is doubled
-                # (`$$`) so the rendered manifest carries a literal `$` for
-                # /bin/sh. Same convention as cronjob-loki-error-skim.yaml.
-                - |
-                  # observability-operator agent A2A endpoint (intra-namespace;
-                  # the ai baseline allow-intra-namespace covers this hop, same
-                  # as the ollama call in the loki-error-skim job).
-                  AGENT="http://observability-operator.ai:8080/"
-                  DAY="$$(date -u +%Y-%m-%d)"
-
-                  # Ask the agent (read-only, local qwen) to triage current
-                  # alerts using its own tools. jq -n builds the A2A
-                  # message/send body so the prompt is safely JSON-escaped.
-                  REQ="$$(jq -n '{
-                    jsonrpc:"2.0", id:1, method:"message/send",
-                    params:{ message:{
-                      role:"user",
-                      parts:[{kind:"text", text:"Using your read-only tools, check the cluster for alerts that are currently firing or flapping. Triage the notable ones: for each, say whether it is a real signal or transient noise, the likely cause, and the single next step you would propose. If any of your tools errors or times out, do NOT emit generic troubleshooting steps or ask for more information — nobody can reply. Diagnose the failure yourself with your OTHER read-only tools (the failing component's pod health, recent events, logs, and related metrics) and report the SPECIFIC finding: which tool / service / datasource failed, the exact error, and what your own check showed. A failed tool is something to investigate, never to hand back. Classify overall urgency and BEGIN your reply with exactly one tag: URGENT: for a finding needing same-day attention (real outage, data-loss risk, or safety issue), or FYI: for something noteworthy but not urgent (worth knowing, no rush). If nothing is notable, reply with EXACTLY: ALL CLEAR (no tag). After the tag, state findings and the single proposed next step as declaratives. This is a one-way notification — never ask a question or request confirmation (nobody can reply). Keep the entire reply under 900 characters. You may use light markdown — **bold**, `code`, `- bullets`, short `#`/`##` headings, [links](url) — it is rendered into a themed HTML email; do not use tables or images."}],
-                      messageId:"triage-cron", kind:"message"
-                    }}
-                  }')"
-
-                  RESP="$$(curl -sS --max-time 400 -X POST "$$AGENT" \
-                            -H 'Content-Type: application/json' \
-                            -H 'Accept: application/json, text/event-stream' \
-                            -d "$$REQ")" || {
-                    echo "FATAL: agent A2A call errored"
-                    exit 1
-                  }
-
-                  # A2A returns a task; the answer is in result.artifacts[].parts[]
-                  # or result.status.message.parts[]. Take the last text part.
-                  TEXT="$$(printf '%s' "$$RESP" | jq -r '
-                    [ (.result.artifacts[]?.parts[]? // empty),
-                      (.result.status.message.parts[]? // empty) ]
-                    | map(select(.kind=="text") | .text) | last // empty')"
-                  STATE="$$(printf '%s' "$$RESP" | jq -r '.result.status.state // "?"')"
-
-                  if [ -z "$$TEXT" ]; then
-                    echo "FATAL: no agent text (state=$$STATE)"
-                    printf '%s' "$$RESP" | head -c 600
-                    exit 1
-                  fi
-
-                  echo "----- observability-operator triage (state=$$STATE) -----"
-                  printf '%s\n' "$$TEXT"
-
-                  # Route by urgency tag (the agent begins its reply with one):
-                  #   ALL CLEAR -> silent (nothing sent)
-                  #   URGENT:   -> Pushover pager (same-day-urgent)
-                  #   otherwise (FYI / noteworthy-not-urgent) -> themed email via notify-mcp /send
-                  # Triage findings are Internal-tier cluster state (namespace /
-                  # app names) — fine for the private Pushover channel AND for the
-                  # guardrailed agent-notify relay (recipient-locked to Rob). The
-                  # FYI path was previously Pushover-only; routing it to mail keeps
-                  # the pager reserved for genuinely same-day-urgent signal.
-                  case "$$TEXT" in
-                    *"ALL CLEAR"*) echo "ALL CLEAR — nothing sent"; exit 0;;
-                  esac
-
-                  # Positive gate (inbox-spam fix): only output carrying a
-                  # recognized urgency tag may reach a sink. Anything else —
-                  # untagged local-model garbage, a wrong-language reply, or a
-                  # tool-init error string ("failed to extract tools" / "session
-                  # not found") — is malformed; log a snippet and exit clean so a
-                  # bad run can NEVER notify Rob. (ALL CLEAR handled above.)
-                  case "$$TEXT" in
-                    *"URGENT:"*|*"FYI:"*) : ;;
-                    *)
-                      echo "no URGENT:/FYI: tag — malformed agent output, not notifying"
-                      printf '%s\n' "$$TEXT" | head -c 300 || true
-                      exit 0
-                      ;;
-                  esac
-
-                  # 1000-char cap (Pushover limit; also keeps the mail terse).
-                  MSG="$$(printf '%s' "$$TEXT" | cut -c1-1000)"
-
-                  case "$$TEXT" in
-                    *"URGENT:"*)
-                      # Same-day-urgent -> ONE Pushover notification (pager sink).
-                      HTTP="$$(curl -sS --max-time 30 -o /tmp/pushover.out -w '%{http_code}' \
-                                --form-string "token=$${PUSHOVER_TOKEN}" \
-                                --form-string "user=$${PUSHOVER_USER}" \
-                                --form-string "title=kagent obs triage (URGENT) $${DAY}" \
-                                --form-string "message=$${MSG}" \
-                                https://api.pushover.net/1/messages.json)" || {
-                        echo "FATAL: Pushover request errored"
-                        exit 1
-                      }
-                      case "$$HTTP" in
-                        2??) echo "Pushover pager sent (HTTP $$HTTP)";;
-                        *) echo "FATAL: Pushover returned HTTP $$HTTP"; cat /tmp/pushover.out; exit 1;;
-                      esac
-                      ;;
-                    *)
-                      # Noteworthy-not-urgent -> ONE themed, per-agent HTML email
-                      # via notify-mcp /send. It renders the markdown body in this
-                      # agent's theme and holds the SAME relay recipient-lock, so it
-                      # can still only ever email Rob. jq -n builds the JSON body so
-                      # the finding is safely escaped.
-                      REQ="$$(jq -n --arg s "obs triage — $${DAY}" \
-                                    --arg b "$$TEXT" --arg a "observability-operator" \
-                                '{subject:$$s, body:$$b, agent:$$a}')"
-                      HTTP="$$(curl -sS --max-time 30 -o /tmp/send.out -w '%{http_code}' \
-                                -H 'Content-Type: application/json' -d "$$REQ" \
-                                http://notify-mcp.mcp-system:8060/send)" || {
-                        echo "FATAL: notify-mcp /send request errored"
-                        exit 1
-                      }
-                      case "$$HTTP" in
-                        2??) echo "themed FYI emailed (HTTP $$HTTP)";;
-                        *) echo "FATAL: notify-mcp /send returned HTTP $$HTTP"; cat /tmp/send.out; exit 1;;
-                      esac
-                      ;;
-                  esac
+                - exec python3 /app/triage_run.py
               env:
                 - name: HOME
                   value: /tmp
                 - name: TZ
                   value: America/New_York
+                - name: AGENT_URL
+                  value: http://observability-operator.ai:8080/
+                - name: AGENT_NAME
+                  value: observability-operator
+                - name: TITLE
+                  value: observability triage
+                - name: BUDGET_SECONDS
+                  value: "800"
+                - name: PROMPT
+                  value: >-
+                    Using your read-only tools, check the cluster for alerts that
+                    are currently firing or flapping. Triage the notable ones:
+                    for each, say whether it is a real signal or transient noise,
+                    the likely cause, and the single next step you would propose.
               envFrom:
                 - secretRef:
                     name: local-cron-secret
@@ -195,9 +89,16 @@ spec:
                 seccompProfile:
                   type: RuntimeDefault
               volumeMounts:
+                - name: script
+                  mountPath: /app
+                  readOnly: true
                 - name: tmp
                   mountPath: /tmp
           volumes:
+            - name: script
+              configMap:
+                name: local-cron-scripts
+                defaultMode: 0o555
             - name: tmp
               emptyDir:
                 medium: Memory

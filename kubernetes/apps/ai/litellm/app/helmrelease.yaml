@@ -38,7 +38,28 @@ spec:
             env:
               LITELLM_LOG: INFO
               HOME: /tmp
+              # Use the cost map bundled in the image instead of fetching
+              # model_prices_and_context_window.json from GitHub at startup. The
+              # fetch always fails here (no world:443 egress) and added ~15s of
+              # cold-start latency — long enough for a probe flap after an image
+              # bump (observed on the v4 upgrade). We don't use cost tracking.
+              LITELLM_LOCAL_MODEL_COST_MAP: "True"
             probes:
+              # Startup probe gates liveness/readiness until the server has
+              # actually bound :4000. Without it, liveness fired 15s in and
+              # restarted the pod mid-cold-start (the v4-upgrade "connection
+              # refused" flaps). Allows up to 30 × 5s = 150s to come up.
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /health/liveliness
+                    port: 4000
+                  initialDelaySeconds: 10
+                  periodSeconds: 5
+                  timeoutSeconds: 5
+                  failureThreshold: 30
               liveness:
                 enabled: true
                 custom: true
@@ -46,8 +67,9 @@ spec:
                   httpGet:
                     path: /health/liveliness
                     port: 4000
-                  initialDelaySeconds: 15
                   periodSeconds: 30
+                  timeoutSeconds: 5
+                  failureThreshold: 3
               readiness:
                 enabled: true
                 custom: true
@@ -55,8 +77,9 @@ spec:
                   httpGet:
                     path: /health/readiness
                     port: 4000
-                  initialDelaySeconds: 15
                   periodSeconds: 30
+                  timeoutSeconds: 5
+                  failureThreshold: 3
             resources:
               requests:
                 cpu: 50m

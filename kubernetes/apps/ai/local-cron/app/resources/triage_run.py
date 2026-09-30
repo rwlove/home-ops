@@ -42,6 +42,11 @@ PUSH_USER = os.environ.get("PUSHOVER_USER", "")
 # tags below always mean the same thing. The per-cron PROMPT supplies only the
 # DOMAIN focus (what to check); this tail owns the format + one-way discipline.
 CONTRACT = (
+    " Keep every tool call TARGETED: scope queries to specific namespaces/resources "
+    "with small limits; never dump all namespaces or request full unfiltered lists "
+    "(e.g. all pods cluster-wide, every client, a full event log). Large tool "
+    "responses accumulate in your context window and can overflow it and abort this "
+    "run — a narrow query that returns is worth more than a broad one that never does."
     " If any of your tools errors or times out, do NOT emit generic troubleshooting "
     "steps or ask for more information — nobody can reply. Diagnose the failure "
     "yourself with your OTHER read-only tools (the failing component's pod health, "
@@ -93,30 +98,41 @@ def main():
     text, state = a2a_client.call_agent(AGENT_URL, prompt, budget=BUDGET, message_id="triage-cron")
     day = datetime.date.today().isoformat()
 
-    # No usable answer (slow/empty/non-terminal/transport error) → SILENT skip.
-    # The next scheduled run covers it; a watcher must never page just because it
-    # could not reach a conclusion this cycle.
+    # Classify the run outcome, act on it, then emit ONE machine-parseable
+    # `TRIAGE_RESULT=` line. Productive outcomes: allclear / sent-urgent /
+    # sent-fyi. Unproductive: empty (slow/non-terminal), error (transport), or
+    # malformed (agent replied but broke the tag contract — the local-model
+    # garbage case). All unproductive outcomes stay SILENT (a watcher must never
+    # page just because it couldn't conclude), but they are NOT invisible: the
+    # kagent-triage LogQL alert (loki-alerting-rules) counts empty|malformed|error
+    # so a persistently-broken watcher is caught even though it no longer fails
+    # the Job. Without this signal, silent-skip would mask a dead watcher.
+    result = None
     if not text:
+        result = "error" if state.startswith("transport-error") else "empty"
         log("no agent text (state=%s) — silent skip, next run covers it" % state)
-        return 0
-
-    log("----- %s (state=%s) -----" % (TITLE, state))
-    log(text)
-
-    if "ALL CLEAR" in text:
-        log("ALL CLEAR — nothing sent")
-        return 0
-
-    # Positive gate: only output carrying a recognised urgency tag may reach a
-    # sink. Untagged local-model garbage / wrong-language / tool-error strings are
-    # malformed — log a snippet and exit clean so a bad run can NEVER notify Rob.
-    if "URGENT:" in text:
-        pushover("kagent %s (URGENT) %s" % (TITLE, day), text)
-    elif "FYI:" in text:
-        notify_email("%s — %s" % (TITLE, day), text)
     else:
-        log("no URGENT:/FYI: tag — malformed agent output, not notifying")
-        log(text[:300])
+        log("----- %s (state=%s) -----" % (TITLE, state))
+        log(text)
+        if "ALL CLEAR" in text:
+            result = "allclear"
+            log("ALL CLEAR — nothing sent")
+        # Positive gate: only output carrying a recognised urgency tag may reach a
+        # sink. Untagged local-model garbage / wrong-language / tool-error strings
+        # are malformed — log a snippet and exit clean so a bad run can NEVER
+        # notify Rob.
+        elif "URGENT:" in text:
+            result = "sent-urgent"
+            pushover("kagent %s (URGENT) %s" % (TITLE, day), text)
+        elif "FYI:" in text:
+            result = "sent-fyi"
+            notify_email("%s — %s" % (TITLE, day), text)
+        else:
+            result = "malformed"
+            log("no URGENT:/FYI: tag — malformed agent output, not notifying")
+            log(text[:300])
+
+    log("TRIAGE_RESULT=%s agent=%s" % (result, AGENT_NAME))
     return 0
 
 

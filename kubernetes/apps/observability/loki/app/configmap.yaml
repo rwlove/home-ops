@@ -165,6 +165,59 @@ data:
       # persist across the whole window, not just spike once. Verified live
       # against today's outage window (13:01-13:06 ET) post-fix: this exact
       # matcher returns the historical restart-loop lines.
+      # PUMP Voltra sidecar (collab ns) drives the Voltra trainer over BLE
+      # through an ALWAYS-ON ESPHome bluetooth proxy (bluetooth-proxy-gym,
+      # 10.10.20.69, an M5Stack ATOM on the IoT VLAN). On 2026-09-30 ~04:04 ET
+      # that proxy dropped its TCP link unexpectedly ([Errno 104] connection
+      # reset), the sidecar logged `esphome proxy disconnected expected=False`
+      # and then failed the trainer connect, so pressing LOAD applied no
+      # weight; it self-healed in ~3 min. No alert caught it.
+      #
+      # HARD CONSTRAINT: the Voltra trainer is powered OFF ~23h/day, so
+      # `pump_voltra_connected==0`, `workout_active==0`, and the sidecar's
+      # idle "trainer probably switched off / not advertising / waiting for
+      # the trainer" lines are all NORMAL and must NEVER alert. There is NO
+      # metric for proxy connect/disconnect state, so this is log-only — the
+      # only observable for an always-on-proxy fault. The trainer-off idle
+      # lines never carry `expected=False` (verified: 0 overlap over 7d), so
+      # matching the unexpected-disconnect line is clean against the OFF state.
+      #
+      # Tuning: the proxy is very stable — over 14d the max unexpected
+      # disconnects in any 15m window was 1 (a single self-healing blip, the
+      # 04:04 event). `>= 2 in 15m` therefore does NOT page on one 3-min
+      # self-healing blip but DOES fire when the always-on proxy is genuinely
+      # flapping (repeated unexpected drops) and auto-load is at risk. warning
+      # severity; falls through to the pushover receiver like every pump alert
+      # (routing is by alertname, not severity). `for: 5m` keeps the window
+      # persistent rather than a single scrape spike. NOTE: this catches a
+      # REPEATED/flapping proxy fault; a proper single-blip alert would need
+      # a sidecar-exported gauge (pump_voltra_proxy_connected) or counter
+      # (pump_voltra_proxy_disconnects_total) — recommended, needs a
+      # pump-voltra release.
+      - name: pump-voltra
+        rules:
+          - alert: PumpVoltraProxyFlapping
+            expr: |
+              sum(count_over_time({namespace="collab", app="pump-voltra"} |~ "esphome proxy disconnected.*expected=False"[15m])) >= 2
+            for: 5m
+            labels:
+              severity: warning
+              category: logs
+            annotations:
+              summary: "pump-voltra: always-on BLE proxy is flapping (Voltra auto-load at risk)"
+              description: >-
+                {{ $value | humanize }} UNEXPECTED disconnects of the always-on
+                gym ESPHome bluetooth proxy (bluetooth-proxy-gym, 10.10.20.69)
+                in the last 15m, seen from the pump-voltra sidecar in collab.
+                A single self-healing ~3-min blip is normal and does not fire
+                this; >=2 means the proxy link is genuinely unstable and the
+                Voltra will fail to apply weight when LOAD is pressed. This is
+                the always-on proxy faulting — NOT the trainer being powered
+                off (that idle state never logs expected=False). Check:
+                  kubectl -n collab logs -l app.kubernetes.io/name=pump-voltra --tail=100 | grep -i "esphome proxy\|connection reset\|trainer connect failed"
+                and the ESPHome proxy device itself (bluetooth-proxy-gym) for
+                Wi-Fi/power instability on the IoT VLAN. There is no proxy-state
+                metric yet, so this log-based rule is the only signal.
       - name: vpn-egress-gateway
         rules:
           - alert: DownloadPathVpnGatewayRestartLoop

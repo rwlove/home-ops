@@ -47,6 +47,31 @@ spec:
           for: 15m
           labels:
             severity: warning
+        # A single unexpected drop of the always-on gym ESPHome BLE proxy — the
+        # ESP32 resetting or a Wi-Fi blip out from under a live BLE session.
+        # This is the failure that silently dropped a mid-workout LOAD on
+        # 2026-09-30: pressing LOAD in PUMP applied no weight because the sidecar
+        # had lost its path to the trainer. The PumpVoltraProxyFlapping Loki
+        # alert only catches the *repeated* case (>=2/15m); this catches the
+        # first one. The counter never increments on the trainer being powered
+        # off (the normal idle state) or on a planned reconnect/shutdown — only
+        # on_stop expected=False — so it cannot false-fire on an idle gym.
+        - alert: PumpVoltraProxyDisconnected
+          annotations:
+            summary: pump-voltra lost its BLE proxy unexpectedly
+            description: |
+              The gym ESPHome bluetooth proxy (bluetooth-proxy-gym, 10.10.20.69)
+              dropped its session unexpectedly in the last 15m. If this happened
+              mid-workout, pressing LOAD in PUMP would not have applied weight —
+              the sidecar self-heals in a few minutes but the load request is
+              lost. Usually a transient ESP32 reset / Wi-Fi blip; if it recurs,
+              check the gym proxy's power and Wi-Fi. `kubectl -n collab logs
+              -l app.kubernetes.io/name=pump-voltra | grep -i "proxy"`.
+          expr: |-
+            increase(pump_voltra_proxy_disconnects_total{job="pump-voltra"}[15m]) >= 1
+          for: 2m
+          labels:
+            severity: warning
         # The server (pump-0) and camera sidecar (pump-cv) carry real readiness
         # probes; a sustained not-Ready means the UI/ingest (pump-0) or CV
         # capture (pump-cv) is down. pump-voltra is excluded here — its

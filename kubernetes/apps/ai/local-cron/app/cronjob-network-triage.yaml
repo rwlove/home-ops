@@ -10,8 +10,12 @@ spec:
   # Autonomous in-cluster-network watcher. Every 6h it asks the kagent
   # `network-operator` agent (read-only, local qwen) to check BGP / policy-drops
   # / cert-expiry / DNS / gateway health and propose next steps, then pages ONLY
-  # when notable ("ALL CLEAR" → no Pushover). :45 slot — staggered off the other
+  # when notable ("ALL CLEAR" → silent). :45 slot — staggered off the other
   # every-6h watchers. Scope is in-cluster only; Omada/AP/VLAN are out of scope.
+  #
+  # The A2A call + send-gate live in the shared /app/triage_run.py (poll-to-
+  # terminal a2a_client): a slow/empty agent degrades to a SILENT skipped run
+  # instead of a KubeJobFailed page. This cron supplies only the domain prompt.
   schedule: "45 */6 * * *"
   timeZone: America/New_York
   concurrencyPolicy: Forbid
@@ -20,7 +24,9 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 2
-      activeDeadlineSeconds: 600
+      # 900s (> the client's 800s budget) so the client's own graceful timeout
+      # fires first and exits 0 (silent), rather than the Job deadline killing it.
+      activeDeadlineSeconds: 900
       ttlSecondsAfterFinished: 86400
       template:
         metadata:
@@ -36,124 +42,39 @@ spec:
           restartPolicy: OnFailure
           containers:
             - name: triage
-              image: docker.io/alpine/k8s:1.37.1@sha256:712dc5385d1c1a3f83b747fa9e40f64d433a97f72ff42f9755ff7dd1f62846e4
+              image: docker.io/library/python:3.14
               imagePullPolicy: IfNotPresent
               command:
                 - /bin/sh
                 - -ceu
-                # Flux postBuild envsubst runs STRICT over this manifest: every
-                # shell `$` is doubled (`$$`) so the rendered manifest carries a
-                # literal `$` for /bin/sh. Same convention as the sibling jobs.
-                - |
-                  AGENT="http://network-operator.ai:8080/"
-                  DAY="$$(date -u +%Y-%m-%d)"
-
-                  REQ="$$(jq -n '{
-                    jsonrpc:"2.0", id:1, method:"message/send",
-                    params:{ message:{
-                      role:"user",
-                      parts:[{kind:"text", text:"Using your read-only tools, check both network layers. In-cluster: Cilium BGP peering and advertised routes, CiliumNetworkPolicy drop signal (by protocol/endpoint), cert-manager Certificates inside or past their renewal window, DNS health, gateway/LoadBalancer reachability. Physical (read-only, Omada): AP/gateway/WAN health, flapping or rogue APs, WAN degradation, active threats, and recent site alerts. Triage the notable ones: for each, say whether it is a real loss or a known benign artifact (restart/ARP/QUIC/reconcile), the likely cause, and the single next step you would propose (flag anything that points at physical/core infra as human-only). If any of your tools errors or times out, do NOT emit generic troubleshooting steps or ask for more information — nobody can reply. Diagnose the failure yourself with your OTHER read-only tools (the failing component's pod health, recent events, logs, and related metrics) and report the SPECIFIC finding: which tool / service / datasource failed, the exact error, and what your own check showed. A failed tool is something to investigate, never to hand back. Classify overall urgency and BEGIN your reply with exactly one tag: URGENT: for a finding needing same-day attention (real outage, data-loss risk, or safety issue), or FYI: for something noteworthy but not urgent (worth knowing, no rush). If nothing is notable, reply with EXACTLY: ALL CLEAR (no tag). After the tag, state findings and the single proposed next step as declaratives. This is a one-way notification — never ask a question or request confirmation (nobody can reply). Keep the entire reply under 900 characters. You may use light markdown — **bold**, `code`, `- bullets`, short `#`/`##` headings, [links](url) — it is rendered into a themed HTML email; do not use tables or images."}],
-                      messageId:"triage-cron", kind:"message"
-                    }}
-                  }')"
-
-                  RESP="$$(curl -sS --max-time 400 -X POST "$$AGENT" \
-                            -H 'Content-Type: application/json' \
-                            -H 'Accept: application/json, text/event-stream' \
-                            -d "$$REQ")" || {
-                    echo "FATAL: agent A2A call errored"
-                    exit 1
-                  }
-
-                  TEXT="$$(printf '%s' "$$RESP" | jq -r '
-                    [ (.result.artifacts[]?.parts[]? // empty),
-                      (.result.status.message.parts[]? // empty) ]
-                    | map(select(.kind=="text") | .text) | last // empty')"
-                  STATE="$$(printf '%s' "$$RESP" | jq -r '.result.status.state // "?"')"
-
-                  if [ -z "$$TEXT" ]; then
-                    echo "FATAL: no agent text (state=$$STATE)"
-                    printf '%s' "$$RESP" | head -c 600
-                    exit 1
-                  fi
-
-                  echo "----- network-operator triage (state=$$STATE) -----"
-                  printf '%s\n' "$$TEXT"
-
-                  # Route by urgency tag (the agent begins its reply with one):
-                  #   ALL CLEAR -> silent (nothing sent)
-                  #   URGENT:   -> Pushover pager (same-day-urgent)
-                  #   otherwise (FYI / noteworthy-not-urgent) -> themed email via notify-mcp /send
-                  # Triage findings are Internal-tier cluster state (namespace /
-                  # app names) — fine for the private Pushover channel AND for the
-                  # guardrailed agent-notify relay (recipient-locked to Rob). The
-                  # FYI path was previously Pushover-only; routing it to mail keeps
-                  # the pager reserved for genuinely same-day-urgent signal.
-                  case "$$TEXT" in
-                    *"ALL CLEAR"*) echo "ALL CLEAR — nothing sent"; exit 0;;
-                  esac
-
-                  # Positive gate (inbox-spam fix): only output carrying a
-                  # recognized urgency tag may reach a sink. Anything else —
-                  # untagged local-model garbage, a wrong-language reply, or a
-                  # tool-init error string ("failed to extract tools" / "session
-                  # not found") — is malformed; log a snippet and exit clean so a
-                  # bad run can NEVER notify Rob. (ALL CLEAR handled above.)
-                  case "$$TEXT" in
-                    *"URGENT:"*|*"FYI:"*) : ;;
-                    *)
-                      echo "no URGENT:/FYI: tag — malformed agent output, not notifying"
-                      printf '%s\n' "$$TEXT" | head -c 300 || true
-                      exit 0
-                      ;;
-                  esac
-
-                  # 1000-char cap (Pushover limit; also keeps the mail terse).
-                  MSG="$$(printf '%s' "$$TEXT" | cut -c1-1000)"
-
-                  case "$$TEXT" in
-                    *"URGENT:"*)
-                      # Same-day-urgent -> ONE Pushover notification (pager sink).
-                      HTTP="$$(curl -sS --max-time 30 -o /tmp/pushover.out -w '%{http_code}' \
-                                --form-string "token=$${PUSHOVER_TOKEN}" \
-                                --form-string "user=$${PUSHOVER_USER}" \
-                                --form-string "title=kagent network triage (URGENT) $${DAY}" \
-                                --form-string "message=$${MSG}" \
-                                https://api.pushover.net/1/messages.json)" || {
-                        echo "FATAL: Pushover request errored"
-                        exit 1
-                      }
-                      case "$$HTTP" in
-                        2??) echo "Pushover pager sent (HTTP $$HTTP)";;
-                        *) echo "FATAL: Pushover returned HTTP $$HTTP"; cat /tmp/pushover.out; exit 1;;
-                      esac
-                      ;;
-                    *)
-                      # Noteworthy-not-urgent -> ONE themed, per-agent HTML email
-                      # via notify-mcp /send. It renders the markdown body in this
-                      # agent's theme and holds the SAME relay recipient-lock, so it
-                      # can still only ever email Rob. jq -n builds the JSON body so
-                      # the finding is safely escaped.
-                      REQ="$$(jq -n --arg s "network triage — $${DAY}" \
-                                    --arg b "$$TEXT" --arg a "network-operator" \
-                                '{subject:$$s, body:$$b, agent:$$a}')"
-                      HTTP="$$(curl -sS --max-time 30 -o /tmp/send.out -w '%{http_code}' \
-                                -H 'Content-Type: application/json' -d "$$REQ" \
-                                http://notify-mcp.mcp-system:8060/send)" || {
-                        echo "FATAL: notify-mcp /send request errored"
-                        exit 1
-                      }
-                      case "$$HTTP" in
-                        2??) echo "themed FYI emailed (HTTP $$HTTP)";;
-                        *) echo "FATAL: notify-mcp /send returned HTTP $$HTTP"; cat /tmp/send.out; exit 1;;
-                      esac
-                      ;;
-                  esac
+                - exec python3 /app/triage_run.py
               env:
                 - name: HOME
                   value: /tmp
                 - name: TZ
                   value: America/New_York
+                - name: AGENT_URL
+                  value: http://network-operator.ai:8080/
+                - name: AGENT_NAME
+                  value: network-operator
+                - name: TITLE
+                  value: network triage
+                - name: BUDGET_SECONDS
+                  value: "800"
+                - name: PROMPT
+                  value: >-
+                    Using your read-only tools, check both network layers.
+                    In-cluster: Cilium BGP peering and advertised routes,
+                    CiliumNetworkPolicy drop signal (by protocol/endpoint),
+                    cert-manager Certificates inside or past their renewal
+                    window, DNS health, gateway/LoadBalancer reachability.
+                    Physical (read-only, Omada): AP/gateway/WAN health, flapping
+                    or rogue APs, WAN degradation, active threats, and recent
+                    site alerts. Triage the notable ones: for each, say whether
+                    it is a real loss or a known benign artifact
+                    (restart/ARP/QUIC/reconcile), the likely cause, and the
+                    single next step you would propose (flag anything that
+                    points at physical/core infra as human-only).
               envFrom:
                 - secretRef:
                     name: local-cron-secret
@@ -177,9 +98,16 @@ spec:
                 seccompProfile:
                   type: RuntimeDefault
               volumeMounts:
+                - name: script
+                  mountPath: /app
+                  readOnly: true
                 - name: tmp
                   mountPath: /tmp
           volumes:
+            - name: script
+              configMap:
+                name: local-cron-scripts
+                defaultMode: 0o555
             - name: tmp
               emptyDir:
                 medium: Memory

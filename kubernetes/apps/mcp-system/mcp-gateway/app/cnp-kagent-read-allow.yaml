@@ -28,13 +28,14 @@
 #   enforced by each agent's `toolNames` allowlist, not by this L4 policy.
 #
 # The kagent CONTROLLER (instance=kagent, component=controller — not
-# part-of=kagent) is a THIRD source admitted below, for pr-mcp/notify-mcp only:
-# it dials both directly to reconcile each RemoteMCPServer CR's tool list,
-# independent of any agent invocation. Confirmed live 2026-09-29: without this,
-# the controller's reconcile loop 100% failed ("context deadline exceeded")
-# retrying every ~65s indefinitely — the RemoteMCPServer never discovers tools
-# for either server. Controller egress half is in
-# ai/kagent/app/cnp-allow.yaml (kagent-controller-mcp-discovery-allow).
+# part-of=kagent) is a THIRD source admitted below: it dials every mcp-system
+# RemoteMCPServer directly to reconcile each CR's tool list, independent of any
+# agent invocation. Originally scoped to pr-mcp/notify-mcp (#14586); confirmed
+# live 2026-09-30 that the controller's reconcile 100% failed ("context deadline
+# exceeded", every ~65s) for EVERY server in this policy's selector — so all
+# ports are opened for it here. (memory-mcp is not in this policy; its controller
+# ingress lives in mcp-system/memory-mcp/app/helmrelease.yaml.) Controller egress
+# half is in ai/kagent/app/cnp-allow.yaml (kagent-controller-mcp-discovery-allow).
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -90,7 +91,15 @@ spec:
             app.kubernetes.io/component: controller
       toPorts:
         - ports:
+            - port: "3000" # omada-mcp
+              protocol: TCP
+            - port: "8000" # netbox-mcp
+              protocol: TCP
             - port: "8060" # notify-mcp
+              protocol: TCP
+            - port: "8080" # github-mcp / esphome-mcp
+              protocol: TCP
+            - port: "8086" # ha-mcp
               protocol: TCP
             - port: "8090" # pr-mcp
               protocol: TCP

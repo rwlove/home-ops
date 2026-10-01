@@ -25,7 +25,7 @@ metadata:
 spec:
   schedule: "0 5 * * *"
   timeZone: "Etc/UTC"
-  suspend: true
+  suspend: false
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 3
@@ -71,8 +71,13 @@ spec:
                     -H "Authorization: Bearer $${OPENWEBUI_API_KEY}" \
                     | jq '.TOOL_SERVER_CONNECTIONS // []')
 
-                  ENTRY=$(jq -n --arg url "$${GATEWAY_MCP_URL}" --arg key "$${TOKEN}" '{
-                    url: $url, type: "mcp", auth_type: "bearer", key: $key,
+                  # open-webui's ToolServerConnection model REQUIRES a separate
+                  # `path` field and expects `url` to be the origin only (it 422s
+                  # on a url that embeds /mcp with no path). Build the full valid
+                  # shape; GATEWAY_ORIGIN is the scheme+host, path is "/mcp".
+                  ENTRY=$(jq -n --arg url "$${GATEWAY_ORIGIN}" --arg key "$${TOKEN}" '{
+                    url: $url, path: "/mcp", type: "mcp", auth_type: "bearer",
+                    forward_cookies: false, headers: null, key: $key,
                     config: {enable: true},
                     info: {id: "lovenet-gateway", name: "Lovenet MCP Gateway",
                            description: "Aggregated MCP tools (JWT-authenticated via mcp-openwebui client)"}
@@ -92,8 +97,8 @@ spec:
                   value: "https://auth.${SECRET_DOMAIN}/api/oidc/token"
                 - name: OWUI_URL
                   value: "http://open-webui.collab.svc.cluster.local:8080"
-                - name: GATEWAY_MCP_URL
-                  value: "https://mcp.${SECRET_DOMAIN}/mcp"
+                - name: GATEWAY_ORIGIN
+                  value: "https://mcp.${SECRET_DOMAIN}"
               envFrom:
                 - secretRef:
                     name: open-webui-mcp-authelia-client

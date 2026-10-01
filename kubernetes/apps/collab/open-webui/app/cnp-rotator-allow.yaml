@@ -1,0 +1,36 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+#
+# Egress for the open-webui MCP-gateway token rotator. It needs:
+#   - Authelia OIDC token endpoint (https://auth.${SECRET_DOMAIN}/api/oidc/token),
+#     which resolves via split-horizon DNS to the envoy LB; Cilium socket-lb
+#     rewrites to the envoy pod on container port 10443 (same pattern as
+#     open-webui's own OIDC egress rule).
+#   - open-webui itself (collab, intra-namespace) — covered by the baseline
+#     allow-intra-namespace, so not repeated here.
+#   - DNS — covered by baseline.
+# Mirrors mcp-system/mcp-gateway `mcp-gateway-jwt-rotator-allow`.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: open-webui-mcp-rotator-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: open-webui-mcp-jwt-rotator
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "10443"
+              protocol: TCP
+            - port: "10443"
+              protocol: UDP
+            - port: "443"
+              protocol: TCP

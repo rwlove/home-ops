@@ -11,6 +11,23 @@ spec:
     name: gha-runner-scale-set
   driftDetection:
     mode: enabled
+  # helm must not block on AutoscalingRunnerSet readiness — the ARC
+  # controller owns it. During the 0.14.2->0.15.0 controller transition the
+  # wait timed out and looped into a doomed rollback to 0.14.2 (which the
+  # 0.15.0 controller deletes on sight, per actions-runner-controller#4422).
+  # disableWait lets the upgrade complete and hand the ARS to the controller;
+  # uninstall-remediation reinstalls fresh at the matching version instead of
+  # rolling back to the incompatible prior chart. Also makes future ARC minor
+  # bumps (which are version-coupled the same way) self-heal.
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3
+      strategy: uninstall
   values:
     runnerScaleSetName: arc-runner-set-containers
 

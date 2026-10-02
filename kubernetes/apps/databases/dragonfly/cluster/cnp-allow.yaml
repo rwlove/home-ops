@@ -5,35 +5,42 @@ kind: CiliumNetworkPolicy
 metadata:
   name: dragonfly-allow
 spec:
+  # Select on `app: dragonfly` (the shared instance), NOT
+  # app.kubernetes.io/name=dragonfly — the operator stamps that shared
+  # label on EVERY instance, so this policy previously over-matched all 6
+  # and made the per-instance CNPs moot. `app` carries the instance name
+  # (#13733 label trap — see cnp-allow-auth.yaml).
   endpointSelector:
     matchLabels:
-      app.kubernetes.io/name: dragonfly
+      app: dragonfly
   # Additive — default-deny is what triggers the lockdown; these rules
   # punch holes through it.
   enableDefaultDeny:
     egress: false
     ingress: false
   ingress:
-    # Durable tier (small queues + caches, noeviction). Consumers of
-    # `dragonfly.databases.svc.cluster.local:6379`, by db index:
-    #   home/netbox      db3 — task queue   / db4 — django cache
-    #   collab/paperless db7 — celery broker
-    #   media/romm       db2 — RQ task queue
-    #   collab/nametag   db6 — session / cache
-    # The pure-cache hog (renovate) lives on the separate evicting
-    # `dragonfly-cache` instance so its churn can't jam this tier.
-    # The auth SPOF (authelia) and the heavy/bursty tenant (immich
-    # BullMQ) were split off to dedicated `dragonfly-auth` /
-    # `dragonfly-immich` instances after immich burst-filled this
-    # noeviction tier on 2026-08-24 and made it reject every tenant's
-    # writes, auth included (cluster-immich.yaml / cluster-auth.yaml).
-    # Enumerating each per-pod selector across 6 namespaces is fragile.
-    # Use fromEntities: cluster on port 6379 — the cross-cluster /
-    # default-deny boundary is what matters; missing a consumer here
-    # would take its primary cache/broker offline. Tighten in a
-    # follow-up PR once hubble flow data confirms the actual edge.
-    - fromEntities:
-        - cluster
+    # Durable tier (small queues + caches, noeviction). Hubble-verified
+    # consumers (2026-10-02) of `dragonfly.databases.svc:6379`:
+    #   home/netbox      db3 task queue / db4 django cache
+    #   collab/paperless db7 celery broker
+    #   collab/nametag   db6 session / cache
+    # (romm moved to the dedicated dragonfly-romm instance — the old
+    # comment listing it here was stale; the heavy immich BullMQ tenant
+    # and the auth SPOF were split to dragonfly-immich / dragonfly-auth;
+    # renovate is on dragonfly-cache.)
+    # Tightened from fromEntities:cluster now that hubble confirms the
+    # edge (the follow-up the prior comment called for). Admin port 6380
+    # stays default-denied.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: netbox
+        - matchLabels:
+            io.kubernetes.pod.namespace: collab
+            app.kubernetes.io/name: paperless
+        - matchLabels:
+            io.kubernetes.pod.namespace: collab
+            app.kubernetes.io/name: nametag
       toPorts:
         - ports:
             - port: "6379"

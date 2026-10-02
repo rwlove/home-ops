@@ -247,36 +247,39 @@ data:
 
       # kagent watcher-fleet productivity. Each triage run (local-cron, ns ai)
       # ends with a machine line `TRIAGE_RESULT=<outcome> agent=<name>`.
-      # Productive outcomes: allclear / sent-urgent / sent-fyi. Unproductive:
-      # empty (agent slow/non-terminal), error (transport), malformed (agent
-      # replied but broke the URGENT:/FYI:/ALL CLEAR tag contract — the flaky
-      # local-model case). The triage crons DELIBERATELY exit 0 and stay silent
-      # on an unproductive run (a watcher must never page just because it could
-      # not conclude — see triage_run.py / the a2a_client silent-skip design),
-      # so a KubeJobFailed alert can NO LONGER see a persistently-broken watcher.
-      # This log-based rule is the backstop: ~17 triage runs land per 24h (4
-      # agents every 6h + storage daily); >= 4 unproductive in 24h (~25%) means
-      # the fleet is degraded (e.g. context overflow → 7B-fallback garbage) and
-      # the watchers are effectively blind. Tune the threshold if normal
-      # local-model flakiness proves noisier.
+      # Productive outcomes: sent (problem emailed) / allclear (nothing
+      # actionable). Unproductive: empty (agent slow/non-terminal or asked a
+      # question with no report), error (transport), malformed (agent replied but
+      # broke the PROBLEM:/ALL CLEAR tag contract — the flaky local-model case).
+      # The triage crons DELIBERATELY exit 0 and stay silent on an unproductive
+      # run (a watcher must never notify just because it could not conclude — see
+      # triage_run.py / the a2a_client silent-skip design), so a KubeJobFailed
+      # alert can NO LONGER see a persistently-broken watcher. This log-based rule
+      # is the backstop, split BY result class so the page names whether it is
+      # empty / malformed / error — each has a different root cause + fix. ~17
+      # triage runs land per 24h (4 agents every 6h + storage daily), and
+      # triage_run.py already re-asks once on a miss, so >= 3 of ONE class in 24h
+      # is a real degradation pattern, not routine flakiness. Tune per-class if
+      # normal local-model flakiness proves noisier.
       - name: kagent-triage
         rules:
           - alert: KagentTriageUnproductive
             expr: |
-              sum(count_over_time({namespace="ai"} |~ "TRIAGE_RESULT=(empty|malformed|error)"[24h])) >= 4
+              sum by (result) (count_over_time({namespace="ai", app="local-cron"} |~ "TRIAGE_RESULT=(empty|malformed|error)" | regexp `TRIAGE_RESULT=(?P<result>empty|malformed|error) agent=`[24h])) >= 3
             for: 10m
             labels:
               severity: warning
               category: logs
             annotations:
-              summary: "kagent triage watchers are producing unusable output"
+              summary: "kagent triage watchers producing {{ $labels.result }} output"
               description: >-
                 {{ $value | humanize }} kagent triage runs in the last 24h ended
-                empty / malformed / errored (TRIAGE_RESULT) instead of a tagged
-                finding — the watcher fleet is degraded and effectively blind,
-                but the crons still exit 0 (silent by design) so nothing else
-                surfaces it. Likely causes: strong-model context overflow →
-                7B-fallback garbage (check litellm logs for
-                ContextWindowExceeded), an agent/MCP toolset failure, or the
-                Spark vLLM being down. Check:
+                "{{ $labels.result }}" (TRIAGE_RESULT) instead of a report — that
+                watcher class is degraded and silently blind (crons exit 0 by
+                design). empty = agent returned no usable text (asked a question /
+                non-terminal); malformed = replied but broke the PROBLEM:/ALL CLEAR
+                tag (local-model drift / wrong language); error = transport failure
+                reaching the agent. triage_run.py already re-asks once before
+                giving up, so a sustained count here is a real pattern. Which
+                agents:
                   kubectl -n ai logs -l app.kubernetes.io/name=local-cron --tail=200 | grep TRIAGE_RESULT

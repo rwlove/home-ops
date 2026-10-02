@@ -20,12 +20,16 @@ spec:
     egress: false
     ingress: false
   ingress:
-    # Consumers of `dragonfly-cache.databases.svc.cluster.local:6379`:
-    #   renovate/renovate — repository cache (the only tenant today)
-    # Same rationale as the durable instance's policy: fromEntities:
-    # cluster on 6379 rather than a fragile per-pod enumeration.
-    - fromEntities:
-        - cluster
+    # Consumer of `dragonfly-cache.databases.svc.cluster.local:6379`:
+    #   renovate/renovate-operator — repository cache. Namespace-scoped
+    #   (renovate ns is single-purpose): the ephemeral renovate JOB pods
+    #   carry no app/app.kubernetes.io label — only
+    #   renovate-operator.mogenius.com/* + a batch job-name — so a per-app
+    #   selector can't match them. Confirmed via RENOVATE_REDIS_URL (idle in
+    #   the Hubble window). Admin port 6380 stays default-denied.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: renovate
       toPorts:
         - ports:
             - port: "6379"

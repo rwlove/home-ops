@@ -1,0 +1,37 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+#
+# cilium-mcp runs the `hubble` CLI (--additional-tools=cilium,hubble). To
+# observe flows it must reach hubble-relay in kube-system. mcp-system is
+# default-deny egress; the baseline allows apiserver + DNS but NOT the
+# relay, so hubble connections hung to a gRPC "context deadline exceeded"
+# (connection never became ready). This opens exactly that hop.
+#
+# Target the relay pod's container port 4245 (the hubble-relay Service maps
+# :80 -> grpc/4245; Cilium socket-lb rewrites the connect() to the pod +
+# targetPort BEFORE policy evaluation, so the policy must allow 4245, not
+# 80 — same pattern as the envoy:10443 rules elsewhere). Relay is plaintext
+# gRPC (verified: a cilium-agent query to the relay succeeded without --tls).
+# Pairs with HUBBLE_SERVER on the cilium-mcp container.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: cilium-mcp-hubble-relay-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: cilium-mcp
+  # Additive — mcp-system default-deny is what enforces; this punches the
+  # single hole to the relay.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: hubble-relay
+      toPorts:
+        - ports:
+            - port: "4245"
+              protocol: TCP

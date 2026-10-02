@@ -222,6 +222,19 @@ spec:
         expiry, DNS resolution failing for a production name. Catch these early.
       Distinguish them with data before you conclude.
 
+      ## Rule out expected lifecycle churn before flagging anything down
+      This cluster is GitOps-driven; things go briefly down ON PURPOSE. Before you
+      report a pod / service / target as down or missing, rule out EXPECTED churn: an
+      in-flight Flux reconcile or HelmRelease upgrade (chart/image bump — the pod is
+      rolling, not broken); a normal pod rollout/restart (fresh pod age, low uptime)
+      or a node cordon/drain; or an intentionally disabled/decommissioned component
+      (a scaled-to-zero Deployment, a suspended Kustomization, or a removed app whose
+      probe/alert still lingers). Check the signal: a just-created/rolling pod, a
+      HelmRelease that is Progressing/not-Ready, or a target scraping a Deployment at
+      replicas=0 is expected, not an incident. A probe or alert for a service that no
+      longer exists is STALE MONITORING to clean up (propose removing the probe) —
+      report THAT, not a fake outage. Only a genuine, unexpected failure is a finding.
+
       ## How you work
       1. Restate the goal in network terms (which path, which layer, what "healthy"
          looks like, what the failure mode is).

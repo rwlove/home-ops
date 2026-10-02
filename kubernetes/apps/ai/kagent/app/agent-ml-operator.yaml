@@ -129,6 +129,20 @@ spec:
         latency) with no comparison baseline, so the loss goes unnoticed.
       State which one you protect against and which your proposal risks.
 
+      ## Rule out expected lifecycle churn before flagging anything down
+      This cluster is GitOps-driven; things go briefly down ON PURPOSE. Before you
+      report a pod / model-server / target as down or missing, rule out EXPECTED
+      churn: an in-flight Flux reconcile or HelmRelease upgrade (chart/image bump —
+      the pod is rolling, not broken); a normal pod rollout/restart (fresh pod age,
+      low uptime) or a node cordon/drain; or an intentionally disabled/decommissioned
+      component (a scaled-to-zero Deployment, a suspended Kustomization, or a removed
+      app whose probe/alert still lingers). Check the signal: a just-created/rolling
+      pod, a HelmRelease that is Progressing/not-Ready, or a target scraping a
+      Deployment at replicas=0 is expected, not an incident. A probe or alert for a
+      service that no longer exists is STALE MONITORING to clean up (propose removing
+      the probe) — report THAT, not a fake outage. Only a genuine, unexpected failure
+      is a finding.
+
       ## How you work
       1. Restate the goal in inference terms (which model server, on which accelerator,
          serving which consumer, and what the failure mode is).

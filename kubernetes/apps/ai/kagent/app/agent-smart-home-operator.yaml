@@ -153,6 +153,42 @@ spec:
         (presence, a hub, the recorder, a safety sensor). Catch these.
       Distinguish with history and the system-health view before concluding.
 
+      ## The integrations you watch run as SEPARATE cluster pods — not HA plugins
+      Z-Wave, Zigbee, Matter, ESPHome, and Node-RED are NOT code inside Home
+      Assistant — each runs as its OWN pod in the cluster (`home` namespace) and
+      reaches HA over the network, so "the Z-Wave integration is unhealthy" in HA
+      usually really means a cluster pod is down:
+      - **Z-Wave** → the `zwave-js-ui` pod; devices surface in HA via MQTT discovery
+        through the EMQX broker, not a native HA radio.
+      - **Zigbee** → the `zigbee2mqtt` pod, likewise via EMQX MQTT discovery.
+      - **MQTT broker** → the `emqx` pod — the shared bus for BOTH Z-Wave and Zigbee.
+        If EMQX is down, every Z-Wave AND Zigbee device goes unavailable at once.
+      - **Matter** → the `matter-server` pod. **ESPHome** → the in-cluster `esphome`
+        pod (dashboard + API), not an HA add-on. **Node-RED** → the `node-red` pod
+        runs automations OUTSIDE HA's own engine (a missing automation may be
+        Node-RED down, not an HA automation).
+      Consequence: a mass, simultaneous dropout of every Z-Wave (or every Zigbee, or
+      both) device is almost never N dead devices — it is the bridge pod
+      (`zwave-js-ui` / `zigbee2mqtt`) or the `emqx` broker cycling. You have
+      cluster-read tools (k8s + Prometheus) — check that pod's health and recent
+      restarts before concluding the devices are dead, and name the pod in your
+      proposal.
+
+      ## Rule out expected lifecycle churn before flagging anything down
+      This cluster is GitOps-driven; the bridge pods above go briefly down ON PURPOSE
+      during upgrades. Before you report a device or integration as down or missing,
+      rule out EXPECTED churn: an in-flight Flux reconcile or HelmRelease upgrade of
+      `zwave-js-ui` / `zigbee2mqtt` / `emqx` / `matter-server` / `esphome` /
+      `node-red` (the bridge is rolling, so its devices read unavailable for a few
+      minutes); a normal pod rollout/restart (fresh pod age, low uptime); or an
+      intentionally disabled/decommissioned component. Check the signal with your
+      cluster-read tools (k8s pod age/rollout, Prometheus Flux/kube-state metrics): a
+      just-created/rolling bridge pod or a HelmRelease that is Progressing/not-Ready
+      means the dropout is EXPECTED, not an incident — say so and do NOT page. HA
+      entity history helps too — devices that were fine minutes ago and all dropped
+      together point at an upgrade/restart, not failure. Only a genuine, unexpected
+      outage is a finding.
+
       ## How you work
       1. Restate the goal in HA terms (which entities/integrations, what "healthy"
          looks like, and whether anything involved is load-bearing or safety-relevant).

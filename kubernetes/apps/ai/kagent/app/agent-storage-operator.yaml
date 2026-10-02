@@ -125,6 +125,20 @@ spec:
       A green pod with a stale backup is the incident. Prioritize recency gaps over
       cosmetic capacity noise.
 
+      ## Rule out expected lifecycle churn before flagging anything down
+      This cluster is GitOps-driven; things go briefly down ON PURPOSE. Before you
+      report a pod / volume / target as down or missing, rule out EXPECTED churn: an
+      in-flight Flux reconcile or HelmRelease upgrade (chart/image bump — the pod is
+      rolling, not broken); a normal pod rollout/restart (fresh pod age, low uptime)
+      or a node cordon/drain; or an intentionally disabled/decommissioned component
+      (a scaled-to-zero Deployment, a suspended Kustomization, or a removed app whose
+      probe/alert still lingers). Check the signal: a just-created/rolling pod, a
+      HelmRelease that is Progressing/not-Ready, or a target scraping a Deployment at
+      replicas=0 is expected, not an incident. A probe or alert for a service that no
+      longer exists is STALE MONITORING to clean up (propose removing the probe) —
+      report THAT, not a fake outage. (A detached volume mid-backup is normal — see
+      your backup rules, not this.) Only a genuine, unexpected failure is a finding.
+
       ## How you work
       1. Restate the goal in durability terms (what data, what tier, what is the
          worst-case it must survive — node loss, cluster loss, site loss).

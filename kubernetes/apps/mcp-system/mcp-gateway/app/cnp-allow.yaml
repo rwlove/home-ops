@@ -52,24 +52,23 @@ spec:
     egress: false
     ingress: false
   ingress:
-    # Public entrypoint: external clients reach mcp.${SECRET_DOMAIN}
-    # via cloudflared → external envoy → mcp-gateway-istio → broker.
-    # The HTTPRoute mcp-gateway-internal targets internal envoy.
+    # Sole ingress: ALL gateway traffic arrives via the network-ns envoy
+    # gateways (both `internal` and `external` carry
+    # app.kubernetes.io/name=envoy). External clients: cloudflared →
+    # external envoy. In-cluster clients: DNS → internal envoy for
+    # mcp.${SECRET_DOMAIN}. This is the JWT-enforced path (Authelia
+    # SecurityPolicy on the HTTPRoute).
+    #
+    # The former `fromEntities: cluster` :8080 rule — which let in-cluster
+    # clients hit the istio Service directly, below the JWT — was removed
+    # 2026-10-02. Its only consumers are gone (opencode decommissioned,
+    # hermes dead, open-webui migrated to the enforced mcp.${SECRET_DOMAIN}
+    # path). Closing it makes the JWT the single door in.
+    # See docs/src/mcp_gateway_access_design.md (Decision 1b).
     - fromEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: network
             app.kubernetes.io/name: envoy
-      toPorts:
-        - ports:
-            - port: "8080"
-              protocol: TCP
-    # Cluster-internal MCP clients (ai/opencode, collab/open-webui,
-    # etc.) hit the istio Service directly by DNS; their source pods live
-    # in various namespaces. Allow from any namespace on 8080 — these
-    # are MCP tool invocations gated by Authelia JWT at the envoy
-    # SecurityPolicy layer (per project_mcp_gateway_auth_done.md).
-    - fromEntities:
-        - cluster
       toPorts:
         - ports:
             - port: "8080"

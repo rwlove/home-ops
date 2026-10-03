@@ -13,8 +13,11 @@ const PAGE_SIZE = 100;
 const SOURCE_PREFIX = "paperless:";
 const DELETE_BATCH = 20;
 
-type DocStatus = { id: string; file_path: string };
-type DocsStatusesResponse = { statuses: Record<string, DocStatus[]> };
+type DocStatusEntry = { id: string; file_path: string };
+type PaginatedDocsResponse = {
+    documents: DocStatusEntry[];
+    pagination: { has_next: boolean };
+};
 
 export async function main() {
     const token = Deno.env.get("PAPERLESS_TOKEN");
@@ -66,20 +69,30 @@ async function paperlessIds(token: string): Promise<Set<number>> {
     return ids;
 }
 
+// LightRAG v1.5.7 removed GET /documents (DELETE-only now) in favour of
+// POST /documents/paginated. Page through it (page_size max 200). A doc
+// missed by a mid-run pagination shift is simply not reported here, so it
+// won't be tombstoned this run — safe (never deletes a live doc), retried
+// next run.
 async function lightragPaperlessDocs(apiKey: string): Promise<{ paperlessId: number; docId: string }[]> {
-    const r = await fetch(`${LIGHTRAG}/documents`, {
-        headers: { "X-API-Key": apiKey },
-        signal: AbortSignal.timeout(60_000),
-    });
-    if (!r.ok) throw new Error(`lightrag GET /documents ${r.status}: ${await r.text()}`);
-    const body = (await r.json()) as DocsStatusesResponse;
     const out: { paperlessId: number; docId: string }[] = [];
-    for (const docs of Object.values(body.statuses ?? {})) {
-        for (const d of docs) {
+    for (let page = 1; page <= 10_000; page++) {
+        const r = await fetch(`${LIGHTRAG}/documents/paginated`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
+            body: JSON.stringify({
+                page, page_size: 200, sort_field: "id", sort_direction: "asc",
+            }),
+            signal: AbortSignal.timeout(60_000),
+        });
+        if (!r.ok) throw new Error(`lightrag POST /documents/paginated ${r.status}: ${await r.text()}`);
+        const body = (await r.json()) as PaginatedDocsResponse;
+        for (const d of body.documents ?? []) {
             if (!d.file_path?.startsWith(SOURCE_PREFIX)) continue;
             const pid = Number(d.file_path.slice(SOURCE_PREFIX.length));
             if (Number.isFinite(pid)) out.push({ paperlessId: pid, docId: d.id });
         }
+        if (!body.pagination?.has_next) break;
     }
     return out;
 }

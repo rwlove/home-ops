@@ -53,6 +53,21 @@ spec:
         - ports:
             - port: "8001"
               protocol: TCP
+    # blackbox-exporter → windmill-app:8000 /api/health/status (the
+    # WindmillPoolWedged probe in observability/exporters/blackbox-exporter).
+    # The chart labels this pod `prometheus-blackbox-exporter`, NOT
+    # `blackbox-exporter` — the #13264 label trap. A wrong name here
+    # silently default-deny drops the probe (probe_http_status_code=0), so
+    # the critical alert fires permanently against a perfectly healthy app
+    # (exactly what happened when the probe was added without this hole).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: prometheus-blackbox-exporter
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
     # windmill-app → windmill-extra:3001 (in-browser code-completion LSP).
     - fromEndpoints:
         - matchExpressions:

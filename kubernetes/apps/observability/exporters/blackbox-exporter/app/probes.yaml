@@ -284,3 +284,49 @@ spec:
     staticConfig:
       static:
         - http://vllm-driver-spark.ai.svc.cluster.local:8000/v1/chat/completions
+
+---
+# yaml-language-server: $schema=https://k8s-schemas.home-operations.com/monitoring.coreos.com/probe_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: windmill-app-health
+spec:
+  # Wedge detector for the windmill-app sqlx connection pool. After a CNPG
+  # postgres-windmill PRIMARY SWITCHOVER, Windmill's client-side sqlx pool
+  # can wedge into permanent PoolTimedOut and never self-heal — the DB is
+  # healthy but every acquire() fails until the pod is restarted
+  # (2026-10-03: job execution down instance-wide ~55 min; fix was a manual
+  # `kubectl rollout restart` of the three windmill deployments). Root cause
+  # is an sqlx permit leak (transact-rs/sqlx#4350): with test_before_acquire
+  # on, a dead post-failover connection hangs in return_to_pool and leaks its
+  # permit; after max_connections such leaks every acquire times out forever.
+  # Windmill hardcodes max_lifetime(30m)/idle_timeout/acquire_timeout in
+  # backend/src/db_connect.rs and the chart exposes no pool-tuning env — so
+  # there is no config knob to prevent the wedge. Detection is the lever.
+  #
+  # Why /api/health/status catches it where pod-Ready and the chart's
+  # hardcoded /api/version liveness do NOT: this unauthenticated endpoint
+  # runs `SELECT NOT pg_is_in_recovery()` THROUGH THE SAME POOL under a
+  # timeout, and returns HTTP 503 when that query fails/times out
+  # (backend/windmill-api/src/health.rs). /api/version never touches the DB,
+  # so the chart liveness stays green through a pool wedge. The http_2xx
+  # module only accepts 2xx, so a wedge → probe_success=0.
+  #
+  # ?force=true bypasses the handler's 5s result cache so a wedge surfaces on
+  # the first probe after it happens rather than up to 5s stale.
+  #
+  # 1m cadence (vs the job-presence windmill-watchdog's ~15-25m detection
+  # latency): this is the fast, direct signal on the exact failure mode.
+  # scrapeTimeout 10s > the module's 5s so a cold first query after a restart
+  # surfaces as a slow success, not a scrape error (same pairing rule as the
+  # ollama/tei/vllm probes above).
+  interval: 1m
+  scrapeTimeout: 10s
+  module: http_2xx
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - http://windmill-app.home.svc.cluster.local:8000/api/health/status?force=true

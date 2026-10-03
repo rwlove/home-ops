@@ -63,6 +63,28 @@ spec:
           - name: alertname
             value: AgentOpsQueueUnhealthy|AgentOpsWatchdogStale|AgentOpsWatchdogMissing|WindmillFailureDetectionStale|WindmillWatchdogMissing
             matchType: "=~"
+      # DORMANT by design (Rob-approved 2026-10-03). Forwards firing alerts
+      # carrying `queue: agent-ops` to the Windmill agent-ops work-queue
+      # ingress (ingest_alert script -> task-contract -> triage flow). No
+      # PrometheusRule sets this label today, so this route matches ZERO
+      # alerts — it exists to validate the receiver/CNP/secret plumbing
+      # without putting a single alert through the live path. `continue:
+      # true` so that whenever a rule DOES opt in (by adding
+      # `queue: agent-ops` to its labels), the alert still falls through to
+      # root `pushover` / the email route above and pages/notifies exactly
+      # as it does today — this is a parallel ingestion hook, never a
+      # replacement for the human-facing notification. sendResolved:false
+      # on the receiver (see below) — ingest firing onset only, not clears.
+      # To opt an alert in: add `labels: {queue: agent-ops}` to its
+      # PrometheusRule. To validate end-to-end: pick exactly one low-risk
+      # alert, add the label, confirm a single ingest_alert job appears in
+      # the agent-ops workspace, then decide whether to expand.
+      - receiver: "agent-ops-ingest"
+        continue: true
+        matchers:
+          - name: queue
+            value: agent-ops
+            matchType: "="
   # Routing is by ALERTNAME, not by severity. The routes above are the
   # only suppression/redirection: everything else — critical, warning,
   # and info alike — falls through to the root `pushover` receiver and
@@ -96,6 +118,25 @@ spec:
       webhookConfigs:
         - url: http://alert-agent-bridge.ai.svc.cluster.local:8080/alerts
           sendResolved: false
+    # DORMANT ingress into the agent-ops Windmill work-queue (see the
+    # `queue: agent-ops` route above — matches zero alerts today). POSTs
+    # Alertmanager's native payload ({alerts:[...], status, ...}) straight
+    # to the ingest_alert script, which maps it onto a task-contract and
+    # fires the triage flow. Bearer token from the 1P item
+    # `windmill-agent-ops-webhook` (field `token`), materialized by the
+    # `alertmanager` ExternalSecret in this same directory into
+    # `alertmanager-secret` key `agent_ops_webhook_token`. sendResolved:
+    # false — ingest firing onset only, not clears (a resolved alert isn't
+    # a new task).
+    - name: "agent-ops-ingest"
+      webhookConfigs:
+        - url: http://windmill-app.home.svc.cluster.local:8000/api/w/agent-ops/jobs/run/p/f/agent_ops/ingest_alert
+          sendResolved: false
+          httpConfig:
+            authorization:
+              credentials:
+                name: alertmanager-secret
+                key: agent_ops_webhook_token
     # Non-paging channel for local-watcher / agent-ops warning-tier alerts
     # (see the email route above). Speaks SMTP directly to the in-cluster
     # relay on its unauthenticated plaintext listener — same path the

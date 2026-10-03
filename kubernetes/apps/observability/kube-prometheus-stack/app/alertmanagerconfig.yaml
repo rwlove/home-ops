@@ -47,11 +47,29 @@ spec:
           - name: severity
             value: critical
             matchType: "="
-  # Routing is by ALERTNAME, not by severity. The two routes above are
-  # the only suppression: everything else — critical, warning, and info
-  # alike — falls through to the root `pushover` receiver and notifies.
-  # If you want an alert to page, no severity label change is needed; if
-  # you want one silenced, add an alertname route here.
+      # Local-watcher / agent-ops health + dead-man's-switch alerts
+      # (Rob-approved 2026-10-03). All five are `severity: warning` —
+      # non-paging by design — so route them to email instead of
+      # Pushover rather than competing with wake-the-human pages. No
+      # `continue: true`: this REPLACES the pushover route for these
+      # alertnames, it does not duplicate the notification.
+      # WindmillFailureDetectionStale / WindmillWatchdogMissing are the
+      # windmill-watchdog dead-man's switch; the three AgentOps* alerts
+      # are the M5 agent-ops-watchdog equivalent (PR #14704). Both rule
+      # groups live in kubernetes/apps/home/windmill/app/
+      # (prometheusrule.yaml and prometheusrule-agent-ops.yaml).
+      - receiver: "email"
+        matchers:
+          - name: alertname
+            value: AgentOpsQueueUnhealthy|AgentOpsWatchdogStale|AgentOpsWatchdogMissing|WindmillFailureDetectionStale|WindmillWatchdogMissing
+            matchType: "=~"
+  # Routing is by ALERTNAME, not by severity. The routes above are the
+  # only suppression/redirection: everything else — critical, warning,
+  # and info alike — falls through to the root `pushover` receiver and
+  # notifies. If you want an alert to page, no severity label change is
+  # needed; if you want one silenced, add an alertname route here; if you
+  # want one redirected to a non-paging channel, add it to the email
+  # route's regex above (or a new receiver, following the same shape).
   #
   # (HolmesGPT/windmill-investigate enrichment on critical was removed
   # 2026-07-06 — no value delivered.)
@@ -78,6 +96,42 @@ spec:
       webhookConfigs:
         - url: http://alert-agent-bridge.ai.svc.cluster.local:8080/alerts
           sendResolved: false
+    # Non-paging channel for local-watcher / agent-ops warning-tier alerts
+    # (see the email route above). Speaks SMTP directly to the in-cluster
+    # relay on its unauthenticated plaintext listener — same path the
+    # Windmill workflows use (kubernetes/apps/home/windmill/app/helmrelease.yaml
+    # workerGroups extraEnv: SMTP_HOST=smtp-relay.home.svc.cluster.local,
+    # SMTP_PORT=2525). `requireTLS: false` matches maddy.conf's `tls off`
+    # on that listener — Alertmanager defaults to STARTTLS otherwise and
+    # the relay doesn't offer it on :2525, so a message would never send.
+    - name: "email"
+      emailConfigs:
+        - to: admin@${SECRET_DOMAIN}
+          from: alertmanager@${SECRET_DOMAIN}
+          smarthost: smtp-relay.home.svc.cluster.local:2525
+          hello: ${SECRET_DOMAIN}
+          requireTLS: false
+          sendResolved: true
+          headers:
+            - key: Subject
+              value: >-
+                [{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}]
+                {{ .CommonLabels.alertname }}
+          html: |-
+            {{- range .Alerts -}}
+              <p>
+              {{- if .Annotations.description -}}
+                {{ .Annotations.description }}
+              {{- else if .Annotations.summary -}}
+                {{ .Annotations.summary }}
+              {{- else -}}
+                Alert description not available
+              {{- end -}}
+              {{- with .Labels.namespace }} <i>ns={{ . }}</i>{{ end -}}
+              {{- with .Labels.cronjob }} <i>cronjob={{ . }}</i>{{ end -}}
+              {{- with .Labels.job_name }} <i>job={{ . }}</i>{{ end -}}
+              </p>
+            {{- end -}}
     - name: "pushover"
       pushoverConfigs:
         - html: true

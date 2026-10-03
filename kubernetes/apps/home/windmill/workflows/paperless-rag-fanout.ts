@@ -1,9 +1,10 @@
 // Cron: every 15 min.
 //
 // MIRROR NOTE: this file is a hand-maintained copy of the script deployed
-// in Windmill; there is no git -> Windmill sync. The live version is hash
-// 7ad0be5d1bbdce5a. Synced 2026-07-26 to match, after the embedding
-// cutover was deployed via MCP on 07-25 and left this copy stale.
+// in Windmill; there is no git -> Windmill sync. Re-synced + redeployed via
+// MCP on 2026-10-03 to migrate the LightRAG document listing off the removed
+// GET /documents endpoint (405 Method Not Allowed in LightRAG v1.5.7) to
+// POST /documents/paginated.
 //
 // Unified paperless → RAG ingest. Pulls each modified Paperless document
 // ONCE and fans it out to BOTH retrieval backends:
@@ -67,8 +68,11 @@ type PaperlessDoc = {
 };
 type PaperlessList = { count: number; next: string | null; results: PaperlessDoc[] };
 type QdrantPoint = { id: number; vector: number[]; payload: Record<string, unknown> };
-type DocStatus = { id: string; file_path: string };
-type DocsStatusesResponse = { statuses: Record<string, DocStatus[]> };
+type DocStatusEntry = { id: string; file_path: string };
+type PaginatedDocsResponse = {
+    documents: DocStatusEntry[];
+    pagination: { has_next: boolean };
+};
 type PipelineStatus = { busy?: boolean; request_pending?: boolean; destructive_busy?: boolean };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -182,21 +186,30 @@ async function submitToLightrag(
     return replaced ? "replaced" : "submitted";
 }
 
+// LightRAG v1.5.7 removed GET /documents (the path is now DELETE-only — it
+// wipes the whole corpus) in favour of POST /documents/paginated. Page
+// through it (page_size max 200) collecting every doc whose file_path is a
+// "paperless:" source. sort by id asc for a stable pagination order.
 async function lightragSourceMap(apiKey: string): Promise<Map<string, string[]>> {
-    const r = await fetch(`${LIGHTRAG}/documents`, {
-        headers: { "X-API-Key": apiKey },
-        signal: AbortSignal.timeout(60_000),
-    });
-    if (!r.ok) throw new Error(`lightrag GET /documents ${r.status}: ${await r.text()}`);
-    const body = (await r.json()) as DocsStatusesResponse;
     const map = new Map<string, string[]>();
-    for (const docs of Object.values(body.statuses ?? {})) {
-        for (const d of docs) {
+    for (let page = 1; page <= 10_000; page++) {
+        const r = await fetch(`${LIGHTRAG}/documents/paginated`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
+            body: JSON.stringify({
+                page, page_size: 200, sort_field: "id", sort_direction: "asc",
+            }),
+            signal: AbortSignal.timeout(60_000),
+        });
+        if (!r.ok) throw new Error(`lightrag POST /documents/paginated ${r.status}: ${await r.text()}`);
+        const body = (await r.json()) as PaginatedDocsResponse;
+        for (const d of body.documents ?? []) {
             if (!d.file_path?.startsWith(SOURCE_PREFIX)) continue;
             const arr = map.get(d.file_path) ?? [];
             arr.push(d.id);
             map.set(d.file_path, arr);
         }
+        if (!body.pagination?.has_next) break;
     }
     return map;
 }

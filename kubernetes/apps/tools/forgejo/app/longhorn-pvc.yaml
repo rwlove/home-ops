@@ -1,4 +1,25 @@
 ---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/storageclass-storage-v1.json
+#
+# Dynamic provisioning (not the repo's static-PV+volumeHandle pattern): a fresh
+# app has no pre-created Longhorn volume, so Longhorn provisions one from this
+# StorageClass. numberOfReplicas: 2 — the forge is the canonical store for
+# in-cluster automation git. Backups are automatic via Longhorn's `default`
+# recurring-job group (daily snapshot + weekly + monthly backup to the NFS target).
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: forgejo-data
+provisioner: driver.longhorn.io
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+parameters:
+  numberOfReplicas: "2"
+  staleReplicaTimeout: "2880"
+  fsType: xfs
+  dataLocality: disabled
+  unmapMarkSnapChainRemoved: ignored
+---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/persistentvolumeclaim-v1.json
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -13,32 +34,4 @@ spec:
   resources:
     requests:
       storage: 10Gi
-  volumeName: forgejo-data-pv
-  storageClassName: forgejo-data-storage-class
----
-# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/persistentvolume-v1.json
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: forgejo-data-pv
-  labels:
-    # Irreplaceable (git history) → daily snapshot + weekly + monthly backup.
-    type: longhorn
-    recurring-job-group.longhorn.io/daily-snapshot: enabled
-    recurring-job-group.longhorn.io/weekly-backup: enabled
-    recurring-job-group.longhorn.io/monthly-backup: enabled
-spec:
-  capacity:
-    storage: 10Gi
-  volumeMode: Filesystem
-  accessModes:
-    - ReadWriteOnce
-  persistentVolumeReclaimPolicy: Retain
-  storageClassName: forgejo-data-storage-class
-  csi:
-    driver: driver.longhorn.io
-    fsType: xfs
-    volumeAttributes:
-      numberOfReplicas: "2"
-      staleReplicaTimeout: "2880"
-    volumeHandle: forgejo-data
+  storageClassName: forgejo-data

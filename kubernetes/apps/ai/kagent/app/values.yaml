@@ -52,35 +52,17 @@ cilium-manager-agent:
 cilium-debug-agent:
   enabled: false
 
-# grafana-mcp: reuse the EXISTING read-only Grafana SA token. The mcp-system/grafana-mcp
-# app already runs mcp-grafana with --disable-write against grafana.observability.svc; its
-# token lives in 1P item `grafana` (field mcp_token). The ExternalSecret in this app mints
-# Secret `kagent-grafana-mcp-secret` (key GRAFANA_SERVICE_ACCOUNT_TOKEN) from that item.
+# grafana-mcp subchart DISABLED 2026-10-03 (dedup). The kagent operators now
+# consume the SHARED mcp-system/grafana-mcp via remotemcpserver-grafana-mcp.yaml
+# instead of this chart bundling a second grafana-mcp pod + ExternalSecret. That
+# instance is already read-only (--disable-write), Host-agnostic
+# (--allowed-hosts "*"), and reachable cross-ns via the kagent-mcp-read-allow
+# ingress — same pattern as every other mcp-system server the agents use. This
+# removes the duplicate pod, its ExternalSecret (kagent-grafana-mcp-secret), and
+# the kagent-grafana-mcp-allow CNP. Re-enable only if the shared instance is
+# retired (and restore the image pin + grafana token block from git history).
 grafana-mcp:
-  enabled: true
-  # Pin the bundled grafana-mcp image. The chart default is
-  # `mcp/grafana:latest` (Docker's MCP-catalog mirror), which ONLY ever ships
-  # `latest` — unversioned and un-Renovatable. Repoint at the UPSTREAM
-  # `grafana/mcp-grafana` image (same server, tags every release; the mcp/grafana
-  # mirror is just a repackage of it) pinned by tag + digest. Same image family
-  # as mcp-system/grafana-mcp. The 0.10.x subchart image helper is
-  # `join "/" [registry, repository] + ":" + tag`, so the digest rides on the
-  # tag → docker.io/grafana/mcp-grafana:1.6.3@sha256:...  Renovate's helm-values
-  # manager tracks registry+repository+tag@digest here (kubernetes/**.yaml).
-  image:
-    registry: docker.io
-    repository: grafana/mcp-grafana
-    tag: "2.0.0@sha256:2ed63c4d9d67557c8ea6cc6988743ddd9008e248bd9842e760fec378a0b61062"
-    pullPolicy: IfNotPresent
-  grafana:
-    url: "http://grafana.observability.svc.cluster.local"
-    secretRef: kagent-grafana-mcp-secret
-  # mcp-grafana defaults --allowed-hosts to loopback and 403s the in-cluster agent's
-  # `Host: kagent-grafana-mcp.ai:8000` (DNS-rebinding protection). Allowlist the service
-  # DNS the kagent agents actually dial (appended to the chart's --transport args).
-  args:
-    - "--allowed-hosts"
-    - "kagent-grafana-mcp.ai:8000,kagent-grafana-mcp.ai.svc.cluster.local:8000,kagent-grafana-mcp:8000"
+  enabled: false
 
 # Bundled dev/eval Postgres on ceph-block (regenerable trial state).
 # PRODUCTION TODO: point database.postgres.url at a CNPG cluster with pgvector

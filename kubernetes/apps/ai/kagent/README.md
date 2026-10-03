@@ -64,12 +64,15 @@ canonical persona source is `~/.claude-personal/agents/*.md`.
 - `otel.tracing.enabled: true` → the cluster OTLP/Tempo endpoint.
 - Expose the controller's agents over MCP behind the lovenet gateway for Claude
   Code delegation.
-- **grafana-mcp** (enabled Phase 3a) is now pinned via `grafana-mcp.image` in
-  `values.yaml` to `docker.io/grafana/mcp-grafana:<tag>@sha256:<digest>` (the upstream
-  semver-tagged image; the chart default `mcp/grafana:latest` only ships `latest`).
-  Renovate's helm-values manager tracks it. **Still open:** it duplicates
-  `mcp-system/grafana-mcp` — point the agents at the existing gateway grafana-mcp
-  instead of bundling a second instance.
+- **grafana-mcp — DEDUPED 2026-10-03** (`grafana-mcp.enabled: false`). The chart's
+  bundled grafana-mcp (a second in-namespace instance) was removed; the operator
+  agents now consume the shared `mcp-system/grafana-mcp` via
+  `remotemcpserver-grafana-mcp.yaml` (cross-ns, same pattern as every other
+  mcp-system server they use). That instance is read-only (`--disable-write`) and
+  Host-agnostic (`--allowed-hosts "*"`). This also removed the
+  `kagent-grafana-mcp-secret` ExternalSecret and the `kagent-grafana-mcp-allow`
+  CNP. Re-enable the bundle only if the shared instance is retired (restore the
+  image pin + token block from git history).
 
 ## Revert
 

@@ -64,6 +64,18 @@ spec:
         - ports:
             - port: "8070"
               protocol: TCP
+    # Grafana MCP — read-only (allowlist-enforced): Prometheus/Loki queries +
+    # datasource/alert listing. The SHARED mcp-system instance (dedup 2026-10-03,
+    # replacing the formerly-bundled ai grafana-mcp). Ingress half is in
+    # mcp-system kagent-mcp-read-allow (:8000 already open there).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+            app.kubernetes.io/name: grafana-mcp
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
     # Home Assistant MCP — read-only (allowlist-enforced), smart-home-operator.
     - toEndpoints:
         - matchLabels:
@@ -148,38 +160,6 @@ spec:
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
-  name: kagent-grafana-mcp-allow
-spec:
-  # The kagent Helm chart deploys its OWN grafana-mcp in THIS namespace (labels
-  # name=grafana-mcp + instance=kagent), separate from mcp-system/grafana-mcp.
-  # The operator agents dial it intra-ns (baseline allow-intra-namespace); this
-  # grafana-mcp in turn needs egress to the Grafana backend in observability to
-  # discover datasources. It is NOT `part-of: kagent`, so kagent-agents-allow
-  # does not cover it — hence this dedicated policy. Ingress half (grafana
-  # admitting it) is in observability/grafana/app/cnp-allow.yaml.
-  endpointSelector:
-    matchLabels:
-      app.kubernetes.io/name: grafana-mcp
-      app.kubernetes.io/instance: kagent
-  enableDefaultDeny:
-    egress: false
-    ingress: false
-  egress:
-    # Grafana backend (observability). Service is 80→3000; Cilium enforces on the
-    # translated backend port, so this pins :3000 like grafana's ingress rules.
-    - toEndpoints:
-        - matchLabels:
-            io.kubernetes.pod.namespace: observability
-            app.kubernetes.io/name: grafana
-      toPorts:
-        - ports:
-            - port: "3000"
-              protocol: TCP
----
-# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
   name: kagent-controller-mcp-discovery-allow
 spec:
   # The kagent CONTROLLER (not an agent pod) reconciles every RemoteMCPServer CR
@@ -193,9 +173,11 @@ spec:
   # in mcp-system — esphome/github/ha/memory/netbox/omada — not just the
   # pr-mcp/notify-mcp originally fixed in #14586 (that PR's assumption that
   # github-mcp/memory-mcp were already covered did not hold against live data).
-  # grafana-mcp/ghostfolio-mcp/kagent-tool-server are intra-namespace (covered by
-  # the ai allow-intra-namespace baseline), so they are genuinely unaffected. This
-  # opens controller egress to each mcp-system server; the ingress halves are in
+  # ghostfolio-mcp/kagent-tool-server are intra-namespace (covered by the ai
+  # allow-intra-namespace baseline), so they are genuinely unaffected. grafana-mcp
+  # MOVED cross-ns 2026-10-03 (dedup to mcp-system/grafana-mcp) — its controller
+  # egress is the :8000 entry below. This opens controller egress to each
+  # mcp-system server; the ingress halves are in
   # mcp-system/mcp-gateway/app/cnp-kagent-read-allow.yaml (kagent-mcp-read-allow)
   # and mcp-system/memory-mcp/app/helmrelease.yaml (memory-mcp-allow).
   endpointSelector:
@@ -206,6 +188,14 @@ spec:
     egress: false
     ingress: false
   egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+            app.kubernetes.io/name: grafana-mcp
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: mcp-system

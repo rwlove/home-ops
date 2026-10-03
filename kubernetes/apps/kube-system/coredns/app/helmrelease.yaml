@@ -80,3 +80,17 @@ spec:
       - effect: NoSchedule
         key: node-role.kubernetes.io/control-plane
         operator: Exists
+    # Spread the 3 replicas across distinct control-plane nodes so a single node
+    # event can't land 2 of 3 on one host (which doubled the blast radius during
+    # the 2026-10-03 churn-DNS incident), and keep >=2 available during disruption.
+    # Safe part-1 of the Cilium/CoreDNS RCA; the lb-algorithm parts are held for a
+    # maintenance window. See reference_stale_cilium_endpoint_coredns_fqdn_proxy_extauth_outage.
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            k8s-app: kube-dns
+    podDisruptionBudget:
+      minAvailable: 2

@@ -72,7 +72,14 @@ database:
   postgres:
     bundled:
       enabled: true
-      storage: 1Gi
+      # 1Gi → 8Gi (2026-10-03 incident): the bundled dev DB FILLED its 1Gi PVC
+      # (agent/tool-discovery/session rows), postgres crashed mid-WAL-recovery with
+      # "No space left on device" → CrashLoopBackOff → the kagent control-plane
+      # degraded and every helm upgrade timed out waiting for postgres Ready →
+      # rollback loop. Expanded the live ceph-block PVC to 8Gi online
+      # (allowVolumeExpansion: true) to recover; this matches Git to the live size
+      # so helm doesn't attempt an (API-rejected) PVC shrink on the next upgrade.
+      storage: 8Gi
       storageClassName: ceph-block
 
 controller:

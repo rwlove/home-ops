@@ -1,0 +1,328 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": "-- Grafana --",
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "panels": [],
+      "title": "Queue health (LIVE — kube_job_failed / kube_cronjob_status_*, via agent-ops-watchdog)",
+      "type": "row"
+    },
+    {
+      "datasource": "$datasource",
+      "description": "Seconds since the agent-ops-watchdog CronJob last completed successfully. Rising steadily above ~600s means DLQ-growth and stuck-queue detection is currently blind (see AgentOpsWatchdogStale alert).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 600 },
+              { "color": "red", "value": 900 }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 1 },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": "$datasource",
+          "expr": "time() - kube_cronjob_status_last_successful_time{namespace=\"home\", cronjob=\"agent-ops-watchdog\"}",
+          "legendFormat": "watchdog staleness",
+          "refId": "A"
+        }
+      ],
+      "title": "agent-ops-watchdog staleness",
+      "type": "stat"
+    },
+    {
+      "datasource": "$datasource",
+      "description": "1 = the most recent agent-ops-watchdog run found DLQ growth (>5 failures/15m) or a stuck queue (oldest queued job >15m old). 0 = healthy. Backs the AgentOpsQueueUnhealthy alert.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [
+            { "options": { "0": { "text": "Healthy" } }, "type": "value" },
+            { "options": { "1": { "text": "DLQ growth / stuck queue" } }, "type": "value" }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 1 },
+      "id": 2,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": "$datasource",
+          "expr": "max(kube_job_failed{namespace=\"home\", job_name=~\"agent-ops-watchdog-.*\", condition=\"true\"})",
+          "legendFormat": "DLQ / stuck-queue flag",
+          "refId": "A"
+        }
+      ],
+      "title": "DLQ growth / stuck queue (proxy)",
+      "type": "stat"
+    },
+    {
+      "datasource": "$datasource",
+      "description": "Failed agent-ops-watchdog Job objects over time. A single transient blip creates one failed Job (backoffLimit: 0); a real, sustained problem shows as a run of failures rather than an isolated spike.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisPlacement": "auto",
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "never"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 1 },
+      "id": 3,
+      "options": {
+        "legend": { "calcs": ["sum"], "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": "$datasource",
+          "expr": "sum(kube_job_failed{namespace=\"home\", job_name=~\"agent-ops-watchdog-.*\", condition=\"true\"})",
+          "legendFormat": "failed watchdog runs",
+          "refId": "A"
+        }
+      ],
+      "title": "agent-ops-watchdog failures over time",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 7 },
+      "id": 101,
+      "panels": [],
+      "title": "Database activity (LIVE proxy — postgres-windmill CNPG exporter)",
+      "type": "row"
+    },
+    {
+      "datasource": "$datasource",
+      "description": "Active Postgres backends against postgres-windmill (databases ns), the CNPG cluster backing the whole Windmill instance — all workspaces, not agent-ops alone. A rough proxy for \"is Windmill under load\" until a custom CNPG monitoring query exposes the agent-ops queue table directly (see 'Known gaps' row below).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "never",
+            "stacking": { "mode": "normal" }
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 8 },
+      "id": 4,
+      "options": {
+        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": "$datasource",
+          "expr": "cnpg_backends_total{datname=\"windmill\"}",
+          "legendFormat": "{{ state }} ({{ usename }})",
+          "refId": "A"
+        }
+      ],
+      "title": "postgres-windmill backends by state",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "$datasource",
+      "description": "Backends currently waiting on a lock in postgres-windmill. Sustained non-zero values suggest contention — worth checking before assuming a slow agent-ops flow is purely an application-layer problem.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 6, "x": 12, "y": 8 },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": "$datasource",
+          "expr": "cnpg_backends_waiting_total",
+          "legendFormat": "waiting backends",
+          "refId": "A"
+        }
+      ],
+      "title": "postgres-windmill backends waiting on lock",
+      "type": "stat"
+    },
+    {
+      "datasource": "$datasource",
+      "description": "Windmill app + worker pod restarts (home ns). A restarting worker drops in-flight jobs back to the queue — correlate spikes here with queue-depth/failure anomalies above.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisPlacement": "auto",
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "never"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 6, "x": 18, "y": 8 },
+      "id": 6,
+      "options": {
+        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": "$datasource",
+          "expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=\"home\", pod=~\"windmill-(app|workers).*\"}[1h]))",
+          "legendFormat": "{{ pod }}",
+          "refId": "A"
+        }
+      ],
+      "title": "Windmill app/worker restarts (1h increase)",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 15 },
+      "id": 102,
+      "panels": [],
+      "title": "BLOCKED — Windmill native job/queue metrics (Enterprise-only, not CE)",
+      "type": "text"
+    },
+    {
+      "datasource": "$datasource",
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 16 },
+      "id": 7,
+      "options": {
+        "code": { "language": "markdown", "showLineNumbers": false, "showMiniMap": false },
+        "content": "### Queue depth, job success/failure rate, job duration p50/p95, breakdown by flow/script — BLOCKED, not pending\n\nThese panels were the original ask. They cannot be built against real data **under any configuration this cluster will run**:\n\nWindmill's native Prometheus metrics (`windmill_*` — queue depth, job duration histograms, per-worker/per-script breakdowns) are gated behind `METRICS_ADDR`, which the chart only sets `{{ if .Values.enterprise.enabled }}` (verified against chart 4.0.268, `templates/app.yaml` + `templates/worker-groups.yaml`). This deployment runs Community Edition (`enterprise.enabled: false` — intentional, no license). `windmill-app-metrics:8001` returns connection-refused; the chart doesn't even ship a ServiceMonitor for it (commented out in the template).\n\n**This is a licensing wall, not an M4 dependency.** The panels in the rows above substitute what's actually obtainable on CE: CronJob-mediated REST polling (same pattern as the existing `windmill-watchdog`), kube-state-metrics, and the CNPG exporter already scraping `postgres-windmill`.\n\n**Real path to true queue-depth/duration metrics on CE** (not built in this PR — flagged for a separate decision): add a CNPG custom monitoring query against Windmill's own `queue` / `completed_job` Postgres tables (`enablePodMonitor: true` is already set on `postgres-windmill`; needs a `customQueriesConfigMap` query added). That gets real row-count and duration data into Prometheus without an EE license. Scope and query design deliberately left out of this PR — it's a new exporter surface, not an additive dashboard/alert change.",
+        "mode": "markdown"
+      },
+      "title": "Why these panels don't exist",
+      "type": "text"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 },
+      "id": 103,
+      "panels": [],
+      "title": "PENDING M4 — approval-pending / per-task trace view",
+      "type": "text"
+    },
+    {
+      "datasource": "$datasource",
+      "gridPos": { "h": 5, "w": 24, "x": 0, "y": 24 },
+      "id": 8,
+      "options": {
+        "code": { "language": "markdown", "showLineNumbers": false, "showMiniMap": false },
+        "content": "### Approval-pending / per-task trace_id view — PENDING M4\n\nUnlike the row above, this genuinely needs work the M4 walking-skeleton flow hasn't shipped yet, independent of the EE/CE metrics question:\n\n- **Approval-pending duration** needs the Windmill flow's suspend/approval step to expose its wait state somewhere queryable (flow-run API field, or a label on the job). Today there is no API this watchdog (or any other poller) can read to distinguish \"suspended awaiting Rob's HITL approval\" from \"queued, not yet picked up\".\n- **Per-task trace view keyed on `trace_id`** needs the task-contract schema's `trace_id` field to actually be threaded through job args/labels across the triage -> approval -> dispatch -> result chain (M0 defines the field; M4 is what plumbs it through a live flow).\n\nDo not backfill these panels with a query against data that doesn't exist yet — an `expr` with no matching series either always-alerts (`absent()` on a metric that will never appear until M4 ships) or silently never-fires. Revisit this row once M4's flow run carries `trace_id` and approval-state in a place Prometheus or the watchdog CronJob can read.",
+        "mode": "markdown"
+      },
+      "title": "Why these panels don't exist yet",
+      "type": "text"
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 42,
+  "tags": ["agent-ops", "windmill"],
+  "templating": {
+    "list": [
+      {
+        "current": { "text": "default", "value": "default" },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Datasource",
+        "name": "datasource",
+        "query": "prometheus",
+        "refresh": 1,
+        "regex": "",
+        "type": "datasource"
+      }
+    ]
+  },
+  "time": { "from": "now-24h", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Agent-Ops Work Queue",
+  "uid": "agent-ops-work-queue",
+  "version": 1
+}

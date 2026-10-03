@@ -1,0 +1,153 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/cronjob-batch-v1.json
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: agent-ops-watchdog
+spec:
+  # DLQ-growth + stuck-queue watchdog for the `agent-ops` Windmill workspace
+  # (the kagent/Windmill work-queue — see
+  # docs/src/audit/ and the M0-M7 plan referenced from PR history).
+  #
+  # Ground truth (2026-10-03): Windmill's native Prometheus job/queue
+  # metrics (`windmill_*` on windmill-app-metrics:8001) are an
+  # ENTERPRISE-ONLY feature — METRICS_ADDR is only set by the chart
+  # when `enterprise.enabled: true` (templates/app.yaml, chart
+  # 4.0.268). This cluster runs CE (`enterprise.enabled: false` in
+  # ../helmrelease.yaml), so that endpoint is permanently dead here,
+  # not merely unconfigured. There is no Prometheus series for
+  # agent-ops queue depth or failure rate to alert on directly.
+  #
+  # This CronJob is the same shape as ../watchdog-cronjob.yaml
+  # (windmill-watchdog, which guards the lovenet workspace's
+  # windmill-failure-watcher): poll the Windmill REST API, fail the
+  # Job on a real problem, and let kube-state-metrics'
+  # kube_job_failed / kube_cronjob_status_last_successful_time carry
+  # the signal into Prometheus. That indirection — REST poll ->
+  # Job success/failure -> kube-state-metrics -> PrometheusRule — is
+  # the only Prometheus-visible path to agent-ops queue health on CE.
+  #
+  # Two conditions checked per run:
+  #   1. DLQ growth: >5 failed jobs in the agent-ops workspace in the
+  #      last 15m. Proxies "the DLQ is growing" until M4/M6 land a
+  #      durable DLQ concept distinct from "any failed job".
+  #   2. Stuck queue: the oldest currently-queued job is >15m old.
+  #      Windmill flows are expected to clear in seconds; an item
+  #      sitting in queue for 15m means a worker group is wedged,
+  #      starved, or the approval step never got a human response
+  #      and has no separate TTL-expiry alert yet (pending M4/M6).
+  #
+  # Thresholds are first-pass and expected to be re-tuned once real
+  # task volume exists — there is no production traffic through
+  # agent-ops yet (M4 walking-skeleton stage).
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      # No retries — see windmill-watchdog's comment: a retry masks a
+      # transient blip by refreshing last_successful_time.
+      backoffLimit: 0
+      # Same reasoning as windmill-watchdog: without a TTL,
+      # KubeJobFailed latches until 3 more failures evict it via
+      # failedJobsHistoryLimit. 24h = one day of forensics at a 5m
+      # cadence (~288 runs) and re-scopes the alert to "a problem
+      # recently", not "a problem ever".
+      ttlSecondsAfterFinished: 86400
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: watchdog
+              # Same maintenance-job image as windmill-watchdog — carries
+              # curl + jq. Its `date` is busybox: no `-d "15 minutes ago"`,
+              # only `-d @<epoch>`.
+              image: docker.io/alpine/k8s:1.37.1@sha256:712dc5385d1c1a3f83b747fa9e40f64d433a97f72ff42f9755ff7dd1f62846e4
+              env:
+                - name: WINDMILL_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: windmill-workflows-secret
+                      key: WINDMILL_TOKEN
+              command:
+                - /bin/sh
+                - -c
+                # NOTE: every `$` below is doubled. Flux postBuild envsubst
+                # runs STRICT over this manifest; a bare ${VAR} is read as a
+                # Flux substitution variable and fails the whole
+                # Kustomization. Same convention as ../watchdog-cronjob.yaml.
+                - |
+                  set -eu
+
+                  BASE="http://windmill-app.home.svc.cluster.local:8000"
+                  WS="agent-ops"
+                  WINDOW_S=900
+                  FAILURE_THRESHOLD=5
+                  STUCK_AGE_S=900
+
+                  NOW="$$(date -u +%s)"
+                  SINCE="$$(date -u -d "@$$((NOW - WINDOW_S))" +%Y-%m-%dT%H:%M:%SZ)"
+                  case "$$SINCE" in
+                    ????-??-??T??:??:??Z) ;;
+                    *) echo "FATAL: bad window start '$$SINCE'"; exit 1 ;;
+                  esac
+
+                  # --- Check 1: DLQ growth (recent failure count) ---
+                  FAIL_RESP="$$(curl -sSf --max-time 20 \
+                            -H "Authorization: Bearer $${WINDMILL_TOKEN}" \
+                            "$${BASE}/api/w/$${WS}/jobs/completed/list?per_page=100&success=false&started_after=$${SINCE}")" || {
+                    echo "FATAL: agent-ops completed-jobs query failed"
+                    exit 1
+                  }
+                  FAIL_N="$$(printf '%s' "$$FAIL_RESP" | jq 'length')" || {
+                    echo "FATAL: could not parse completed-jobs response"
+                    exit 1
+                  }
+                  case "$$FAIL_N" in
+                    ''|*[!0-9]*) echo "FATAL: non-numeric failure count '$$FAIL_N'"; exit 1 ;;
+                  esac
+                  echo "agent-ops failed jobs in last $${WINDOW_S}s: $${FAIL_N}"
+
+                  # --- Check 2: stuck queue (oldest queued job age) ---
+                  QUEUE_RESP="$$(curl -sSf --max-time 20 \
+                            -H "Authorization: Bearer $${WINDMILL_TOKEN}" \
+                            "$${BASE}/api/w/$${WS}/jobs/list?per_page=1&order_desc=false&running=false")" || {
+                    echo "FATAL: agent-ops queue query failed"
+                    exit 1
+                  }
+                  OLDEST_TS="$$(printf '%s' "$$QUEUE_RESP" | jq -r '.[0].scheduled_for // empty')" || {
+                    echo "FATAL: could not parse queue response"
+                    exit 1
+                  }
+
+                  OLDEST_AGE_S=0
+                  if [ -n "$$OLDEST_TS" ]; then
+                    OLDEST_EPOCH="$$(date -u -d "$$OLDEST_TS" +%s)" || {
+                      echo "FATAL: could not parse oldest-job timestamp '$$OLDEST_TS'"
+                      exit 1
+                    }
+                    OLDEST_AGE_S=$$((NOW - OLDEST_EPOCH))
+                  fi
+                  echo "agent-ops oldest queued job age: $${OLDEST_AGE_S}s (0 = queue empty)"
+
+                  FAILED=0
+                  if [ "$$FAIL_N" -gt "$$FAILURE_THRESHOLD" ]; then
+                    echo "DLQ GROWTH: $${FAIL_N} failures > $${FAILURE_THRESHOLD} threshold in $${WINDOW_S}s"
+                    FAILED=1
+                  fi
+                  if [ "$$OLDEST_AGE_S" -gt "$$STUCK_AGE_S" ]; then
+                    echo "STUCK QUEUE: oldest job age $${OLDEST_AGE_S}s > $${STUCK_AGE_S}s threshold"
+                    FAILED=1
+                  fi
+
+                  if [ "$$FAILED" -eq 1 ]; then
+                    exit 1
+                  fi
+                  echo "OK"
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 128Mi

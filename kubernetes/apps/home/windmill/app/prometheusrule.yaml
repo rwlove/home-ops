@@ -62,3 +62,59 @@ spec:
           for: 15m
           labels:
             severity: warning
+    - name: windmill.pool
+      rules:
+        # Fast, direct detector for the sqlx connection-pool wedge that took
+        # Windmill job execution down instance-wide for ~55 min on 2026-10-03
+        # after a CNPG postgres-windmill primary switchover. Windmill's
+        # client-side sqlx pool wedges into permanent PoolTimedOut after a
+        # failover burst and does not self-heal (DB stays healthy; every
+        # acquire() times out until the pod restarts). There is NO config
+        # knob to prevent this — the pool's max_lifetime/idle/acquire timeouts
+        # are hardcoded in Windmill's Rust (backend/src/db_connect.rs) and the
+        # chart exposes only DATABASE_CONNECTIONS. So we detect fast and
+        # remediate by restart.
+        #
+        # The signal: blackbox probes windmill-app /api/health/status, which
+        # runs a DB query THROUGH THE SAME POOL and returns 503 on a wedge
+        # (probe_success=0). This fires in ~3 min vs the ~15-25 min of the
+        # job-presence watchdog (WindmillFailureDetectionStale) — which does
+        # also catch the wedge, but slower and only as a "detection is blind"
+        # symptom rather than naming the pool.
+        #
+        # severity: critical because a wedge is a full instance-wide job
+        # outage (windmill-app is ONE shared process serving every workspace —
+        # agent-ops AND the lovenet RAG flows), and the remediation is a quick
+        # bounded `kubectl rollout restart`. for:3m rides out the normal
+        # 503-blip during the switchover itself and the cold first query after
+        # any pod restart.
+        - alert: WindmillPoolWedged
+          annotations:
+            summary: Windmill app DB pool wedged (health probe failing {{ $value | humanizeDuration }})
+            description: |
+              windmill-app /api/health/status has been returning non-2xx
+              (503) steadily. The endpoint queries Postgres through the same
+              sqlx pool that serves jobs, so a sustained 503 while the CNPG
+              cluster is healthy means the pool has wedged into PoolTimedOut —
+              job execution is down INSTANCE-WIDE (all workspaces) and will
+              NOT self-heal.
+
+              Most likely trigger: a recent CNPG postgres-windmill primary
+              switchover. Confirm the DB is actually healthy, then restart the
+              three windmill deployments to rebuild their pools:
+
+                kubectl -n databases get cluster postgres-windmill
+                kubectl -n home rollout restart deployment/windmill-app
+                kubectl -n home rollout restart deployment/windmill-workers-default
+                kubectl -n home rollout restart deployment/windmill-workers-native
+
+              The first python job after restart is a cold start and may
+              exceed a 30s client timeout once, then warms. See memory
+              reference_windmill_sqlx_pool_wedge_after_cnpg_switchover and the
+              windmill-app-health Probe comment (blackbox-exporter probes.yaml)
+              for root cause (sqlx permit leak, transact-rs/sqlx#4350).
+          expr: |
+            probe_success{job="probe/observability/windmill-app-health"} == 0
+          for: 3m
+          labels:
+            severity: critical

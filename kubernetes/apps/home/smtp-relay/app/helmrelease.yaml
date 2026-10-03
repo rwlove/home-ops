@@ -129,13 +129,20 @@ spec:
           ingress: false
         ingress:
           # In-cluster SMTP clients post mail to smtp-relay:2525. Known
-          # consumers as of 2026-05-17:
+          # consumers as of 2026-10-03:
           #   auth/lldap         — LLDAP_SMTP_OPTIONS__SERVER
           #   auth/authelia      — Authelia SMTP notifier
           #   home/netbox        — netbox email.server
           #   home/home-assistant — HA notify SMTP integration
           #   home/windmill      — watcher-workflow email notifications
           #   collab/monica      — CRM verification + reminder email
+          #   observability/alertmanager — `email` receiver for local-watcher
+          #     / agent-ops warning-tier alerts (routed off Pushover; see
+          #     kube-prometheus-stack/app/alertmanagerconfig.yaml). Egress
+          #     side in kube-prometheus-stack/app/cnp-allow.yaml
+          #     alertmanager-allow. Missing this entry = silent drop, same
+          #     failure mode documented in memory
+          #     reference_agent_email_path_four_cnp_gaps.md.
           # Plus LoadBalancer VIP (SVC_SMTP_RELAY_ADDR) so LAN devices
           # / cron scripts on hosts can submit mail too.
           - fromEndpoints:
@@ -157,6 +164,9 @@ spec:
               - matchLabels:
                   io.kubernetes.pod.namespace: collab
                   app.kubernetes.io/name: monica
+              - matchLabels:
+                  io.kubernetes.pod.namespace: observability
+                  app.kubernetes.io/name: alertmanager
             toPorts:
               - ports:
                   - port: "2525"

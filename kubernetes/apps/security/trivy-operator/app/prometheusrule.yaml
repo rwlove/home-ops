@@ -24,6 +24,14 @@ spec:
         # meta-alert was dropped: with every vulnerable image already paging
         # per-image, a count-of-images alert is pure duplicate noise, and a static
         # threshold just fires constantly at a non-zero baseline.
+        #
+        # workaround: https://github.com/1Password/connect/issues/115 — remove the
+        # image_repository!~ exclusion below when 1Password ships a connect image
+        # newer than 1.8.2. All Critical/High CVEs on connect-api/connect-sync 1.8.2
+        # are base-image (OpenSSL/glibc) + Go-toolchain findings we cannot patch from
+        # the manifest; upstream owns the rebuild (1.8.2 is the newest tag, so
+        # Renovate has nothing to bump to). Tracking: rwlove/home-ops#14731.
+        # Reports/metrics stay intact for audit; only the page is suppressed.
         - alert: TrivyImageCriticalVulnerabilities
           annotations:
             summary: >-
@@ -36,7 +44,7 @@ spec:
               kubectl get vulnerabilityreports -n {{ $labels.namespace }}
           expr: |-
             sum by (namespace, image_repository, image_tag) (
-              trivy_image_vulnerabilities{severity="Critical"}
+              trivy_image_vulnerabilities{severity="Critical", image_repository!~"1password/connect-(api|sync)"}
             ) > 0
           for: 6h
           labels:

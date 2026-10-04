@@ -1,0 +1,98 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: node-problem-detector-rules
+spec:
+  groups:
+    # NPD surfaces these as Node conditions; kube-state-metrics re-exports
+    # them as kube_node_status_condition{condition="<Type>",status="true"}.
+    # Confirmed live 2026-10-04 — see the three rules below for which
+    # conditions are actually populated by this cluster's NPD DaemonSet
+    # (problem_gauge / problem_counter, NPD's own metric names, return no
+    # series here; the chart's ServiceMonitor doesn't expose them, so the
+    # kube-state-metrics bridge is the only live path to this signal).
+    - name: node-problem-detector.xfs-shutdown
+      rules:
+        # XfsShutdown latches True until the node reboots — it does not
+        # self-clear. Routed to the non-paging `email` receiver
+        # (alertmanagerconfig.yaml), NOT pushover, specifically because this
+        # condition is known to go durably True for weeks-to-months at a
+        # time with no outstanding action: a repeat-interval page for an
+        # already-triaged, non-urgent latch is the flood half of the
+        # flood/mute tradeoff, and training the on-call human to swipe away
+        # a known alert is worse than the (small) risk of under-escalating
+        # a genuinely new XFS shutdown while this one is outstanding. If a
+        # *new* node joins the latched set, the alert's `for: 15m` plus the
+        # `node` label in the firing alert's own text make that visible in
+        # the same email, so this isn't blind to additional occurrences —
+        # it just doesn't wake anyone for the known ones.
+        #
+        # First occurrence: master1, worker2, worker3 latched True within
+        # 44s of each other on 2026-09-30 ~13:49 UTC, exactly the Longhorn
+        # 1.13.0 upgrade window (see
+        # reference_longhorn_113_partial_migration_worker34_outofcpu.md).
+        # This is a clean block-device-removal XFS shutdown from the
+        # upgrade's iSCSI detach, NOT metadata corruption — confirmed via
+        # `reason: XfsHasShutdown` and the tight multi-node timing cluster.
+        # Clears only on reboot: worker2/worker3 are slated for the Phase-2
+        # CS10 bare-metal rebuild (project_todo_cs10_vm_rebuild.md, not
+        # imminent); master1 has no reboot scheduled. Do not re-triage this
+        # as a new incident while investigating a *different* alert unless
+        # the affected node set or `reason` changes.
+        - alert: NodeXfsShutdown
+          annotations:
+            description: |-
+              Node {{ $labels.node }} has the XfsShutdown condition latched True
+              (NPD reason: XfsHasShutdown). This condition does not self-clear —
+              it persists until the node reboots. If this is master1, worker2,
+              or worker3 and no new investigation is open, this is the known,
+              already-triaged 2026-09-30 Longhorn 1.13.0 upgrade event (clean
+              iSCSI-detach-triggered XFS shutdown, not corruption) — no action
+              needed beyond the already-planned reboot/rebuild. If this is a
+              node NOT in {master1, worker2, worker3}, or `reason` differs from
+              XfsHasShutdown, treat as a new, uninvestigated XFS shutdown and
+              check `dmesg`/kernel log on that node.
+            summary: Node {{ $labels.node }} XfsShutdown latched True (known-latched until reboot)
+          expr: |-
+            kube_node_status_condition{condition="XfsShutdown", status="true"} == 1
+          for: 15m
+          labels:
+            severity: warning
+    - name: node-problem-detector.kernel-fs
+      rules:
+        # ReadonlyFilesystem and KernelDeadlock share the same
+        # kube-state-metrics bridge as XfsShutdown but have no triaged
+        # "expected" story — unlike XfsShutdown, these should page. Kept as
+        # a single rule (one per condition) rather than folding into the
+        # XfsShutdown group so a future benign case for either can get its
+        # own carve-out without touching the XfsShutdown rule.
+        - alert: NodeReadonlyFilesystem
+          annotations:
+            description: |-
+              Node {{ $labels.node }} has the ReadonlyFilesystem condition latched
+              True. The node's root filesystem (or another NPD-watched mount)
+              went read-only, typically from an uncorrectable disk error or a
+              filesystem-level shutdown. Check `dmesg`/kernel log on the node.
+              This condition does not self-clear — it persists until reboot.
+            summary: Node {{ $labels.node }} filesystem is read-only
+          expr: |-
+            kube_node_status_condition{condition="ReadonlyFilesystem", status="true"} == 1
+          for: 15m
+          labels:
+            severity: critical
+        - alert: NodeKernelDeadlock
+          annotations:
+            description: |-
+              Node {{ $labels.node }} has the KernelDeadlock condition latched
+              True (NPD's kernel-monitor detected a hung-task / deadlock
+              signature in the kernel log). This condition does not self-clear
+              — it persists until reboot. Check `dmesg`/kernel log on the node
+              immediately; a kernel deadlock can precede a full node hang.
+            summary: Node {{ $labels.node }} kernel deadlock detected
+          expr: |-
+            kube_node_status_condition{condition="KernelDeadlock", status="true"} == 1
+          for: 15m
+          labels:
+            severity: critical

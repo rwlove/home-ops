@@ -58,10 +58,25 @@ spec:
       # are the M5 agent-ops-watchdog equivalent (PR #14704). Both rule
       # groups live in kubernetes/apps/home/windmill/app/
       # (prometheusrule.yaml and prometheusrule-agent-ops.yaml).
+      #
+      # NodeXfsShutdown (added 2026-10-04, see
+      # kubernetes/apps/kube-system/node-problem-detector/app/prometheusrule.yaml)
+      # joins this same non-paging path for the same reason: it is a
+      # `severity: warning` condition that LATCHES until node reboot (does
+      # not self-clear), currently True on master1/worker2/worker3 from the
+      # 2026-09-30 Longhorn 1.13.0 upgrade's clean iSCSI-detach XFS
+      # shutdown — already triaged, non-urgent, reboot pending on its own
+      # schedule. Routing it to pushover would repeat-page every 6h for
+      # weeks-to-months with zero new action possible; email keeps it
+      # durably visible without flap-fatiguing the human. NodeReadonlyFilesystem
+      # and NodeKernelDeadlock (same file) are deliberately NOT added here —
+      # they carry `severity: critical` with no triaged "expected" story and
+      # fall through to pushover like any other critical, per the routing
+      # note below.
       - receiver: "email"
         matchers:
           - name: alertname
-            value: AgentOpsQueueUnhealthy|AgentOpsWatchdogStale|AgentOpsWatchdogMissing|WindmillFailureDetectionStale|WindmillWatchdogMissing
+            value: AgentOpsQueueUnhealthy|AgentOpsWatchdogStale|AgentOpsWatchdogMissing|WindmillFailureDetectionStale|WindmillWatchdogMissing|NodeXfsShutdown
             matchType: "=~"
       # DORMANT by design (Rob-approved 2026-10-03). Forwards firing alerts
       # carrying `queue: agent-ops` to the Windmill agent-ops work-queue

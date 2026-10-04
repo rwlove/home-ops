@@ -125,15 +125,19 @@ spec:
     # Anomaly alerts on the recording rules above.
     - name: power.alerts
       rules:
+        # `for: 1h` (not 10m): the P40 lives on worker8, a beast VM with GPU
+        # passthrough, so a kagent GPU run lifts beast host power in lockstep
+        # with HighGpuUsage — expected baseline, not a fault. 1h keeps this as
+        # a runaway/hot-array net while letting ordinary kagent runs pass.
         - alert: BeastPowerSustainedHigh
           annotations:
             summary: Beast power draw sustained above 500W
             description: |
-              Beast (R730xd) has been pulling >{{ $value }}W for 10+ minutes.
+              Beast (R730xd) has been pulling >{{ $value }}W for 60+ minutes.
               Check for runaway workloads (Frigate model inference loop, ML jobs)
               or a hot-running disk array.
           expr: power:beast:watts > 500
-          for: 10m
+          for: 1h
           labels:
             severity: warning
         - alert: UPS1500LoadHigh

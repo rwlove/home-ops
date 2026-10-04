@@ -65,7 +65,18 @@ import a2a_client
 # problem tag the CONTRACT asks for; URGENT/FYI/ISSUE are accepted as aliases so a
 # habit-driven reply still routes to the (single) email sink rather than being
 # silently dropped as malformed — under email-only they all mean "actionable".
-_TAG_RE = re.compile(r"(?im)^[ \t>*_#`.\-]*(ALL[ \t]+CLEAR|PROBLEM|URGENT|FYI|ISSUE)\b")
+# The trailing capture holds the rest of the tag's line so a "PROBLEM: None
+# detected … ALL CLEAR" near-miss (a healthy narrative mislabelled PROBLEM, seen
+# 2026-10-04 from the strong-tier network-operator) can be demoted to allclear
+# instead of paging. `.search()` still takes the FIRST leading tag.
+_TAG_RE = re.compile(
+    r"(?im)^[ \t>*_#`.\-]*(ALL[ \t]+CLEAR|PROBLEM|URGENT|FYI|ISSUE)\b(.*)$"
+)
+# A problem tag whose line immediately continues with a no-op negation is not a
+# real finding — treat it as allclear (silent) rather than emailing.
+_NEGATION = re.compile(
+    r"(?i)^[ \t:*_`.–—-]*(none|no\b|nothing|n/?a|all[ \t]*clear|no problem|no issue)"
+)
 
 
 def classify_tag(text):
@@ -73,7 +84,7 @@ def classify_tag(text):
     if not m:
         return None
     tag = re.sub(r"\s+", " ", m.group(1).upper())
-    if tag == "ALL CLEAR":
+    if tag == "ALL CLEAR" or _NEGATION.match(m.group(2)):
         return "allclear"
     return "problem"  # PROBLEM / URGENT / FYI / ISSUE → actionable → email
 

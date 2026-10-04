@@ -134,3 +134,35 @@ def call_agent(agent_url, prompt, budget=600, poll_interval=10, message_id="loca
         if state in TERMINAL:
             break
     return text, state
+
+
+# Substrings that mean the agent's MODEL BACKEND was unreachable — the GPU-backed
+# serving (Ollama on the P40, vLLM on the Spark) behind LiteLLM, or LiteLLM itself
+# mid-roll. Distinct from the model replying with garbage. Only consulted on a
+# non-productive terminal state, so a healthy reply that happens to mention one of
+# these words can't trip it (its state is `completed`, not `failed`).
+_BACKEND_MARKERS = (
+    "no deployments available", "connection refused", "stream_error",
+    "apiconnectionerror", "service unavailable", "upstream connect error",
+    "econnrefused", "litellm", ":4000", "503",
+)
+
+
+def is_backend_unavailable(text, state):
+    """True when a run failed because the model backend (GPU) was unreachable — the
+    retryable 'missing GPU, requeue and retry when available' case. Shared by the
+    triage and doer crons so both requeue on the same signal."""
+    # Transport failure reaching the agent pod itself (agent down / rolling).
+    if state.startswith("transport-error"):
+        return True
+    # Agent reached but the task terminated 'failed': backend-down only if it
+    # returned no text to classify, or its text names an upstream model/transport
+    # error. A 'failed' task with a real (but untagged) reply is model drift, not a
+    # GPU outage — that stays `malformed` for the caller to classify.
+    if state == "failed":
+        low = (text or "").lower()
+        if not low.strip():
+            return True
+        if any(m in low for m in _BACKEND_MARKERS):
+            return True
+    return False

@@ -13,12 +13,28 @@ Watchers report problems-with-fixes, never healthy status or benign artifacts �
 mail, nothing else. (The old URGENT→pager tier was dropped 2026-10-02 per Rob —
 email-only; restore a pager branch here if same-day paging is wanted again.)
 
-On an unproductive first reply (empty / malformed) the agent is re-asked ONCE
-with a firm corrective preface before giving up. These failures are the flaky
-local-model "adherence wall" — a clarifying question, a near-miss tag, a dropped
-reply, a wrong-language ramble — and they are intermittent, so a second firm ask
-clears most of them within the run instead of waiting a full cycle. The two
-attempts SPLIT the budget, so worst-case wall time is unchanged.
+Two failure modes get two different retries:
+
+  * MODEL BACKEND UNAVAILABLE — the agent can't reach its model (GPU busy/down on
+    the P40 / Spark, or LiteLLM rolling): a transport error to the agent, or a
+    `failed` task whose text names an upstream model/transport error. This is
+    RETRYABLE. The run is NOT dropped — we back off and re-ask the SAME agent, in a
+    loop, until the GPU model is serving again or the BACKEND_RETRY_SECONDS window
+    is spent. "Missing GPU → go back in the queue, retry when available." The
+    agent's own model call is the GPU gate: once the backend serves, the call
+    succeeds. Only if the window is exhausted does the run terminate as `error`
+    (so a terminal `error` means "GPU unavailable AND the job already failed
+    repeatedly") — that, recurring, is the one thing worth paging on.
+
+  * ADHERENCE MISS — the backend WAS reachable but the reply is empty / malformed
+    (a clarifying question, a near-miss tag, a dropped reply, a wrong-language
+    ramble): the flaky local-model "adherence wall." The agent is re-asked ONCE
+    with a firm corrective preface, then the run gives up SILENTLY (the next
+    scheduled sweep covers it). The two adherence attempts SPLIT the budget.
+
+Backend-unavailability classifies as `error` (transport), never `malformed` —
+`malformed` is reserved for a reachable model that broke the tag contract. This
+keeps the kagent-triage alert naming the real cause (GPU vs model drift).
 
 Why this replaces the old inline `curl … | jq` shell block: that one-shot died
 (`exit 1` → KubeJobFailed page) whenever the agent took longer than the curl
@@ -36,6 +52,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.request
 
 import a2a_client
@@ -126,41 +143,65 @@ def notify_email(subject, body):
 def main():
     base = (os.environ.get("PROMPT_OVERRIDE") or os.environ["PROMPT"]).strip()
     day = datetime.date.today().isoformat()
+    prompt_first = base + CONTRACT
+    prompt_retry = RETRY_PREFACE + base + CONTRACT
 
-    # Two attempts that SPLIT the client budget (so worst-case wall time is
-    # unchanged vs a single call): the first asks normally, the second re-asks
-    # ONCE with a firm corrective preface + a fresh message_id (new task, not the
-    # stuck one). Most unproductive outcomes are flaky local-model adherence
-    # misses — a clarifying question, a near-miss tag, an empty/non-terminal
-    # reply, a wrong-language ramble — and they clear on a firm second ask.
-    first = max(60, int(BUDGET * 0.6))
-    attempts = [
-        ("triage-cron", base + CONTRACT, first),
-        ("triage-cron-retry", RETRY_PREFACE + base + CONTRACT, BUDGET - first),
-    ]
+    # Per-call budget. The two ADHERENCE attempts (first + one corrective re-ask)
+    # SPLIT the budget, so their combined wall time stays ≤ BUDGET.
+    per_call = max(60, int(BUDGET * 0.5))
 
-    # Classify each attempt, act on the first PRODUCTIVE one, then emit ONE
-    # machine-parseable `TRIAGE_RESULT=` line. Productive: sent (problem emailed)
-    # / allclear (nothing actionable). Unproductive: empty (slow/non-terminal),
-    # error (transport), malformed (replied but broke the tag contract — the
-    # local-model garbage case). Every unproductive outcome stays SILENT (a
-    # watcher must never notify just because it couldn't conclude), but it is NOT
-    # invisible: the kagent-triage LogQL alert (loki-alerting-rules) counts
-    # empty|malformed|error by class so a persistently-broken watcher is caught
-    # even though it no longer fails the Job. Without this signal, silent-skip
-    # would mask a dead watcher.
+    # BACKEND REQUEUE WINDOW. When the agent can't reach its model (GPU busy/down,
+    # LiteLLM rolling) the run is NOT dropped: we back off and re-ask the SAME agent
+    # until the GPU model is serving again or this window is spent. The job's
+    # activeDeadlineSeconds must exceed BACKEND_RETRY_SECONDS + BUDGET (the triage
+    # CronJobs set 2100 for a 900s window + 800s budget + slack). Default 900s =
+    # spans a short rollout/cold-start/VRAM-thrash blip; a longer GPU outage runs
+    # the window out, emits a terminal `error`, and the next 6h sweep retries.
+    backend_window = int(os.environ.get("BACKEND_RETRY_SECONDS", "900"))
+    deadline = time.monotonic() + backend_window
+    backoff = 20
+
+    # Act on the first PRODUCTIVE reply, then emit ONE machine-parseable
+    # `TRIAGE_RESULT=` line. Productive: sent (problem emailed) / allclear (nothing
+    # actionable). Unproductive and SILENT (a watcher must never notify just because
+    # it couldn't conclude): empty (reachable but slow/non-terminal), malformed
+    # (reachable but broke the tag contract — local-model drift), error (backend/GPU
+    # unavailable through the whole requeue window). Only `error`, recurring, pages —
+    # see the kagent-triage LogQL rule; empty/malformed stay log-only.
     result = None
-    for i, (mid, prompt, budget) in enumerate(attempts):
-        text, state = a2a_client.call_agent(AGENT_URL, prompt, budget=budget, message_id=mid)
+    drift_retry_used = False
+    while True:
+        prompt = prompt_retry if drift_retry_used else prompt_first
+        mid = "triage-cron-retry" if drift_retry_used else "triage-cron"
+        text, state = a2a_client.call_agent(AGENT_URL, prompt, budget=per_call, message_id=mid)
+
+        # Missing GPU / unreachable model backend → requeue: wait and retry the same
+        # agent until the model is back or the window is spent.
+        if a2a_client.is_backend_unavailable(text, state):
+            remaining = int(deadline - time.monotonic())
+            if remaining <= 0:
+                result = "error"
+                log("backend/model unavailable (state=%s) and the %ds requeue "
+                    "window is spent — giving up this cycle (error); next sweep "
+                    "retries" % (state, backend_window))
+                break
+            wait = min(backoff, max(1, remaining))
+            log("backend/model unavailable (state=%s) — GPU likely busy/down; "
+                "requeuing, retry in %ds (%ds of window left)" % (state, wait, remaining))
+            time.sleep(wait)
+            backoff = min(backoff * 2, 120)
+            continue
+
         if not text:
-            result = "error" if state.startswith("transport-error") else "empty"
-            log("attempt %d: no agent text (state=%s)" % (i + 1, state))
+            # Reached the backend but no usable text — slow / non-terminal agent.
+            result = "empty"
+            log("no agent text (state=%s)" % state)
         else:
-            log("----- %s attempt %d (state=%s) -----" % (TITLE, i + 1, state))
+            log("----- %s (state=%s) -----" % (TITLE, state))
             log(text)
             # Positive gate: only output whose leading tag is recognised may reach
-            # the sink. Untagged garbage / wrong-language / tool-error strings
-            # classify as None → malformed → silent, so a bad run can NEVER notify.
+            # the sink. Untagged garbage / wrong-language strings classify as None →
+            # malformed → silent, so a bad run can NEVER notify.
             tag = classify_tag(text)
             if tag == "allclear":
                 result = "allclear"
@@ -172,10 +213,16 @@ def main():
                 result = "malformed"
                 log("no PROBLEM:/ALL CLEAR tag — malformed agent output, not notifying")
                 log(text[:300])
+
         if result in ("allclear", "sent"):
-            break  # productive — done, no retry
-        if i == 0:
-            log("unproductive first attempt (%s) — re-asking once with corrective preface" % result)
+            break  # productive — done
+        # Unproductive but the backend WAS reachable (adherence miss, not a GPU
+        # outage): re-ask ONCE with a corrective preface, then give up silently.
+        if not drift_retry_used:
+            drift_retry_used = True
+            log("unproductive (%s), backend reachable — re-asking once with corrective preface" % result)
+            continue
+        break
 
     log("TRIAGE_RESULT=%s agent=%s" % (result, AGENT_NAME))
     return 0

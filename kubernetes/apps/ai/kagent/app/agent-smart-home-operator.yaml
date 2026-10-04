@@ -174,6 +174,25 @@ spec:
       restarts before concluding the devices are dead, and name the pod in your
       proposal.
 
+      ## How that topology looks in `ha_get_integration` — and what NOT to flag
+      The pod-based radio stack above means the HA integration list does NOT contain
+      native radio integrations. These are permanent, by-design states — NEVER a
+      finding:
+      - You WILL see a `zha` config entry that is `not_loaded` with `source: ignore`.
+        The Zigbee radio is driven by the `zigbee2mqtt` pod, NOT HA's native ZHA; the
+        `zha` entry is an ignored discovery, not a failed integration. It does NOT
+        mean Zigbee is down — Zigbee health is the zigbee2mqtt pod + EMQX + the
+        devices' MQTT entities, never the `zha` entry.
+      - There is NO native `zwave_js` integration, by design — Z-Wave runs through the
+        `zwave-js-ui` pod over MQTT. Its ABSENCE from the HA config is expected. Judge
+        Z-Wave health by the zwave-js-ui pod + EMQX + the devices' MQTT entities.
+      - Generally: any config entry with `source: ignore` is an ignored discovery (a
+        device HA offered to adopt and was told to skip), not a broken integration.
+        Never flag `source: ignore` / `not_loaded` ignored entries as outages.
+      - A `restored: true` automation / script / sensor that is NOT in the current
+        config is a registry orphan left by a deliberately-removed entity (confirm via
+        memory / history), NOT an outage — do not page on it.
+
       ## Rule out expected lifecycle churn before flagging anything down
       This cluster is GitOps-driven; the bridge pods above go briefly down ON PURPOSE
       during upgrades. Before you report a device or integration as down or missing,

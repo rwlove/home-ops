@@ -245,27 +245,30 @@ data:
                 regression — cross-check the pinned SERVER_HOSTNAMES
                 relay's status before changing anything.
 
-      # kagent watcher-fleet productivity. Each triage run (local-cron, ns ai)
-      # ends with a machine line `TRIAGE_RESULT=<outcome> agent=<name>`.
-      # Productive outcomes: sent (problem emailed) / allclear (nothing
-      # actionable). Unproductive: empty (agent slow/non-terminal or asked a
-      # question with no report), error (transport), malformed (agent replied but
-      # broke the PROBLEM:/ALL CLEAR tag contract — the flaky local-model case).
-      # The triage crons DELIBERATELY exit 0 and stay silent on an unproductive
-      # run (a watcher must never notify just because it could not conclude — see
-      # triage_run.py / the a2a_client silent-skip design), so a KubeJobFailed
-      # alert can NO LONGER see a persistently-broken watcher. This log-based rule
-      # is the backstop, split BY result class so the page names whether it is
-      # empty / malformed / error — each has a different root cause + fix. ~17
-      # triage runs land per 24h (4 agents every 6h + storage daily), and
-      # triage_run.py already re-asks once on a miss, so >= 3 of ONE class in 24h
-      # is a real degradation pattern, not routine flakiness. Tune per-class if
-      # normal local-model flakiness proves noisier.
+      # kagent watcher-fleet GPU/backend availability. Each triage run (local-cron,
+      # ns ai) ends with a machine line `TRIAGE_RESULT=<outcome> agent=<name>`:
+      #   sent / allclear   = productive.
+      #   empty / malformed = the agent was REACHABLE but unproductive (slow /
+      #                       non-terminal, or local-model drift broke the tag
+      #                       contract). Logged, NEVER paged.
+      #   error             = the model BACKEND (GPU: P40 Ollama / Spark vLLM, via
+      #                       LiteLLM) was unreachable for the run's WHOLE requeue
+      #                       window.
+      # triage_run.py / doer_pipeline.py now REQUEUE on an unreachable backend (back
+      # off + re-ask the same agent until the GPU model is back or ~900s is spent),
+      # so a transient rollout / cold-start / VRAM blip recovers silently and emits
+      # NO error. A terminal `error` therefore already means "GPU unavailable AND the
+      # job retried repeatedly and still failed." Per Rob (2026-10-04) we page ONLY
+      # on that, and only when it RECURS — >= 2 errors in 6h = a sustained GPU/
+      # backend outage with multiple jobs failing, not a one-off exhausted window.
+      # empty / malformed are deliberately NOT alerted (a drifting model is visible
+      # via `grep TRIAGE_RESULT` but must not page). Tune the window/threshold if a
+      # real outage proves to need faster or slower paging.
       - name: kagent-triage
         rules:
-          - alert: KagentTriageUnproductive
+          - alert: KagentTriageGpuUnavailable
             expr: |
-              sum by (result) (count_over_time({namespace="ai", app="local-cron"} |~ "TRIAGE_RESULT=(empty|malformed|error)" | regexp `TRIAGE_RESULT=(?P<result>empty|malformed|error) agent=`[24h])) >= 3
+              sum(count_over_time({namespace="ai", app="local-cron"} |~ "TRIAGE_RESULT=error "[6h])) >= 2
             for: 10m
             labels:
               severity: warning
@@ -274,25 +277,22 @@ data:
               # alert opted into the dormant `queue: agent-ops` route
               # (observability/kube-prometheus-stack/app/alertmanagerconfig.yaml)
               # to validate the end-to-end AlertManager -> Windmill ingest ->
-              # triage-router path. Picked for being low-volume (zero fires
-              # in the prior 30d before this pilot), warning-tier (non-
-              # paging class before this), and purely diagnostic (runbook
-              # is "grep logs for which agent" — no restart/delete action
-              # implied, so a triage-router response can't cascade into a
-              # destructive remediation). `continue: true` on the agent-ops
-              # route means this label change is additive only — Pushover
-              # notification for this alert is unchanged.
+              # triage-router path. Picked for being low-volume, warning-tier,
+              # and purely diagnostic (runbook is "grep logs for which agent +
+              # check the GPU serving path" — no restart/delete action implied,
+              # so a triage-router response can't cascade into a destructive
+              # remediation). `continue: true` on the agent-ops route means this
+              # label is additive only — Pushover notification is unchanged.
               queue: agent-ops
             annotations:
-              summary: "kagent triage watchers producing {{ $labels.result }} output"
+              summary: "kagent triage: GPU/model backend repeatedly unavailable"
               description: >-
-                {{ $value | humanize }} kagent triage runs in the last 24h ended
-                "{{ $labels.result }}" (TRIAGE_RESULT) instead of a report — that
-                watcher class is degraded and silently blind (crons exit 0 by
-                design). empty = agent returned no usable text (asked a question /
-                non-terminal); malformed = replied but broke the PROBLEM:/ALL CLEAR
-                tag (local-model drift / wrong language); error = transport failure
-                reaching the agent. triage_run.py already re-asks once before
-                giving up, so a sustained count here is a real pattern. Which
-                agents:
-                  kubectl -n ai logs -l app.kubernetes.io/name=local-cron --tail=200 | grep TRIAGE_RESULT
+                {{ $value | humanize }} kagent triage runs in the last 6h ended
+                TRIAGE_RESULT=error — the model backend (GPU: P40 Ollama / Spark
+                vLLM via LiteLLM) was unreachable for each run's full requeue window,
+                on multiple runs. Transient blips self-heal via requeue and are NOT
+                counted here, so this is a sustained GPU/backend outage. Which agents
+                + why they gave up:
+                  kubectl -n ai logs -l app.kubernetes.io/name=local-cron --tail=200 | grep -E "TRIAGE_RESULT=error|backend/model unavailable"
+                Then check the GPU serving path in ns ai: ollama (P40 / worker8) and
+                the litellm + vllm-*-spark pods.

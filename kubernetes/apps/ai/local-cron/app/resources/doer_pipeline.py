@@ -21,6 +21,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -71,8 +72,31 @@ def ask_agent(prompt):
     # to a terminal state, budget-bounded, never raising for an operational
     # failure (returns ("", state)). AGENT_BUDGET leaves headroom under the cron's
     # activeDeadlineSeconds for the clone→apply→PR steps that follow.
+    #
+    # BACKEND REQUEUE: if the model backend (GPU) is unreachable, the doer does NOT
+    # silently skip the day — it backs off and re-asks the same agent until the GPU
+    # model is serving again or BACKEND_RETRY_SECONDS is spent, then returns the
+    # (empty) failed result to the usual silent no-op. The cron's
+    # activeDeadlineSeconds must exceed BACKEND_RETRY_SECONDS + AGENT_BUDGET + the
+    # clone→apply→PR steps (the doer CronJobs set 1500).
     budget = int(os.environ.get("AGENT_BUDGET", "500"))
-    return a2a_client.call_agent(AGENT_URL, prompt, budget=budget, message_id="doer")
+    backend_window = int(os.environ.get("BACKEND_RETRY_SECONDS", "600"))
+    deadline = time.monotonic() + backend_window
+    backoff = 20
+    while True:
+        text, state = a2a_client.call_agent(AGENT_URL, prompt, budget=budget, message_id="doer")
+        if not a2a_client.is_backend_unavailable(text, state):
+            return text, state
+        remaining = int(deadline - time.monotonic())
+        if remaining <= 0:
+            log("backend/model unavailable (state=%s) and the %ds requeue window is "
+                "spent — skipping this run; the next scheduled doer retries" % (state, backend_window))
+            return text, state
+        wait = min(backoff, max(1, remaining))
+        log("backend/model unavailable (state=%s) — GPU likely busy/down; requeuing, "
+            "retry in %ds (%ds of window left)" % (state, wait, remaining))
+        time.sleep(wait)
+        backoff = min(backoff * 2, 120)
 
 
 def extract_proposal(text):

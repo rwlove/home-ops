@@ -155,4 +155,21 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # A transient Lidarr blip (restart, slow, brief 5xx, musl EAI_AGAIN DNS)
+    # can outlast both the in-script retries and the Job's backoffLimit,
+    # leaving GET /queue to raise and the whole run to exit non-zero. That
+    # manufactures a KubeJobFailed for something that is actually
+    # self-healing: this is a */5 cron and every operation is idempotent, so
+    # the next cycle catches up. Treat "Lidarr unreachable/unwell this cycle"
+    # as a soft, log-only, exit-0 outcome. A real error (bad API key, other
+    # 4xx, malformed response) still fails loud — that is NOT self-healing.
+    try:
+        main()
+    except urllib.error.HTTPError as e:
+        if e.code >= 500:
+            print(f"lidarr {e.code}; skipping this cycle, next run retries")
+            raise SystemExit(0)
+        raise
+    except urllib.error.URLError as e:
+        print(f"lidarr unreachable ({e.reason}); next run retries")
+        raise SystemExit(0)

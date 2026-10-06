@@ -84,6 +84,23 @@ database:
 
 controller:
   replicas: 1
+  # 2026-10-06: kagent-controller OOMKilled 5× over ~40h. Steady-state is
+  # ~110Mi, but reconcile/agent-invocation bursts spike past the chart-default
+  # 512Mi limit. Bump the limit to 1Gi; chart requests (cpu 100m / mem 128Mi)
+  # are deep-merged and left as-is. Reversible: drop this block to revert.
+  resources:
+    limits:
+      memory: 1Gi
+
+# 2026-10-06: kagent-tools OOMKilled under tool-call bursts (chart-default
+# 512Mi on the tools container, steady-state ~34Mi). Headroom bump to 1Gi.
+# Note the nested path: the tools *container* resources live under
+# kagent-tools.tools.resources (kagent-tools.resources is a separate block).
+kagent-tools:
+  tools:
+    resources:
+      limits:
+        memory: 1Gi
 
 # OTel tracing → the cluster OTLP collector (opentelemetry-collector.observability
 # :4317 gRPC → Tempo, the same sink open-webui / tei-spark use). Every agent

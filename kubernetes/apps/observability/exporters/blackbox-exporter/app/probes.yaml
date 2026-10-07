@@ -329,3 +329,25 @@ spec:
     staticConfig:
       static:
         - http://windmill-app.home.svc.cluster.local:8000/api/health/status?force=true
+
+---
+# yaml-language-server: $schema=https://k8s-schemas.home-operations.com/monitoring.coreos.com/probe_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: dns-brain
+spec:
+  # Independent functional liveness probe for brain's authoritative DNS
+  # (named) — house-wide core infra with no in-cluster fallback. Alerts via
+  # BrainDnsDown in helmrelease.yaml. Functional, not just port-open: the
+  # dns_brain module asserts an A answer, so a listening-but-broken named
+  # still fails. 1m cadence — a house-wide resolution outage warrants the
+  # fastest practical detection.
+  interval: 1m
+  module: dns_brain
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - brain:53

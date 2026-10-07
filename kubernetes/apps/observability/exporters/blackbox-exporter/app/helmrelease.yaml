@@ -40,6 +40,28 @@ spec:
             preferred_ip_protocol: "ip4"
           prober: icmp
           timeout: 4s
+        # Functional liveness prober for brain's authoritative DNS (named) —
+        # house-wide core infra with no in-cluster fallback. Queries brain for
+        # its own A record and requires an actual A answer (not just NOERROR),
+        # so a named that is listening-but-broken still fails the probe where a
+        # tcp_connect to :53 would pass. Probe CR `dns-brain` in probes.yaml,
+        # alert BrainDnsDown below. If named is down the server address may
+        # itself be unresolvable; that still yields probe_success=0, which is
+        # the correct "DNS is broken" signal.
+        dns_brain:
+          dns:
+            ip_protocol_fallback: false
+            preferred_ip_protocol: "ip4"
+            query_name: "brain.${SECRET_DOMAIN}"
+            query_type: "A"
+            transport_protocol: "udp"
+            valid_rcodes:
+              - "NOERROR"
+            validate_answer_rrs:
+              fail_if_not_matches_regexp:
+                - "IN\\s+A\\s+"
+          prober: dns
+          timeout: 5s
         # Synthetic embed prober for ollama-spark. POSTs a small input
         # against bge-m3 and validates a 200 with an "embeddings" key
         # in the body. 30 s timeout accommodates cold model load (bge-m3
@@ -256,6 +278,24 @@ spec:
           for: 12h
           labels:
             severity: warning
+        # brain's authoritative DNS daemon (named) and — via BrainDhcpdDown in
+        # the node-exporter addon — its DHCP daemon (dhcpd) are house-wide core
+        # infrastructure with no in-cluster fallback. named is the scarier of
+        # the two — a brain DNS outage takes the whole home offline — so it
+        # pages at critical off the functional dns-brain probe (asserts an A
+        # answer, catching a listening-but-broken named a port check would
+        # miss). for:3m rides out a brief named reload without flapping, yet
+        # pages well inside a real outage.
+        - alert: BrainDnsDown
+          annotations:
+            description: |-
+              brain authoritative DNS (named) is not answering A queries
+              ({{ $labels.instance }}) — the whole home loses name
+              resolution. Check `systemctl status named` on brain.
+          expr: probe_success{job="probe/observability/dns-brain"} == 0
+          for: 3m
+          labels:
+            severity: critical
     securityContext:
       allowPrivilegeEscalation: false
       capabilities:

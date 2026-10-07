@@ -76,7 +76,12 @@ spec:
                   # those apps.
                   METRIC_Q='topk(15, sum by (namespace, app) (count_over_time({namespace=~".+"} |~ `(?i)(error|panic|fatal|traceback|exception)` [24h])))'
 
-                  RANK="$$(curl -sSG --max-time 60 \
+                  # --max-time 240: the cross-namespace 24h regex scan runs
+                  # ~55s and climbs with log volume; the old 60s ceiling
+                  # flapped KubeJobFailed (home-ops#TBD). activeDeadlineSeconds
+                  # (900) still bounds the pod. Follow-up: make the query
+                  # cheaper (shorter window / detected_level prefilter).
+                  RANK="$$(curl -sSG --max-time 240 \
                             "$${LOKI}/loki/api/v1/query" \
                             --data-urlencode "query=$${METRIC_Q}" \
                             --data-urlencode "time=$${END}")" || {

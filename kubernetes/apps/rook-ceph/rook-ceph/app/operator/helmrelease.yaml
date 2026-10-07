@@ -10,48 +10,21 @@ spec:
     name: rook-ceph
   interval: 1h
   values:
-    # TEMPORARY — remove in the unpin follow-up PR. Pin the CSI images to the
-    # currently-live tags so the bundled ceph-csi-operator subchart can roll
-    # v1.0.4 -> v1.1.0 while this release's rook-csi-operator-image-set-configmap
-    # stays POPULATED. The operator is single-replica and leader-elected: during
-    # the rollout the old v1.0.4 pod keeps the lease, and v1.0.4 (maps.Copy)
-    # overwrites its own image defaults with blanks if the configmap is empty ->
-    # cluster-wide CSI control-plane outage across every ceph-block/cephfs PVC.
-    # Keeping these pinned means the configmap never blanks during the version
-    # transition. Once the operator is confirmed on v1.1.0 (which carries
-    # ceph-csi-operator#622 "skip empty ImageSet values when merging defaults"),
-    # the follow-up removes this block so the operator applies its own v3.18.1
-    # defaults. Tags mirror the live configmap exactly (no data-path change here).
-    csi:
-      attacher:
-        repository: registry.k8s.io/sig-storage/csi-attacher
-        tag: v4.12.0
-      cephcsi:
-        repository: quay.io/cephcsi/cephcsi
-        tag: v3.17.1
-      csiAddons:
-        repository: quay.io/csiaddons/k8s-sidecar
-        tag: v0.14.0
-      provisioner:
-        repository: registry.k8s.io/sig-storage/csi-provisioner
-        tag: v6.2.0
-      registrar:
-        repository: registry.k8s.io/sig-storage/csi-node-driver-registrar
-        tag: v2.17.0
-      resizer:
-        repository: registry.k8s.io/sig-storage/csi-resizer
-        tag: v2.1.0
-      snapshotter:
-        repository: registry.k8s.io/sig-storage/csi-snapshotter
-        tag: v8.5.0
-
+    # CSI driver images are owned by the bundled ceph-csi-operator (v1.1.0 as
+    # of rook 1.21): this release's rook-csi-operator-image-set-configmap is
+    # left blank and the operator applies its own defaults (cephcsi v3.18.1 +
+    # matched sidecars). Do NOT re-pin csi.*.repository/tag here — on rook 1.21
+    # the chart does not feed those into the configmap when the operator
+    # subchart is installed (verified live: pins present but configmap stayed
+    # blank), so a pin is inert at best and a silent downgrade if it ever
+    # activated. Override images on the ceph-csi-operator side if ever needed.
+    #
     # CSI driver SAs/RBAC, the csiServiceAccountPrefix, and the driver
     # nodePlugin tolerations are all owned by the ceph-csi-drivers
-    # HelmRelease now (../../csi-drivers). rook 1.20 removed those CSI
-    # settings from this chart (csi.pluginTolerations is silently ignored
-    # here and the Spark arm64 toleration lives in the drivers chart values)
-    # — the csi.*.repository/tag image knobs above are separate and still
-    # honoured. See rook/rook#17644 and reference_rook_1_20_csi_rbac_outage.
+    # HelmRelease now (../../csi-drivers). rook 1.20 removed CSI settings
+    # from this chart: csi.pluginTolerations is silently ignored here and
+    # the Spark arm64 toleration lives in the drivers chart values. See
+    # rook/rook#17644 and reference_rook_1_20_csi_rbac_outage in memory.
     image:
       repository: ghcr.io/rook/ceph
 

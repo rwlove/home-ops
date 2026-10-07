@@ -325,3 +325,21 @@ spec:
           annotations:
             summary: Host requires reboot (instance {{ $labels.instance }})
             description: "{{ $labels.instance }} requires a reboot.\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+
+        # brain's DHCP daemon (dhcpd) is house-wide core infra with no
+        # in-cluster fallback and — unlike named — has no functional UDP-DHCP
+        # blackbox prober, so this watches the systemd unit state exported by
+        # brain's node-exporter. Sister of BrainDnsDown (a blackbox dns probe)
+        # in the blackbox-exporter app. Pages at critical: a dead dhcpd means
+        # no new or renewing leases on any VLAN. `== 0` on the active-state
+        # series catches inactive-while-still-scrapable; a both-daemons-down
+        # case (brain itself unresolvable) is covered by BrainDnsDown and the
+        # node-down rules, where the series goes absent rather than 0.
+        - alert: BrainDhcpdDown
+          expr: node_systemd_unit_state{instance=~"brain\\..*:9100", name="dhcpd.service", state="active"} == 0
+          for: 3m
+          labels:
+            severity: critical
+          annotations:
+            summary: brain DHCP daemon (dhcpd) is down (instance {{ $labels.instance }})
+            description: "dhcpd is not active on brain — no new or renewing DHCP leases on any VLAN. Check `systemctl status dhcpd` on brain.\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"

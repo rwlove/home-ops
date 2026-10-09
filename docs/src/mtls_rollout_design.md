@@ -580,7 +580,7 @@ deployment as-is; do not extend mTLS to other namespaces in 2026.
    MTTR doubles with the new failure dimensions. The hours that would
    go into mesh expansion are better spent on the egress restriction
    and the OS migration program (worker2 → master2, beast Stream 9 →
-   10, Talos pilot) — both higher-leverage for the cluster's current
+   10) — both higher-leverage for the cluster's current
    shape. (The Spark-arrival-conditional LangGraph activation once
    listed here is moot: the langgraph-agents fleet was decommissioned
    2026-07-06.)

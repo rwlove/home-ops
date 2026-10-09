@@ -19,13 +19,38 @@ spec:
         # Deliberately NOT alerting on absence-of-success here (unlike
         # WindmillFailureDetectionStale below) — this check should fire
         # promptly on an actual problem, not only on blindness to one.
+        # Recency + sustained-count scoping (2026-10-09): the original expr
+        # (`kube_job_failed{...} > 0`) had no bound on how long ago the
+        # failure happened, so a RECOVERED failure kept firing for the
+        # full 24h CronJob ttlSecondsAfterFinished forensics window
+        # instead of self-clearing once the queue was healthy again.
+        # Live incident: agent-ops-watchdog jobs -29858240 and -29858245
+        # (created 17:20 and 17:25 EDT on 2026-10-08) failed two
+        # consecutive */5 slots; every run since succeeded, yet the alert
+        # stayed latched ~13h later (confirmed firing via ALERTS query at
+        # 06:56 EDT 2026-10-09) and would not have cleared until the TTL
+        # garbage-collected those Job objects around 17:25 EDT 2026-10-09.
+        # Per the standing rule (alert only on sustained + recurring
+        # failure, never on transient/self-healing — a recovered
+        # condition must self-clear), the alert window must be decoupled
+        # from the 24h forensics retention. Fix: join kube_job_failed
+        # against kube_job_created (a constant for the object's
+        # lifetime) to require the failure happened in the last 20m
+        # (<1200s — comfortably covers the */5 schedule plus one missed
+        # tick), AND require >=2 such recent failures so a single
+        # transient blip does not fire. `for: 0m` is correct here because
+        # the >=2 sustained-count requirement already is the "this is not
+        # a blip" gate — stacking a `for:` delay on top would just add
+        # latency to a signal that's already debounced by construction.
         - alert: AgentOpsQueueUnhealthy
           annotations:
             summary: agent-ops Windmill queue is unhealthy (DLQ growth or stuck jobs)
             description: |
-              The agent-ops-watchdog CronJob detected either growing DLQ
-              (>5 job failures in 15m) or a stuck queue (oldest queued job
-              >15m old) in the agent-ops Windmill workspace.
+              At least 2 agent-ops-watchdog CronJob runs have failed in
+              the last 20 minutes, indicating a sustained (not transient)
+              problem: either growing DLQ (>5 job failures in 15m) or a
+              stuck queue (oldest queued job >15m old) in the agent-ops
+              Windmill workspace.
 
               Check in order:
                 kubectl -n home get jobs -l job-name --sort-by=.metadata.creationTimestamp | grep agent-ops-watchdog
@@ -37,8 +62,8 @@ spec:
               observability/kube-prometheus-stack/app/alertmanagerconfig.yaml).
               It will not page.
           expr: |
-            kube_job_failed{namespace="home", job_name=~"agent-ops-watchdog-.*", condition="true"} > 0
-          for: 5m
+            count(kube_job_failed{namespace="home", job_name=~"agent-ops-watchdog-.*", condition="true"} == 1 and on(job_name) (time() - kube_job_created{namespace="home", job_name=~"agent-ops-watchdog-.*"} < 1200)) >= 2
+          for: 0m
           labels:
             severity: warning
         # Dead-man's switch, same rationale as WindmillFailureDetectionStale

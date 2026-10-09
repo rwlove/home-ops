@@ -58,7 +58,6 @@ wrong by construction, regardless of `sectionName`.
 | `open-webui` (collab) | **direct → broker Service** `mcp-gateway.mcp-system:8080/mcp` | **`auth_type: none`** — no token, full surface |
 | Claude Code laptop shell | external → `mcp.${SECRET_DOMAIN}` → envoy (JWT) → broker | JWT **authn only**, full surface |
 | external clients (cloudflared) | → envoy (JWT) → broker | JWT **authn only**, full surface |
-| `hermes` (ai) | gateway host | dead (`replicas: 0`) — ignore |
 | **kagent agents** (ai, `part-of=kagent`) | **direct → each MCP server** `:port`, bypass gateway | per-agent `toolNames` allowlist (**app config**) + L4 CNP |
 | kagent controller | direct → each server (reconcile) | L4 CNP only |
 | `network-drift` CronJob (ai) | direct → netbox/omada/github/notify | L4 CNP + its own egress pin |

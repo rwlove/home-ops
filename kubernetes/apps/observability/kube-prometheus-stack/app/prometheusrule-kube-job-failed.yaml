@@ -1,0 +1,38 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: kube-job-failed-rules
+spec:
+  groups:
+    - name: kubernetes-apps.kube-job-failed
+      rules:
+        # Replacement for upstream KubeJobFailed (disabled in helmrelease.yaml
+        # via defaultRules.disabled). Identical to upstream except the two
+        # */5 home-ns watchdogs are excluded: they run backoffLimit:0 on
+        # purpose, so a single transient Windmill-API blip mints a failed Job
+        # that latches this alert for the full 24h ttlSecondsAfterFinished
+        # forensics window (no recency bound on the upstream expr). Both are
+        # already covered by dedicated, recency-scoped rules — see
+        # ../../../home/windmill/app/prometheusrule.yaml
+        # (WindmillFailureDetectionStale) and
+        # ../../../home/windmill/app/prometheusrule-agent-ops.yaml
+        # (AgentOpsQueueUnhealthy, which requires >=2 failures in 20m,
+        # home-ops#14852) — so firing stock KubeJobFailed on them is
+        # double-alerting with none of the debounce. Every other job keeps
+        # the upstream rule unchanged.
+        #
+        # Deliberately NOT a blanket recency bound on all jobs: for a one-shot
+        # Job that fails and is never rescheduled, "latch until a human removes
+        # the failed Job" is the desired behavior. The latch is only wrong for
+        # frequently-scheduled watchdogs, which this exclusion already handles.
+        - alert: KubeJobFailed
+          annotations:
+            description: Job {{ $labels.namespace }}/{{ $labels.job_name }} failed to complete. Removing failed job after investigation should clear this alert on cluster {{ $labels.cluster }}.
+            runbook_url: https://runbooks.prometheus-operator.dev/runbooks/kubernetes/kubejobfailed
+            summary: Job failed to complete.
+          expr: kube_job_failed{job="kube-state-metrics", namespace=~".*", job_name!~"(agent-ops-watchdog|windmill-watchdog)-.*"} > 0
+          for: 15m
+          labels:
+            severity: warning

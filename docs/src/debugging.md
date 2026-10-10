@@ -86,7 +86,7 @@ kubectl -n rook-ceph exec -it deploy/rook-ceph-tools -- watch ceph -s
 kubectl get pdb -n rook-ceph | grep rook-ceph-osd-host
 ```
 
-Ceph dashboard password is fetched via [`tools/get-ceph-password.sh`](https://github.com/rwlove/home-ops/blob/main/tools/get-ceph-password.sh).
+Ceph dashboard password: `just k8s ceph-password`.
 
 ## Longhorn
 

@@ -4,12 +4,14 @@ The bare-command set to bring the cluster up from nothing, or tear it down to no
 
 ## Prerequisites (laptop)
 
+- `kubectl` — cluster access
+- `just` — runs the `bootstrap/mod.just` recipes (this repo uses `just`, not `go-task`)
+- `helmfile` + `helm` — apply the bootstrap CRDs and apps
 - `op` (1Password CLI) — for rendering `bootstrap/resources.yaml.j2`
 - `minijinja-cli` — template renderer used by the bootstrap step
 - `yq` — YAML processing
-- `go-task` (alias `task`) — runs the `bootstrap/mod.just` recipes
 
-Install via `dnf` / `brew` / your package manager of choice. The bootstrap scripts will exit early if any of these are missing.
+Install via `dnf` / `brew` / your package manager of choice. The scripts do not pre-validate these — a missing tool surfaces as a command-not-found failure mid-run.
 
 ## Initialization
 

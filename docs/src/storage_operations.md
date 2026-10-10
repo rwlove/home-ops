@@ -84,8 +84,7 @@ kubectl -n observability get prometheusrules prometheus-ceph-rules -o yaml
 ```
 
 Ceph dashboard (visual OSD tree, pool graphs, PG state) is reachable at
-`rook.${SECRET_DOMAIN}`; password via
-[`tools/get-ceph-password.sh`](https://github.com/rwlove/home-ops/blob/main/tools/get-ceph-password.sh).
+`rook.${SECRET_DOMAIN}`; password via `just k8s ceph-password`.
 
 ### Capacity
 

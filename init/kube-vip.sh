@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -euo pipefail
+
 export VIP=192.168.6.1
 export INTERFACE=enp0s31f6
 

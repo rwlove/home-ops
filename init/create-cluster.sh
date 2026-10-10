@@ -1,6 +1,18 @@
 #!/bin/bash
 
+set -eu -o pipefail
+
 : "${SECRET_DOMAIN:?SECRET_DOMAIN must be set (export SECRET_DOMAIN=<your-cluster-domain>)}"
+
+# Canonical node lists (MASTER_INIT, JOIN_MASTERS, WORKERS, LONGHORN_NODES).
+source "$(dirname "${BASH_SOURCE[0]}")/nodes.sh"
+
+# Load br_netfilter and enable IPv4 forwarding on an ssh target. kubeadm
+# join needs both; nodes may not have them set before first boot into the
+# cluster. Uses the default ssh user (matches the join calls below).
+prep_netfilter() {
+    ssh "$1" "modprobe br_netfilter; echo '1' > /proc/sys/net/ipv4/ip_forward"
+}
 
 if [ -d ${HOME}/.kube ] ; then
     echo "#### Delete ${HOME}/.kube/* since it exists ####"
@@ -20,54 +32,44 @@ trap 'rm -f "$rendered_config"' EXIT
 envsubst < ./init/clusterconfiguration.yaml > "$rendered_config"
 
 echo "#### Initialize the K8S Cluster ####"
+# set -e aborts on a failed kubeadm init, so no explicit exit-code check.
 kubeadm init --skip-phases=addon/kube-proxy,addon/coredns --config "$rendered_config"
-[ $? -ne 0 ] && exit 1
 
 echo "#### Copy K8S config ####"
-mkdir ${HOME}/.kube
+mkdir -p ${HOME}/.kube
 cp -f /etc/kubernetes/admin.conf ${HOME}/.kube/config
-chown -R ${USER}.${USER} ${HOME}/.kube
+chown -R ${USER}:${USER} ${HOME}/.kube
 
 certs=`kubeadm init phase upload-certs --upload-certs --config "$rendered_config" | tail -n 1`
 echo "certs: ${certs}"
 worker_join_cmd=`kubeadm token create --print-join-command`
 master_join_cmd="${worker_join_cmd} --control-plane --certificate-key ${certs}"
 
-#echo "XXXXXXXXXXX master_join_cmd START XXXXXXXXXXX"
-#echo "${master_join_cmd}"
-#echo "XXXXXXXXXXX master_join_cmd END XXXXXXXXXXX"
-
-for cp_host in master2 master3 ; do
+for cp_host in "${JOIN_MASTERS[@]}" ; do
     control_plane="${cp_host}.${SECRET_DOMAIN}"
     echo "########## Joining (master) $control_plane to the Cluster #"
-    ssh "$control_plane" modprobe br_netfilter
-    echo_cmd="echo '1' > /proc/sys/net/ipv4/ip_forward"
-    ssh "$control_plane"  "$echo_cmd"
+    prep_netfilter "$control_plane"
     ssh "$control_plane" "$master_join_cmd"
-    ssh "$control_plane" "mkdir /etc/kubernetes/manifests"
+    ssh "$control_plane" "mkdir -p /etc/kubernetes/manifests"
 done
 
-for worker_host in worker2 worker3 worker4 worker5 worker6 worker7 worker8 ; do
+for worker_host in "${WORKERS[@]}" ; do
     worker="${worker_host}.${SECRET_DOMAIN}"
     echo "$worker netfilter setup"
-    ssh "$control_plane" modprobe br_netfilter
-    echo_cmd="echo '1' > /proc/sys/net/ipv4/ip_forward"
-    ssh "$control_plane"  "$echo_cmd"
+    prep_netfilter "$worker"
     echo "########## Joining (worker) $worker to the Cluster #"
     ssh "$worker" "$worker_join_cmd"
-    echo "mkdir /etc/kubernetes/manifests"
-    ssh "$worker" "mkdir /etc/kubernetes/manifests"
+    ssh "$worker" "mkdir -p /etc/kubernetes/manifests"
 done
 
-# Configure Longhorn Disks (NVMe Drives) -- see README hardware section
-echo " Label workers 1, 2, 3, 4, 5, 6, 7 and 8 for longhorn since they have NVMe drives"
-for longhorn_host in master1 worker2 worker3 worker4 worker5 worker6 worker7 ; do
+# Configure Longhorn Disks (NVMe Drives) -- see README hardware section.
+# worker8 is intentionally excluded (diskless in Longhorn — see nodes.sh).
+echo "Label Longhorn nodes (${LONGHORN_NODES[*]}) since they have NVMe drives"
+for longhorn_host in "${LONGHORN_NODES[@]}" ; do
     node="${longhorn_host}.${SECRET_DOMAIN}"
     ssh root@${node} rm -rf /var/lib/longhorn/*
     kubectl label nodes ${node} "node.longhorn.io/create-default-disk=true"
 done
-#ssh root@worker8.${SECRET_DOMAIN} rm -rf /var/lib/longhorn/*
-#kubectl label nodes worker8.${SECRET_DOMAIN} "node.longhorn.io/create-default-disk=true"
 
 echo "Make master1 schedulable"
-kubectl taint nodes master1.${SECRET_DOMAIN} node-role.kubernetes.io/control-plane:NoSchedule-
+kubectl taint nodes ${MASTER_INIT}.${SECRET_DOMAIN} node-role.kubernetes.io/control-plane:NoSchedule-

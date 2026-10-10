@@ -1,6 +1,26 @@
 #!/bin/bash
 
+# No `set -e`: teardown must continue past individual failures (a node may
+# already be down). -u and pipefail still catch unset vars and broken pipes.
+set -uo pipefail
+
 : "${SECRET_DOMAIN:?SECRET_DOMAIN must be set (export SECRET_DOMAIN=<your-cluster-domain>)}"
+
+# Canonical node lists (DRAIN_ORDER, CEPH_CLEANUP_NODES).
+source "$(dirname "${BASH_SOURCE[0]}")/nodes.sh"
+
+cat <<EOF
+#############################################################################
+#  DESTRUCTIVE: this drains every node, runs 'kubeadm reset', wipes Ceph
+#  OSD devices, and clears /var/lib/{etcd,kubelet,longhorn,rook}.
+#
+#  Only the Garage S3 CNPG backups and NFS-backed data survive. Verify NFS
+#  host health and a recent CNPG backup FIRST — see docs/src/cluster_rebuild.md
+#  "Preflight".
+#############################################################################
+EOF
+read -r -p "Type DESTROY to proceed: " confirm
+[ "${confirm}" = "DESTROY" ] || { echo "Aborted."; exit 1; }
 
 reset_cmd='kubeadm reset -f'
 
@@ -21,12 +41,7 @@ kubectl -n rook-ceph wait --for=delete cephcluster rook-ceph
 kubectl -n rook-ceph delete hr rook-ceph-cluster
 kubectl -n rook-ceph delete hr rook-ceph-operator
 
-CLUSTER_NODES=(
-    worker2 worker3 worker4 worker5 worker6 worker7 worker8
-    master3 master2 master1
-)
-
-for short in "${CLUSTER_NODES[@]}" ; do
+for short in "${DRAIN_ORDER[@]}" ; do
     node="${short}.${SECRET_DOMAIN}"
     echo "## $node ## kubectl drain $node --delete-emptydir-data --force --ignore-daemonsets --grace-period=0"
     kubectl drain $node --delete-emptydir-data --force --ignore-daemonsets --grace-period=0
@@ -35,7 +50,7 @@ for short in "${CLUSTER_NODES[@]}" ; do
     kubectl delete node $node
 done
 
-for short in "${CLUSTER_NODES[@]}" ; do
+for short in "${DRAIN_ORDER[@]}" ; do
     node="${short}.${SECRET_DOMAIN}"
     echo "## $node ## ${reset_cmd} ##"
     ssh root@$node "$reset_cmd"
@@ -69,16 +84,20 @@ if [ -d ${HOME}/.kube ] ; then
     rm -rf ${HOME}/.kube/*
 fi
 
-for worker in master1 worker2 worker3 worker4 worker5 worker6 worker7 worker8 ; do
-    echo "cleaning up ${worker}"
+for worker in "${CEPH_CLEANUP_NODES[@]}" ; do
+    node="${worker}.${SECRET_DOMAIN}"
+    echo "cleaning up ${node}"
     echo "- run /root/ceph-cleanup.sh"
-    ssh root@${worker} /root/ceph-cleanup.sh
+    ssh root@${node} /root/ceph-cleanup.sh
 
+    # Whole pipeline must run on the node: a non-quoted 'ssh host ls … | xargs
+    # dmsetup' expands the glob and runs dmsetup LOCALLY. Quote it so the
+    # ls/xargs/dmsetup all execute remotely. -r skips dmsetup on an empty list.
     echo "- dmsetup remove"
-    ssh root@${worker} ls /dev/mapper/ceph-* | xargs -I% -- dmsetup remove %
+    ssh root@${node} 'ls /dev/mapper/ceph-* 2>/dev/null | xargs -r -I% dmsetup remove %'
 
     echo "- rm -rf /dev/ceph-* /dev/mapper/ceph--*"
-    ssh root@${worker} rm -rf /dev/ceph-* /dev/mapper/ceph--*
+    ssh root@${node} 'rm -rf /dev/ceph-* /dev/mapper/ceph--*'
 done
 
 ./tools/run-on-all-nodes.sh rm -rf /var/lib/rook/*

@@ -11,6 +11,38 @@ import:
   move: no
   log: /config/import.log
 
+# Tighten unattended (quiet) autotag acceptance for singleton/track imports.
+# https://beets.readthedocs.io/en/stable/reference/config.html#match
+#
+# Root cause: a single-track import with little/no pre-existing tag data (a
+# bare rip, or anything chroma's AcoustID lookup couldn't fingerprint) is
+# matched against MusicBrainz by title text alone. beets' track_distance()
+# only penalizes the `track_artist` field when the file already carries a
+# non-empty artist tag to compare against — with nothing to compare, that
+# penalty is skipped entirely (not even scored at zero-weighted), so a
+# title-only hit can score as a "strong" recommendation and get auto-written
+# in quiet mode even when the matched candidate is a completely different
+# artist's same-titled recording.
+#
+# strong_rec_thresh (default 0.04) + distance_weights.track_artist (default
+# 2.0) together control how much residual distance survives before a quiet
+# auto-accept fires. Halving the threshold and tripling the artist weight
+# makes any match where the artist field *is* compared (i.e. the file came
+# in with a usable existing tag) fall out of auto-accept range and route to
+# quiet_fallback (asis) instead of being written.
+#
+# Known residual gap: this cannot force a penalty when the source file has
+# NO artist tag at all to begin with — beets' track_distance() skips that
+# comparison unconditionally regardless of weight/threshold, so a bare-tag
+# single can still title-match straight through. Closing that fully needs a
+# before_choose_candidate hook comparing the candidate artist against the
+# destination folder name, which is a larger, separate change — flag for a
+# follow-up if this tightening doesn't meaningfully reduce the incident rate.
+match:
+  strong_rec_thresh: 0.02 # was default 0.04
+  distance_weights:
+    track_artist: 6.0 # was default 2.0
+
 plugins:
   - chroma # https://beets.readthedocs.io/en/stable/plugins/chroma.html — AcoustID fingerprint matching
   - duplicates # https://beets.readthedocs.io/en/stable/plugins/duplicates.html — `beet duplicates` command

@@ -13,7 +13,7 @@ Full end-to-end procedures live in [`docs/src/init_teardown.md`](../docs/src/ini
 | `create-cluster.sh` | `master1` (root) | Once, after `kube-vip.sh` | `kubeadm init` with `clusterconfiguration.yaml`, joins masters 2/3 + every worker, labels Longhorn-eligible nodes, makes `master1` schedulable. Requires `SECRET_DOMAIN` env. |
 | `initialize-cluster.sh` | Laptop | After `create-cluster.sh` finishes | Pulls kubeconfig from `master1`, runs `bootstrap/mod.just` recipes (1Password-templated Secrets → CRDs → bootstrap apps via helmfile). Ends when Flux is reconciling. |
 | `approve-csrs.sh` | Laptop | Ad-hoc fallback | Approves pending node CSRs in bulk. Normally `kubelet-csr-approver` handles this automatically; this script is for the case where the auto-approver isn't up yet. |
-| `destroy-cluster.sh` | Laptop | Tearing down to rebuild | Suspends Rook/Ceph + Longhorn HelmReleases, drains every node, runs `kubeadm reset`, wipes Ceph OSD devices, clears `/var/lib/{etcd,kubelet,longhorn,rook}`. **Destructive — only reuses the same hardware.** |
+| `destroy-cluster.sh` | Laptop | Tearing down to rebuild | Prompts for a `DESTROY` confirmation, suspends the Rook/Ceph HelmReleases, drains every node, runs `kubeadm reset`, wipes Ceph OSD devices, clears `/var/lib/{etcd,kubelet,longhorn,rook}`. **Destructive — only reuses the same hardware.** |
 
 ## Order
 

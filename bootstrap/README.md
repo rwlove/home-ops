@@ -30,7 +30,7 @@ Jinja-style template rendered by `op inject` (1Password CLI). Produces the two p
 
 ### `helmfile.d/00-crds.yaml`
 
-CRDs that must exist *before* any HelmRelease can be parsed. Applied first because helmfile installing an operator that owns a CRD doesn't help an `ExternalSecret` manifest already in Git fail validation if the CRD isn't registered yet. Includes: external-secrets, cert-manager, gateway-api, kustomize-mutating-webhook CRDs.
+CRDs that must exist *before* any HelmRelease can be parsed. Applied first because an `ExternalSecret` (or other CRD-typed) manifest already in Git fails validation until its CRD is registered. The helmfile extracts CRDs only (via a `yq` post-renderer) from: envoy-gateway (Gateway API CRDs), external-dns (`DNSEndpoint`), and kube-prometheus-stack (Prometheus-operator CRDs).
 
 ### `helmfile.d/01-apps.yaml`
 
@@ -50,11 +50,11 @@ Recipes invoked from the repo-root `justfile`:
 
 | Recipe | What it does |
 |---|---|
-| `just bootstrap resources` | Render `resources.yaml.j2` with `op inject`, then `kubectl apply --server-side` |
-| `just bootstrap helm-crds` | `helmfile sync --file bootstrap/helmfile.d/00-crds.yaml` |
-| `just bootstrap helm-apps` | `helmfile sync --file bootstrap/helmfile.d/01-apps.yaml` |
+| `just bootstrap resources` | Render `resources.yaml.j2` (`minijinja-cli` + `op inject`), then `kubectl apply --server-side` |
+| `just bootstrap crds` | Extract + apply CRDs from `helmfile.d/00-crds.yaml` (template → `kubectl apply`) |
+| `just bootstrap apps` | `helmfile sync` the pre-Flux apps from `helmfile.d/01-apps.yaml` |
 
-The end-to-end `./init/initialize-cluster.sh` script runs these in the right order; you rarely invoke them individually.
+`./init/initialize-cluster.sh` runs these three in order; you rarely invoke them individually.
 
 ## Prerequisites
 

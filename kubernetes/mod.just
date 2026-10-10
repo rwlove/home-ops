@@ -18,9 +18,9 @@ node-shell node:
 netshoot:
     kubectl run -it --rm netshoot --image=ghcr.io/nicolaka/netshoot --restart=Never -- /bin/bash
 
-[doc('Prune pods in Failed, Pending, or Succeeded state')]
+[doc('Prune pods in Failed or Succeeded state')]
 prune-pods:
-    for phase in Failed Pending Succeeded; do \
+    for phase in Failed Succeeded; do \
       kubectl delete pods -A --field-selector status.phase="$phase" --ignore-not-found=true; \
     done
 
@@ -40,10 +40,12 @@ sync-es ns name:
     kubectl -n "{{ ns }}" annotate --field-manager flux-client-side-apply --overwrite es "{{ name }}" \
       force-sync="$(date +%s)"
 
-[doc('Force-reconcile every HelmRelease in the cluster')]
+[doc('Reconcile every HelmRelease (requestedAt only — no forced reinstall)')]
 sync-all-hr:
     kubectl get hr --no-headers -A | while read -r ns name _; do \
-      just k8s sync-hr "$ns" "$name"; \
+      echo "reconcile hr $ns/$name"; \
+      kubectl -n "$ns" annotate --field-manager flux-client-side-apply --overwrite hr "$name" \
+        reconcile.fluxcd.io/requestedAt="$(date +%s)"; \
     done
 
 [doc('Force-reconcile every Kustomization in the cluster')]
@@ -70,6 +72,10 @@ events ns="":
 pg-status:
     kubectl get cluster.postgresql.cnpg.io -n databases \
       -o custom-columns=NAME:.metadata.name,INSTANCES:.spec.instances,READY:.status.readyInstances,STATUS:.status.phase
+
+[doc('Print the Ceph dashboard admin password')]
+ceph-password:
+    kubectl -n rook-ceph get secret rook-ceph-dashboard-password -o jsonpath="{.data.password}" | base64 -d && echo
 
 [doc('Trigger an on-demand backup for one CNPG cluster')]
 pg-backup-now app:

@@ -38,7 +38,7 @@ run `destroy-cluster.sh`.
    in the Garage WebUI, or run an immediate backup first:
 
    ```bash
-   ./tools/onetime-cnpg-backup.sh        # uses postgres cluster name
+   just k8s pg-backup-now <app>          # e.g. immich, paperless
    ```
 
    For per-app, edit `kubernetes/apps/databases/cloudnative-pg/config/onetimebackup.yaml`
@@ -298,7 +298,7 @@ NFS, *not* in CNPG. Recovery for those:
 4. **Verify the Ceph dashboard password**:
 
    ```bash
-   ./tools/get-ceph-password.sh
+   just k8s ceph-password
    ```
 
 5. **Watch one full backup cycle complete** for each CNPG cluster

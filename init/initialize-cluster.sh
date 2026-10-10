@@ -17,13 +17,13 @@ echo "Create external-secrets namespace"
 kubectl apply -f ./kubernetes/apps/external-secrets/namespace.yaml
 
 echo "# Create Resources"
-just -f bootstrap/mod.just
+just bootstrap resources
 
 echo "Create Cluster Settings Configmap"
 kubectl -n flux-system apply -f ./kubernetes/flux/meta/cluster-config.yaml
 
 echo "Apply CRDS"
-helmfile -f "bootstrap/helmfile.d/00-crds.yaml" template -q | kubectl apply --server-side --field-manager bootstrap --force-conflicts -f -
+just bootstrap crds
 
 echo "Apply Apps"
-helmfile -f "bootstrap/helmfile.d/01-apps.yaml" sync --hide-notes
+just bootstrap apps

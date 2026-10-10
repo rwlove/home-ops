@@ -132,7 +132,7 @@ with Rob as the human-in-the-loop gate.
 - **Add app**: Create in `kubernetes/apps/` with kustomization + HelmRelease
 - **Update app**: Merge renovate PR or manually edit and push
 - **Troubleshoot**: Check `flux get all -n <namespace>`, `kubectl get events --sort-by=.lastTimestamp`
-- **Scripts**: `tools/` contains operational scripts (get-ceph-password.sh, run-on-all-nodes.sh, etc.)
+- **Scripts**: `tools/` contains multi-step operational scripts (run-on-all-nodes.sh, etc.); one-shot kubectl helpers live as `just k8s` recipes (e.g. `just k8s ceph-password`, `just k8s pg-backup-now <app>`)
 
 ### Documentation
 

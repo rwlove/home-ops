@@ -4,6 +4,18 @@ Operational helper scripts for the home-ops cluster. Most assume `kubectl`,
 `flux`, and `ssh root@<node>` access. None of them are part of the GitOps
 flow — they're for ad-hoc operator work.
 
+**Convention:** a *one-shot* `kubectl`/`flux` incantation belongs as a `just`
+recipe (`just k8s …`), not a new standalone script here — recipes are
+discoverable via `just --list` and can't rot into dead doc links. Reserve
+`tools/` for genuinely multi-step scripts. Cluster lifecycle is `just cluster …`
+(see [`init/README.md`](../init/README.md)); bootstrap is `just bootstrap …`.
+
+## Cluster lifecycle / bootstrap
+
+| Script | Purpose |
+|---|---|
+| `check-kubeadm-config-drift.sh` | Advisory diff of `init/clusterconfiguration.yaml` (what a rebuild installs) vs the live `kubeadm-config` ConfigMap. Run before any rebuild. |
+
 ## Cluster-wide
 
 | Script | Purpose |
@@ -38,7 +50,6 @@ flow — they're for ad-hoc operator work.
 | Script | Purpose |
 |---|---|
 | `check_jellyfin-internal.sh` | curl the internal jellyfin hostname. |
-| `check_smtp-relay.sh` | Send a test email through smtp-relay. |
 | `clear-stuck-cni-sandbox.sh` | Force-remove a cri-o sandbox stuck on a missing CNI plugin. |
 
 ## GPU / NVIDIA
@@ -72,6 +83,7 @@ flow — they're for ad-hoc operator work.
 | Script | Purpose |
 |---|---|
 | `lint-cnp-empty-rules.py` | Reject CiliumNetworkPolicy manifests that select endpoints but define no ingress/egress rules — Cilium 1.19 silently fails to apply them. Wired into `.pre-commit-config.yaml` and the `Lint` GitHub Actions workflow. |
+| `lint-envsubst-shell-vars.py` | Reject container commands with unescaped shell vars that Flux's `envsubst` post-build would clobber. Wired into `.pre-commit-config.yaml` and the `Lint` workflow. |
 | `lint-readme-drift.py` | Verify that `README.md` badge values match live cluster data. Wired into `.pre-commit-config.yaml`. |
 | `check-readme-drift-vs-main.sh` | CI helper that compares README badge values against `origin/main`. Wired into `.pre-commit-config.yaml`. |
 
@@ -91,6 +103,16 @@ flow — they're for ad-hoc operator work.
 | `frigate_copy_speed.sh` | Tail Frigate logs and print recording copy throughput. |
 | `ollama-pull-models.sh` | Pull a predefined set of models into the Ollama instance. |
 | `romm-apply-tags.sh` | Apply per-ROM tags in the RomM database after a scan. |
+| `immich-frame-video-transcode.sh` | Transcode a video for an Immich frame (reads the Immich API key from 1Password). |
+
+## Subdirectories
+
+| Path | Contents |
+|---|---|
+| `cluster-upgrade/` | Control-plane / node OS upgrade helpers. |
+| `os-cve-scan/` | Host-OS CVE scanning helpers. |
+| `git-hooks/` | Repo git hooks (e.g. `pre-commit`). |
+| `data/` | Static data used by other tools. |
 
 ## One-liner operations (retired scripts)
 
@@ -99,8 +121,8 @@ These were previously stand-alone scripts; recorded here as `kubectl`/`flux`/`ss
 | Operation | Command |
 |---|---|
 | Force-reconcile cluster-apps | `flux --namespace flux-system reconcile kustomization cluster-apps --with-source` |
-| Print Ceph dashboard password | `kubectl -n rook-ceph get secret rook-ceph-dashboard-password -o jsonpath="{['data']['password']}" \| base64 --decode && echo` |
-| Spawn netshoot in downloads ns | `kubectl -n downloads run tmp-shell --rm -i --tty --image nicolaka/netshoot` |
+| Print Ceph dashboard password | `just k8s ceph-password` |
+| Spawn netshoot | `just k8s netshoot` (or `kubectl -n downloads run tmp-shell --rm -i --tty --image nicolaka/netshoot`) |
 | Run nvidia-smi on a GPU node | `kubectl -n default run nvidia-shell -i --tty --overrides='{"apiVersion":"v1","spec":{"nodeSelector":{"nvidia.com/gpu.present":"true"},"runtimeClassName":"nvidia"}}' --image nvidia/cuda:12.6.2-devel-ubuntu22.04 -- nvidia-smi` |
 | nvtop on worker8 | `ssh -t root@worker8 nvtop` |
-| Apply one-time CNPG backup | `kubectl apply -f kubernetes/apps/databases/cloudnative-pg/config/onetimebackup.yaml` |
+| One-time CNPG backup | `just k8s pg-backup-now <app>` |

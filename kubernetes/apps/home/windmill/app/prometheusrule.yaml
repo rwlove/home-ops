@@ -77,7 +77,7 @@ spec:
         #
         # The signal: blackbox probes windmill-app /api/health/status, which
         # runs a DB query THROUGH THE SAME POOL and returns 503 on a wedge
-        # (probe_success=0). This fires in ~3 min vs the ~15-25 min of the
+        # (probe_success=0). This fires in ~5 min vs the ~15-25 min of the
         # job-presence watchdog (WindmillFailureDetectionStale) — which does
         # also catch the wedge, but slower and only as a "detection is blind"
         # symptom rather than naming the pool.
@@ -85,12 +85,22 @@ spec:
         # severity: critical because a wedge is a full instance-wide job
         # outage (windmill-app is ONE shared process serving every workspace —
         # agent-ops AND the lovenet RAG flows), and the remediation is a quick
-        # bounded `kubectl rollout restart`. for:3m rides out the normal
-        # 503-blip during the switchover itself and the cold first query after
-        # any pod restart.
+        # bounded `kubectl rollout restart`.
+        #
+        # Blip tolerance: the expr is max_over_time(...[5m]) == 0, NOT an
+        # instantaneous probe_success == 0 with for:5m. A plain for: puts the
+        # alert into PENDING the instant one probe fails, and the triage digest
+        # surfaces pending alerts — so a ~60s health blip (an in-place worker-pod
+        # liveness recycle, exitCode 0; or the cold first query after any pod
+        # restart; or a brief switchover 503) shows up as a "critical". The
+        # windowed form is true only after a FULL 5m with zero successful probes,
+        # so any single success inside the window — i.e. any blip shorter than
+        # the window — never registers, not even as pending. Detection latency
+        # for a real steady-503 wedge is unchanged (~5m), which is what the
+        # remediation below targets.
         - alert: WindmillPoolWedged
           annotations:
-            summary: Windmill app DB pool wedged (health probe failing {{ $value | humanizeDuration }})
+            summary: Windmill app DB pool wedged (no successful health probe for 5m)
             description: |
               windmill-app /api/health/status has been returning non-2xx
               (503) steadily. The endpoint queries Postgres through the same
@@ -114,7 +124,6 @@ spec:
               windmill-app-health Probe comment (blackbox-exporter probes.yaml)
               for root cause (sqlx permit leak, transact-rs/sqlx#4350).
           expr: |
-            probe_success{job="probe/observability/windmill-app-health"} == 0
-          for: 5m
+            max_over_time(probe_success{job="probe/observability/windmill-app-health"}[5m]) == 0
           labels:
             severity: critical

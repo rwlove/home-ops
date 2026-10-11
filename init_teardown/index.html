@@ -2314,28 +2314,23 @@
 </ul>
 <p>Install via <code>dnf</code> / <code>brew</code> / your package manager of choice. The scripts do not pre-validate these — a missing tool surfaces as a command-not-found failure mid-run.</p>
 <h2 id="initialization">Initialization<a class="headerlink" href="#initialization" title="Permanent link">&para;</a></h2>
-<p>In order:</p>
+<p>All from the <strong>laptop</strong> — the repo no longer needs a checkout on <code>master1</code>; <code>create-cluster.sh</code> orchestrates the nodes over <code>ssh</code>.</p>
 <ol>
-<li><strong>On <code>master1</code></strong> (control-plane bootstrap):</li>
+<li><strong>Bring up the cluster end-to-end:</strong></li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>./init/create-cluster.sh
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">SECRET_DOMAIN</span><span class="o">=</span>&lt;your-cluster-domain&gt;
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>just<span class="w"> </span>cluster<span class="w"> </span>create
 </span></code></pre></div>
-<p>Sets up kube-vip, runs <code>kubeadm init</code>, joins masters 2/3 and all workers, labels Longhorn-eligible nodes, makes <code>master1</code> schedulable.</p>
+<p>Renders kube-vip on <code>master1</code>, runs <code>kubeadm init</code>, pulls the kubeconfig, joins masters 2/3 and all workers, labels Longhorn nodes, makes <code>master1</code> schedulable, then bootstraps the in-cluster apps (1Password-backed secrets → CRDs from <code>00-crds.yaml</code> → <code>helmfile sync</code> of <code>01-apps.yaml</code>: Cilium, CoreDNS, cert-manager, external-secrets, 1Password Connect, Flux operator + instance).</p>
 <ol>
-<li><strong>On the laptop</strong> (in-cluster app bootstrap):</li>
+<li><strong>Remove the redundant static kube-vip manifest</strong> once Flux reconciles the in-cluster kube-vip DaemonSet (a few minutes — the script prints this reminder):</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>./init/initialize-cluster.sh
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>ssh<span class="w"> </span>root@master1<span class="w"> </span>rm<span class="w"> </span>/etc/kubernetes/manifests/kube-vip.yaml
 </span></code></pre></div>
-<p>Pulls the kubeconfig from <code>master1</code>, creates bootstrap namespaces, renders 1Password-backed secrets, applies CRDs from <code>bootstrap/helmfile.d/00-crds.yaml</code>, then runs <code>helmfile sync</code> for <code>01-apps.yaml</code> (Cilium, CoreDNS, cert-manager, external-secrets, 1Password Connect, Flux operator + instance).</p>
-<ol>
-<li><strong>On the laptop</strong> (remove redundant static manifest):</li>
-</ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>ssh<span class="w"> </span>root@master1<span class="w"> </span>rm<span class="w"> </span>/etc/kubernetes/manifests/kube-vip.yaml
-</span></code></pre></div>
-<p>Once Flux brings up the in-cluster kube-vip, the static pod is redundant and will fight for the VIP. Remove it after step 2 settles.</p>
+<p>The static pod is redundant once the DaemonSet owns the VIP, and will otherwise fight for it.</p>
 <h2 id="teardown">Teardown<a class="headerlink" href="#teardown" title="Permanent link">&para;</a></h2>
 <p>Wipes the cluster, destroys Ceph OSDs, clears <code>/var/lib/{etcd,kubelet,longhorn,rook}</code>. Only run when reusing the same hardware — fresh hardware doesn't need this.</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>./init/destroy-cluster.sh
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>just<span class="w"> </span>cluster<span class="w"> </span>destroy
 </span></code></pre></div>
 <p><strong>This is destructive.</strong> See <a href="../cluster_rebuild/">Cluster Rebuild</a> → "Preflight" for the survival audit you should run <em>before</em> destroying anything. The Garage S3 buckets (CNPG backups) and any NFS-backed data are the only things that survive teardown — verify the NFS host is healthy first.</p>
 <h2 id="related">Related<a class="headerlink" href="#related" title="Permanent link">&para;</a></h2>

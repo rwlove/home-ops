@@ -2660,38 +2660,34 @@ run <code>destroy-cluster.sh</code>.</p>
 <code>/var/lib/{etcd,kubelet,longhorn,rook}</code>.</p>
 <h2 id="bootstrap">Bootstrap<a class="headerlink" href="#bootstrap" title="Permanent link">&para;</a></h2>
 <ol>
-<li><strong>Create the cluster</strong> (run on <code>master1</code>):</li>
+<li><strong>Bring up the cluster</strong> (run on your laptop):</li>
 </ol>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>./init/create-cluster.sh
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">SECRET_DOMAIN</span><span class="o">=</span>...
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>just<span class="w"> </span>cluster<span class="w"> </span>create
 </span></code></pre></div>
-<p>Sets up kube-vip, runs <code>kubeadm init</code>, joins masters 2/3 and all
-   workers, labels Longhorn-eligible nodes, makes <code>master1</code>
-   schedulable.</p>
+<p>End-to-end, orchestrated over ssh: renders kube-vip on <code>master1</code>,
+   runs <code>kubeadm init</code>, pulls the kubeconfig, joins masters 2/3 and all
+   workers, labels Longhorn nodes, makes <code>master1</code> schedulable, then
+   bootstraps the in-cluster apps (1Password-backed secrets → CRDs from
+   <code>00-crds.yaml</code> → <code>helmfile sync</code> of <code>01-apps.yaml</code>: Cilium, CoreDNS,
+   cert-manager, external-secrets, 1Password Connect, Flux operator +
+   instance).</p>
 <ol>
-<li><strong>Initialize the cluster</strong> (run on your laptop):</li>
+<li><strong>Remove the static kube-vip manifest</strong> once Flux reconciles the
+   in-cluster kube-vip DaemonSet (a few minutes; the script prints this
+   reminder):</li>
 </ol>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>./init/initialize-cluster.sh
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>ssh<span class="w"> </span>root@master1<span class="w"> </span>rm<span class="w"> </span>/etc/kubernetes/manifests/kube-vip.yaml
 </span></code></pre></div>
-<p>Pulls the kubeconfig from <code>master1</code>, creates the bootstrap
-   namespaces, runs <code>just -f bootstrap/mod.just resources</code> (renders
-   1Password-backed secrets), applies CRDs from
-   <code>bootstrap/helmfile.d/00-crds.yaml</code>, then <code>helmfile sync</code> for
-   <code>01-apps.yaml</code> (Cilium, CoreDNS, cert-manager, external-secrets,
-   1Password Connect, Flux operator + instance).</p>
-<ol>
-<li><strong>Remove the static kube-vip manifest</strong> (run on your laptop):</li>
-</ol>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>ssh<span class="w"> </span>root@master1<span class="w"> </span>rm<span class="w"> </span>/etc/kubernetes/manifests/kube-vip.yaml
-</span></code></pre></div>
-<p>Once Flux brings up the in-cluster kube-vip, the static pod is
-   redundant and will fight for the VIP.</p>
+<p>The static pod is redundant once the DaemonSet owns the VIP and will
+   otherwise fight for it.</p>
 <h2 id="verify-gitops">Verify GitOps<a class="headerlink" href="#verify-gitops" title="Permanent link">&para;</a></h2>
 <p>Flux should now be reconciling everything under <code>kubernetes/</code>. Watch
 for the bootstrap chain:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>flux<span class="w"> </span>get<span class="w"> </span>sources<span class="w"> </span>git<span class="w"> </span>-A
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>flux<span class="w"> </span>get<span class="w"> </span>ks<span class="w"> </span>-A<span class="w">          </span><span class="c1"># kustomizations should turn Ready=True</span>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>flux<span class="w"> </span>get<span class="w"> </span>hr<span class="w"> </span>-A
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>kubectl<span class="w"> </span>get<span class="w"> </span>events<span class="w"> </span>-A<span class="w"> </span>--sort-by<span class="o">=</span>.lastTimestamp<span class="w"> </span><span class="p">|</span><span class="w"> </span>tail<span class="w"> </span>-50
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>flux<span class="w"> </span>get<span class="w"> </span>sources<span class="w"> </span>git<span class="w"> </span>-A
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>flux<span class="w"> </span>get<span class="w"> </span>ks<span class="w"> </span>-A<span class="w">          </span><span class="c1"># kustomizations should turn Ready=True</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>flux<span class="w"> </span>get<span class="w"> </span>hr<span class="w"> </span>-A
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>kubectl<span class="w"> </span>get<span class="w"> </span>events<span class="w"> </span>-A<span class="w"> </span>--sort-by<span class="o">=</span>.lastTimestamp<span class="w"> </span><span class="p">|</span><span class="w"> </span>tail<span class="w"> </span>-50
 </span></code></pre></div>
 <p>Order to expect things to come up:</p>
 <ol>
@@ -2732,13 +2728,13 @@ not from Garage. That's why teardown wipes Ceph — it forces a true
 first-creation on the way back up.</p>
 <h3 id="state-of-the-bootstrap-blocks">State of the bootstrap blocks<a class="headerlink" href="#state-of-the-bootstrap-blocks" title="Permanent link">&para;</a></h3>
 <p>CNPG clusters fall into three groups today. Verify with:</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">for</span><span class="w"> </span>f<span class="w"> </span><span class="k">in</span><span class="w"> </span>kubernetes/apps/databases/cloudnative-pg/config/*/cluster.yaml<span class="p">;</span><span class="w"> </span><span class="k">do</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nv">name</span><span class="o">=</span><span class="k">$(</span>basename<span class="w"> </span><span class="s2">"</span><span class="k">$(</span>dirname<span class="w"> </span><span class="s2">"</span><span class="nv">$f</span><span class="s2">"</span><span class="k">)</span><span class="s2">"</span><span class="k">)</span>
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span><span class="k">if</span><span class="w">   </span>grep<span class="w"> </span>-qE<span class="w"> </span><span class="s1">'^[^#]*recovery:'</span><span class="w"> </span><span class="s2">"</span><span class="nv">$f</span><span class="s2">"</span><span class="p">;</span><span class="w"> </span><span class="k">then</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"PRE-ARMED:  </span><span class="nv">$name</span><span class="s2">"</span>
-</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span><span class="k">elif</span><span class="w"> </span>grep<span class="w"> </span>-qE<span class="w"> </span><span class="s1">'^\s*#\s*recovery:'</span><span class="w"> </span><span class="s2">"</span><span class="nv">$f</span><span class="s2">"</span><span class="p">;</span><span class="w"> </span><span class="k">then</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"COMMENTED:  </span><span class="nv">$name</span><span class="s2">"</span>
-</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">  </span><span class="k">else</span><span class="w">                                       </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"NO_RECOVERY:</span><span class="nv">$name</span><span class="s2">"</span>
-</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">  </span><span class="k">fi</span>
-</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="k">done</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">for</span><span class="w"> </span>f<span class="w"> </span><span class="k">in</span><span class="w"> </span>kubernetes/apps/databases/cloudnative-pg/config/*/cluster.yaml<span class="p">;</span><span class="w"> </span><span class="k">do</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nv">name</span><span class="o">=</span><span class="k">$(</span>basename<span class="w"> </span><span class="s2">"</span><span class="k">$(</span>dirname<span class="w"> </span><span class="s2">"</span><span class="nv">$f</span><span class="s2">"</span><span class="k">)</span><span class="s2">"</span><span class="k">)</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span><span class="k">if</span><span class="w">   </span>grep<span class="w"> </span>-qE<span class="w"> </span><span class="s1">'^[^#]*recovery:'</span><span class="w"> </span><span class="s2">"</span><span class="nv">$f</span><span class="s2">"</span><span class="p">;</span><span class="w"> </span><span class="k">then</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"PRE-ARMED:  </span><span class="nv">$name</span><span class="s2">"</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span><span class="k">elif</span><span class="w"> </span>grep<span class="w"> </span>-qE<span class="w"> </span><span class="s1">'^\s*#\s*recovery:'</span><span class="w"> </span><span class="s2">"</span><span class="nv">$f</span><span class="s2">"</span><span class="p">;</span><span class="w"> </span><span class="k">then</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"COMMENTED:  </span><span class="nv">$name</span><span class="s2">"</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">  </span><span class="k">else</span><span class="w">                                       </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"NO_RECOVERY:</span><span class="nv">$name</span><span class="s2">"</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">  </span><span class="k">fi</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="k">done</span>
 </span></code></pre></div>
 <p><strong>Pre-armed</strong> — <code>bootstrap.recovery</code> is un-commented. No-op while the cluster exists; ready to recover on next bootstrap:</p>
 <ul>
@@ -2753,9 +2749,9 @@ first-creation on the way back up.</p>
 <li><code>authelia</code>, <code>av1corrector</code>, <code>khoj</code>, <code>langgraph-memory</code>, <code>nametag</code>, <code>videodupfinder</code></li>
 </ul>
 <p>For commented and no-recovery sets, edit <code>cluster.yaml</code> to include:</p>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nt">bootstrap</span><span class="p">:</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">recovery</span><span class="p">:</span>
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">    </span><span class="nt">source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">source</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nt">bootstrap</span><span class="p">:</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">recovery</span><span class="p">:</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span><span class="nt">source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">source</span>
 </span></code></pre></div>
 <p>Commit and push so Flux sees it. (For a planned rebuild you can do
 this in advance on a branch and merge right before destroy.)</p>
@@ -2772,28 +2768,28 @@ this in advance on a branch and merge right before destroy.)</p>
    healthy state</code>. Replicas are then created normally on <code>ceph-block</code>.</li>
 </ol>
 <p>Watch one cluster at a time:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>get<span class="w"> </span>cluster<span class="w"> </span>-w
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>describe<span class="w"> </span>cluster<span class="w"> </span>postgres-immich<span class="w"> </span><span class="p">|</span><span class="w"> </span>tail<span class="w"> </span>-50
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>kubectl<span class="w"> </span>cnpg<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>status<span class="w"> </span>postgres-immich
-</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>logs<span class="w"> </span>-l<span class="w"> </span>cnpg.io/jobRole<span class="o">=</span>full-recovery<span class="w"> </span>-f
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>get<span class="w"> </span>cluster<span class="w"> </span>-w
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>describe<span class="w"> </span>cluster<span class="w"> </span>postgres-immich<span class="w"> </span><span class="p">|</span><span class="w"> </span>tail<span class="w"> </span>-50
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>kubectl<span class="w"> </span>cnpg<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>status<span class="w"> </span>postgres-immich
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>logs<span class="w"> </span>-l<span class="w"> </span>cnpg.io/jobRole<span class="o">=</span>full-recovery<span class="w"> </span>-f
 </span></code></pre></div>
 <h3 id="point-in-time-recovery-pitr">Point-in-time recovery (PITR)<a class="headerlink" href="#point-in-time-recovery-pitr" title="Permanent link">&para;</a></h3>
 <p>To recover to a specific moment instead of "latest WAL", add a
 <code>recoveryTarget</code> block — see the commented template in
 <code>config/nextcloud/cluster.yaml</code>:</p>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="w">  </span><span class="nt">bootstrap</span><span class="p">:</span>
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">    </span><span class="nt">recovery</span><span class="p">:</span>
-</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">      </span><span class="nt">source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">source</span>
-</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">      </span><span class="nt">recoveryTarget</span><span class="p">:</span>
-</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">        </span><span class="nt">targetTime</span><span class="p">:</span><span class="w"> </span><span class="s">"2025-12-01</span><span class="nv"> </span><span class="s">00:00:00.00000+00"</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="w">  </span><span class="nt">bootstrap</span><span class="p">:</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">    </span><span class="nt">recovery</span><span class="p">:</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">      </span><span class="nt">source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">source</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">      </span><span class="nt">recoveryTarget</span><span class="p">:</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">        </span><span class="nt">targetTime</span><span class="p">:</span><span class="w"> </span><span class="s">"2025-12-01</span><span class="nv"> </span><span class="s">00:00:00.00000+00"</span>
 </span></code></pre></div>
 <p>Apply, wait for recovery to complete, then <strong>remove the
 <code>recoveryTarget</code></strong> in a follow-up commit so future bootstrap attempts
 default to "restore latest".</p>
 <h3 id="verifying-a-recovery">Verifying a recovery<a class="headerlink" href="#verifying-a-recovery" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>kubectl<span class="w"> </span>cnpg<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>status<span class="w"> </span>&lt;cluster-name&gt;
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>kubectl<span class="w"> </span>cnpg<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>psql<span class="w"> </span>&lt;cluster-name&gt;<span class="w"> </span>--<span class="w"> </span>-c<span class="w"> </span><span class="s1">'\l'</span>
-</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>kubectl<span class="w"> </span>cnpg<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>psql<span class="w"> </span>&lt;cluster-name&gt;<span class="w"> </span>--<span class="w"> </span>-c<span class="w"> </span><span class="s1">'SELECT pg_is_in_recovery(), now();'</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>kubectl<span class="w"> </span>cnpg<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>status<span class="w"> </span>&lt;cluster-name&gt;
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>kubectl<span class="w"> </span>cnpg<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>psql<span class="w"> </span>&lt;cluster-name&gt;<span class="w"> </span>--<span class="w"> </span>-c<span class="w"> </span><span class="s1">'\l'</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>kubectl<span class="w"> </span>cnpg<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>psql<span class="w"> </span>&lt;cluster-name&gt;<span class="w"> </span>--<span class="w"> </span>-c<span class="w"> </span><span class="s1">'SELECT pg_is_in_recovery(), now();'</span>
 </span></code></pre></div>
 <p>Confirm row counts on a critical table per app (e.g. <code>assets</code> for
 immich, <code>documents_document</code> for paperless). Compare against your
@@ -2838,7 +2834,7 @@ NFS, <em>not</em> in CNPG. Recovery for those:</p>
    GitHub → repo Settings → Secrets and Variables → Actions → edit
    <code>KUBECONFIG</code>:</li>
 </ol>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>cat<span class="w"> </span>~/.kube/config<span class="w"> </span><span class="p">|</span><span class="w"> </span>base64<span class="w"> </span>-w0
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>cat<span class="w"> </span>~/.kube/config<span class="w"> </span><span class="p">|</span><span class="w"> </span>base64<span class="w"> </span>-w0
 </span></code></pre></div>
 <ol>
 <li><strong>Re-comment any <code>bootstrap.recovery</code> blocks you uncommented</strong>
@@ -2850,7 +2846,7 @@ NFS, <em>not</em> in CNPG. Recovery for those:</p>
    (suspension state is not in Git).</li>
 <li><strong>Verify the Ceph dashboard password</strong>:</li>
 </ol>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>just<span class="w"> </span>k8s<span class="w"> </span>ceph-password
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>just<span class="w"> </span>k8s<span class="w"> </span>ceph-password
 </span></code></pre></div>
 <ol>
 <li><strong>Watch one full backup cycle complete</strong> for each CNPG cluster

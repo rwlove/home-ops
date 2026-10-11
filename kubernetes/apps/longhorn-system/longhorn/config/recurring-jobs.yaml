@@ -66,7 +66,21 @@ metadata:
 spec:
   cron: "0 3 * * 0"
   task: "filesystem-trim"
+  # Deliberately NOT aliased onto `default` like the other three jobs above.
+  # `filesystem-trim` requires the volume to be attached and, unlike
+  # backup/snapshot, does NOT honor `allow-recurring-job-while-volume-detached`
+  # -- it hard-fails (exit 1) on the first detached volume it hits, the failure
+  # isn't resumable, and all 3 backoff retries re-run the whole sweep against
+  # the same detached volume -> BackoffLimitExceeded for every volume in the
+  # group, not just the detached one. `default` is auto-applied to nearly
+  # every volume (including CronJob-backed ones that are normally detached,
+  # e.g. beets-config-xfs behind the twice-daily `beets` CronJob), so aliasing
+  # this job onto `default` means one detached volume breaks trim
+  # cluster-wide. Opt-in only: a volume must carry
+  # `recurring-job-group.longhorn.io/weekly-filesystem-trim` to be trimmed.
+  # Candidates are volumes backing a long-running Deployment/StatefulSet
+  # (always attached); CronJob-only volumes are excluded by design.
   groups:
-    - default
+    - weekly-filesystem-trim
   retain: 0
   concurrency: 2

@@ -88,7 +88,9 @@ New Longhorn volumes need:
   **auto-applies the `default` group** to any volume whose CR has no
   recurring-job labels, and `default` is what actually protects nearly
   every volume in this cluster (daily snapshot + weekly + monthly
-  backup + weekly trim). The named groups (`daily-snapshot`,
+  backup). `weekly-filesystem-trim` is the one job **not** aliased onto
+  `default` — see the detached-volume caveat below for why. The named
+  groups (`daily-snapshot`,
   `weekly-backup`, `weekly-snapshot`, `monthly-backup`) are wired into
   `longhorn/config/recurring-jobs.yaml` as functional aliases, so a
   volume whose CR *does* carry them is still covered. **Trap to avoid:**
@@ -114,6 +116,20 @@ New Longhorn volumes need:
   0 of ~88 daily snapshots, not an intermittent race. **When reasoning
   about whether a volume is attached at job time, resolve the CronJob's
   `timeZone` first — the schedule string alone will mislead you.**
+- **`filesystem-trim` is the exception to the auto-attach fix above.**
+  Unlike backup/snapshot, the `filesystem-trim` task does **not** honor
+  `allowRecurringJobWhileVolumeDetached` — Longhorn never auto-attaches
+  for it, and hitting a detached volume hard-fails (exit 1) the whole
+  job run, non-resumably; all 3 backoff retries re-fail the same way,
+  so one detached volume breaks trim for every volume in the sweep
+  (`BackoffLimitExceeded`). This is why `weekly-filesystem-trim` is the
+  one job **not** aliased onto `default` (see
+  `longhorn/config/recurring-jobs.yaml`) — it's opt-in only, via
+  `recurring-job-group.longhorn.io/weekly-filesystem-trim` on the
+  Volume CR, scoped to volumes that are reliably attached (long-running
+  Deployment/StatefulSet, never CronJob-only). Confirmed cluster-wide
+  2026-10-11 after `beets-config-xfs` (CronJob-backed, normally
+  detached) repeatedly broke the sweep.
 - `unmapMarkSnapChainRemoved=enabled` set per-Volume to prevent
   snapshot-pinned slack.
 - `chmod 755` on `lost+found` if the app runs non-root — fresh ext4

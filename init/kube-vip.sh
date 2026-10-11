@@ -1,4 +1,9 @@
 #!/bin/bash
+#
+# Standalone kube-vip static-pod generator, run ON a control-plane host. Used
+# by promote_worker_to_control_plane.md. Full cluster bring-up inlines an
+# equivalent render over ssh in create-cluster.sh — keep the VIP / interface /
+# version in sync between the two.
 
 set -euo pipefail
 

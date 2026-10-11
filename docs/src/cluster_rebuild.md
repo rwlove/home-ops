@@ -69,37 +69,31 @@ This drains every node, runs `kubeadm reset`, wipes Ceph devices via
 
 ## Bootstrap
 
-1. **Create the cluster** (run on `master1`):
+1. **Bring up the cluster** (run on your laptop):
 
    ```bash
-   ./init/create-cluster.sh
+   export SECRET_DOMAIN=...
+   just cluster create
    ```
 
-   Sets up kube-vip, runs `kubeadm init`, joins masters 2/3 and all
-   workers, labels Longhorn-eligible nodes, makes `master1`
-   schedulable.
+   End-to-end, orchestrated over ssh: renders kube-vip on `master1`,
+   runs `kubeadm init`, pulls the kubeconfig, joins masters 2/3 and all
+   workers, labels Longhorn nodes, makes `master1` schedulable, then
+   bootstraps the in-cluster apps (1Password-backed secrets → CRDs from
+   `00-crds.yaml` → `helmfile sync` of `01-apps.yaml`: Cilium, CoreDNS,
+   cert-manager, external-secrets, 1Password Connect, Flux operator +
+   instance).
 
-2. **Initialize the cluster** (run on your laptop):
-
-   ```bash
-   ./init/initialize-cluster.sh
-   ```
-
-   Pulls the kubeconfig from `master1`, creates the bootstrap
-   namespaces, runs `just -f bootstrap/mod.just resources` (renders
-   1Password-backed secrets), applies CRDs from
-   `bootstrap/helmfile.d/00-crds.yaml`, then `helmfile sync` for
-   `01-apps.yaml` (Cilium, CoreDNS, cert-manager, external-secrets,
-   1Password Connect, Flux operator + instance).
-
-3. **Remove the static kube-vip manifest** (run on your laptop):
+2. **Remove the static kube-vip manifest** once Flux reconciles the
+   in-cluster kube-vip DaemonSet (a few minutes; the script prints this
+   reminder):
 
    ```bash
    ssh root@master1 rm /etc/kubernetes/manifests/kube-vip.yaml
    ```
 
-   Once Flux brings up the in-cluster kube-vip, the static pod is
-   redundant and will fight for the VIP.
+   The static pod is redundant once the DaemonSet owns the VIP and will
+   otherwise fight for it.
 
 ## Verify GitOps
 

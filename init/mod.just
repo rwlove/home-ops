@@ -7,14 +7,10 @@ set shell := ['bash', '-euo', 'pipefail', '-c']
 #
 # Module recipes run with cwd = init/, but the scripts expect the repo root
 # (they reference ./kubernetes/… and bootstrap/…), so each recipe cd's up.
-#
-# create-cluster.sh and kube-vip.sh are intentionally absent: they run ON
-# master1, not the laptop. (A separate change may make them laptop-driven;
-# until then invoke them on the control-plane host directly.)
 
-[doc('Bootstrap in-cluster apps from the laptop (kubeconfig → secrets → CRDs → apps → Flux)')]
-init:
-    cd .. && ./init/initialize-cluster.sh
+[doc('End-to-end cluster bring-up from the laptop (kube-vip → kubeadm → join → bootstrap apps)')]
+create:
+    cd .. && ./init/create-cluster.sh
 
 [doc('DESTRUCTIVE teardown — drains nodes, kubeadm reset, wipes Ceph/etcd (prompts to confirm)')]
 destroy:

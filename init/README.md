@@ -6,49 +6,49 @@ Full end-to-end procedures live in [`docs/src/init_teardown.md`](../docs/src/ini
 
 ## Scripts
 
+Everything is driven from the **laptop** now — the repo no longer needs a checkout on `master1`. `create-cluster.sh` orchestrates `master1` (and the other nodes) over `ssh`.
+
 | Script | Run from | When | What it does |
 |---|---|---|---|
-| `kube-vip.sh` | `master1` (root) | Once, before `kubeadm init` | Renders the `kube-vip` static-pod manifest into `/etc/kubernetes/manifests/`. The VIP (`192.168.6.1`) is what `kubeadm init` will use as the control-plane endpoint. Interface defaults to `enp0s31f6`. |
-| `clusterconfiguration.yaml` | `master1` (read by `create-cluster.sh`) | n/a (manifest) | The `ClusterConfiguration` + `InitConfiguration` `kubeadm` ingests. Sets the control-plane endpoint to the VIP, cri-socket to cri-o, and the bootstrap token. |
-| `create-cluster.sh` | `master1` (root) | Once, after `kube-vip.sh` | `kubeadm init` with `clusterconfiguration.yaml`, joins masters 2/3 + every worker, labels Longhorn-eligible nodes, makes `master1` schedulable. Requires `SECRET_DOMAIN` env. |
-| `initialize-cluster.sh` | Laptop | After `create-cluster.sh` finishes | Pulls kubeconfig from `master1`, runs `bootstrap/mod.just` recipes (1Password-templated Secrets → CRDs → bootstrap apps via helmfile). Ends when Flux is reconciling. |
-| `approve-csrs.sh` | Laptop | Ad-hoc fallback | Approves pending node CSRs in bulk. Normally `kubelet-csr-approver` handles this automatically; this script is for the case where the auto-approver isn't up yet. |
-| `destroy-cluster.sh` | Laptop | Tearing down to rebuild | Prompts for a `DESTROY` confirmation, suspends the Rook/Ceph HelmReleases, drains every node, runs `kubeadm reset`, wipes Ceph OSD devices, clears `/var/lib/{etcd,kubelet,longhorn,rook}`. **Destructive — only reuses the same hardware.** |
+| `nodes.sh` | n/a (sourced) | n/a | Canonical node inventory (`MASTER_INIT`, `JOIN_MASTERS`, `WORKERS`, `LONGHORN_NODES`, teardown order). Sourced by create/destroy. |
+| `clusterconfiguration.yaml` | n/a (manifest) | n/a | The `ClusterConfiguration` + `InitConfiguration` `kubeadm` ingests. `create-cluster.sh` renders it (`envsubst`) and `scp`s it to `master1`. |
+| `create-cluster.sh` | Laptop (`just cluster create`) | Once, full bring-up | End-to-end: renders kube-vip on `master1`, `kubeadm init`, pulls the kubeconfig, joins masters 2/3 + every worker, labels Longhorn nodes, makes `master1` schedulable, then bootstraps the in-cluster apps (secrets → CRDs → bootstrap helmfile → Flux). Requires `SECRET_DOMAIN`. |
+| `kube-vip.sh` | A control-plane host (root) | Standalone | The canonical kube-vip static-pod generator, used by [`promote_worker_to_control_plane.md`](../docs/src/promote_worker_to_control_plane.md). `create-cluster.sh` inlines an equivalent render over `ssh`; keep VIP/interface/version in sync. |
+| `approve-csrs.sh` | Laptop (`just cluster approve-csrs`) | Ad-hoc fallback | Approves pending node CSRs in bulk when `kubelet-csr-approver` isn't up yet. |
+| `destroy-cluster.sh` | Laptop (`just cluster destroy`) | Tearing down to rebuild | Prompts for a `DESTROY` confirmation, suspends the Rook/Ceph HelmReleases, drains every node, runs `kubeadm reset`, wipes Ceph OSD devices, clears `/var/lib/{etcd,kubelet,longhorn,rook}`. **Destructive — only reuses the same hardware.** |
 
 ## Order
 
 ### First bring-up (or rebuild)
 
-1. (`master1` only) Edit `init/kube-vip.sh` if the network interface or VIP differs from `enp0s31f6` / `192.168.6.1`.
-2. On `master1`: `./init/kube-vip.sh`
-3. On `master1`: `export SECRET_DOMAIN=...; ./init/create-cluster.sh`
-4. On the laptop: `./init/initialize-cluster.sh`
-5. On the laptop: `ssh root@master1 rm /etc/kubernetes/manifests/kube-vip.yaml` (the static pod is now redundant; Flux brings up the in-cluster kube-vip DaemonSet)
+1. (Optional) Edit the kube-vip constants (`VIP` / `VIP_INTERFACE`) in `init/create-cluster.sh` if they differ from `192.168.6.1` / `enp0s31f6`.
+2. On the laptop: `export SECRET_DOMAIN=...; just cluster create` (or `./init/create-cluster.sh`).
+3. On the laptop, once Flux reconciles the in-cluster kube-vip DaemonSet (a few minutes): `ssh root@master1 rm /etc/kubernetes/manifests/kube-vip.yaml` (the static pod is now redundant and will fight for the VIP). The script prints this reminder on completion.
 
 ### Teardown (only if reusing the same hardware)
 
-1. On the laptop: `./init/destroy-cluster.sh` — drains, resets, wipes
+1. On the laptop: `just cluster destroy` — drains, resets, wipes (prompts to confirm).
 2. Verify NFS-backed bits (Garage substrate on `${NFS_HOST_0}`, Longhorn backup target on `beast`) are intact *before* running this. Lose those and CNPG recovery has no source. See [`docs/src/cluster_rebuild.md`](../docs/src/cluster_rebuild.md) → "Preflight".
 
 ## Prerequisites
 
-Laptop:
+Laptop (everything runs here):
 
-- `kubectl`, `helmfile`, `helm`, `just`
-- `op` (1Password CLI, signed in)
+- `kubectl`, `just`, `helmfile`, `helm`
+- `op` (1Password CLI, signed in), `minijinja-cli`, `yq`, `envsubst`
 - SSH access to all cluster nodes as `root`
 
-`master1`:
+`master1` and the other nodes:
 
-- A `kubeadm`-installed control plane (`kubeadm`, `kubelet`, `kubectl`, `cri-o`, `crun`)
-- `podman` (used by `kube-vip.sh` to render the static-pod manifest)
+- A `kubeadm`-ready control plane host (`kubeadm`, `kubelet`, `cri-o`, `crun`)
+- `podman` on `master1` (used to render the kube-vip static-pod manifest)
 
 ## What lives here vs `bootstrap/`
 
-- **`init/`** = shell scripts that *orchestrate* the bootstrap procedure (run kubeadm, scp kubeconfigs, etc.).
-- **[`bootstrap/`](../bootstrap/)** = the resources that get *applied* during bootstrap (1Password-templated Secrets, CRDs, the bootstrap helmfile).
+- **`init/`** = shell scripts (and the `just cluster` recipes) that *orchestrate* the procedure (run kubeadm over ssh, scp kubeconfigs, etc.).
+- **[`bootstrap/`](../bootstrap/)** = the resources that get *applied* during bootstrap (1Password-templated Secrets, CRDs, the bootstrap helmfile), driven by `just bootstrap resources|crds|apps`.
 
-`initialize-cluster.sh` is the seam — it pulls kubeconfig and then drives the `bootstrap/mod.just` recipes.
+`create-cluster.sh`'s final phase is the seam — it pulls the kubeconfig and then drives the `just bootstrap …` recipes.
 
 ## Related
 

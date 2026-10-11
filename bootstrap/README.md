@@ -54,7 +54,7 @@ Recipes invoked from the repo-root `justfile`:
 | `just bootstrap crds` | Extract + apply CRDs from `helmfile.d/00-crds.yaml` (template → `kubectl apply`) |
 | `just bootstrap apps` | `helmfile sync` the pre-Flux apps from `helmfile.d/01-apps.yaml` |
 
-`./init/initialize-cluster.sh` runs these three in order; you rarely invoke them individually.
+`init/create-cluster.sh` (via `just cluster create`) runs these three in order during bring-up; you rarely invoke them individually.
 
 ## Prerequisites
 
@@ -69,7 +69,7 @@ Operator-side (laptop):
 Cluster-side (`master1`):
 
 - A kubeadm-joined control plane reachable via the VIP at `192.168.6.1`
-- A kubeconfig the laptop can read (typically pulled by `init/initialize-cluster.sh`)
+- A kubeconfig the laptop can read (pulled by `init/create-cluster.sh` during bring-up)
 
 ## When bootstrap re-runs
 
@@ -82,6 +82,6 @@ The exceptions are:
 
 ## Related
 
-- [`init/`](../init/) — the shell scripts that orchestrate bootstrap (create-cluster, initialize-cluster, destroy-cluster, kube-vip).
+- [`init/`](../init/) — the shell scripts + `just cluster` recipes that orchestrate bootstrap (create-cluster, destroy-cluster, approve-csrs, kube-vip).
 - [`docs/src/init_teardown.md`](../docs/src/init_teardown.md) — minimal bring-up procedure.
 - [`docs/src/cluster_rebuild.md`](../docs/src/cluster_rebuild.md) — full bootstrap + recovery walkthrough.

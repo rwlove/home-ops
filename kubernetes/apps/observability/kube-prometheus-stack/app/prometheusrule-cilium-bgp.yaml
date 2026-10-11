@@ -1,0 +1,44 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cilium-bgp
+spec:
+  groups:
+    # Cilium BGP session health. BGP is how this cluster advertises
+    # LoadBalancer Service IPs upstream (CiliumBGPClusterConfig +
+    # CiliumBGPAdvertisement) — a dropped session on any node stops that
+    # node from advertising routes, which silently degrades (or, if the
+    # peer drops cluster-wide, breaks) external reachability for
+    # LoadBalancer Services with no other symptom.
+    #
+    # Metric: `cilium_bgp_control_plane_session_state` (cilium-agent, port
+    # 9962), one series per (node, neighbor) pair. 1 = established,
+    # anything else = not established. Verified live 2026-10-11: 11 series
+    # across all nodes, all value 1, all `neighbor="192.168.1.1:179"` (the
+    # gateway) today — but the rule is written per-(node, neighbor) so a
+    # future second peer or a single node's session drop still pages
+    # without a rule change.
+    #
+    # `for: 10m` — BGP re-converges fast (seconds), so a sub-10m blip is a
+    # transient reconnect, not a real outage. Per the cluster's
+    # alert-on-sustained-not-transient rule, 10m filters that noise while
+    # still catching a genuine peer/session failure quickly.
+    - name: cilium-bgp
+      rules:
+        - alert: CiliumBGPSessionNotEstablished
+          annotations:
+            description: >-
+              cilium-agent on {{ $labels.node }} has not had an established
+              BGP session with neighbor {{ $labels.neighbor }} for 10m+.
+              This node can no longer advertise LoadBalancer Service IPs to
+              that peer — new or existing LoadBalancer IPs may be
+              unreachable from upstream. Check the peer
+              ({{ $labels.neighbor }}) and `cilium bgp peers` on the node.
+            summary: Cilium BGP session down on {{ $labels.node }} ({{ $labels.neighbor }}).
+          expr: |
+            min by (node, neighbor) (cilium_bgp_control_plane_session_state) != 1
+          for: 10m
+          labels:
+            severity: critical

@@ -1,0 +1,66 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: wardrowbe-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: wardrowbe
+  # Additive — the selfhosted default-deny is what triggers the lockdown;
+  # these rules punch holes through it. DNS + intra-namespace (and the
+  # co-located redis over localhost, which is never policy-evaluated) are
+  # covered by the baseline network-policy component.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # Internal Gateway Envoy -> frontend :3000 and backend :8000. The
+    # HTTPRoute path-splits across both ports (see httproute.yaml).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+            - port: "8000"
+              protocol: TCP
+  egress:
+    # CNPG cluster postgres-wardrowbe in the databases ns.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            cnpg.io/cluster: postgres-wardrowbe
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    # OIDC discovery + token exchange against Authelia at
+    # auth.${SECRET_DOMAIN}. Wardrowbe is configured with the external issuer
+    # URL, so every OIDC request hits split-horizon DNS which returns the
+    # Envoy LB IP. Cilium's socket-lb rewrites the connect() to the Envoy pod
+    # IP + targetPort 10443 BEFORE policy evaluation (per memory
+    # project_cilium_l4_port_targetport.md), so the policy must allow the
+    # Envoy pod on its container port 10443, NOT world:443 and NOT
+    # authelia:9091. Identical to the kitchenowl OIDC egress rule.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "10443"
+              protocol: TCP
+    # In-cluster Ollama (AI auto-tagging / suggestions). Optional at runtime:
+    # the app boots without it, and tagging defers until the models are pulled.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: ollama
+      toPorts:
+        - ports:
+            - port: "11434"
+              protocol: TCP

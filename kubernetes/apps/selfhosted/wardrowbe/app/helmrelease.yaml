@@ -1,0 +1,351 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app wardrowbe
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+
+  interval: 30m
+  values:
+    controllers:
+      wardrowbe:
+        annotations:
+          # The ExternalSecret (and the reflected CNPG app Secret) may land
+          # after the pod first starts; roll the pod when either changes.
+          reloader.stakater.com/auto: "true"
+
+        # Single pod so the RWO uploads volume is shared by backend + worker,
+        # and backend/frontend/worker reach the co-located redis over
+        # localhost. RWO volume → Recreate on rollout (no two pods at once).
+        type: deployment
+        strategy: Recreate
+
+        pod:
+          securityContext:
+            runAsNonRoot: true
+            fsGroup: 1000
+            fsGroupChangePolicy: OnRootMismatch
+            seccompProfile:
+              type: RuntimeDefault
+
+        containers:
+          # FastAPI backend — /api/v1, /docs. arq jobs are produced here and
+          # consumed by the worker.
+          backend: &backend
+            image:
+              repository: ghcr.io/anyesh/wardrowbe
+              tag: backend-1.11.0@sha256:c67f9cf64326e8098bd362475936106c0721216808e2240a9198da1476eb777d
+            # List-form env: ordered so $(...) dependent-var expansion sees the
+            # CNPG-sourced username/password before DATABASE_URL references them
+            # (k8s expands $(VAR) only against vars defined earlier in the list).
+            env: &backendEnv
+              # --- Database: built from CNPG's generated postgres-wardrowbe-app
+              # Secret (reflected into this namespace), NOT 1Password. SQLAlchemy
+              # needs the +asyncpg scheme, which CNPG's own `uri` key does not
+              # carry, so compose it from the discrete username/password keys.
+              - name: WARDROWBE_DB_USERNAME
+                valueFrom:
+                  secretKeyRef:
+                    name: postgres-wardrowbe-app
+                    key: username
+              - name: WARDROWBE_DB_PASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    name: postgres-wardrowbe-app
+                    key: password
+              - name: DATABASE_URL
+                value: postgresql+asyncpg://$(WARDROWBE_DB_USERNAME):$(WARDROWBE_DB_PASSWORD)@postgres-wardrowbe-rw.databases.svc.cluster.local:5432/wardrowbe
+              # --- Co-located redis (arq broker) over the shared pod network.
+              - name: REDIS_URL
+                value: redis://localhost:6379
+              - name: STORAGE_PATH
+                value: /data/uploads
+              - name: APP_URL
+                value: https://wardrowbe.${SECRET_DOMAIN}
+              - name: LOG_LEVEL
+                value: INFO
+              # Prod auth: no dev credential login. The backend refuses to boot
+              # on the default SECRET_KEY once OIDC is set, so SECRET_KEY (from
+              # the ExternalSecret) must be real.
+              - name: DEBUG
+                value: "false"
+              # One proxy in front (the internal Envoy gateway) appends XFF.
+              - name: TRUSTED_PROXY_COUNT
+                value: "1"
+              # --- OIDC against Authelia (native; no gateway extAuth here).
+              - name: OIDC_ISSUER_URL
+                value: https://auth.${SECRET_DOMAIN}
+              - name: OIDC_CLIENT_ID
+                value: wardrowbe
+              - name: OIDC_CLIENT_SECRET
+                valueFrom:
+                  secretKeyRef:
+                    name: wardrowbe-secret
+                    key: OIDC_CLIENT_SECRET
+              - name: SECRET_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: wardrowbe-secret
+                    key: SECRET_KEY
+              # --- Internal AI (in-cluster Ollama, OpenAI-compatible /v1). The
+              # app boots and serves without the models present; tagging simply
+              # defers until the VLM/text models are pulled on Ollama (P40).
+              - name: AI_INTERNAL_ENABLED
+                value: "true"
+              - name: AI_BASE_URL
+                value: http://ollama.ai.svc.cluster.local:11434/v1
+              - name: AI_API_KEY
+                value: not-needed
+              # Qwen2.5-VL 7b: strongest 7b-class VLM for structured
+              # colour/pattern/style/category extraction (ml-operator P40
+              # assessment). Fallback under VRAM pressure: minicpm-v:8b.
+              - name: AI_VISION_MODEL
+                value: qwen2.5vl:7b
+              # Reuse the text model already resident on the in-cluster Ollama
+              # (no 4th model added).
+              - name: AI_TEXT_MODEL
+                value: qwen2.5:7b
+              # Serialize tagging to ONE in-flight request. The P40 is
+              # time-sliced with no memory isolation (shared with Immich-ML /
+              # pet-tagger), so a fire-all-at-once bulk tagging burst — e.g. a
+              # whole-wardrobe backfill concurrent with an Immich re-index — can
+              # OOM-crash the shared GPU. 1 is also the app default.
+              - name: AI_TAGGING_CONCURRENCY
+                value: "1"
+              # Slow local models: wait up to 300s per LLM call (library
+              # default is 120). Reasoning off so a thinking model doesn't burn
+              # the completion budget on hidden monologue.
+              - name: AI_TIMEOUT
+                value: "300"
+              - name: AI_REASONING_EFFORT
+                value: none
+            probes:
+              liveness: &backendProbe
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /api/v1/health
+                    port: 8000
+                  initialDelaySeconds: 30
+                  periodSeconds: 30
+                  timeoutSeconds: 10
+                  failureThreshold: 3
+              readiness:
+                <<: *backendProbe
+                spec:
+                  httpGet:
+                    path: /api/v1/health
+                    port: 8000
+                  initialDelaySeconds: 10
+                  periodSeconds: 10
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /api/v1/health
+                    port: 8000
+                  initialDelaySeconds: 10
+                  periodSeconds: 10
+                  timeoutSeconds: 5
+                  failureThreshold: 30
+            securityContext: &hardened
+              runAsUser: 1000
+              runAsGroup: 1000
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: false
+              capabilities:
+                drop: ["ALL"]
+              seccompProfile:
+                type: RuntimeDefault
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                memory: 768Mi
+
+          # arq worker — AI tagging, outfit/pairing generation, notifications,
+          # scheduled sweeps. Same image as the backend, different entrypoint.
+          worker:
+            <<: *backend
+            command: ["arq", "app.workers.worker.WorkerSettings"]
+            env: *backendEnv
+            # No HTTP port; the chart's default TCP probe would have nothing to
+            # probe, so disable all probes for this container.
+            probes:
+              liveness:
+                enabled: false
+              readiness:
+                enabled: false
+              startup:
+                enabled: false
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                memory: 1Gi
+
+          # Next.js frontend — NextAuth sessions (/api/auth), SPA. Calls the
+          # backend server-side over the pod network.
+          frontend:
+            image:
+              repository: ghcr.io/anyesh/wardrowbe
+              tag: frontend-1.11.0@sha256:be8c3425748491cca20ca08e3bb8ed7379e8dd53abf570ab077b29d572735426
+            env:
+              - name: NEXTAUTH_URL
+                value: https://wardrowbe.${SECRET_DOMAIN}
+              - name: NEXTAUTH_SECRET
+                valueFrom:
+                  secretKeyRef:
+                    name: wardrowbe-secret
+                    key: NEXTAUTH_SECRET
+              - name: BACKEND_URL
+                value: http://localhost:8000
+              - name: OIDC_ISSUER_URL
+                value: https://auth.${SECRET_DOMAIN}
+              - name: OIDC_CLIENT_ID
+                value: wardrowbe
+              - name: OIDC_CLIENT_SECRET
+                valueFrom:
+                  secretKeyRef:
+                    name: wardrowbe-secret
+                    key: OIDC_CLIENT_SECRET
+              # Authelia OIDC logout endpoint (ends the upstream SSO session).
+              - name: OIDC_END_SESSION_URL
+                value: https://auth.${SECRET_DOMAIN}/api/oidc/end-session
+            probes:
+              liveness: &feProbe
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /
+                    port: 3000
+                  initialDelaySeconds: 30
+                  periodSeconds: 30
+                  timeoutSeconds: 10
+                  failureThreshold: 3
+              readiness:
+                <<: *feProbe
+                spec:
+                  httpGet:
+                    path: /
+                    port: 3000
+                  initialDelaySeconds: 10
+                  periodSeconds: 10
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              startup:
+                enabled: false
+            securityContext:
+              <<: *hardened
+              runAsUser: 1001
+              runAsGroup: 1001
+            resources:
+              requests:
+                cpu: 50m
+                memory: 128Mi
+              limits:
+                memory: 384Mi
+
+          # Co-located Dragonfly — arq's broker (Redis-protocol, drop-in for
+          # the commands redis-py/arq use). Fewer moving parts than a
+          # cross-namespace dependency on the shared Dragonfly operator (which
+          # would add CNP holes in both directions under the selfhosted
+          # default-deny); the arq queue is regenerable (the app re-queues stale
+          # work), so an emptyDir is acceptable and no extra PVC is needed.
+          # docker.io/library/redis is not on the registry allowlist (Docker
+          # Hub rate-limits), and Dragonfly is the allowed equivalent.
+          dragonfly:
+            image:
+              repository: ghcr.io/dragonflydb/dragonfly
+              tag: v1.40.2@sha256:18afa43e911f1dff18c7d1eb452361876d9702bb1cdff5c5d75c69617a4065c9
+            # --force_epoll: RuntimeDefault seccomp blocks the io_uring syscalls
+            # Dragonfly prefers, so fall back to epoll. --dir points snapshots at
+            # the emptyDir; logs to stderr. Binds 0.0.0.0:6379 by default →
+            # reachable from the backend/worker over localhost.
+            command: ["dragonfly"]
+            args:
+              - "--force_epoll"
+              - "--logtostderr"
+              - "--dir=/data"
+              - "--maxmemory=256mb"
+            probes:
+              liveness: &dfProbe
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: 6379
+                  initialDelaySeconds: 10
+                  periodSeconds: 10
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              readiness:
+                <<: *dfProbe
+                spec:
+                  tcpSocket:
+                    port: 6379
+                  initialDelaySeconds: 5
+                  periodSeconds: 5
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              startup:
+                enabled: false
+            securityContext:
+              runAsUser: 1000
+              runAsGroup: 1000
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+              seccompProfile:
+                type: RuntimeDefault
+            resources:
+              requests:
+                cpu: 50m
+                memory: 128Mi
+              limits:
+                memory: 512Mi
+
+    service:
+      app:
+        controller: wardrowbe
+        ports:
+          http:
+            port: 3000
+          backend:
+            port: 8000
+
+    persistence:
+      # User garment photos — irreplaceable, so Longhorn with recurring
+      # snapshot + backup (longhorn-pvc.yaml). Shared RWO: backend writes
+      # uploads, the worker reads them for AI tagging / background jobs.
+      uploads:
+        existingClaim: wardrowbe-uploads-pvc
+        advancedMounts:
+          wardrowbe:
+            backend:
+              - path: /data/uploads
+            worker:
+              - path: /data/uploads
+      # arq broker state — ephemeral, regenerable.
+      dragonfly-data:
+        type: emptyDir
+        advancedMounts:
+          wardrowbe:
+            dragonfly:
+              - path: /data
+      tmp:
+        type: emptyDir
+        globalMounts:
+          - path: /tmp

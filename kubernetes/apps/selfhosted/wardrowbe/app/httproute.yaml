@@ -1,0 +1,48 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/gateway.networking.k8s.io/httproute_v1.json
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: wardrowbe
+  annotations:
+    glance/name: "Wardrowbe"
+    glance/show: "true"
+    glance/id: "Selfhosted"
+spec:
+  hostnames: ["wardrowbe.${SECRET_DOMAIN}"]
+  parentRefs:
+    - name: internal
+      namespace: network
+      sectionName: https
+  # Internal-only: no external gateway parentRef. Wardrowbe handles OIDC
+  # natively against Authelia, so there is no gateway extAuth SecurityPolicy
+  # in front (same model as kitchenowl).
+  #
+  # Path split replaces the upstream nginx reverse proxy (fewer moving parts):
+  # longest-prefix match wins, so /api/auth -> frontend (NextAuth), /api ->
+  # backend (FastAPI), everything else -> frontend (Next.js).
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api/auth
+      backendRefs:
+        - name: wardrowbe
+          namespace: selfhosted
+          port: 3000
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api
+      backendRefs:
+        - name: wardrowbe
+          namespace: selfhosted
+          port: 8000
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: wardrowbe
+          namespace: selfhosted
+          port: 3000

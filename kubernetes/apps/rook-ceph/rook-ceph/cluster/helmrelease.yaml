@@ -151,10 +151,32 @@ spec:
       # from legacy AES to the aes256k cipher — the fix for CVE-2025-30156. This
       # clears the AUTH_INSECURE_SERVICE_KEY_TYPE + AUTH_INSECURE_SERVICE_TICKETS
       # HEALTH_ERR. Rook drives the rotation and the OSD bluestore-label + keyring
-      # Secret sync; it triggers a rolling daemon restart (PVCs stay active). CSI
-      # and other client keys stay on AES for now (aes256k needs node kernel
-      # >= 7.0) — that residual is HEALTH_WARN only and tracked separately. Bump
+      # Secret sync; it triggers a rolling daemon restart (PVCs stay active). Bump
       # keyGeneration to rotate again in the future.
+      #
+      # csi rotates the 4 Ceph-CSI client keys to aes256k — the deferred tail of
+      # the CVE-2025-30156 hardening (home-ops#14697). It was kernel-gated: the
+      # mounting node's libceph must support the cipher (krbd/kcephfs do the
+      # actual mount). The gate cleared 2026-10-08 when the DGX Spark OTA put it
+      # on kernel 7.0.0-1019-nvidia with `modinfo libceph` showing
+      # `depends: krb5`; the CS9 (worker2/3/4) and CS10 (masters, worker5-8)
+      # classes already supported it, so all node classes now do.
+      #
+      # NOTE the asymmetry vs daemon: the rook-ceph-cluster chart (1.21.0)
+      # hard-defaults `csi.keyType: aes` ("required when nodes don't run kernel
+      # 7.0+"), so aes256k must be set EXPLICITLY here and keyRotationPolicy must
+      # be enabled — a bare keyGeneration bump is ignored while the policy is the
+      # chart-default Disabled, and would regenerate aes keys even if fired.
+      # daemon needs no keyType because the chart does not pin it, so its unset
+      # value picks up Ceph's aes256k default on rotation.
+      #
+      # keepPriorKeyCountMax: 1 keeps the prior (gen-1, aes) key active for a
+      # migration window: new PVCs / remounts use the new aes256k key while
+      # existing live mounts keep working — so this rotation is NON-disruptive.
+      # The remaining AUTH_INSECURE_CLIENT_* warnings persist by design until the
+      # mons are set `auth_allowed_ciphers aes256k`, which is a SEPARATE gated
+      # follow-up (issue #14697 step 3) run only after every client is confirmed
+      # on the new key — NOT done in this change.
       #
       # rbdMirrorPeer is a separate sub-resource from daemon/csi (confirmed via
       # the CephCluster CRD schema and live status.cephx — Rook tracks its
@@ -164,6 +186,11 @@ spec:
       # unconditionally. See home-ops#13686.
       security:
         cephx:
+          csi:
+            keyRotationPolicy: KeyGeneration
+            keyGeneration: 2
+            keyType: aes256k
+            keepPriorKeyCountMax: 1
           daemon:
             keyRotationPolicy: KeyGeneration
             keyGeneration: 2

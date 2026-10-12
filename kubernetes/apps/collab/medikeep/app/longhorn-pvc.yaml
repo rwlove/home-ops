@@ -17,6 +17,23 @@ spec:
 
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/persistentvolume-v1.json
+#
+# Static provisioning (the repo's static-PV+volumeHandle pattern), mirroring the
+# forgejo-data / lubelogger-data static cutovers. The PV pins PVC
+# medikeep-uploads-pvc to the readable-named Longhorn volume `medikeep-uploads-ext4`
+# -- an independent copy restored from a fresh full backup of the original volume
+# (pvc-c955fca8-...) during the 2026-10 rename-via-copy migration (volumeHandle was
+# an opaque pvc-<uuid>). The old Longhorn volume is Retain and kept as rollback;
+# the fresh backup (medikeep-uploads-migrate-20261012) is a second fallback.
+#
+# The app's structured records live in CNPG (postgres-medikeep); this volume holds
+# the non-regenerable uploaded files mounted at /app/uploads. Hence Longhorn
+# (survives cluster loss via the NFS backup target) at 2 replicas, ext4 (deliberate
+# -- do not switch to XFS). Backups are automatic via Longhorn's `default`
+# recurring-job group (daily snapshot + weekly + monthly backup) plus
+# weekly-filesystem-trim; those recurring-job-group labels live on the Longhorn
+# Volume CR, not this PV. Static binding via volumeName means the provisioner is
+# not invoked.
 apiVersion: v1
 kind: PersistentVolume
 metadata:
@@ -40,4 +57,4 @@ spec:
     volumeAttributes:
       numberOfReplicas: "2"
       staleReplicaTimeout: "2880"
-    volumeHandle: pvc-c955fca8-0e2b-4429-9c89-49c86b4f54b3
+    volumeHandle: medikeep-uploads-ext4

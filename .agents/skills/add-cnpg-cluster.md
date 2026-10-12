@@ -53,16 +53,22 @@ Before generating files, verify:
   - `POSTGRES_PASS` (app DB password)
   - Plus any other env keys the consuming app needs (`*_DATABASE_URL`
     template variables).
-- **Garage bucket** `postgres-<app>-backup` exists, with the access
-  key from 1Password permitted to write to it. Garage doesn't
-  auto-provision buckets — confirm this with the user. If not, they
-  need to create it via the Garage CLI before applying.
+- **Garage backup provisioned** — the bucket `postgres-<app>-backup`, a
+  scoped S3 key, and the `GARAGE_AWS_ACCESS_KEY_ID`/`GARAGE_AWS_SECRET_ACCESS_KEY`
+  fields in the `<app>` 1P item. These are **not** in git and the
+  `cnpg-app-database` Component won't create them — a missing GARAGE field
+  fails the whole ExternalSecret template and hard-blocks the deploy. Run the
+  **`provision-cnpg-garage-backup`** skill (storage-operator) to provision all
+  three automatically and seed a first base backup, instead of doing it by
+  hand. (This was historically a manual Garage-CLI + 1P step.)
 - **`cloudnative-pg` 1Password entry** is already in place — every
   consumer ExternalSecret pulls `POSTGRES_SUPER_PASS` from it for the
   init flow.
 
-If any of these are missing, stop and tell the user. Don't generate
-files that will land in CrashLoopBackOff.
+For the Garage backup prerequisites, run `provision-cnpg-garage-backup` rather
+than bailing. If the other prerequisites (POSTGRES_USER/PASS, app keys) are
+missing, stop and tell the user. Don't generate files that will land in
+CrashLoopBackOff.
 
 ### Step 3: Generate the DB-side files
 

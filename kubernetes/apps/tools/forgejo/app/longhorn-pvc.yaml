@@ -1,11 +1,16 @@
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/storageclass-storage-v1.json
 #
-# Dynamic provisioning (not the repo's static-PV+volumeHandle pattern): a fresh
-# app has no pre-created Longhorn volume, so Longhorn provisions one from this
-# StorageClass. numberOfReplicas: 2 — the forge is the canonical store for
-# in-cluster automation git. Backups are automatic via Longhorn's `default`
-# recurring-job group (daily snapshot + weekly + monthly backup to the NFS target).
+# Static provisioning (the repo's static-PV+volumeHandle pattern). forgejo-data-pv
+# below pins PVC forgejo-data-pvc to the pre-created Longhorn volume
+# `forgejo-data-xfs` — an independent copy restored from a backup of the original
+# dynamic volume (pvc-66188a3f-...) during the 2026-10 dynamic->static migration.
+# numberOfReplicas: 2 — the forge is the canonical store for in-cluster automation
+# git. Backups are automatic via Longhorn's `default` recurring-job group (daily
+# snapshot + weekly + monthly backup to the NFS target) plus weekly-filesystem-trim;
+# those labels live on the Longhorn Volume CR, not this PV. The StorageClass object
+# is retained for the per-app contract; static binding via volumeName means the
+# provisioner is not invoked.
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
@@ -19,6 +24,29 @@ parameters:
   fsType: xfs
   dataLocality: disabled
   unmapMarkSnapChainRemoved: ignored
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/persistentvolume-v1.json
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: forgejo-data-pv
+  labels:
+    type: longhorn
+spec:
+  capacity:
+    storage: 10Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: forgejo-data
+  csi:
+    driver: driver.longhorn.io
+    fsType: xfs
+    volumeAttributes:
+      numberOfReplicas: "2"
+      staleReplicaTimeout: "2880"
+    volumeHandle: forgejo-data-xfs
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/persistentvolumeclaim-v1.json
 apiVersion: v1
@@ -34,4 +62,5 @@ spec:
   resources:
     requests:
       storage: 10Gi
+  volumeName: forgejo-data-pv
   storageClassName: forgejo-data

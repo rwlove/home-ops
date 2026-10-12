@@ -1,13 +1,25 @@
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/storageclass-storage-v1.json
 #
-# Dynamic ext4 Longhorn (not the repo's static-PV+volumeHandle pattern),
-# mirroring the forgejo-data precedent. Migrated from a static XFS volume on
-# 2026-10-05 (fleet move off XFS after an ungraceful detach corrupted radarr's
-# XFS config vol: metadata LSN ahead of log, which XFS hard-fails and ext4
-# recovers -- see feedback_xfs_longhorn_upgrade_corruption_migrate_ext4). The
-# real data lives in CNPG (sonarr-main); this volume is regenerable config.
-# Backups are automatic via Longhorn's `default` recurring-job group.
+# Static ext4 Longhorn (the repo's static-PV+volumeHandle pattern), mirroring the
+# forgejo-data static cutover. The PV below pins the PVC to the pre-created
+# Longhorn volume `sonarr-config-ext4` -- an independent copy restored from a
+# fresh backup of the original dynamic volume (pvc-0d837723-...) during the
+# 2026-10 dynamic->static migration. The old dynamic volume is Retain and kept
+# as rollback; the fresh backup is a second fallback.
+#
+# History: this volume was migrated from a static XFS volume on 2026-10-05 (fleet
+# move off XFS after an ungraceful detach corrupted radarr's XFS config vol:
+# metadata LSN ahead of log, which XFS hard-fails and ext4 recovers -- see
+# feedback_xfs_longhorn_upgrade_corruption_migrate_ext4). ext4 is deliberate; do
+# not switch back to XFS.
+#
+# The real data lives in CNPG (sonarr-main); this volume is regenerable config.
+# Backups are automatic via Longhorn's `default` recurring-job group (daily
+# snapshot + weekly + monthly backup to the NFS target) plus weekly-filesystem-trim;
+# those recurring-job-group labels live on the Longhorn Volume CR, not this PV.
+# The StorageClass object is retained for the per-app contract; static binding via
+# volumeName means the provisioner is not invoked.
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
@@ -21,6 +33,30 @@ parameters:
   fsType: ext4
   dataLocality: disabled
   unmapMarkSnapChainRemoved: ignored
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/persistentvolume-v1.json
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: sonarr-config-ext4-pv
+  labels:
+    type: longhorn
+spec:
+  capacity:
+    storage: 5Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: sonarr-config-ext4
+  csi:
+    driver: driver.longhorn.io
+    fsType: ext4
+    volumeAttributes:
+      numberOfReplicas: "2"
+      staleReplicaTimeout: "2880"
+      dataLocality: disabled
+    volumeHandle: sonarr-config-ext4
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/persistentvolumeclaim-v1.json
 apiVersion: v1
@@ -36,4 +72,5 @@ spec:
   resources:
     requests:
       storage: 5Gi
+  volumeName: sonarr-config-ext4-pv
   storageClassName: sonarr-config-ext4

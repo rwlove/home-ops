@@ -17,6 +17,25 @@ spec:
 
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/persistentvolume-v1.json
+#
+# Static provisioning (the repo's static-PV+volumeHandle pattern), mirroring the
+# forgejo-data / radarr-config-ext4 static cutovers. The PV pins PVC
+# lubelogger-data-pvc to the readable-named Longhorn volume `lubelogger-data-ext4`
+# -- an independent copy restored from a fresh full backup of the original volume
+# (pvc-97170bbf-...) during the 2026-10 rename-via-copy migration (volumeHandle was
+# an opaque pvc-<uuid>). The old Longhorn volume is Retain and kept as rollback;
+# the fresh backup (backup-migrate-lubelogger-20261012) is a second fallback.
+#
+# The real service/fuel/cost records live in CNPG (postgres-lubelogger); this
+# volume holds the hand-entered, irreplaceable extras -- uploaded documents
+# (receipts/warranty PDFs), vehicle images, userConfig.json, and the ASP.NET
+# DataProtection key ring (via HOME=/App/data; losing it logs every user out).
+# Hence Longhorn (survives cluster loss via the NFS backup target) at 2 replicas,
+# ext4 (deliberate -- do not switch to XFS). Backups are automatic via Longhorn's
+# `default` recurring-job group (daily snapshot + weekly + monthly backup) plus
+# weekly-filesystem-trim; those recurring-job-group labels live on the Longhorn
+# Volume CR, not this PV. Static binding via volumeName means the provisioner is
+# not invoked.
 apiVersion: v1
 kind: PersistentVolume
 metadata:
@@ -40,4 +59,4 @@ spec:
     volumeAttributes:
       numberOfReplicas: "2"
       staleReplicaTimeout: "2880"
-    volumeHandle: pvc-97170bbf-95f3-4705-b01d-7f85a1764471
+    volumeHandle: lubelogger-data-ext4

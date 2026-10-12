@@ -1,0 +1,29 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/kustomization-kustomize-v1.json
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: &app wardrowbe
+spec:
+  commonMetadata:
+    labels:
+      app.kubernetes.io/name: *app
+  targetNamespace: selfhosted
+  path: ./kubernetes/apps/selfhosted/wardrowbe/app
+  interval: 30m
+  timeout: 5m
+  dependsOn:
+    # PVC for the uploads volume (user garment photos).
+    - name: longhorn
+      namespace: longhorn-system
+    # ExternalSecret source (SECRET_KEY / NEXTAUTH_SECRET / OIDC_CLIENT_SECRET).
+    - name: onepassword-connect
+      namespace: external-secrets
+    # Native OIDC against Authelia (OIDC_ISSUER_URL).
+    - name: authelia
+      namespace: auth
+    # The CNPG cluster — its generated `postgres-wardrowbe-app` Secret, reflected
+    # into selfhosted, is what DATABASE_URL is built from.
+    - name: wardrowbe
+      namespace: databases
+  retryInterval: 1m

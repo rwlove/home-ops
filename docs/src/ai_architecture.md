@@ -50,7 +50,7 @@ flowchart TB
         Push[Pushover<br/>direct page]
     end
 
-    OWUI -->|chat| OllamaSpark
+    OWUI -->|chat| VllmDriver
     OWUI -->|tool calls| Gw
     OWUI --> Q
     Khoj --> OllamaP40

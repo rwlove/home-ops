@@ -27,7 +27,7 @@ What it also asserts (narrative drift, manual-fix only):
   Namespace paths     — every `kubernetes/apps/<group>/<app>/` path
                         mentioned in the README must exist on disk
   Mermaid hygiene     — blocks with an `Inference` subgraph must
-                        mention `ollama-spark`
+                        mention `vllm-driver-spark`
 
 Usage:
     tools/lint-readme-drift.py [README_PATH]
@@ -210,19 +210,19 @@ def check_mermaid_sanity(readme_text: str) -> list[str]:
     """Lightweight textual lints on each ```mermaid``` block:
 
     - Any block containing an `Inference` subgraph header must also
-      mention `ollama-spark` (the post-Spark backend is the cluster's
-      current workhorse).
+      mention `vllm-driver-spark` (the Spark LLM backend since the
+      Ollama->vLLM cutover, #13295; ollama-spark was decommissioned).
 
     Not a full graph parser — just regex-grade sanity.
     """
     drifts: list[str] = []
     for i, block_match in enumerate(MERMAID_BLOCK_RE.finditer(readme_text), start=1):
         block = block_match.group(1)
-        if "Inference" in block and "ollama-spark" not in block.lower() \
-                and "OllamaSpark" not in block:
+        if "Inference" in block and "vllm-driver-spark" not in block.lower() \
+                and "VllmDriver" not in block:
             drifts.append(
                 f"mermaid block #{i} has an Inference subgraph but "
-                f"doesn't mention ollama-spark (post-Spark default)"
+                f"doesn't mention vllm-driver-spark (the Spark LLM backend)"
             )
     return drifts
 

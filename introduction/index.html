@@ -3221,10 +3221,11 @@ _Production-grade Kubernetes for a household._
 | App | Purpose |
 |-----|---------|
 | **Ollama** (P40) | Local LLM serving on the Pascal P40 (≤8b-class models, embeddings) |
-| **Ollama Spark** | LLM serving on Spark/GB10 (qwen3-next:80b-a3b-instruct-q4_K_M for Open WebUI, bge-m3 embeddings) |
+| **vLLM (Spark)** | LLM serving on Spark/GB10 — `vllm-driver-spark` (qwen3.6-35b-a3b) for Open WebUI chat |
 | **ComfyUI** | Image generation workflows |
 | **Khoj** | Personal AI assistant over notes + docs (Authelia extAuth-gated) |
 | **Paperless-AI** | Auto-tagging for paperless-ngx |
+| **tei-embed-spark** | Text-embedding-inference (bge-m3) on Spark/GB10 — RAG + knowledge-graph embeddings |
 | **tei-spark** | Text-embedding-inference reranker (unsuspended 2026-05-21) |
 
 </details>
@@ -3300,7 +3301,7 @@ _Production-grade Kubernetes for a household._
 | **ntfy** | Self-hosted push notifications (operator approvals via Android tap actions) |
 | **BentoPDF** | Self-hosted PDF toolkit |
 | **Kitchenowl** | Shopping lists + recipe / meal management |
-| **Open WebUI** | Self-hosted LLM frontend; routes chat to Ollama-Spark (default) / Ollama-P40, and pulls in the MCP gateway as its only tool server (the langgraph-agent-as-model registration and the HolmesGPT tool server were both removed 2026-07-06). RAG via bge-m3 + bge-reranker-v2-m3 over Qdrant |
+| **Open WebUI** | Self-hosted LLM frontend; routes chat to vllm-driver-spark (default) / Ollama-P40, and pulls in the MCP gateway as its only tool server (the langgraph-agent-as-model registration and the HolmesGPT tool server were both removed 2026-07-06). RAG via bge-m3 + bge-reranker-v2-m3 over Qdrant |
 | **SearXNG** | Privacy-respecting metasearch engine |
 | **Glance** | Personal dashboard / start page |
 | **Atuin** | Encrypted shell-history sync across machines |
@@ -3363,7 +3364,8 @@ roster, and the file:line references behind every claim here.</p>
 
     subgraph Inference[Inference]
         OllamaP40[(ollama / P40&lt;br/&gt;qwen2.5:7b · embeddings)]
-        OllamaSpark[(ollama-spark / GB10&lt;br/&gt;qwen3-next:80b-a3b-instruct-q4_K_M · bge-m3)]
+        VllmDriver[(vllm-driver-spark / GB10&lt;br/&gt;qwen3.6-35b-a3b)]
+        TeiEmbed[(tei-embed-spark / GB10&lt;br/&gt;bge-m3 embeddings)]
     end
 
     subgraph Tools[Tools + retrieval]
@@ -3377,9 +3379,10 @@ roster, and the file:line references behind every claim here.</p>
         Push[Pushover&lt;br/&gt;direct page]
     end
 
-    OWUI --&gt;|chat| OllamaSpark
+    OWUI --&gt;|chat| VllmDriver
     OWUI --&gt; Gw --&gt; Mem
     OWUI --&gt; Q
+    Mem --&gt;|embed| TeiEmbed
     Khoj --&gt; OllamaP40
     WPaperless --&gt; Q
     WLightrag --&gt; Q
@@ -3389,13 +3392,13 @@ producer left in this diagram — all three were <code>langgraph-agents</code>
 plumbing, removed 2026-07-06 along with the fleet.</p>
 <h3 id="surfaces-and-bridges">Surfaces and bridges<a class="headerlink" href="#surfaces-and-bridges" title="Permanent link">&para;</a></h3>
 <ul>
-<li><strong>Open WebUI</strong> (<code>collab/</code>) — primary chat UI. Defaults to qwen3-next:80b-a3b-instruct-q4_K_M on Ollama-Spark. RAG runs over Qdrant with bge-m3 embeds + BGE reranker-v2-m3 in-process. Tool server wired in: the MCP gateway (the langgraph-agent-as-model registration and the HolmesGPT tool server are both gone).</li>
+<li><strong>Open WebUI</strong> (<code>collab/</code>) — primary chat UI. Defaults to qwen3.6-35b-a3b on vllm-driver-spark (GB10). RAG runs over Qdrant with bge-m3 embeds (tei-embed-spark) + BGE reranker-v2-m3 in-process. Tool server wired in: the MCP gateway (the langgraph-agent-as-model registration and the HolmesGPT tool server are both gone).</li>
 <li><strong>Khoj</strong> (<code>ai/</code>) — parallel personal-AI surface for notes + docs. Self-contained: own embedding pipeline (default gte-small, optionally ollama nomic-embed-text), chat via Ollama-P40. Does <strong>not</strong> consume the MCP gateway.</li>
 <li><strong>HolmesGPT</strong> — removed 2026-07-06 (no value delivered). The <code>windmill-investigate</code> route/receiver and the <code>alertmanager-holmesgpt-notify.ts</code> bridge were removed in Stage 1 (critical alerts now go straight to Pushover); the HolmesGPT deployment itself, its RBAC, its Open WebUI tool-server registration, and its Ollama/Authelia wiring were removed in Stage 2. HolmesGPT no longer exists anywhere in the cluster.</li>
 <li><strong>langgraph-agents</strong> — removed 2026-07-06. The FastAPI multi-agent runtime, its Postgres checkpoints (<code>postgres-langgraph-checkpoints</code>, deleted), vault PVCs (<code>langgraph-vault</code>/<code>langgraph-vault-rw</code>, deleted), and both public routes (<code>hai.${SECRET_DOMAIN}</code> and <code>hai-web.${SECRET_DOMAIN}</code>) are gone. <code>sync-receiver</code> — an sshd sidecar that existed solely to expose the langgraph-vault PVCs over rsync — was deleted alongside it. See <a href="https://github.com/rwlove/home-ops/blob/main/docs/src/ai_architecture.md#agent-fleet--status-today">Agent fleet — status today</a> for the historical roster.</li>
 <li><strong>Windmill</strong> (<code>home/</code>) — 7 checked-in TypeScript flows remain under <code>kubernetes/apps/home/windmill/workflows/</code> (down from 23): the unified <code>paperless-rag-fanout</code> ingest (Qdrant + LightRAG from one pull), Paperless + LightRAG RAG tombstones, Windmill self-failure-watch, and the workaround upstream-watcher. The two original split ingests (<code>paperless-rag-ingest</code>, <code>lightrag-rag-ingest</code>) were merged into the fan-out 2026-07-20 — retained on disk, schedules paused for rollback. The 16 langgraph-fleet-specific flows (inbox, approval post/receive, daily digest, cost-cap watcher, awaiting-user sweep, DLQ watcher, weekly operator-drift crons, the approval-flow smoke test, and the Zulip triager webhook) were deleted 2026-07-06.</li>
 <li><strong>Langfuse</strong> — removed 2026-07-06. Its only consumer (langgraph-agents) was already gone; the keep-dormant-vs-remove question is now resolved as remove.</li>
-<li><strong>memory-mcp</strong> (<code>mcp-system/</code>) — cross-agent knowledge graph on <code>postgres-langgraph-memory</code> with pgvector(1024), bge-m3 embeds via Ollama-Spark. Fully unaffected by the decommission — it's memory-mcp's own database, used by Claude Code and Open WebUI. It just lost langgraph-agents as a consumer.</li>
+<li><strong>memory-mcp</strong> (<code>mcp-system/</code>) — cross-agent knowledge graph on <code>postgres-langgraph-memory</code> with pgvector(1024), bge-m3 embeds via tei-embed-spark. Fully unaffected by the decommission — it's memory-mcp's own database, used by Claude Code and Open WebUI. It just lost langgraph-agents as a consumer.</li>
 </ul>
 <h3 id="agent-fleet--retired-2026-07-06">Agent fleet — retired 2026-07-06<a class="headerlink" href="#agent-fleet--retired-2026-07-06" title="Permanent link">&para;</a></h3>
 <p>The langgraph-agents multi-agent fleet (<code>triager</code>, <code>supervisor</code>,
@@ -3425,7 +3428,7 @@ board for anything currently running.</p>
 </tr>
 <tr>
 <td>2</td>
-<td><code>qwen3-next:80b-a3b-instruct-q4_K_M</code> on Ollama-Spark (GB10)</td>
+<td><code>qwen3.6-35b-a3b</code> on vllm-driver-spark (GB10)</td>
 <td>Default chat inference (Open WebUI)</td>
 </tr>
 </tbody>
@@ -3526,7 +3529,7 @@ removed 2026-07-06 — no value delivered.</p>
 <p>Two GPUs split the workload:</p>
 <ul>
 <li><strong>NVIDIA P40 on worker8</strong> (Pascal, 24 GB VRAM) — Ollama for ≤8b-class models + embeddings, ComfyUI, Whisper STT, Immich CLIP face/pet recognition, and the immich-pet-tagger fork pinned to a P40-compatible PyTorch build.</li>
-<li><strong>NVIDIA GB10 on Spark</strong> (Grace-Blackwell, 128 GB unified) — the larger Ollama deployment serving qwen3-next:80b-a3b-instruct-q4_K_M for Open WebUI, plus bge-m3 embeddings for the cross-agent knowledge graph and Paperless RAG.</li>
+<li><strong>NVIDIA GB10 on Spark</strong> (Grace-Blackwell, 128 GB unified) — the vLLM driver (<code>vllm-driver-spark</code>) serving qwen3.6-35b-a3b for Open WebUI, TEI embeddings (<code>tei-embed-spark</code>, bge-m3) for the cross-agent knowledge graph and Paperless RAG, the <code>tei-spark</code> reranker, and ComfyUI image generation.</li>
 </ul>
 <p>Driver lifecycle is handled by the NVIDIA GPU Operator. Spark is the lone containerd node in an otherwise CRI-O cluster; a NodeFeatureRule auto-skips the GPU container-toolkit DaemonSet on CRI-O nodes.</p>
 <h3 id="-disaster-recovery">🛟 Disaster recovery<a class="headerlink" href="#-disaster-recovery" title="Permanent link">&para;</a></h3>

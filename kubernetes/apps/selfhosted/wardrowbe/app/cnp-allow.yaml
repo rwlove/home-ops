@@ -64,3 +64,21 @@ spec:
         - ports:
             - port: "11434"
               protocol: TCP
+    # Open-Meteo weather (api.open-meteo.com, free/no-key) for the dashboard
+    # forecast, and its geocoding host (geocoding-api.open-meteo.com) for the
+    # "Set Location" name->coords search. Both are A-only/canonical (dig
+    # confirmed no CNAME) and the cluster-wide CoreDNS autopath removal
+    # (#12482, see reference_coredns_autopath_disabled_fixes_cilium_fqdn_cache)
+    # means Cilium's DNS proxy binds the FQDN cache to the bare queried name,
+    # so matchName alone is reliable here -- no toEntities:[world] fallback
+    # needed. DNS L7 visibility to populate that cache is already provided by
+    # the baseline network-policy component's allow-dns CNP (selfhosted has no
+    # per-namespace opt-out patch stripping its rules.dns block; konflate's
+    # toFQDNs egress in this same namespace already proves it's live).
+    - toFQDNs:
+        - matchName: "api.open-meteo.com"
+        - matchName: "geocoding-api.open-meteo.com"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

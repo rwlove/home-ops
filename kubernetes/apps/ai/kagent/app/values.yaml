@@ -81,6 +81,18 @@ database:
       # so helm doesn't attempt an (API-rejected) PVC shrink on the next upgrade.
       storage: 8Gi
       storageClassName: ceph-block
+      # 2026-10-14: CPUThrottlingHigh (info) on the bundled postgres became
+      # sustained after the kagent fleet grew (arnold/crusher/medikeep-mcp/
+      # pump-mcp → more controller↔DB tool-discovery + session chatter). The
+      # chart-default 500m CPU limit is a burst ceiling: 5-min avg usage is only
+      # ~0.2 cores (well under limit), but bursty postgres backends trip the CFS
+      # period cap → >25% throttled periods → the alert fires and stays firing.
+      # The DB is not starved; raise the burst ceiling to stop the throttling at
+      # source. requests/memory left at chart default (deep-merged). Reversible:
+      # drop this block to revert to 500m.
+      resources:
+        limits:
+          cpu: "2"
 
 controller:
   replicas: 1

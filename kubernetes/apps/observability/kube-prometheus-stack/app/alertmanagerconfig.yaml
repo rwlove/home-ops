@@ -73,10 +73,28 @@ spec:
       # they carry `severity: critical` with no triaged "expected" story and
       # fall through to pushover like any other critical, per the routing
       # note below.
+      #
+      # CPUThrottlingHigh (added 2026-10-14) — upstream kube-prometheus-stack
+      # default rule, `severity: info` on every instance (not just this one),
+      # `for: 15m`, fires at >25% throttled CFS periods over 5m. It fires
+      # whenever a container sits near its CPU *limit* under bursty load even
+      # with low absolute usage — e.g. kagent-postgresql (ai ns): 500m limit,
+      # ~0.18-0.25 cores 5m-avg, hits the period ceiling in bursts. That's the
+      # alert's designed behavior at this severity, not a flap bug, so a
+      # `for:` bump wouldn't help. Routed here rather than null so it stays
+      # durably visible (not silenced) without paging on a soft/non-actionable
+      # signal, per Rob's sustained-not-transient + info/soft-tier-log-only
+      # rules. This is an alertname-level route (every CPUThrottlingHigh,
+      # any ns/pod), matching upstream's own severity classification — not a
+      # severity-wide catch-all. The other two live info-severity alerts,
+      # GPUPowerSustainedHigh and HostRequiresReboot, are deliberately NOT
+      # added: both are custom-authored specifically to page (see the
+      # corrected note in ../helmrelease.yaml's defaultRules.disabled
+      # comment), so routing is still by ALERTNAME, never by severity.
       - receiver: "email"
         matchers:
           - name: alertname
-            value: AgentOpsQueueUnhealthy|AgentOpsWatchdogStale|AgentOpsWatchdogMissing|WindmillFailureDetectionStale|WindmillWatchdogMissing|NodeXfsShutdown
+            value: AgentOpsQueueUnhealthy|AgentOpsWatchdogStale|AgentOpsWatchdogMissing|WindmillFailureDetectionStale|WindmillWatchdogMissing|NodeXfsShutdown|CPUThrottlingHigh
             matchType: "=~"
       # DORMANT by design (Rob-approved 2026-10-03). Forwards firing alerts
       # carrying `queue: agent-ops` to the Windmill agent-ops work-queue

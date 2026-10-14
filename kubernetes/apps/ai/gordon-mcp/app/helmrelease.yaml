@@ -1,0 +1,147 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app gordon-mcp
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  values:
+    defaultPodOptions:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+    controllers:
+      gordon-mcp:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        type: deployment
+        replicas: 1
+        containers:
+          app:
+            image:
+              repository: docker.io/ckanthony/openapi-mcp
+              tag: 0.1.0@sha256:50f1bf68ce58724b9569142468ea038da67b22c778697388a0af7c416af5e5cc
+            # Generic OpenAPI->MCP bridge over SSE (GET/POST /mcp, binds
+            # 0.0.0.0:8080). --spec is the hand-authored KitchenOwl subset baked
+            # in via the configMap below; --base-url overrides the spec's server
+            # (the stub points at the public instance) to the in-cluster service.
+            # The static Bearer token is injected into every upstream request via
+            # REQUEST_HEADERS (from the secret).
+            args:
+              - --spec
+              - /spec/kitchenowl.json
+              - --base-url
+              - http://kitchenowl.collab.svc.cluster.local:8080
+              - --name
+              - KitchenOwl
+            env:
+              TZ: America/New_York
+            # REQUEST_HEADERS=Authorization:Bearer <token> from 1P via the ES.
+            envFrom:
+              - secretRef:
+                  name: gordon-mcp-secret
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: &port 8080
+                  initialDelaySeconds: 15
+                  periodSeconds: 30
+                  failureThreshold: 5
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: *port
+                  initialDelaySeconds: 10
+                  periodSeconds: 15
+                  failureThreshold: 3
+            resources:
+              requests:
+                cpu: 10m
+                memory: 64Mi
+              limits:
+                memory: 256Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+    service:
+      app:
+        controller: gordon-mcp
+        ports:
+          http:
+            port: *port
+    persistence:
+      # Hand-authored OpenAPI spec (configMapGenerator in kustomization.yaml).
+      spec:
+        type: configMap
+        name: gordon-mcp-spec
+        advancedMounts:
+          gordon-mcp:
+            app:
+              - path: /spec/kitchenowl.json
+                subPath: kitchenowl.json
+                readOnly: true
+      # godotenv probes <specdir>/.env on start; give it a writable tmp and keep
+      # the root filesystem read-only.
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          gordon-mcp:
+            app:
+              - path: /tmp
+    externalSecrets:
+      gordon-mcp:
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: onepassword-connect
+        target:
+          name: gordon-mcp-secret
+          template:
+            data:
+              REQUEST_HEADERS: "Authorization:Bearer {{ .gordon_agent_token }}"
+        dataFrom:
+          - extract:
+              key: kitchenowl
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: gordon-mcp-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: gordon-mcp
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # kagent (ai ns) calls the MCP over SSE on :8080.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: ai
+            toPorts:
+              - ports:
+                  - port: "8080"
+                    protocol: TCP
+        egress:
+          # -> KitchenOwl in the collab ns (spec fetch + tool calls), :8080.
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: collab
+                  app.kubernetes.io/name: kitchenowl
+            toPorts:
+              - ports:
+                  - port: "8080"
+                    protocol: TCP

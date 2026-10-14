@@ -1,0 +1,41 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: actions-runner-alert
+spec:
+  groups:
+    - name: actions-runner.rules
+      rules:
+        # arc-runner-set-home-ops (minRunners: 1) is the CI runner the
+        # GitOps/Renovate/pre-submit flow depends on. No `gha_*` controller
+        # metrics are scraped in this cluster (ARC's own runner-count/desired
+        # metrics aren't exposed to Prometheus), so this falls back to the
+        # one signal that is scraped: the AutoscalingListener's pod Readiness
+        # via kube-state-metrics. If the listener pod isn't Ready, GitHub
+        # can't hand this scale set a job no matter how many runner pods
+        # exist. The listener is a bare Pod (owned by the AutoscalingListener
+        # CR, not a Deployment) named "<scale-set-name>-<hash>-listener" —
+        # match on prefix/suffix, not the hash, since the hash changes on
+        # every chart bump. `or vector(0)` makes the expr evaluate to 0
+        # (rather than no series) during the brief window where the old
+        # listener pod is gone and the new one hasn't reported Ready yet, so
+        # a stuck recreate is still caught by `for:`. Deliberately excludes
+        # arc-runner-set-containers (minRunners: 0, scales to zero runners by
+        # design — that's normal, not a failure, for that scale set).
+        - alert: GithubActionsRunnerListenerNotReady
+          annotations:
+            summary: >-
+              The arc-runner-set-home-ops GitHub Actions runner-scale-set listener
+              has not been Ready for more than 15 minutes. No CI job can be
+              picked up for the home-ops repo regardless of current runner pod
+              count.
+          expr: |
+            (
+              sum(kube_pod_status_ready{namespace="actions-runner-system",condition="true",pod=~"^arc-runner-set-home-ops-[^-]+-listener$"})
+              or vector(0)
+            ) == 0
+          for: 15m
+          labels:
+            severity: critical

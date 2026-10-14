@@ -16,16 +16,26 @@ spec:
           for: 15m
           labels:
             severity: critical
+        - alert: FluxHelmReleaseStalled
+          annotations:
+            summary: >-
+              HelmRelease {{ $labels.exported_namespace }}/{{ $labels.name }} is not Ready
+              (reason: {{ $labels.reason }}) for more than 10 minutes. This also catches a
+              release that Flux auto-rolled-back after a failed install/upgrade: rollback
+              reports Ready=False with reason RollbackSucceeded/RollbackFailed, so the
+              target chart revision never actually took even though the release recovered.
+          expr: |
+            max(flux_resource_info{kind="HelmRelease",ready="False"}) by (exported_namespace, name, reason)
+          for: 10m
+          labels:
+            severity: critical
         - alert: FluxReconciliationFailure
           annotations:
             summary: >-
-              {{ $labels.kind }} {{ $labels.namespace }}/{{ $labels.name }} reconciliation
-              has been failing for more than 15 minutes.
+              {{ $labels.kind }} {{ $labels.exported_namespace }}/{{ $labels.name }}
+              reconciliation has been failing for more than 15 minutes.
           expr: |
-            max(gotk_reconcile_condition{status="False",type="Ready"}) by (namespace, name, kind)
-              +
-            on(namespace, name, kind) (max(gotk_reconcile_condition{status="Deleted"})
-              by (namespace, name, kind)) * 2 == 1
+            max(flux_resource_info{ready="False",suspended="False",kind!="HelmRelease"}) by (exported_namespace, name, kind) == 1
           for: 15m
           labels:
             severity: critical

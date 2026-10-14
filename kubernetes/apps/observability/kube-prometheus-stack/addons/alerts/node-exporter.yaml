@@ -344,3 +344,45 @@ spec:
           annotations:
             summary: brain DHCP daemon (dhcpd) is down (instance {{ $labels.instance }})
             description: "dhcpd is not active on brain — no new or renewing DHCP leases on any VLAN. Check `systemctl status dhcpd` on brain.\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+
+        # Closes a detection gap found 2026-10-14: the Spark's node-exporter
+        # read up{instance="spark..."}==0 for ~14 days (filesystem collector
+        # statfs() hung on a fuse.portal mount, wedged behind
+        # --web.max-requests=40; see reference_spark_node_exporter_fuse_portal_hang
+        # in memory and the root-cause fix in ../../exporters/node-exporter/app/
+        # helmrelease.yaml) and nothing paged. The built-in kube-prometheus-stack
+        # `TargetDown` (general.rules) is a PERCENTAGE rule —
+        # `100 * count(up==0)/count(up) BY (job) > 10` — and this job is an
+        # 11-node DaemonSet, so one node down is only ~9.1%: mathematically
+        # incapable of crossing the 10% threshold no matter how long it stays
+        # down. Confirmed live: `ALERTS{alertname="TargetDown",job="node-exporter"}`
+        # over the last 14d shows exactly one `pending` sample (a multi-node
+        # reboot wave briefly crossing 10%) and zero `firing` — it never caught
+        # the Spark wedge. TargetDown is left alone (it's still useful for
+        # jobs where a double-digit fraction of targets dying is the right
+        # signal); this is a direct per-job `up==0` check instead, the same
+        # "faithful replacement for an insufficient built-in" pattern already
+        # used for SnmpExporterApcUpsTargetDown / SnmpExporterOmadaSwitchTargetDown
+        # (kubernetes/apps/observability/exporters/snmp-exporter/app/{apc-ups,omada-switches}/prometheusrule.yaml).
+        #
+        # for: 15m rides out the two things that legitimately take a
+        # node-exporter instance offline for a few minutes without anything
+        # being wrong: the DaemonSet's routine roll (every chart/arg bump
+        # recycles all 11 pods one at a time, maxUnavailable: 1 — confirmed
+        # live during the #14972 rollout that each node's own gap is well
+        # under a minute) and a normal node reboot. It's nowhere near long
+        # enough to miss a real multi-day wedge.
+        #
+        # Pairs with the livenessProbe postRenderer in
+        # ../../exporters/node-exporter/app/helmrelease.yaml: that's the fast
+        # self-heal path for a wedge that still answers kubelet's "/" probe;
+        # this is the backstop for everything a restart doesn't fix (node
+        # down, scheduling failure, a hang that re-wedges on every restart).
+        - alert: NodeExporterTargetDown
+          expr: up{job="node-exporter"} == 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: node-exporter target down (instance {{ $labels.instance }})
+            description: "node-exporter on {{ $labels.instance }} has been unreachable for 15m+ — every host metric from this node (CPU, memory, disk, network, temperature) is blind until it recovers. Check `kubectl get pod -n observability -o wide | grep node-exporter` and the node itself.\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"

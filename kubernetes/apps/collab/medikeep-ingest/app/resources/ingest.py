@@ -44,7 +44,6 @@ class Config:
     medikeep_pass: str
     readings_sheet_id: str
     dose_sheet_id: str
-    dose_tab: str
     treatment_name: str
     treatment_type: str
     vitals_source: str   # provenance tag written to vitals.import_source
@@ -67,7 +66,6 @@ class Config:
             medikeep_pass=req("MEDIKEEP_PASS"),
             readings_sheet_id=req("READINGS_SHEET_ID"),
             dose_sheet_id=req("DOSE_SHEET_ID"),
-            dose_tab=os.environ.get("DOSE_TAB", "Dosage"),
             treatment_name=req("TREATMENT_NAME"),
             treatment_type=os.environ.get("TREATMENT_TYPE", ""),
             vitals_source=os.environ.get("VITALS_SOURCE", "sheet-import"),
@@ -160,32 +158,41 @@ def parse_readings(ws_values: list[list[str]], year: int) -> list[Reading]:
     return out
 
 
-def parse_dose_periods(ws_values: list[list[str]]) -> list[DosePeriod]:
-    """Dose tab -> dose-change periods. Columns: Day, (secondary), Amount, ... .
-    Blank-amount (future/planned) rows are skipped. Consecutive same-amount weeks
-    collapse into one period; the last one stays open (end_date=None)."""
-    rows: list[tuple[date, int]] = []
+def parse_dose_rows(ws_values: list[list[str]]) -> list[tuple[date, int]]:
+    """Parse one dose year-tab -> [(date, mg)]. A row is valid iff Dose(ml)
+    (column 1) has a value; dose mg = round(ml * 200) (the vial concentration
+    from the sheet header). Rows without an ml value are future placeholders and
+    are skipped. The Day column carries the full M/D/YYYY date."""
+    out: list[tuple[date, int]] = []
     for row in ws_values:
         if not row or not row[0].strip():
             continue
-        if row[0].strip().lower() in ("day", "dosage"):
+        if row[0].strip().lower() == "day":
             continue
         try:
             d = dtparse.parse(row[0].strip(), fuzzy=False).date()
         except (ValueError, OverflowError):
             continue
-        amt_raw = row[2].strip() if len(row) > 2 else ""
-        if amt_raw == "":
-            continue  # planned/not-yet-recorded row
+        ml_raw = row[1].strip() if len(row) > 1 else ""
+        if ml_raw == "":
+            continue  # no Dose(ml) => future placeholder
         try:
-            amt = round(float(amt_raw))
+            ml = float(ml_raw)
         except ValueError:
             continue
-        rows.append((d, amt))
-    rows.sort(key=lambda r: r[0])
+        out.append((d, round(ml * 200)))
+    return out
 
-    periods: list[DosePeriod] = []
+
+def derive_dose_periods(rows: list[tuple[date, int]]) -> list[DosePeriod]:
+    """[(date, mg)] from all year tabs (any order, possibly duplicated across
+    tabs) -> dose-change periods. Dedup by date, sort, then collapse consecutive
+    same-amount weeks; the last period stays open (end_date=None)."""
+    by_date: dict[date, int] = {}
     for d, amt in rows:
+        by_date[d] = amt  # dedup by date — identical cross-tab rows collapse
+    periods: list[DosePeriod] = []
+    for d, amt in sorted(by_date.items()):
         if periods and periods[-1].amount == amt and periods[-1].end_date is None:
             continue  # same open amount, extend implicitly
         if periods and periods[-1].end_date is None:
@@ -326,9 +333,24 @@ def main() -> int:
         if not re.fullmatch(r"\d{4}", ws.title.strip()):
             continue  # only year tabs
         readings.extend(parse_readings(ws.get_all_values(), int(ws.title.strip())))
+    # Dedup within the batch — a reading (e.g. an in-office visit) can be listed
+    # in more than one year tab; keep the first occurrence by timestamp.
+    seen: set[str] = set()
+    deduped: list[Reading] = []
+    for r in readings:
+        if r.key() in seen:
+            continue
+        seen.add(r.key())
+        deduped.append(r)
+    readings = deduped
 
     dose_doc = gc.open_by_key(cfg.dose_sheet_id)
-    periods = parse_dose_periods(dose_doc.worksheet(cfg.dose_tab).get_all_values())
+    dose_rows: list[tuple[date, int]] = []
+    for ws in dose_doc.worksheets():
+        if not re.fullmatch(r"\d{4}", ws.title.strip()):
+            continue  # only year tabs
+        dose_rows.extend(parse_dose_rows(ws.get_all_values()))
+    periods = derive_dose_periods(dose_rows)
 
     mk = Medikeep(cfg)
     if not cfg.dry_run:

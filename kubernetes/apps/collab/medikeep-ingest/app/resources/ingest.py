@@ -88,7 +88,9 @@ class Reading:
     notes: str
 
     def key(self) -> str:
-        return self.recorded_date.isoformat()
+        # tz-naive — Medikeep returns recorded_date with a 'Z'/offset, the sheet
+        # is naive; normalize both sides so idempotency matches (home-ops ingest).
+        return self.recorded_date.replace(tzinfo=None).isoformat()
 
 
 @dataclass
@@ -233,7 +235,8 @@ class Medikeep:
             if v.get("import_source") != self.cfg.vitals_source:
                 continue
             if v.get("recorded_date"):
-                keys.add(dtparse.parse(v["recorded_date"]).isoformat())
+                # strip tz so the key matches the naive sheet-derived key above
+                keys.add(dtparse.parse(v["recorded_date"]).replace(tzinfo=None).isoformat())
         return keys
 
     def existing_treatments(self) -> list[dict]:
@@ -286,7 +289,15 @@ def sync_readings(mk: Medikeep, cfg: Config, readings: list[Reading]) -> None:
 
 def sync_dose(mk: Medikeep, cfg: Config, periods: list[DosePeriod]) -> None:
     existing = [] if cfg.dry_run else mk.existing_treatments()
-    by_start = {t.get("start_date"): t for t in existing}
+
+    def _norm(s: str | None) -> str | None:
+        # normalize the API's start_date (may carry time/tz) to a plain date key
+        try:
+            return dtparse.parse(s).date().isoformat() if s else None
+        except (ValueError, TypeError):
+            return s
+
+    by_start = {_norm(t.get("start_date")): t for t in existing}
     log.info("dose: %d periods derived, %d existing rows", len(periods), len(existing))
     for p in periods:
         body = {

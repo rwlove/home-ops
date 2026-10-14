@@ -1,0 +1,344 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "KitchenOwl (gordon scope)",
+    "description": "Hand-authored OpenAPI subset of the KitchenOwl REST API, scoped to the household / recipe / shopping-list / item / category / meal-planner operations the gordon agent needs. KitchenOwl's live /api/openapi is a WIP stub that documents only the auth endpoints, so this spec is maintained by hand from the backend Flask controller blueprints (github.com/TomBursch/kitchenowl, backend/app/controller). All routes are under /api; auth endpoints are deliberately excluded. Authentication is a static Bearer token injected by the openapi-mcp bridge (not declared here).",
+    "version": "1.0.0"
+  },
+  "servers": [
+    { "url": "http://kitchenowl.collab.svc.cluster.local:8080", "description": "in-cluster KitchenOwl (overridden at runtime by --base-url)" }
+  ],
+  "tags": [
+    { "name": "household", "description": "Households (read-only here)" },
+    { "name": "recipe", "description": "Recipes" },
+    { "name": "shoppinglist", "description": "Shopping lists and their items" },
+    { "name": "item", "description": "Items (grocery/pantry entities)" },
+    { "name": "category", "description": "Item categories (read-only here)" },
+    { "name": "planner", "description": "Meal planner" }
+  ],
+  "paths": {
+    "/api/household": {
+      "get": {
+        "operationId": "getUserHouseholds",
+        "summary": "List the households the authenticated user belongs to (use to resolve household_id)",
+        "tags": ["household"],
+        "responses": { "200": { "description": "Array of households" } }
+      }
+    },
+    "/api/household/{household_id}": {
+      "get": {
+        "operationId": "getHousehold",
+        "summary": "Get a household by id",
+        "tags": ["household"],
+        "parameters": [ { "$ref": "#/components/parameters/householdId" } ],
+        "responses": { "200": { "description": "Household" } }
+      }
+    },
+
+    "/api/household/{household_id}/recipe": {
+      "get": {
+        "operationId": "getAllRecipes",
+        "summary": "List all recipes in a household",
+        "tags": ["recipe"],
+        "parameters": [ { "$ref": "#/components/parameters/householdId" } ],
+        "responses": { "200": { "description": "Array of recipes" } }
+      },
+      "post": {
+        "operationId": "addRecipe",
+        "summary": "Create a recipe in a household",
+        "tags": ["recipe"],
+        "parameters": [ { "$ref": "#/components/parameters/householdId" } ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Recipe" } } } },
+        "responses": { "200": { "description": "Recipe created" } }
+      }
+    },
+    "/api/household/{household_id}/recipe/search": {
+      "get": {
+        "operationId": "searchRecipeInHousehold",
+        "summary": "Search recipes in a household by name",
+        "tags": ["recipe"],
+        "parameters": [ { "$ref": "#/components/parameters/householdId" }, { "$ref": "#/components/parameters/query" } ],
+        "responses": { "200": { "description": "Array of matching recipes" } }
+      }
+    },
+    "/api/household/{household_id}/recipe/filter": {
+      "post": {
+        "operationId": "filterRecipes",
+        "summary": "List recipes filtered by tags / categories",
+        "tags": ["recipe"],
+        "parameters": [ { "$ref": "#/components/parameters/householdId" } ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true, "description": "Filter object, e.g. {\"filter\": [ ... tags/categories ... ]}" } } } },
+        "responses": { "200": { "description": "Array of recipes" } }
+      }
+    },
+    "/api/household/{household_id}/recipe/scrape": {
+      "post": {
+        "operationId": "scrapeRecipe",
+        "summary": "Import (scrape) a recipe from a URL into a household",
+        "tags": ["recipe"],
+        "parameters": [
+          { "$ref": "#/components/parameters/householdId" },
+          { "name": "url", "in": "query", "required": true, "schema": { "type": "string" }, "description": "Recipe URL to scrape" }
+        ],
+        "responses": { "200": { "description": "Scraped recipe" } }
+      }
+    },
+    "/api/recipe/{id}": {
+      "get": {
+        "operationId": "getRecipeById",
+        "summary": "Get a recipe by id",
+        "tags": ["recipe"],
+        "parameters": [ { "$ref": "#/components/parameters/id" } ],
+        "responses": { "200": { "description": "Recipe" } }
+      },
+      "post": {
+        "operationId": "updateRecipe",
+        "summary": "Update a recipe by id",
+        "tags": ["recipe"],
+        "parameters": [ { "$ref": "#/components/parameters/id" } ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Recipe" } } } },
+        "responses": { "200": { "description": "Recipe updated" } }
+      },
+      "delete": {
+        "operationId": "deleteRecipeById",
+        "summary": "Delete a recipe by id (destructive)",
+        "tags": ["recipe"],
+        "parameters": [ { "$ref": "#/components/parameters/id" } ],
+        "responses": { "200": { "description": "Recipe deleted" } }
+      }
+    },
+
+    "/api/household/{household_id}/shoppinglist": {
+      "get": {
+        "operationId": "getShoppinglists",
+        "summary": "List a household's shopping lists",
+        "tags": ["shoppinglist"],
+        "parameters": [ { "$ref": "#/components/parameters/householdId" } ],
+        "responses": { "200": { "description": "Array of shopping lists" } }
+      },
+      "post": {
+        "operationId": "createShoppinglist",
+        "summary": "Create a shopping list in a household",
+        "tags": ["shoppinglist"],
+        "parameters": [ { "$ref": "#/components/parameters/householdId" } ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true, "properties": { "name": { "type": "string" } }, "required": ["name"] } } } },
+        "responses": { "200": { "description": "Shopping list created" } }
+      }
+    },
+    "/api/shoppinglist/{id}": {
+      "post": {
+        "operationId": "updateShoppinglist",
+        "summary": "Update a shopping list by id",
+        "tags": ["shoppinglist"],
+        "parameters": [ { "$ref": "#/components/parameters/id" } ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true, "properties": { "name": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Shopping list updated" } }
+      },
+      "delete": {
+        "operationId": "deleteShoppinglist",
+        "summary": "Delete a shopping list by id (destructive)",
+        "tags": ["shoppinglist"],
+        "parameters": [ { "$ref": "#/components/parameters/id" } ],
+        "responses": { "200": { "description": "Shopping list deleted" } }
+      }
+    },
+    "/api/shoppinglist/{id}/items": {
+      "get": {
+        "operationId": "getAllShoppingListItems",
+        "summary": "List all items on a shopping list",
+        "tags": ["shoppinglist"],
+        "parameters": [ { "$ref": "#/components/parameters/id" } ],
+        "responses": { "200": { "description": "Array of shopping-list items" } }
+      }
+    },
+    "/api/shoppinglist/{id}/recent-items": {
+      "get": {
+        "operationId": "getRecentShoppingListItems",
+        "summary": "List recently-removed items for a shopping list (buy-again signal)",
+        "tags": ["shoppinglist"],
+        "parameters": [ { "$ref": "#/components/parameters/id" } ],
+        "responses": { "200": { "description": "Array of recent items" } }
+      }
+    },
+    "/api/shoppinglist/{id}/add-item-by-name": {
+      "post": {
+        "operationId": "addShoppinglistItemByName",
+        "summary": "Add an item to a shopping list by name",
+        "tags": ["shoppinglist"],
+        "parameters": [ { "$ref": "#/components/parameters/id" } ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true, "properties": { "name": { "type": "string" }, "description": { "type": "string" } }, "required": ["name"] } } } },
+        "responses": { "200": { "description": "Item added" } }
+      }
+    },
+    "/api/shoppinglist/{id}/item": {
+      "delete": {
+        "operationId": "removeShoppinglistItem",
+        "summary": "Remove an item from a shopping list",
+        "tags": ["shoppinglist"],
+        "parameters": [ { "$ref": "#/components/parameters/id" } ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true, "properties": { "item_id": { "type": "integer" } }, "required": ["item_id"] } } } },
+        "responses": { "200": { "description": "Item removed" } }
+      }
+    },
+    "/api/shoppinglist/{id}/recipeitems": {
+      "post": {
+        "operationId": "addRecipeItemsToShoppinglist",
+        "summary": "Add a recipe's ingredients to a shopping list",
+        "tags": ["shoppinglist"],
+        "parameters": [ { "$ref": "#/components/parameters/id" } ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true, "description": "The recipe items to add, e.g. {\"items\": [ ... ]} / {\"recipe_id\": N}" } } } },
+        "responses": { "200": { "description": "Items added" } }
+      }
+    },
+
+    "/api/household/{household_id}/item": {
+      "get": {
+        "operationId": "getAllItems",
+        "summary": "List all items in a household",
+        "tags": ["item"],
+        "parameters": [ { "$ref": "#/components/parameters/householdId" } ],
+        "responses": { "200": { "description": "Array of items" } }
+      },
+      "post": {
+        "operationId": "addItem",
+        "summary": "Create an item in a household",
+        "tags": ["item"],
+        "parameters": [ { "$ref": "#/components/parameters/householdId" } ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true, "properties": { "name": { "type": "string" }, "category": { "type": "string" } }, "required": ["name"] } } } },
+        "responses": { "200": { "description": "Item created" } }
+      }
+    },
+    "/api/household/{household_id}/item/search": {
+      "get": {
+        "operationId": "searchItemByName",
+        "summary": "Search items in a household by name",
+        "tags": ["item"],
+        "parameters": [ { "$ref": "#/components/parameters/householdId" }, { "$ref": "#/components/parameters/query" } ],
+        "responses": { "200": { "description": "Array of matching items" } }
+      }
+    },
+    "/api/item/{id}": {
+      "get": {
+        "operationId": "getItem",
+        "summary": "Get an item by id",
+        "tags": ["item"],
+        "parameters": [ { "$ref": "#/components/parameters/id" } ],
+        "responses": { "200": { "description": "Item" } }
+      },
+      "post": {
+        "operationId": "updateItem",
+        "summary": "Update an item by id",
+        "tags": ["item"],
+        "parameters": [ { "$ref": "#/components/parameters/id" } ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true, "properties": { "name": { "type": "string" }, "category": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Item updated" } }
+      }
+    },
+
+    "/api/household/{household_id}/category": {
+      "get": {
+        "operationId": "getAllCategories",
+        "summary": "List a household's item categories (for organizing the grocery list by store section)",
+        "tags": ["category"],
+        "parameters": [ { "$ref": "#/components/parameters/householdId" } ],
+        "responses": { "200": { "description": "Array of categories" } }
+      }
+    },
+
+    "/api/household/{household_id}/planner": {
+      "get": {
+        "operationId": "getPlanner",
+        "summary": "Get the household's meal planner",
+        "tags": ["planner"],
+        "parameters": [ { "$ref": "#/components/parameters/householdId" } ],
+        "responses": { "200": { "description": "Planner" } }
+      }
+    },
+    "/api/household/{household_id}/planner/recipes": {
+      "get": {
+        "operationId": "getAllPlannedRecipes",
+        "summary": "List all planned recipes for a household",
+        "tags": ["planner"],
+        "parameters": [ { "$ref": "#/components/parameters/householdId" } ],
+        "responses": { "200": { "description": "Array of planned recipes" } }
+      }
+    },
+    "/api/household/{household_id}/planner/recipe": {
+      "post": {
+        "operationId": "addPlannedRecipe",
+        "summary": "Plan a recipe onto a day in the household meal planner",
+        "tags": ["planner"],
+        "parameters": [ { "$ref": "#/components/parameters/householdId" } ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true, "properties": { "recipe_id": { "type": "integer" }, "day": { "type": "integer", "description": "Day offset / cooking date per KitchenOwl" } }, "required": ["recipe_id"] } } } },
+        "responses": { "200": { "description": "Recipe planned" } }
+      }
+    },
+    "/api/household/{household_id}/planner/recipe/{id}": {
+      "delete": {
+        "operationId": "removePlannedRecipeById",
+        "summary": "Remove a planned recipe from the planner",
+        "tags": ["planner"],
+        "parameters": [ { "$ref": "#/components/parameters/householdId" }, { "$ref": "#/components/parameters/id" } ],
+        "responses": { "200": { "description": "Planned recipe removed" } }
+      }
+    },
+    "/api/household/{household_id}/planner/recent-recipes": {
+      "get": {
+        "operationId": "getRecentPlannedRecipes",
+        "summary": "List recently-planned recipes for a household",
+        "tags": ["planner"],
+        "parameters": [ { "$ref": "#/components/parameters/householdId" } ],
+        "responses": { "200": { "description": "Array of recent recipes" } }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "householdId": {
+        "name": "household_id",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "integer" },
+        "description": "Household id"
+      },
+      "id": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "integer" },
+        "description": "Resource id"
+      },
+      "query": {
+        "name": "query",
+        "in": "query",
+        "required": true,
+        "schema": { "type": "string" },
+        "description": "Search query"
+      }
+    },
+    "schemas": {
+      "Recipe": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "KitchenOwl recipe. Only a subset of fields is modeled; additional KitchenOwl fields are accepted. items are the ingredient list.",
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "yields": { "type": "integer", "description": "Servings" },
+          "time": { "type": "integer", "description": "Total time in minutes" },
+          "source": { "type": "string", "description": "Source URL / attribution" },
+          "items": {
+            "type": "array",
+            "description": "Ingredients",
+            "items": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": { "name": { "type": "string" }, "description": { "type": "string" }, "optional": { "type": "boolean" } }
+            }
+          }
+        },
+        "required": ["name"]
+      }
+    }
+  }
+}

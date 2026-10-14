@@ -1,0 +1,32 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: medikeep-ingest-allow
+spec:
+  # Additive allow on top of the collab default-deny. Apiserver + DNS are
+  # covered by the baseline component. No ingress — the CronJob receives no
+  # traffic.
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: medikeep-ingest
+  egress:
+    # → Medikeep REST API in collab.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: collab
+            app.kubernetes.io/name: medikeep
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+    # → Google Sheets API (sheets/oauth2/accounts.googleapis.com) + PyPI for the
+    # ephemeral `uv run --with` dependency fetch. Broad HTTPS egress; could be
+    # tightened to toFQDNs later.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

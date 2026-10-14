@@ -1,0 +1,186 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app rick-gonic-mcp
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  values:
+    defaultPodOptions:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+    controllers:
+      rick-gonic-mcp:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        type: deployment
+        replicas: 1
+        containers:
+          app:
+            # uv on GHCR (no Docker Hub dependency); the thin Subsonic reader is
+            # mounted from the configMap and its pure-Python deps (mcp SDK +
+            # httpx) are resolved ephemerally by `uv run --with` at start. Same
+            # packaging as collab/medikeep-ingest. readOnlyRootFilesystem is kept
+            # by pointing uv's HOME/cache at the tmpfs below. The FastMCP API used
+            # (FastMCP(name, host, port) + run(transport="streamable-http")) is
+            # long-stable, so the deps are left unpinned to match the ingest
+            # precedent; pin here if a future mcp-SDK major breaks it.
+            image:
+              repository: ghcr.io/astral-sh/uv
+              tag: python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58
+            command:
+              - /bin/sh
+              - -ceu
+              - |
+                export HOME=/tmp
+                export UV_CACHE_DIR=/tmp/uv
+                export XDG_CACHE_HOME=/tmp/.cache
+                uv run --no-project \
+                  --with mcp --with httpx \
+                  /config/server.py
+            env:
+              TZ: America/New_York
+              GONIC_URL: http://gonic.media.svc.cluster.local:80
+            # GONIC_ADMIN_USER/PASS + GONIC_MASS_USER/PASS from 1Password via the
+            # ExternalSecret below. Both accounts are Robert's; the signal is
+            # per-user so the reader unions them. Reader is read-only by
+            # construction (no scrobble/star/scan method exists).
+            envFrom:
+              - secretRef:
+                  name: rick-gonic-mcp-secret
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: &port 8099
+                  initialDelaySeconds: 20
+                  periodSeconds: 30
+                  failureThreshold: 5
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: *port
+                  initialDelaySeconds: 15
+                  periodSeconds: 15
+                  failureThreshold: 3
+            resources:
+              requests:
+                cpu: 10m
+                memory: 128Mi
+              limits:
+                memory: 384Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+    service:
+      app:
+        controller: rick-gonic-mcp
+        ports:
+          http:
+            port: *port
+    persistence:
+      # The thin Subsonic reader (configMapGenerator in kustomization.yaml).
+      server:
+        type: configMap
+        name: rick-gonic-mcp-server
+        advancedMounts:
+          rick-gonic-mcp:
+            app:
+              - path: /config/server.py
+                subPath: server.py
+                readOnly: true
+      # uv HOME/cache + any scratch; keeps the root filesystem read-only.
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          rick-gonic-mcp:
+            app:
+              - path: /tmp
+    externalSecrets:
+      rick-gonic-mcp:
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: onepassword-connect
+        target:
+          name: rick-gonic-mcp-secret
+          creationPolicy: Owner
+        # PREREQUISITE (create before merge): a `gonic` item in the Kubernetes
+        # 1Password vault with these four fields — the EXISTING `admin` and
+        # `mass` gonic account credentials (both Robert's). gonic play counts are
+        # per-user, so these specific accounts ARE the taste signal; a fresh
+        # dedicated user would read an empty profile. Do not fabricate.
+        data:
+          - secretKey: GONIC_ADMIN_USER
+            remoteRef:
+              key: gonic
+              property: GONIC_ADMIN_USER
+          - secretKey: GONIC_ADMIN_PASS
+            remoteRef:
+              key: gonic
+              property: GONIC_ADMIN_PASS
+          - secretKey: GONIC_MASS_USER
+            remoteRef:
+              key: gonic
+              property: GONIC_MASS_USER
+          - secretKey: GONIC_MASS_PASS
+            remoteRef:
+              key: gonic
+              property: GONIC_MASS_PASS
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: rick-gonic-mcp-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: rick-gonic-mcp
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # kagent (ai ns — the rick agent + the controller's tool-discovery)
+          # calls this MCP over Streamable HTTP on :8099. Intra-namespace, so no
+          # kagent-side egress CNP is needed (ai allow-intra-namespace covers it).
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: ai
+            toPorts:
+              - ports:
+                  - port: "8099"
+                    protocol: TCP
+        egress:
+          # -> gonic's Subsonic API in the media ns. Service is :80, targetPort
+          # (pod/endpoint port) is 4747 — Cilium evaluates egress against the
+          # post-xlate endpoint port, so this pins 4747 (matches gonic-allow
+          # ingress). The gonic-side ingress allow is added to gonic's HR
+          # networkpolicies block (media ns) in this same PR.
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: media
+                  app.kubernetes.io/name: gonic
+            toPorts:
+              - ports:
+                  - port: "4747"
+                    protocol: TCP
+          # -> PyPI (443) for the ephemeral `uv run --with` dependency fetch at
+          # container start. Broad HTTPS egress; could be tightened to toFQDNs.
+          - toEntities:
+              - world
+            toPorts:
+              - ports:
+                  - port: "443"
+                    protocol: TCP

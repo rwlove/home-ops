@@ -1,0 +1,131 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app medikeep-mcp
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  values:
+    defaultPodOptions:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+    controllers:
+      medikeep-mcp:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        type: deployment
+        replicas: 1
+        containers:
+          app:
+            image:
+              repository: docker.io/crystaldba/postgres-mcp
+              tag: 0.3.0@sha256:dbbd346860d29f1543e991f30f3284bf4ab5f096d049ecc3426528f20b1b6e6b
+            # Read-only: server-level restricted mode AND the health_ro DB role
+            # (which can SELECT only the api.v_bp / api.v_dose views). The BP
+            # WRITE path arrives separately (PR3) — this MCP stays read-only.
+            # SSE binds 0.0.0.0:8000.
+            args:
+              - --access-mode=restricted
+              - --transport=sse
+            env:
+              TZ: America/New_York
+            # DATABASE_URI (health_ro → postgres-medikeep) from 1P via ExternalSecret.
+            envFrom:
+              - secretRef:
+                  name: medikeep-mcp-secret
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: &port 8000
+                  initialDelaySeconds: 20
+                  periodSeconds: 30
+                  failureThreshold: 5
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: *port
+                  initialDelaySeconds: 10
+                  periodSeconds: 15
+                  failureThreshold: 3
+            resources:
+              requests:
+                cpu: 15m
+                memory: 128Mi
+              limits:
+                memory: 512Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              # readOnlyRootFilesystem left OFF for bring-up (same caution as
+              # pump-mcp/ghostfolio-mcp). /tmp is an emptyDir below.
+              readOnlyRootFilesystem: false
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+    service:
+      app:
+        controller: medikeep-mcp
+        ports:
+          http:
+            port: *port
+    persistence:
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          medikeep-mcp:
+            app:
+              - path: /tmp
+    externalSecrets:
+      medikeep-mcp:
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: onepassword-connect
+        target:
+          name: medikeep-mcp-secret
+          template:
+            data:
+              DATABASE_URI: "postgresql://health_ro:{{ .RO_DB_PASS }}@postgres-medikeep-ro.databases.svc.cluster.local:5432/medikeep"
+        dataFrom:
+          - extract:
+              key: health
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: medikeep-mcp-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: medikeep-mcp
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # kagent (ai ns) calls the MCP over SSE on :8000.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: ai
+            toPorts:
+              - ports:
+                  - port: "8000"
+                    protocol: TCP
+        egress:
+          # → Medikeep CNPG read replica in the databases ns.
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: databases
+                  cnpg.io/cluster: postgres-medikeep
+            toPorts:
+              - ports:
+                  - port: "5432"
+                    protocol: TCP

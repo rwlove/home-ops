@@ -1,0 +1,146 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app cooter-mcp
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  values:
+    defaultPodOptions:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+    controllers:
+      cooter-mcp:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        type: deployment
+        replicas: 1
+        containers:
+          app:
+            image:
+              repository: docker.io/ckanthony/openapi-mcp
+              tag: 0.1.0@sha256:50f1bf68ce58724b9569142468ea038da67b22c778697388a0af7c416af5e5cc
+            # Generic OpenAPI->MCP bridge over SSE (GET/POST /mcp, binds
+            # 0.0.0.0:8080). --spec is the hand-authored LubeLogger subset baked
+            # in via the configMap below; --base-url overrides the spec's server
+            # to the in-cluster service. The static x-api-key header is injected
+            # into every upstream request via REQUEST_HEADERS (from the secret).
+            args:
+              - --spec
+              - /spec/lubelogger.json
+              - --base-url
+              - http://lubelogger.selfhosted.svc.cluster.local:8080
+              - --name
+              - LubeLogger
+            env:
+              TZ: America/New_York
+            # REQUEST_HEADERS=x-api-key:<api_key> from 1P via the ExternalSecret.
+            envFrom:
+              - secretRef:
+                  name: cooter-mcp-secret
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: &port 8080
+                  initialDelaySeconds: 15
+                  periodSeconds: 30
+                  failureThreshold: 5
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: *port
+                  initialDelaySeconds: 10
+                  periodSeconds: 15
+                  failureThreshold: 3
+            resources:
+              requests:
+                cpu: 10m
+                memory: 64Mi
+              limits:
+                memory: 256Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+    service:
+      app:
+        controller: cooter-mcp
+        ports:
+          http:
+            port: *port
+    persistence:
+      # Hand-authored OpenAPI spec (configMapGenerator in kustomization.yaml).
+      spec:
+        type: configMap
+        name: cooter-mcp-spec
+        advancedMounts:
+          cooter-mcp:
+            app:
+              - path: /spec/lubelogger.json
+                subPath: lubelogger.json
+                readOnly: true
+      # godotenv probes <specdir>/.env on start; give it a writable tmp and keep
+      # the root filesystem read-only.
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          cooter-mcp:
+            app:
+              - path: /tmp
+    externalSecrets:
+      cooter-mcp:
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: onepassword-connect
+        target:
+          name: cooter-mcp-secret
+          template:
+            data:
+              REQUEST_HEADERS: "x-api-key:{{ .api_key }}"
+        dataFrom:
+          - extract:
+              key: lubelogger
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: cooter-mcp-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: cooter-mcp
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # kagent (ai ns) calls the MCP over SSE on :8080.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: ai
+            toPorts:
+              - ports:
+                  - port: "8080"
+                    protocol: TCP
+        egress:
+          # -> LubeLogger in the selfhosted ns (spec fetch + tool calls), :8080.
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: selfhosted
+                  app.kubernetes.io/name: lubelogger
+            toPorts:
+              - ports:
+                  - port: "8080"
+                    protocol: TCP

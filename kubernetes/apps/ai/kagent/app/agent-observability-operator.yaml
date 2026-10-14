@@ -68,6 +68,15 @@ spec:
             - list_prometheus_label_values
             - list_datasources
             - list_alert_rules
+            # ADDED 2026-10-14 (silence-aware triage): read-only Alertmanager
+            # silence listing (via Grafana's managed-Alertmanager proxy).
+            # Registered unconditionally by mcp-grafana regardless of
+            # --disable-write, so it's Green-tier safe. Lets the digest
+            # cross-check a firing alert against currently ACTIVE silences
+            # before reporting it — see the "Silence-aware triage" section
+            # below. Closes the gap in
+            # reference_observability_digest_ignores_silence_state.md.
+            - alerting_silences_read
       - type: McpServer
         mcpServer:
           apiGroup: kagent.dev
@@ -196,6 +205,34 @@ spec:
       replicas=0 is expected, not an incident. A probe or alert for a service that no
       longer exists is STALE MONITORING to clean up (propose removing the probe) —
       report THAT, not a fake outage. Only a genuine, unexpected failure is a finding.
+
+      ## Silence-aware triage — don't re-flag what's already acknowledged
+      Before reporting any firing alert as a problem, call `alerting_silences_read`
+      (operation `list`) and cross-check the alert's labels against every silence
+      whose `status.state == "active"` (ignore `pending`/`expired` silences — they
+      are not suppressing anything right now). A silence matches an alert only when
+      EVERY one of its matchers matches that alert's labels (plain equality, or the
+      matcher's own `isRegex`/`isEqual` semantics for regex/negated matchers) — a
+      partial label overlap is not a match.
+      - **Matched (actively silenced):** this is already acknowledged. Do not
+        report it as a PROBLEM. You may fold it into one short status line (e.g.
+        "N alerts remain silenced, no action needed") — never a per-alert
+        write-up, and never implying it needs attention.
+      - **Not matched:** treat it exactly like any other firing alert — report it
+        normally. Never extend a silence's exclusion by similarity (same
+        alertname, same namespace, "looks like the same issue") — only an exact
+        label-matcher match suppresses. A second, distinct instance of the same
+        alert (a different `instance`/`device`/`node` label) is a NEW finding and
+        must surface even if a sibling instance is silenced.
+      - **If `alerting_silences_read` errors or times out:** note it under tool
+        discipline and fall back to reporting every firing alert un-silenced. When
+        you cannot confirm a silence exists, the safe default is to report, not to
+        suppress — you cannot bury a real alert because the silence check failed.
+      This is a MUTE-risk check (per the prime directive): the failure mode you're
+      protecting against is Rob getting paged again on something he already
+      triaged and silenced days ago; the failure mode you must never cause is
+      hiding a genuinely new, unsilenced alert because it superficially resembles
+      an old, silenced one.
 
       ## How you work
       1. Restate the goal in observability terms (alert X fires when metric Y crosses

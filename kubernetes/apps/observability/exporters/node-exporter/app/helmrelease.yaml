@@ -45,11 +45,10 @@ spec:
     # collector from ever calling statfs() on this or any future FUSE mount
     # on this host, which is the actual fix — see
     # reference_spark_node_exporter_fuse_portal_hang in memory for the full
-    # investigation. Residual gap (not fixed here, flagged for
-    # observability-operator): the "/" liveness/readiness probe masks *any*
-    # future collector hang the same way; worth a separate look at either
-    # probing "/metrics" or adding an alert on sustained
-    # up{job="node-exporter"}==0.
+    # investigation. The residual detection gap this left (the "/" probe
+    # masking any future collector hang, and no alert on a dead target) is
+    # closed by the postRenderers block below and by NodeExporterTargetDown
+    # in ../../../kube-prometheus-stack/addons/alerts/node-exporter.yaml.
     extraArgs:
       - --collector.filesystem.mount-points-exclude=^/(dev|proc|run/credentials/.+|sys|var/lib/docker/.+|var/lib/containers/storage/.+|var/lib/kubelet/pods/.+)($|/)
       - --collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fuse(\..*)?|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|erofs|sysfs|tracefs)$
@@ -117,3 +116,53 @@ spec:
       requests:
         cpu: 23m
         memory: 100M
+
+  # The chart hardcodes httpGet.path: "/" for BOTH probes in
+  # templates/daemonset.yaml — it's not exposed via values at all, so a
+  # values-only fix is impossible; this needs a postRenderer patch on the
+  # rendered DaemonSet. "/" is the landing page and never touches a
+  # collector, which is exactly how the Spark wedge (see the fs-types-exclude
+  # comment above) ran Ready-but-dead for ~14 days: /metrics permanently
+  # 503'd while kubelet's liveness/readiness probes kept passing.
+  #
+  # Only liveness moves to /metrics. That gives a genuinely wedged collector
+  # a self-heal path: --web.max-requests=40 means a single serial probe never
+  # contends with real scrapes, so this only fails when /metrics is actually
+  # down, and a wedge that survives the resulting restart (e.g. a hang baked
+  # into every process start, not just the Spark's now-fixed FUSE case) shows
+  # up loudly as CrashLoopBackOff instead of silently Ready.
+  #
+  # Readiness deliberately stays on "/". Pointing readiness at /metrics too
+  # would pull a 503'ing target out of the ServiceMonitor's Endpoints-based
+  # discovery — trading one silent failure (healthy-looking pod, dead
+  # metrics) for a different one (target quietly vanishes from Prometheus
+  # instead of reporting up==0). Scrapes keep failing visibly, which is what
+  # NodeExporterTargetDown (kube-prometheus-stack addons/alerts/node-exporter.yaml)
+  # alerts on.
+  #
+  # periodSeconds/failureThreshold/timeoutSeconds are loosened from the
+  # chart's "/" defaults (10s/3/1s) so a single slow-but-legitimate /metrics
+  # scrape doesn't bounce the pod: 4 consecutive failures spaced 15s apart
+  # (60s total) before a restart, well under NodeExporterTargetDown's 15m
+  # `for:` but not trigger-happy on one blip; timeoutSeconds bumped to 3s
+  # because collecting all metrics is legitimately slower than serving the
+  # static landing page.
+  postRenderers:
+    - kustomize:
+        patches:
+          - patch: |-
+              - op: replace
+                path: /spec/template/spec/containers/0/livenessProbe/httpGet/path
+                value: /metrics
+              - op: replace
+                path: /spec/template/spec/containers/0/livenessProbe/periodSeconds
+                value: 15
+              - op: replace
+                path: /spec/template/spec/containers/0/livenessProbe/failureThreshold
+                value: 4
+              - op: replace
+                path: /spec/template/spec/containers/0/livenessProbe/timeoutSeconds
+                value: 3
+            target:
+              kind: DaemonSet
+              name: node-exporter

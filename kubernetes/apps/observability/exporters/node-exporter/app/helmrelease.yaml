@@ -19,9 +19,40 @@ spec:
     # separate filesystems with the host's fill rate, triggering false
     # CephNodeDiskspaceWarning + HostOutOfDiskSpace alerts per pod.
     # Match the kube-prometheus-stack upstream default to suppress those.
+    #
+    # fuse(\..*)? added 2026-10-14: the Spark (spark.thesteamedcrab.com) runs
+    # DGX OS's full Ubuntu desktop image (GNOME/snap/Firefox/Thunderbird, not
+    # a headless server image), which keeps an xdg-document-portal FUSE mount
+    # alive at /run/user/<uid>/doc (fstype "fuse.portal") whenever a desktop
+    # session is active. The filesystem collector's default fs-types-exclude
+    # only skips "fusectl" (the /sys/fs/fuse/connections control fs), not
+    # actual "fuse.*"-mounted filesystems, so it ran statfs() against that
+    # mount on every scrape. When the portal daemon stalls, that statfs()
+    # blocks forever; each new Prometheus scrape piles on another blocked
+    # goroutine until node-exporter's own --web.max-requests=40 limiter trips
+    # and every request — including future scrapes — gets a permanent 503
+    # ("Limit of concurrent requests reached (40)"). The pod stayed
+    # Running/Ready throughout because the chart's liveness/readiness probes
+    # hit path "/" (the landing page, which never touches collectors), not
+    # "/metrics" — so kubelet saw a healthy pod while Prometheus saw
+    # up{job="node-exporter",instance="spark.thesteamedcrab.com:9100"} == 0
+    # for ~14 days, recovering only for the ~12h after the 10-08 OTA reboot
+    # (clean start, portal mount not yet stuck) before re-wedging. Confirmed
+    # live 2026-10-14: /metrics 503'd with that exact body from both outside
+    # the node and via `kubectl exec ... wget http://localhost:9100/metrics`;
+    # `/` returned 200. No other cluster node runs a desktop session or has
+    # this mount class. Excluding fuse(\..*)? (not just "fusectl") keeps the
+    # collector from ever calling statfs() on this or any future FUSE mount
+    # on this host, which is the actual fix — see
+    # reference_spark_node_exporter_fuse_portal_hang in memory for the full
+    # investigation. Residual gap (not fixed here, flagged for
+    # observability-operator): the "/" liveness/readiness probe masks *any*
+    # future collector hang the same way; worth a separate look at either
+    # probing "/metrics" or adding an alert on sustained
+    # up{job="node-exporter"}==0.
     extraArgs:
       - --collector.filesystem.mount-points-exclude=^/(dev|proc|run/credentials/.+|sys|var/lib/docker/.+|var/lib/containers/storage/.+|var/lib/kubelet/pods/.+)($|/)
-      - --collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|erofs|sysfs|tracefs)$
+      - --collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fuse(\..*)?|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|erofs|sysfs|tracefs)$
 
     # hostNetwork MUST be true (also the chart default) or the network
     # collector reports the POD's netns, not the host's: every node showed

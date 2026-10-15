@@ -50,7 +50,12 @@ spec:
           # land on Spark and hit an exec-format error.
           nodeSelector:
             kubernetes.io/arch: amd64
-          automountServiceAccountToken: false
+          # Scoped read-only SA (get/list nodes/services/ciliumloadbalancerippools
+          # — see rbac.yaml) for the Phase 2 k8s/Cilium collectors. Token IS
+          # mounted here because cluster read is needed; the SA itself grants no
+          # write, no secrets.
+          serviceAccountName: network-drift
+          automountServiceAccountToken: true
           restartPolicy: Never
           securityContext:
             # Non-root write to the ceph-block state PVC.
@@ -82,6 +87,12 @@ spec:
                   value: http://notify-mcp.mcp-system:8060/send
                 - name: AGENT
                   value: network-operator
+                # Phase 2 collectors: dhcpd + DNS from the config repo (github),
+                # and k8s nodes + LB Service IPs + Cilium LB pools (scoped SA).
+                - name: ENABLE_GITHUB
+                  value: "true"
+                - name: ENABLE_K8S
+                  value: "true"
               resources:
                 requests:
                   cpu: 50m

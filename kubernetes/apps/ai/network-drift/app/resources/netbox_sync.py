@@ -51,6 +51,13 @@ MCP_CONFIG = os.environ.get("MCP_CONFIG", "/config/mcp.json")
 NOTIFY_URL = os.environ.get("NOTIFY_URL", "http://notify-mcp.mcp-system:8060/send")
 AGENT = os.environ.get("AGENT", "network-operator")
 COMPARE_DEVICES = os.environ.get("COMPARE_DEVICES", "true").lower() == "true"
+# Phase 2 collectors (default off so a Phase-1-shaped run still works standalone;
+# the CronJob sets them true). github = dhcpd/DNS from the config repo; k8s =
+# nodes + LB Service IPs + Cilium LB pools via the scoped ServiceAccount.
+ENABLE_GITHUB = os.environ.get("ENABLE_GITHUB", "false").lower() == "true"
+ENABLE_K8S = os.environ.get("ENABLE_K8S", "false").lower() == "true"
+# Max drift items rendered per digest (full detail always goes to the logs).
+DIGEST_ITEM_CAP = int(os.environ.get("DIGEST_ITEM_CAP", "30"))
 # Hard guard: Phase 1/2/3 are detect-only. Phase 4 flips this via a dedicated,
 # separately-scoped path — NOT this env — so there is no accidental write here.
 WRITE_ENABLED = False
@@ -166,6 +173,19 @@ def collect_netbox_devices(netbox):
     return out
 
 
+def collect_netbox_ips(netbox):
+    # Flat ip-addresses (client-appliance convention) — consumed by the Phase 2
+    # dhcpd / DNS / k8s / LB comparators.
+    out = []
+    data = netbox.call("netbox_get_objects",
+                       {"object_type": "ip-addresses", "filters": {"limit": 1000}})
+    for p in as_list(data):
+        out.append({"address": pick(p, "address"),
+                    "dns_name": pick(p, "dns_name"),
+                    "description": pick(p, "description")})
+    return out
+
+
 def _int(v):
     try:
         return int(v)
@@ -183,6 +203,12 @@ def _norm_subnet(s):
     if not s:
         return None
     return str(s).strip().lower()
+
+
+def _bare_ip(a):
+    if not a:
+        return None
+    return str(a).split("/")[0].strip().lower()
 
 
 def _norm_name(n):
@@ -303,16 +329,20 @@ def build_digest(day, new_drifts, resolved_fps, active_total):
              "(%s). NetBox mirrors live reality; every fix below is **human-only** "
              "(this sweep writes nothing)." % day, ""]
     if new_drifts:
+        shown = sorted(new_drifts, key=lambda d: (d.category, d.key))[:DIGEST_ITEM_CAP]
         lines.append("## New drift (%d)" % len(new_drifts))
-        for d in new_drifts:
+        for d in shown:
             lines.append("- **%s** `%s` (`%s`)" % (d.category, d.key, d.fingerprint))
             lines.append("  - reality: %s" % d.reality)
             lines.append("  - record: %s" % d.record)
             lines.append("  - %s" % d.proposal)
+        if len(new_drifts) > len(shown):
+            lines.append("- _…and %d more (full list in the job logs)._"
+                         % (len(new_drifts) - len(shown)))
         lines.append("")
     if resolved_fps:
         lines.append("## Resolved since last sweep (%d)" % len(resolved_fps))
-        for f in sorted(resolved_fps):
+        for f in sorted(resolved_fps)[:DIGEST_ITEM_CAP]:
             lines.append("- `%s` no longer drifting" % f)
         lines.append("")
     lines.append("_%d drift item(s) currently active. To silence a known/planned "
@@ -361,37 +391,54 @@ def main():
         log("omada source FAILED: %s" % e)
 
     # --- NetBox (record) ---
-    nb_vlans, nb_prefixes, nb_devices = [], [], []
+    nb_vlans, nb_prefixes, nb_devices, nb_ips = [], [], [], []
     try:
         netbox = mcp_http.MCPClient("netbox", eps["netbox"]).connect()
         nb_vlans = collect_netbox_vlans(netbox)
         nb_prefixes = collect_netbox_prefixes(netbox)
-        if COMPARE_DEVICES:
-            nb_devices = collect_netbox_devices(netbox)
-        log("netbox: %d vlans, %d prefixes, %d devices"
-            % (len(nb_vlans), len(nb_prefixes), len(nb_devices)))
+        nb_devices = collect_netbox_devices(netbox)
+        if ENABLE_GITHUB or ENABLE_K8S:
+            nb_ips = collect_netbox_ips(netbox)
+        log("netbox: %d vlans, %d prefixes, %d devices, %d ips"
+            % (len(nb_vlans), len(nb_prefixes), len(nb_devices), len(nb_ips)))
     except (mcp_http.MCPError, KeyError, Exception) as e:  # noqa: BLE001
         source_findings.append(("netbox", str(e)))
         log("netbox source FAILED: %s" % e)
 
-    # A source we could NOT read is itself drift (reported once on change). We do
-    # NOT run the comparators that depend on a failed source — a half-read sweep
-    # must never emit phantom "missing in NetBox" items.
-    for name, err in source_findings:
-        drifts.append(Drift(
-            "source-unreadable", "source=%s" % name,
-            reality="live read of '%s' failed" % name,
-            record="n/a",
-            proposal="HUMAN-ONLY: check the %s read path (MCP service / backend); "
-                     "detail: %s" % (name, err[:160])))
-
     omada_ok = not any(n == "omada" for n, _ in source_findings)
     netbox_ok = not any(n == "netbox" for n, _ in source_findings)
+
+    # Phase 1 comparators (Omada <-> NetBox DCIM/IPAM core).
     if omada_ok and netbox_ok:
         drifts += compare_vlans(omada_nets, nb_vlans)
         drifts += compare_prefixes(omada_nets, nb_prefixes)
         if COMPARE_DEVICES:
             drifts += compare_devices(omada_devices, nb_devices)
+
+    # Phase 2 collectors (dhcpd/DNS from the config repo; k8s nodes + LB). They
+    # need the NetBox record, so skip them if NetBox was unreadable.
+    if ENABLE_GITHUB and netbox_ok:
+        import gh_sources
+        d, f = gh_sources.run(eps, nb_ips, nb_prefixes)
+        drifts += d
+        source_findings += f
+    if ENABLE_K8S and netbox_ok:
+        import k8s_api
+        d, f = k8s_api.run(nb_ips, nb_prefixes, nb_devices)
+        drifts += d
+        source_findings += f
+
+    # A source we could NOT read is itself drift (reported once on change). This
+    # runs AFTER every collector so Phase 2 findings are included; comparators
+    # that depend on a failed source simply contributed nothing above, so a
+    # half-read sweep never emits phantom "missing in NetBox" items.
+    for name, err in source_findings:
+        drifts.append(Drift(
+            "source-unreadable", "source=%s" % name,
+            reality="live read of '%s' failed" % name,
+            record="n/a",
+            proposal="HUMAN-ONLY: check the %s read path (MCP service / backend / "
+                     "RBAC); detail: %s" % (name, err[:160])))
 
     RESULT["sources_failed"] = len(source_findings)
 
@@ -407,6 +454,10 @@ def main():
     RESULT.update(new=len(new_drifts), resolved=len(resolved_fps), active=len(active))
     log("drift: %d active (%d acked-suppressed), %d new, %d resolved"
         % (len(active), len(drifts) - len(active), len(new_drifts), len(resolved_fps)))
+    for d in sorted(active, key=lambda x: (x.category, x.key)):
+        new_mark = "NEW" if d.fingerprint not in seen else "known"
+        log("DRIFT [%s] %s %s (%s): %s" % (new_mark, d.category, d.key,
+                                           d.fingerprint, d.reality))
 
     if new_drifts or resolved_fps:
         body = build_digest(day, new_drifts, resolved_fps, len(active))

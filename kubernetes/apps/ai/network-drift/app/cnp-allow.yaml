@@ -5,15 +5,15 @@
 # DNS egress is provided cluster-wide by the baseline network-policy component,
 # so it is not repeated here.
 #
-# Phase 1 is deterministic and READ-ONLY, so the egress set is tight: the two
-# read-only MCP backends it diffs + the notify sink. NO world:443 (no npm/API
-# install — stdlib Python) and NO github-mcp yet (the dhcpd/DNS repo collectors
-# arrive in Phase 2, which re-adds github-mcp:8080 here).
+# Deterministic and READ-ONLY, so the egress set stays tight: the read-only MCP
+# backends it diffs (netbox/omada/github) and the notify sink. The Phase 2
+# k8s/Cilium collectors reach the kube-apiserver via the baseline allow-apiserver
+# rule (not repeated here). NO world:443 (stdlib Python, no npm/API install).
 #
 # The matching INGRESS on the MCP backends is granted by the shared mcp-system
 # `kagent-mcp-read-allow` CNP (which already lists network-drift for :8000/:3000/
-# :8060). Tool scoping is the MCP services' own read-only posture (omada-mcp
-# all:r; netbox-mcp read token), not this L4 policy.
+# :8080/:8060). Tool scoping is the MCP services' own read-only posture (omada-mcp
+# all:r; netbox-mcp read token) + the SA's read-only RBAC, not this L4 policy.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -44,6 +44,21 @@ spec:
         - ports:
             - port: "3000"
               protocol: TCP
+    # GitHub MCP (the lovenet-network-configuration repo) — read-only file fetch
+    # for the dhcpd + DNS-zone collectors (Phase 2).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+            app.kubernetes.io/name: github-mcp
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # NOTE: kube-apiserver egress (the Phase 2 k8s/Cilium collectors) is already
+    # granted cluster-wide by the baseline `allow-apiserver` (reserved:kube-
+    # apiserver entity, :6443) — not repeated here. See
+    # components/network-policy/baseline.
+    #
     # notify-mcp — the ONLY notification channel: the sweep POSTs a themed HTML
     # digest to /send:8060; the relay recipient-locks it to Rob.
     - toEndpoints:

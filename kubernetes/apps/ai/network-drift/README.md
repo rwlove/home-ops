@@ -18,8 +18,13 @@ A **deterministic, stdlib-only Python detector** (`resources/netbox_sync.py` +
 1. Reads live Omada and NetBox through the **read-only MCP services**
    (`omada-mcp` `all:r`, `netbox-mcp`) over plain JSON-RPC — never the
    mcp-gateway broker, never a device.
-2. Diffs deterministically (Phase 1 comparators: **VLANs, prefixes, infra
-   devices**).
+2. Diffs deterministically. Comparators:
+   - **Phase 1** — Omada ↔ NetBox: VLANs, prefixes, infra devices.
+   - **Phase 2** — brain **dhcpd** reservations/subnets (via github-mcp) ↔ NetBox
+     ip-addresses/prefixes; **DNS** forward-zone names ↔ NetBox `dns_name`
+     (freshness); **k8s** nodes + **LoadBalancer** Service IPs + **Cilium LB
+     pools** (via a scoped read-only ServiceAccount) ↔ NetBox. All
+     one-directional (reality → record) except the dns_name freshness check.
 3. Emails Rob via `notify-mcp /send` **only when the drift picture CHANGES** —
    new drift appears or known drift resolves. A healthy or unchanged network
    sends nothing.
@@ -51,8 +56,8 @@ rebuild.
 
 | Phase | Adds | Writes? |
 |---|---|---|
-| **1** (this) | deterministic Omada↔NetBox detector, daily, state-change digest | no |
-| **2** | collectors for dhcpd reservations/leases, Cilium LB pools, k8s nodes, DNS names | no |
+| **1** | deterministic Omada↔NetBox detector, daily, state-change digest | no |
+| **2** | collectors for dhcpd reservations/subnets, DNS names, Cilium LB pools, k8s nodes | no |
 | **3** | Loop A write-back wiring (the net op's own write paths update NetBox same-transaction) | — |
 | **4** | gated deterministic upsert (NetBox Diode) + gated LLM/kagent residual, via the agent-ops queue | **ships OFF** |
 

@@ -151,7 +151,7 @@ def collect_omada_devices(omada):
 def collect_netbox_vlans(netbox):
     out = []
     data = netbox.call("netbox_get_objects",
-                       {"object_type": "vlans", "filters": {"limit": 500}})
+                       {"object_type": "ipam.vlan", "filters": {"limit": 500}})
     for v in as_list(data):
         out.append({"vid": _int(pick(v, "vid")), "name": pick(v, "name")})
     return out
@@ -160,7 +160,7 @@ def collect_netbox_vlans(netbox):
 def collect_netbox_prefixes(netbox):
     out = []
     data = netbox.call("netbox_get_objects",
-                       {"object_type": "prefixes", "filters": {"limit": 500}})
+                       {"object_type": "ipam.prefix", "filters": {"limit": 500}})
     for p in as_list(data):
         vlan = p.get("vlan") if isinstance(p, dict) else None
         vid = _int(pick(vlan, "vid")) if isinstance(vlan, dict) else None
@@ -172,7 +172,7 @@ def collect_netbox_prefixes(netbox):
 def collect_netbox_devices(netbox):
     out = []
     data = netbox.call("netbox_get_objects",
-                       {"object_type": "devices", "filters": {"limit": 500}})
+                       {"object_type": "dcim.device", "filters": {"limit": 500}})
     for d in as_list(data):
         out.append({"name": pick(d, "name")})
     return out
@@ -183,7 +183,7 @@ def collect_netbox_ips(netbox):
     # dhcpd / DNS / k8s / LB comparators.
     out = []
     data = netbox.call("netbox_get_objects",
-                       {"object_type": "ip-addresses", "filters": {"limit": 1000}})
+                       {"object_type": "ipam.ipaddress", "filters": {"limit": 1000}})
     for p in as_list(data):
         out.append({"address": pick(p, "address"),
                     "dns_name": pick(p, "dns_name"),

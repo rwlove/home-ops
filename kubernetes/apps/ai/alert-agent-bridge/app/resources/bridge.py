@@ -4,10 +4,10 @@
 The event-driven counterpart to the scheduled triage crons. AlertManager POSTs a firing
 alert group here; the bridge asks the in-cluster observability-operator agent to triage it
 (read-only, local model, and it may delegate a domain deep-dive to a specialist via A2A),
-then sends ONE supplemental Pushover with the agent's finding. It does NOT replace the
-alert's own page — AlertManager still routes the alert to the pushover receiver in
-parallel (the route that forwards here uses continue: true). This message is priority 0
-(quiet context), the alert itself was the pager.
+then sends ONE supplemental email with the agent's finding via notify-mcp (/send). It does
+NOT replace the alert's own page — AlertManager still routes the alert to its own receiver
+in parallel (the route that forwards here uses continue: true). The email is quiet context
+alongside the alert itself, which was the pager.
 
 Design points:
   * ACK the webhook immediately (202) and do the slow agent call on a background thread —
@@ -32,7 +32,8 @@ Stdlib only. Config via env:
   MAX_ALERTS_PER_GROUP      default 8
   PROM_URL                  Prometheus base URL for pre-gather; unset -> pre-gather off
   PREGATHER_TIMEOUT_SECONDS default 8 (per Prometheus query)
-  PUSHOVER_TOKEN, PUSHOVER_USER   (required to send; missing -> log-only)
+  NOTIFY_URL                default http://notify-mcp.mcp-system:8060/send (no auth)
+  AGENT_NAME                default observability-operator (notify-mcp theme + sender)
 """
 import json
 import os
@@ -48,9 +49,8 @@ MAX_INFLIGHT = int(os.environ.get("MAX_INFLIGHT", "2"))
 MAX_ALERTS = int(os.environ.get("MAX_ALERTS_PER_GROUP", "8"))
 PROM_URL = os.environ.get("PROM_URL", "")
 PREGATHER_TIMEOUT = int(os.environ.get("PREGATHER_TIMEOUT_SECONDS", "8"))
-PUSHOVER_TOKEN = os.environ.get("PUSHOVER_TOKEN", "")
-PUSHOVER_USER = os.environ.get("PUSHOVER_USER", "")
-PUSHOVER_URL = "https://api.pushover.net/1/messages.json"
+NOTIFY_URL = os.environ.get("NOTIFY_URL", "http://notify-mcp.mcp-system:8060/send")
+AGENT_NAME = os.environ.get("AGENT_NAME", "observability-operator")
 
 # Caps on how much we pre-gather per group, so an alert storm can't fan out queries.
 MAX_PREGATHER_PODS = 5
@@ -208,18 +208,20 @@ def _call_agent(prompt):
     return texts[-1] if texts else ""
 
 
-def _pushover(title, message, priority=0):
-    if not (PUSHOVER_TOKEN and PUSHOVER_USER):
-        log("Pushover creds unset — would send: %s / %s" % (title, message[:80]))
-        return
-    data = urllib.parse.urlencode({
-        "token": PUSHOVER_TOKEN, "user": PUSHOVER_USER,
-        "title": title[:250], "message": message[:1000], "priority": priority,
-    }).encode()
-    req = urllib.request.Request(PUSHOVER_URL, data=data)
-    with urllib.request.urlopen(req, timeout=30) as r:
-        if r.status // 100 != 2:
-            raise RuntimeError("Pushover HTTP %s" % r.status)
+def _notify(subject, body):
+    """POST a themed HTML email through notify-mcp's /send route. No auth: notify-mcp
+    holds the relay recipient-lock, so it can only ever email Rob. Non-fatal — a failed
+    send is logged, never raised (the alert still paged via AlertManager separately)."""
+    try:
+        data = json.dumps({"subject": subject, "body": body, "agent": AGENT_NAME}).encode()
+        req = urllib.request.Request(
+            NOTIFY_URL, data=data, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            if r.status // 100 != 2:
+                raise RuntimeError("notify-mcp HTTP %s" % r.status)
+        log("enrichment emailed")
+    except Exception as e:  # noqa: BLE001
+        log("notify-mcp send failed: %r" % e)
 
 
 def _handle(payload):
@@ -234,14 +236,13 @@ def _handle(payload):
             text = _call_agent(_agent_prompt(alerts))
         except Exception as e:  # noqa: BLE001
             log("agent call failed for [%s]: %r" % (names, e))
-            _pushover("kagent enrichment failed: %s" % names,
-                      "observability-operator did not respond: %s" % str(e)[:200],
-                      priority=-1)
+            _notify("kagent enrichment failed: %s" % names,
+                    "observability-operator did not respond: %s" % str(e)[:200])
             return
         if not text:
             log("agent returned no text for [%s]" % names)
             return
-        _pushover("kagent enrichment: %s" % names, text, priority=0)
+        _notify("kagent enrichment: %s" % names, text)
         log("enrichment sent for [%s]" % names)
     finally:
         _sem.release()

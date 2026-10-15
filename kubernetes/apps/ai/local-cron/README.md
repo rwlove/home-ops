@@ -13,23 +13,25 @@ The load-bearing design points:
   model `qwen2.5:7b`). There is **no `ANTHROPIC_API_KEY` and no
   `CLAUDE_CODE_OAUTH_TOKEN`** anywhere in this app.
 - **No MCP broker, no k8s API.** The job reads log state read-only via the
-  Loki HTTP API, summarizes on Ollama, and posts one Pushover message.
-  None of that touches the k8s API, so the ServiceAccount has zero RBAC
+  Loki HTTP API, summarizes on Ollama, and posts one themed HTML email via
+  notify-mcp (`/send`). None of that touches the k8s API, so the SA has zero RBAC
   and `automountServiceAccountToken: false`. Future API needs get scoped
   read-only RBAC — never the broker (same rule as `claude-runner`).
 - **Pure curl, no custom image.** The job runs `docker.io/alpine/k8s`
   (carries `curl` + `jq`), so there is no image to build/publish and no
   Gate-0 auth spike — unlike `claude-runner`.
-- **Private sink.** The digest goes to Pushover (the same 1P `Pushover`
-  item alertmanager uses), so it can carry namespace/app names a public
-  GitHub artifact must not.
+- **Private sink.** The digest reaches Rob as a themed HTML email via
+  notify-mcp (`/send`, `mcp-system:8060`), which holds the relay
+  recipient-lock — so it can carry namespace/app names a public GitHub
+  artifact must not, and needs no credentials. (Migrated off Pushover
+  2026-10-15, fleet-wide.)
 
 ## Workflows
 
 | Workflow | Schedule (UTC) | Tier | What |
 |---|---|---|---|
-| `loki-error-skim` | `0 12 * * *` (08:00 EDT / 07:00 EST, daily) | Local (Ollama) | LogQL-rank the top error/panic/fatal log producers in Loki over 24h, pull a small sample of lines from the top 5, have the local model distill them into a terse pattern digest, send ONE Pushover message. Silent (exit 0, no push) when there are no error lines. |
-| `renovate-pr-digest` | `30 12 * * *` (08:30 EDT / 07:30 EST, daily) | Local (Ollama) | List the open Renovate PRs (unauthenticated GitHub REST — the repo is public), have the local model produce a terse digest that flags likely major bumps + PRs stuck > 7 days and groups the rest by kind, send ONE Pushover message. Silent (exit 0, no push) when the queue is empty. |
+| `loki-error-skim` | `0 12 * * *` (08:00 EDT / 07:00 EST, daily) | Local (Ollama) | LogQL-rank the top error/panic/fatal log producers in Loki over 24h, pull a small sample of lines from the top 5, have the local model distill them into a terse pattern digest, send ONE email via notify-mcp. Silent (exit 0, no send) when there are no error lines. |
+| `renovate-pr-digest` | `30 12 * * *` (08:30 EDT / 07:30 EST, daily) | Local (Ollama) | List the open Renovate PRs (unauthenticated GitHub REST — the repo is public), have the local model produce a terse digest that flags likely major bumps + PRs stuck > 7 days and groups the rest by kind, send ONE email via notify-mcp. Silent (exit 0, no send) when the queue is empty. |
 
 Query path: `topk(15, sum by (namespace, app) (count_over_time({namespace=~".+"} |~ "(?i)(error|panic|fatal|traceback|exception)" [24h])))`
 against `loki:3100` (Loki stream labels here are `app` / `namespace` /
@@ -45,20 +47,20 @@ digest with no extra credential.
 The PR digest was originally deferred because a PR summary was assumed to
 need a `gh` token. It doesn't: **home-ops is a public repo**, so the
 Renovate-queue read is unauthenticated GitHub REST (60 req/hr unauth ≫ one
-daily call) and rides the same `world:443` egress Pushover already uses —
-no token, no secret, no CNP change. That removed the only reason it was
-held back, so it now ships alongside the log skim.
+daily call) and rides the existing `world:443` egress — no token, no secret,
+no CNP change. That removed the only reason it was held back, so it now ships
+alongside the log skim.
 
 ## Network policy
 
 The `ai` namespace is default-deny; `observability` is default-deny
 ingress. Two holes were punched:
 
-- **`ai/local-cron/app/cnp-allow.yaml`** (egress): `loki.observability:3100`
-  plus `world:443` (Pushover **and** `api.github.com` for the PR digest —
-  both external HTTPS, one rule). Ollama is **intra-ns** (both in `ai`), so
-  it rides the baseline `allow-intra-namespace` — no rule needed. The PR
-  digest added **no** new egress.
+- **`ai/local-cron/app/cnp-allow.yaml`** (egress): `loki.observability:3100`,
+  `notify-mcp.mcp-system:8060` (the email sink), plus `world:443`
+  (`api.github.com` for the PR digest + `api.nhtsa.gov` for the cooter recall
+  watch — external HTTPS). Ollama is **intra-ns** (both in `ai`), so it rides
+  the baseline `allow-intra-namespace` — no rule needed.
 - **`observability/loki/app/cnp-allow.yaml`** (ingress): added
   `ai/local-cron` as a cross-ns source on `loki:3100`. Loki previously had
   no ingress rules (only intra-ns Grafana/Vector via baseline), so this
@@ -76,8 +78,8 @@ The original first-time activation order, for reference:
 1. **Confirm the model is pullable/loadable.** `qwen2.5:7b` is already the
    khoj default and Open WebUI-selectable on this Ollama, so it is
    present. (If Ollama has been reset, `ollama pull qwen2.5:7b` on the
-   P40.) No 1P work is required — the `Pushover` item already exists and
-   is shared with alertmanager.
+   P40.) No 1P work is required — the notify-mcp email sink is
+   recipient-locked and needs no credentials.
 2. **Unsuspend the ks** — remove `spec.suspend: true` from
    `local-cron/ks.yaml`. Flux then reconciles the ExternalSecret
    (`local-cron-secret`), the CNP, the RBAC, and the CronJob object. The
@@ -89,8 +91,8 @@ The original first-time activation order, for reference:
 
    then `kubectl -n ai logs job/<name> -f`. Expect (for the skim) the
    ranked list, or (for the digest) `Open Renovate PRs (N):` + the list,
-   then the `----- local-model digest -----` block and `Pushover digest
-   sent`. Empty-input is success, not failure: the skim prints "Nothing to
+   then the `----- local-model digest -----` block and `digest emailed`.
+   Empty-input is success, not failure: the skim prints "Nothing to
    report" and the digest prints "No open Renovate PRs" — both exit 0 and
    send nothing.
 4. **Unsuspend the CronJob(s)** — remove `spec.suspend: true` from
@@ -114,7 +116,7 @@ Copy `cronjob-loki-error-skim.yaml`, then:
 - Reach only what `cnp-allow.yaml` permits. New destination? Add a narrow
   egress rule here AND the matching ingress rule on the destination's own
   CNP (default-deny cuts both directions).
-- Pick a private sink (Pushover) — never per-item spam.
+- Pick a private sink (notify-mcp email, `/send`) — never per-item spam.
 
 ## Kill criteria
 

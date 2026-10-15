@@ -15,15 +15,19 @@ spec:
     egress: false
     ingress: false
   egress:
-    # Pushover notification API (the supplemental enrichment note). api.pushover.net
-    # is a canonical FQDN behind a CDN; Cilium matchPattern FQDN rules are unreliable
-    # there (see project_cilium_matchpattern_fqdn_limits), so this collapses to
-    # world:443 — same precedent as alertmanager/local-cron -> Pushover.
-    - toEntities:
-        - world
+    # notify-mcp (mcp-system) — themed HTML email via its /send HTTP route (:8060) for
+    # the supplemental enrichment note; notify-mcp holds the relay recipient-lock, so
+    # this can only ever email Rob. The INGRESS side is punched through in
+    # mcp-system/notify-mcp/app/cnp-allow.yaml (notify-mcp-allow) — a missing ingress
+    # entry is a SILENT drop (exit 28 timeout), so both sides must land. (This replaced
+    # the old Pushover world:443 egress — the bridge no longer makes any external call.)
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+            app.kubernetes.io/name: notify-mcp
       toPorts:
         - ports:
-            - port: "443"
+            - port: "8060"
               protocol: TCP
     # Prometheus (observability ns) — READ-ONLY deterministic pre-gather: for each
     # pod-scoped firing alert the bridge queries restarts, the pod's node, and that

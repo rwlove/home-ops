@@ -8,12 +8,12 @@ The LOCAL-MODEL AGENT never holds a credential. This non-LLM step:
      action allowlist);
   3. deterministically applies the intent to a fresh clone (the PIPELINE writes the
      diff, never the model), opens a PR with a scoped token, and NEVER merges.
-Anything invalid/absent/no-op degrades to a Pushover of the human-readable triage.
-A flaky 7B can only ever cause a PR you decline — never a bad merge, never a
-cluster write.
+Anything invalid/absent/no-op degrades to a silent, logged no-op (no notification);
+a PR-opened or a hard failure emails Robert via notify-mcp (/send). A flaky 7B can
+only ever cause a PR you decline — never a bad merge, never a cluster write.
 
-Env: AGENT_URL AGENT_NAME ALLOWED_ACTIONS REPO GITHUB_PR_TOKEN PUSHOVER_TOKEN
-     PUSHOVER_USER  (PATH_PREFIX GIT_USER_NAME GIT_USER_EMAIL optional)
+Env: AGENT_URL AGENT_NAME ALLOWED_ACTIONS REPO GITHUB_PR_TOKEN
+     (NOTIFY_URL PATH_PREFIX GIT_USER_NAME GIT_USER_EMAIL optional)
 """
 import hashlib
 import json
@@ -33,8 +33,7 @@ AGENT_NAME = os.environ.get("AGENT_NAME", "doer")
 ALLOWED_ACTIONS = set(a.strip() for a in os.environ.get("ALLOWED_ACTIONS", "").split(",") if a.strip())
 REPO = os.environ["REPO"]
 TOKEN = os.environ.get("GITHUB_PR_TOKEN", "")
-PUSH_TOKEN = os.environ.get("PUSHOVER_TOKEN", "")
-PUSH_USER = os.environ.get("PUSHOVER_USER", "")
+NOTIFY_URL = os.environ.get("NOTIFY_URL", "http://notify-mcp.mcp-system:8060/send")
 PATH_PREFIX = os.environ.get("PATH_PREFIX", "kubernetes/apps/")
 GIT_NAME = os.environ.get("GIT_USER_NAME", "kagent-doer")
 GIT_EMAIL = os.environ.get("GIT_USER_EMAIL", "kagent-doer@users.noreply.github.com")
@@ -51,20 +50,18 @@ def log(m):
     print(m, flush=True)
 
 
-def pushover(title, message):
-    if not (PUSH_TOKEN and PUSH_USER):
-        log("(no pushover creds; skipping notify)")
-        return
-    data = urllib.parse.urlencode({
-        "token": PUSH_TOKEN, "user": PUSH_USER,
-        "title": title[:250], "message": message[:1000],
-    }).encode()
+def notify(subject, body):
+    """POST a themed per-agent HTML email through notify-mcp's /send route. No auth:
+    notify-mcp holds the relay recipient-lock, so it can only ever email Robert.
+    Non-fatal — a failed send is logged, never raised (matches the triage runner)."""
     try:
-        urllib.request.urlopen(urllib.request.Request(
-            "https://api.pushover.net/1/messages.json", data=data), timeout=30)
-        log("pushover sent")
+        data = json.dumps({"subject": subject, "body": body, "agent": AGENT_NAME}).encode()
+        req = urllib.request.Request(
+            NOTIFY_URL, data=data, headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=30)
+        log("notify emailed")
     except Exception as e:
-        log("pushover failed: %r" % e)
+        log("notify failed: %r" % e)
 
 
 def ask_agent(prompt):
@@ -521,8 +518,8 @@ def main():
         "head": branch, "base": "main", "body": body})
     url = pr.get("html_url")
     log("opened PR: %s" % url)
-    pushover("%s doer: PR opened" % AGENT_NAME,
-             "%s\n%s %s -> %s" % (url, action, target, new_value))
+    notify("%s doer: PR opened" % AGENT_NAME,
+           "%s\n%s %s -> %s" % (url, action, target, new_value))
 
 
 if __name__ == "__main__":
@@ -530,9 +527,9 @@ if __name__ == "__main__":
         main()
     except urllib.error.HTTPError as e:
         log("HTTP ERROR %s: %s" % (e.code, e.read().decode()[:300]))
-        pushover("%s doer: FAILED" % AGENT_NAME, "HTTP %s" % e.code)
+        notify("%s doer: FAILED" % AGENT_NAME, "HTTP %s" % e.code)
         sys.exit(1)
     except Exception as e:
         log("FATAL: %r" % e)
-        pushover("%s doer: FAILED" % AGENT_NAME, repr(e)[:300])
+        notify("%s doer: FAILED" % AGENT_NAME, repr(e)[:300])
         sys.exit(1)

@@ -11,14 +11,15 @@ spec:
   # asks the read-only storage-operator agent to triage AND emit a structured intent
   # proposal; it validates (schema + path allowlist + action allowlist=set_cron),
   # applies the intent to a fresh clone (the PIPELINE writes the diff, not the model),
-  # opens a PR with a scoped token, and NEVER merges. Invalid/absent/no-op → Pushover
-  # only. The local-model agent never holds the token. See
+  # opens a PR with a scoped token, and NEVER merges. Invalid/absent/no-op → silent
+  # (logged); a PR-opened or a hard failure emails Rob via notify-mcp. The local-model
+  # agent never holds the token. See
   # ~/.claude-personal/plans/kagent-write-gate-design.md.
   #
   # LIVE as of 2026-09-23 (home-ops#14385 hardening verified: 35B emits clean
   # proposals, applier produces a minimal 1-line diff, git image opens the PR). It
-  # opens a PR ONLY when it finds a real, safe, config-level fix, and is silent (or
-  # Pushover-only) otherwise. To pause without tearing down, set `suspend: true`.
+  # opens a PR ONLY when it finds a real, safe, config-level fix, and is silent
+  # otherwise. To pause without tearing down, set `suspend: true`.
   suspend: false
   schedule: "50 7 * * *"
   timeZone: America/New_York
@@ -77,11 +78,9 @@ spec:
                 - name: GIT_USER_EMAIL
                   value: kagent-doer@users.noreply.github.com
               envFrom:
-                # Pushover (notify sink).
-                - secretRef:
-                    name: local-cron-secret
-                    optional: false
-                # GitHub PR-create token (GITHUB_PR_TOKEN) — ONLY this cron gets it.
+                # GitHub PR-create token (GITHUB_PR_TOKEN) — ONLY the doer crons get
+                # it. The doer emails via notify-mcp /send (recipient-locked, no
+                # creds), so there is no Pushover secret here anymore.
                 - secretRef:
                     name: kagent-doer-secret
                     optional: false

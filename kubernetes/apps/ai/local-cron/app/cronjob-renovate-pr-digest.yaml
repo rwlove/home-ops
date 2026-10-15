@@ -67,8 +67,8 @@ spec:
                   # (1) Fetch open PRs. home-ops is a PUBLIC repo, so this is
                   # UNAUTHENTICATED — no token, no secret. Unauth GitHub REST
                   # is 60 req/hr, far above one daily call. api.github.com is
-                  # reached over the existing world:443 egress (shared with
-                  # Pushover); no CNP change was needed.
+                  # reached over the existing world:443 egress; no CNP change was
+                  # needed.
                   PRS="$$(curl -sSG --max-time 60 \
                             -H 'Accept: application/vnd.github+json' \
                             -H 'X-GitHub-Api-Version: 2022-11-28' \
@@ -132,31 +132,34 @@ spec:
                   echo "----- local-model digest -----"
                   printf '%s\n' "$$SUMMARY"
 
-                  # (4) Send ONE Pushover notification (private channel).
-                  # Pushover message limit is 1024 chars; truncate to be safe.
-                  MSG="$$(printf '%s' "$$SUMMARY" | cut -c1-1000)"
-                  HTTP="$$(curl -sS --max-time 30 -o /tmp/pushover.out -w '%{http_code}' \
-                            --form-string "token=$${PUSHOVER_TOKEN}" \
-                            --form-string "user=$${PUSHOVER_USER}" \
-                            --form-string "title=renovate-pr-digest $${DAY}" \
-                            --form-string "message=$${MSG}" \
-                            https://api.pushover.net/1/messages.json)" || {
-                    echo "FATAL: Pushover request errored"
+                  # (4) Send ONE themed HTML email via notify-mcp /send
+                  # (agent=homeops-operator — repo/release-hygiene domain, same sender
+                  # as the homeops-hygiene digest). notify-mcp renders the body in that
+                  # theme and holds the relay recipient-lock, so this can only ever
+                  # email Rob. jq -n escapes the body safely.
+                  MSG="$$(printf '%s' "$$SUMMARY" | cut -c1-3800)"
+                  REQ="$$(jq -n --arg s "renovate-pr-digest $${DAY}" \
+                                --arg b "$$MSG" --arg a "homeops-operator" \
+                            '{subject:$$s, body:$$b, agent:$$a}')"
+                  HTTP="$$(curl -sS --max-time 30 -o /tmp/send.out -w '%{http_code}' \
+                            -H 'Content-Type: application/json' -d "$$REQ" \
+                            http://notify-mcp.mcp-system:8060/send)" || {
+                    echo "FATAL: notify-mcp /send request errored"
                     exit 1
                   }
                   case "$$HTTP" in
-                    2??) echo "Pushover digest sent (HTTP $$HTTP)";;
-                    *) echo "FATAL: Pushover returned HTTP $$HTTP"; cat /tmp/pushover.out; exit 1;;
+                    2??) echo "digest emailed (HTTP $$HTTP)";;
+                    *) echo "FATAL: notify-mcp /send returned HTTP $$HTTP"; cat /tmp/send.out; exit 1;;
                   esac
               env:
                 - name: HOME
                   value: /tmp
                 - name: TZ
                   value: America/New_York
-              envFrom:
-                - secretRef:
-                    name: local-cron-secret
-                    optional: false
+              # No secretRef: the digest reaches Rob via notify-mcp /send, which holds
+              # the relay recipient-lock and needs no credentials. (GitHub is read
+              # unauthenticated — home-ops is public; the P40 Ollama summarizer is
+              # intra-ns and unauthenticated.)
               resources:
                 requests:
                   cpu: 50m

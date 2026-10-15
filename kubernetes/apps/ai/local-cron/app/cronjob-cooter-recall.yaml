@@ -12,7 +12,7 @@ spec:
   # private vehicle facts ever live in this PUBLIC repo), checks each against
   # the NHTSA recalls API, and pages ONLY when a campaign was reported in the
   # last ~45 days ("new recall" — not a monthly re-page of history). Nothing
-  # notable → no Pushover. Fully deterministic: no LLM, no k8s API. Per-VIN
+  # notable → no email. Fully deterministic: no LLM, no k8s API. Per-VIN
   # remedy status is not available from the public NHTSA API — this is a
   # make/model/year campaign watch; the full cooter agent (Phase 2) can add
   # per-VIN remedy state later.
@@ -110,26 +110,28 @@ spec:
 
                   echo "----- cooter recall watch ($$N vehicles, last $$WINDOW days) -----"
                   if [ ! -s /tmp/findings.txt ]; then
-                    echo "ALL CLEAR — no recalls reported in the last $$WINDOW days; no Pushover sent"
+                    echo "ALL CLEAR — no recalls reported in the last $$WINDOW days; no email sent"
                     exit 0
                   fi
                   cat /tmp/findings.txt
 
-                  MSG="$$(printf 'New/recent recall campaigns (last %s days):\n\n%s' \
-                          "$$WINDOW" "$$(cat /tmp/findings.txt)" | cut -c1-1000)"
-                  HTTP="$$(curl -sS --max-time 30 -o /tmp/pushover.out -w '%{http_code}' \
-                            --form-string "token=$${PUSHOVER_TOKEN}" \
-                            --form-string "user=$${PUSHOVER_USER}" \
-                            --form-string "priority=-1" \
-                            --form-string "title=cooter recall watch $${DAY}" \
-                            --form-string "message=$${MSG}" \
-                            https://api.pushover.net/1/messages.json)" || {
-                    echo "FATAL: Pushover request errored"
+                  # ONE themed HTML email via notify-mcp /send (agent=cooter): build a
+                  # markdown body and let notify-mcp render it in cooter's theme; it
+                  # holds the relay recipient-lock, so this can only ever email Rob.
+                  # jq -n escapes the field values safely.
+                  BODY="$$(printf 'New/recent recall campaigns (last %s days):\n\n%s' \
+                          "$$WINDOW" "$$(cat /tmp/findings.txt)")"
+                  REQ="$$(jq -n --arg s "cooter recall watch $${DAY}" --arg b "$$BODY" --arg a "cooter" \
+                            '{subject:$$s, body:$$b, agent:$$a}')"
+                  HTTP="$$(curl -sS --max-time 30 -o /tmp/send.out -w '%{http_code}' \
+                            -H 'Content-Type: application/json' -d "$$REQ" \
+                            http://notify-mcp.mcp-system:8060/send)" || {
+                    echo "FATAL: notify-mcp /send request errored"
                     exit 1
                   }
                   case "$$HTTP" in
-                    2??) echo "Pushover sent (HTTP $$HTTP, priority=-1 quiet)";;
-                    *) echo "FATAL: Pushover returned HTTP $$HTTP"; cat /tmp/pushover.out; exit 1;;
+                    2??) echo "recall digest emailed (HTTP $$HTTP)";;
+                    *) echo "FATAL: notify-mcp /send returned HTTP $$HTTP"; cat /tmp/send.out; exit 1;;
                   esac
               env:
                 - name: HOME
@@ -137,12 +139,10 @@ spec:
                 - name: TZ
                   value: America/New_York
               envFrom:
-                # Pushover (the private digest sink) — shared read-only creds.
-                - secretRef:
-                    name: local-cron-secret
-                    optional: false
                 # LubeLogger Viewer API key — its OWN secret, mounted only here
-                # (least privilege; the triage/skim/digest jobs never see it).
+                # (least privilege; the triage/skim/digest jobs never see it). The
+                # notify-mcp email sink needs no creds (recipient-locked), so there
+                # is no Pushover secret here anymore.
                 - secretRef:
                     name: cooter-recall-secret
                     optional: false

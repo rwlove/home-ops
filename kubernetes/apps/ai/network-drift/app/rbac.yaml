@@ -1,0 +1,39 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/serviceaccount-v1.json
+# Scoped read-only identity for the Phase 2 k8s/Cilium collectors. This is a REAL
+# RBAC boundary — get/list on exactly the three resources the sweep reads — not
+# the mcp-gateway broker. No create/update/patch/delete, no secrets, no other
+# resource. Nodes + CiliumLoadBalancerIPPools are cluster-scoped and Services are
+# read across all namespaces, so this is a ClusterRole.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: network-drift
+automountServiceAccountToken: false
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/clusterrole-rbac-v1.json
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: network-drift-read
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "services"]
+    verbs: ["get", "list"]
+  - apiGroups: ["cilium.io"]
+    resources: ["ciliumloadbalancerippools"]
+    verbs: ["get", "list"]
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/clusterrolebinding-rbac-v1.json
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: network-drift-read
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: network-drift-read
+subjects:
+  - kind: ServiceAccount
+    name: network-drift
+    namespace: ai

@@ -179,7 +179,11 @@ def compare_dns_names(recs, nb_ips):
                 reality="DNS zone maps %s -> '%s'" % (r["ip"], r["fqdn"]),
                 record="NetBox dns_name for %s is '%s'" % (r["ip"], have or "(empty)"),
                 proposal="HUMAN-ONLY: set NetBox dns_name of %s to '%s'"
-                         % (r["ip"], r["fqdn"])))
+                         % (r["ip"], r["fqdn"]),
+                # SAFE auto-write target (Phase 4): PATCH dns_name on the existing
+                # NetBox ip-address (use its stored CIDR so the match is exact).
+                target={"kind": "ip", "address": p.get("address"),
+                        "dns_name": r["fqdn"]}))
     return drifts
 
 

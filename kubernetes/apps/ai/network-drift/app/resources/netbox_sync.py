@@ -103,15 +103,20 @@ def fp(category, key):
 
 
 class Drift:
-    __slots__ = ("fingerprint", "category", "key", "reality", "record", "proposal")
+    __slots__ = ("fingerprint", "category", "key", "reality", "record",
+                 "proposal", "target")
 
-    def __init__(self, category, key, reality, record, proposal):
+    def __init__(self, category, key, reality, record, proposal, target=None):
         self.fingerprint = fp(category, key)
         self.category = category
         self.key = key
         self.reality = reality
         self.record = record
         self.proposal = proposal
+        # Structured, writable fields for the Phase 4 gated upsert (None = not
+        # auto-writable; such drift stays detect-only / human). Only the narrow
+        # SAFE categories populate this.
+        self.target = target
 
 
 # ----------------------------------------------------------------------------
@@ -370,12 +375,11 @@ def endpoints():
     return {k: v["url"] for k, v in servers.items() if "url" in v}
 
 
-def main():
-    if WRITE_ENABLED:
-        log("FATAL: WRITE_ENABLED must be False in the detector — refusing to run")
-        return 2
-    day = datetime.date.today().isoformat()
-    eps = endpoints()
+def compute_drifts(eps):
+    """Collect every source and run every comparator. Returns (drifts,
+    source_findings). Pure read — no notify, no state, no writes. Shared by the
+    detector (main) and the Phase 4 gated upsert (autowrite), so both see the
+    exact same drift set."""
     drifts = []
     source_findings = []
 
@@ -439,7 +443,17 @@ def main():
             record="n/a",
             proposal="HUMAN-ONLY: check the %s read path (MCP service / backend / "
                      "RBAC); detail: %s" % (name, err[:160])))
+    return drifts, source_findings
 
+
+def main():
+    if WRITE_ENABLED:
+        log("FATAL: WRITE_ENABLED must be False in the detector — refusing to run")
+        return 2
+    day = datetime.date.today().isoformat()
+    eps = endpoints()
+
+    drifts, source_findings = compute_drifts(eps)
     RESULT["sources_failed"] = len(source_findings)
 
     # --- ack + state-change gate ---

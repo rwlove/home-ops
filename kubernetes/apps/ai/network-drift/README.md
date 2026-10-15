@@ -81,14 +81,55 @@ Tool names / args and MCP endpoints are config (`resources/mcp.json`, constants
 at the top of `netbox_sync.py`) — a correction is a ConfigMap edit, not an image
 rebuild.
 
+## Phase 4 — gated auto-write (SHIPS OFF)
+
+`resources/autowrite.py` + `cronjob-upsert.yaml` can, once enabled, deterministically
+upsert the **narrow SAFE residual** of drift into NetBox. It is **OFF by default
+three independent ways** — merging this app writes **nothing** to NetBox:
+
+1. **`cronjob-upsert.yaml` ships `suspend: true`** — it never runs.
+2. **`AUTOWRITE_APPLY=false`** (env) — even if it runs, it is a DRY-RUN that only
+   logs/emails what it *would* upsert. **This env is THE toggle that enables
+   auto-write; it defaults OFF.**
+3. The **scoped write-token** `ExternalSecret` (`externalsecret-write.yaml`) is
+   `NotReady` until Rob provisions the 1Password property, so the Job can't start.
+
+**SAFE set (the only categories ever auto-written):** `netbox-dns-name-stale`
+(PATCH `dns_name` on an existing ip-address) and `lb-ip-missing-in-netbox`
+(create a LoadBalancer ip-address). Never VLAN renames, prefix edits, device
+creation, or anything in the mgmt LAN (`192.168.x`) or k8s ranges
+(`10.42/43/45`) — the recovery-path floor, enforced in code.
+
+**Upsert layer:** the design's intended layer is **NetBox Diode** (`UPSERT_BACKEND=diode`,
+avoids brittle GET→diff→PATCH); until its server is deployed the working backend is
+the Phase 3 write-back library (`UPSERT_BACKEND=writeback`, the default).
+
+**Internal-consistency validation:** `resources/netbox_report_consistency.py` is a
+read-only **NetBox Script** (dup IPs, orphan prefixes/VLANs, empty dns_name).
+Install it inside NetBox (`SCRIPTS_ROOT` / Operations → Scripts); it is not wired
+to any cluster workload.
+
+**Gated LLM/kagent residual** (`LLM_RESIDUAL_ENABLED=false`): a documented seam to
+route the non-safe residual to the kagent network-operator for classification via
+the agent-ops queue — off, not wired to a model in this phase.
+
+### Enabling Phase 4 (Rob, after Phase 1–2 evidence)
+
+1. Provision the scoped write token (see `externalsecret-write.yaml` header:
+   NetBox object-permissions → write on `ipam` ip-address/prefix/vlan only).
+2. `kubectl -n ai create job --from=cronjob/network-drift-upsert nbw-test` and
+   read the DRY-RUN email/logs (`AUTOWRITE_RESULT=…`).
+3. Flip **`AUTOWRITE_APPLY: "true"`** in `cronjob-upsert.yaml` and `suspend: false`.
+
 ## Roadmap
 
 | Phase | Adds | Writes? |
 |---|---|---|
 | **1** | deterministic Omada↔NetBox detector, daily, state-change digest | no |
 | **2** | collectors for dhcpd reservations/subnets, DNS names, Cilium LB pools, k8s nodes | no |
-| **3** | Loop A write-back wiring (the net op's own write paths update NetBox same-transaction) | — |
-| **4** | gated deterministic upsert (NetBox Diode) + gated LLM/kagent residual, via the agent-ops queue | **ships OFF** |
+| **3** | Loop A write-back library + CLI (operator's write paths mirror NetBox same-transaction) | dry-run default |
+| **4** | gated SAFE-residual upsert (write-back lib now, NetBox Diode later) + NetBox Reports validator + gated LLM/kagent residual | **ships OFF** |
 
-Phase 4's auto-write is **off by default** and stays Rob's one-line decision after
-Phases 1–2 produce real drift-classification evidence.
+Phase 4's auto-write is **off by default** (suspended + `AUTOWRITE_APPLY=false` +
+NotReady write-token) and stays Rob's decision after Phases 1–2 produce real
+drift-classification evidence. The single enabling toggle is `AUTOWRITE_APPLY`.

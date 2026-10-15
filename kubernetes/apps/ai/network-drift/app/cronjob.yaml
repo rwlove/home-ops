@@ -7,24 +7,28 @@ metadata:
   labels:
     app.kubernetes.io/name: network-drift
 spec:
-  # Monthly network source-of-truth reconciliation on the CLAUDE tier (Max
-  # subscription via the headless `claude` CLI — NOT an Anthropic API key, and
-  # NOT the local qwen model, which produced off-prompt/wrong-language garbage).
-  # Claude reads the two records-of-record — NetBox (IPAM/DCIM) and the
-  # lovenet-network-configuration repo — plus live Omada reality, then calls
-  # notify_rob ITSELF (once) only if it finds real drift. ALL CLEAR -> it sends
-  # nothing. Read-only / propose-only: no NetBox or repo writes (no write tool is
-  # bound). Monthly (not weekly) to keep the Max-subscription draw negligible;
-  # this is an infrequent deep audit, not a watcher.
+  # Continuous NetBox-freshness sweep — Loop B, Phase 1 (deterministic detector).
+  # Pulls LIVE reality (Omada) and NetBox (record), diffs them in deterministic
+  # Python (ZERO LLM tokens), and emails Rob ONLY when the drift picture CHANGES.
+  # NetBox is an observer/mirror: this sweep NEVER writes NetBox, Omada, or any
+  # device — it is detect-only. The LLM/kagent residual (classify unknowns,
+  # compose narrative) and any auto-write are Phase 4 and ship OFF.
   #
-  # ACTIVE. Verified 2026-09-26 (test job network-drift-test): claude CLI v2.1.283
-  # reconciled NetBox + the lovenet repo vs live Omada in English, found 2 real
-  # IOT-VLAN IPAM naming drifts, and emailed a clean digest via notify_rob with no
-  # changes made. Max OAuth token lives in the 1Password `network-drift` item (see
-  # externalsecret.yaml). Claude only emails on real drift, so a bad run cannot
-  # spam Rob's inbox.
-  suspend: false
-  schedule: "0 8 1 * *"
+  # Reads go through the per-backend READ-ONLY MCP services (netbox-mcp:8000,
+  # omada-mcp:3000 — omada-mcp is OMADA_TOOL_CATEGORIES=all:r) over plain JSON-RPC,
+  # NOT the mcp-gateway broker. Credentials stay in those services; this job holds
+  # none. Because the diff is cheap, the sweep runs DAILY (the old monolithic LLM
+  # reconcile ran monthly).
+  #
+  # State-change-aware: a drift that is already known stays SILENT on later runs;
+  # the ack-list (acked.txt, Git-editable) suppresses planned items entirely.
+  # "No change" -> sends nothing, so a healthy network never emails.
+  #
+  # SHIPPED SUSPENDED (behavior changed from the LLM monolith). Rob manual-tests
+  #   kubectl -n ai create job --from=cronjob/network-drift network-drift-test
+  # verifies the digest (or clean silence), then flips suspend:false.
+  suspend: true
+  schedule: "30 7 * * *"
   timeZone: America/New_York
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
@@ -32,8 +36,8 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 1
-      # npm install of the CLI + a multi-tool reconcile across NetBox/Omada/GitHub.
-      activeDeadlineSeconds: 1800
+      # Deterministic, stdlib-only — no npm/pip install, a handful of HTTP reads.
+      activeDeadlineSeconds: 600
       ttlSecondsAfterFinished: 86400
       template:
         metadata:
@@ -42,67 +46,49 @@ spec:
           annotations:
             k8tz.io/inject: "false"
         spec:
-          # amd64 image; the ai ns also has arm64 Spark nodes — pin so the pod
-          # can't land on Spark and hit an exec-format error.
+          # amd64: the ai ns also has arm64 Spark nodes — pin so the pod can't
+          # land on Spark and hit an exec-format error.
           nodeSelector:
             kubernetes.io/arch: amd64
           automountServiceAccountToken: false
           restartPolicy: Never
+          securityContext:
+            # Non-root write to the ceph-block state PVC.
+            fsGroup: 1000
+            fsGroupChangePolicy: OnRootMismatch
           containers:
-            - name: reconcile
-              # glibc node image (NOT alpine/musl): the claude CLI ships prebuilt
-              # binaries (ripgrep) that need glibc.
-              image: docker.io/library/node:24-slim@sha256:a5f4366e834695d5f363b920c104953a535d3a9864d1bdf74566a0ebe01daee5
+            - name: sweep
+              # stdlib-only Python (no pip install) — matches the local-cron jobs.
+              image: docker.io/library/python:3.15
               imagePullPolicy: IfNotPresent
               command:
                 - /bin/sh
                 - -ceu
-                # Flux postBuild runs envsubst in STRICT mode over this manifest:
-                # a bare ${VAR} is read as a Flux substitution and fails the whole
-                # Kustomization. Every shell `$` is doubled (`$$`) so the rendered
-                # manifest carries a literal `$` for /bin/sh. Same convention as
-                # the local-cron jobs.
-                - |
-                  cd /tmp
-                  export HOME=/tmp
-                  export XDG_CONFIG_HOME=/tmp/.config
-                  export npm_config_cache=/tmp/.npm
-                  export npm_config_prefix=/tmp/.npm-global
-                  export PATH="/tmp/.npm-global/bin:$${PATH}"
-                  # Reduce nonessential outbound chatter from the CLI.
-                  export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
-
-                  echo "----- installing claude CLI -----"
-                  npm install -g @anthropic-ai/claude-code >/tmp/npm.log 2>&1 || {
-                    echo "FATAL: claude CLI install failed"; tail -30 /tmp/npm.log; exit 1;
-                  }
-                  claude --version || { echo "FATAL: claude CLI not runnable"; exit 1; }
-
-                  echo "----- network drift reconcile (claude tier) -----"
-                  # Headless. Explicit read-only --allowedTools allowlist (NEVER
-                  # --dangerously-skip-permissions): tools outside it are denied,
-                  # not prompted. Claude calls notify_rob itself only on real drift.
-                  claude -p "$$(cat /config/reconcile-prompt.txt)" \
-                    --mcp-config /config/mcp.json \
-                    --allowedTools "$$(cat /config/allowed-tools.txt)" \
-                    --max-turns 40 \
-                    --output-format text
-                  echo "----- reconcile complete -----"
+                - exec python3 /config/netbox_sync.py
               env:
+                - name: HOME
+                  value: /tmp
                 - name: TZ
                   value: America/New_York
-              envFrom:
-                # CLAUDE_CODE_OAUTH_TOKEN — the Max subscription token (never an
-                # API key). Without it the CLI cannot authenticate; the job fails
-                # loudly rather than silently.
-                - secretRef:
-                    name: network-drift-secret
+                - name: PYTHONDONTWRITEBYTECODE
+                  value: "1"
+                - name: STATE_DIR
+                  value: /state
+                - name: MCP_CONFIG
+                  value: /config/mcp.json
+                - name: ACKED_FILE
+                  value: /config/acked.txt
+                - name: NOTIFY_URL
+                  value: http://notify-mcp.mcp-system:8060/send
+                - name: AGENT
+                  value: network-operator
               resources:
                 requests:
-                  cpu: 100m
-                  memory: 256Mi
+                  cpu: 50m
+                  memory: 64Mi
                 limits:
-                  memory: 1Gi
+                  cpu: 500m
+                  memory: 256Mi
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
@@ -115,16 +101,22 @@ spec:
                 seccompProfile:
                   type: RuntimeDefault
               volumeMounts:
-                - name: tmp
-                  mountPath: /tmp
                 - name: config
                   mountPath: /config
                   readOnly: true
+                - name: state
+                  mountPath: /state
+                - name: tmp
+                  mountPath: /tmp
           volumes:
-            - name: tmp
-              emptyDir:
-                medium: Memory
-                sizeLimit: 512Mi
             - name: config
               configMap:
                 name: network-drift-config
+                defaultMode: 0o555
+            - name: state
+              persistentVolumeClaim:
+                claimName: network-drift-state
+            - name: tmp
+              emptyDir:
+                medium: Memory
+                sizeLimit: 64Mi

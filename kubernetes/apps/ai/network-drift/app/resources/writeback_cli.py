@@ -5,14 +5,21 @@ mutation, to mirror it into NetBox in the same change.
 SAFETY: dry-run is the DEFAULT. Nothing is written unless `--apply` is passed.
 So shipping this code writes nothing; the operator opts in per invocation.
 
+NOTE: --apply/--no-tag are TOP-LEVEL flags handled by the outer parser, not
+the per-verb subparsers — they must come BEFORE the verb, not after (argparse
+hands everything following the verb to that verb's own subparser, which
+doesn't know --apply/--no-tag). Examples below corrected 2026-10-15 after
+lovenet-network-configuration PR #77 hit "unrecognized arguments: --apply"
+running the previous (wrong) order verbatim.
+
 Examples (pair these with the live change you just made):
   # after `netop-dns add-host foo 10.10.30.9`:
-  writeback_cli.py ip-upsert 10.10.30.9/24 --dns-name foo.thesteamedcrab.com --apply
+  writeback_cli.py --apply ip-upsert 10.10.30.9/24 --dns-name foo.thesteamedcrab.com
   # after `netop-dns remove-host foo`:
-  writeback_cli.py ip-delete 10.10.30.9/24 --apply
+  writeback_cli.py --apply ip-delete 10.10.30.9/24
   # after an Omada network/VLAN change:
-  writeback_cli.py vlan-upsert 30 IoT --apply
-  writeback_cli.py prefix-upsert 10.10.30.0/24 --apply
+  writeback_cli.py --apply vlan-upsert 30 IoT
+  writeback_cli.py --apply prefix-upsert 10.10.30.0/24
 
 Env: NETBOX_URL, NETBOX_TOKEN (operator's own token; Loop A needs write only on
 ipam ip-addresses/prefixes/vlans). --no-tag skips the `netbox-sync` owned tag.

@@ -3,40 +3,106 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Health — dose &amp; markers</title>
+  <title>Health — markers &amp; medication dose</title>
   <link rel="stylesheet" href="uPlot.min.css">
   <style>
-    :root { color-scheme: light dark; }
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-           margin: 0; padding: 1.5rem; max-width: 1000px; margin-inline: auto;
-           color: #111; background: #fafafa; }
-    @media (prefers-color-scheme: dark) { body { color:#e5e5e5; background:#111; } }
-    h1 { font-size: 1.2rem; font-weight: 600; margin: 0 0 .25rem; }
-    .sub { color: #888; font-size: .8rem; margin-bottom: 1.5rem; }
-    .card { background: #fff; border: 1px solid #e5e5e5; border-radius: 10px;
-            padding: 1rem; margin-bottom: 1.5rem; }
-    @media (prefers-color-scheme: dark) { .card { background:#1b1b1b; border-color:#333; } }
-    .card h2 { font-size: .95rem; font-weight: 600; margin: 0 0 .75rem; }
-    .err { color: #dc2626; font-size: .85rem; }
+    :root {
+      color-scheme: light dark;
+      --bg: #f4f5f7; --card: #ffffff; --bd: #e4e6eb; --fg: #16181d;
+      --muted: #6b7280; --sw-bd: rgba(0,0,0,.15);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg:#0e0f12; --card:#17181c; --bd:#2a2c31; --fg:#e8e9ec;
+              --muted:#9aa0a6; --sw-bd: rgba(255,255,255,.2); }
+    }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+           margin: 0; padding: 1.5rem 1.25rem 3rem; max-width: 1120px;
+           margin-inline: auto; color: var(--fg); background: var(--bg);
+           -webkit-font-smoothing: antialiased; }
+    h1 { font-size: 1.3rem; font-weight: 650; margin: 0 0 .2rem; letter-spacing: -.01em; }
+    .sub { color: var(--muted); font-size: .82rem; margin-bottom: 1.75rem; }
+    .card { background: var(--card); border: 1px solid var(--bd); border-radius: 14px;
+            padding: 1.1rem 1.15rem 1rem; margin-bottom: 1.5rem;
+            box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+    .card h2 { font-size: 1rem; font-weight: 640; margin: 0 0 .15rem; letter-spacing: -.01em; }
+    .cardsub { color: var(--muted); font-size: .76rem; line-height: 1.45; margin: 0 0 .9rem; }
+    .err { color: #ef4444; font-size: .82rem; margin-top: .5rem; min-height: 1em; }
     .uplot { width: 100%; }
+    .legend { display: flex; flex-wrap: wrap; gap: .4rem 1.1rem; margin-top: .75rem;
+              font-size: .79rem; color: var(--fg); }
+    .chip { display: inline-flex; align-items: center; gap: .4rem; white-space: nowrap; }
+    .chip .sw { width: 13px; height: 13px; border-radius: 3px; flex: none;
+                border: 1px solid var(--sw-bd); }
+    .chip .sw.line { height: 4px; border-radius: 2px; }
+    .chip .sw.dash { height: 0; border-top: 2px dashed currentColor; width: 15px;
+                     background: none; border-left: 0; border-right: 0; border-bottom: 0; }
+    .chip .sw.dot { border-radius: 50%; width: 10px; height: 10px; }
+    .chip b { font-weight: 640; }
+    .chip .v { color: var(--muted); font-variant-numeric: tabular-nums; }
   </style>
 </head>
 <body>
   <h1>Health — markers &amp; medication dose</h1>
   <div class="sub" id="updated">loading…</div>
 
-  <div class="card"><h2>Body weight vs medication dose</h2><div id="c1"></div><div class="err" id="e1"></div></div>
-  <div class="card"><h2>Blood pressure vs body weight</h2><div id="c2"></div><div class="err" id="e2"></div></div>
+  <div class="card">
+    <h2>Body weight vs medication dose</h2>
+    <div class="cardsub">Body weight (lb, left axis) against active medication dose
+      (mg, right axis, stepped). Series and medication labels are read live from the
+      record; dose holds flat between changes.</div>
+    <div id="c1" class="uplot"></div><div class="legend" id="l1"></div><div class="err" id="e1"></div>
+  </div>
+
+  <div class="card">
+    <h2>Blood pressure trend</h2>
+    <div class="cardsub">Systolic &amp; diastolic readings (mmHg, markers) with 7- and
+      30-day trailing averages so the trend is legible under the daily scatter. A light
+      body-weight trend rides the right axis (lb). Shaded bands are ACC/AHA systolic
+      categories — normal &lt;120, elevated 120–129, stage&nbsp;1 130–139, stage&nbsp;2 ≥140;
+      dashed guides mark diastolic 80 &amp; 90.</div>
+    <div id="c2" class="uplot"></div><div class="legend" id="l2"></div><div class="err" id="e2"></div>
+  </div>
+
+  <div class="card">
+    <h2>Weight vs blood pressure (correlation)</h2>
+    <div class="cardsub">One point per reading date where a weight-as-of exists: body
+      weight (lb, x) against that day's systolic &amp; diastolic (mmHg, y). Points only —
+      no connecting line — to show the relationship, not a time order.</div>
+    <div id="c3" class="uplot"></div><div class="legend" id="l3"></div><div class="err" id="e3"></div>
+  </div>
 
   <script src="uPlot.iife.min.js"></script>
   <script>
-    // Read-only, generic: series are labeled from the DB at runtime — no
-    // medication names are baked into this file (data-classification: restricted).
+    // Read-only, generic: every series label, medication name, weight and BP value is
+    // fetched at runtime from the DB behind the Authelia gate. Nothing personal is baked
+    // into this file (data-classification: restricted). The only literals here are public
+    // ACC/AHA blood-pressure category thresholds (120/130/140 systolic, 80/90 diastolic).
     const REFRESH_MS = 5 * 60 * 1000;
-    const PALETTE = ["#dc2626", "#ea580c", "#7c3aed", "#0891b2", "#65a30d", "#db2777"];
+    const HEIGHT = 300;
+    const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+    const THEME = dark
+      ? { axis: "#9aa0a6", grid: "rgba(255,255,255,.07)", tick: "rgba(255,255,255,.12)" }
+      : { axis: "#5b6168", grid: "rgba(0,0,0,.07)",      tick: "rgba(0,0,0,.14)" };
+    // High-contrast palette, legible on light and dark.
+    const C = {
+      sys: "#ef4444", sysAvg: "#b91c1c", dia: "#f59e0b", diaAvg: "#b45309",
+      weight: "#3b82f6", band: ["rgba(34,197,94,.10)","rgba(234,179,8,.11)","rgba(249,115,22,.12)","rgba(239,68,68,.12)"],
+    };
+    const DOSE_PALETTE = ["#8b5cf6", "#10b981", "#ec4899", "#06b6d4", "#eab308", "#f97316"];
+    // ACC/AHA 2017 systolic category bands (mmHg) — public clinical reference, not personal data.
+    const BP_BANDS = [
+      { from: 70,  to: 120, color: C.band[0] },  // normal
+      { from: 120, to: 130, color: C.band[1] },  // elevated
+      { from: 130, to: 140, color: C.band[2] },  // stage 1
+      { from: 140, to: 200, color: C.band[3] },  // stage 2+
+    ];
+    const DIA_REFS = [{ v: 80, c: C.diaAvg }, { v: 90, c: C.sysAvg }]; // diastolic guide lines
+
     const num = v => v == null ? null : Number(v);
     const ts  = d => Math.floor(new Date((d.length > 10 ? d : d + "T00:00:00Z")).getTime() / 1000);
     const todaySec = () => Math.floor(Date.now() / 1000);
+    const r1 = v => v == null ? null : Math.round(v * 10) / 10;
 
     async function get(path) {
       const r = await fetch(path, { headers: { Accept: "application/json" } });
@@ -44,7 +110,7 @@
       return r.json();
     }
 
-    // dose active (mg) at unix-sec t, from one med's [{start_date,end_date,dose_mg}]
+    // ---- helpers -----------------------------------------------------------
     function doseAt(periods, t) {
       for (const p of periods) {
         const s = ts(p.start_date);
@@ -53,8 +119,6 @@
       }
       return 0;
     }
-
-    // x-axis = sorted unique union of the marker dates + dose boundaries
     function buildX(dateLists, periods) {
       const set = new Set();
       dateLists.forEach(l => l.forEach(d => set.add(ts(d))));
@@ -62,67 +126,201 @@
       if (periods.length) set.add(todaySec());
       return [...set].sort((a, b) => a - b);
     }
-
     function byMed(dose) {
       const m = {};
       for (const r of dose) (m[r.treatment_name] ||= []).push(r);
       return m;
     }
+    // latest weight_lb recorded on or before unix-sec t (weight is date-ascending)
+    function weightAsOf(wAsc, t) {
+      let best = null;
+      for (const r of wAsc) { if (ts(r.date) <= t) best = num(r.weight_lb); else break; }
+      return best;
+    }
+    // trailing-window mean of a bp field at each t (bpAsc date-ascending)
+    function trailingMean(bpAsc, key, xs, days) {
+      const w = days * 86400;
+      return xs.map(t => {
+        let sum = 0, n = 0;
+        for (const r of bpAsc) {
+          const rt = ts(r.date);
+          if (rt > t) break;
+          if (rt > t - w) { const v = num(r[key]); if (v != null) { sum += v; n++; } }
+        }
+        return n ? sum / n : null;
+      });
+    }
+    const lastOf = (arr, key) => {
+      for (let i = arr.length - 1; i >= 0; i--) { const v = num(arr[i][key]); if (v != null) return v; }
+      return null;
+    };
 
-    // Generic uPlot builder. `series` carry their own `scale`; `axes` maps
-    // scale->side. The `dose` scale (if present) is pinned to a 0 baseline.
-    function chart(el, xs, series, axes) {
+    // ---- rendering ---------------------------------------------------------
+    function ax(opts) {
+      return Object.assign({
+        stroke: THEME.axis, grid: { stroke: THEME.grid, width: 1 },
+        ticks: { stroke: THEME.tick, width: 1 }, labelGap: 6, size: 52,
+        font: "12px system-ui, sans-serif", labelFont: "600 12px system-ui, sans-serif",
+      }, opts);
+    }
+    // shaded BP category bands + diastolic guide lines, drawn behind the series
+    function bpBandsPlugin() {
+      return { hooks: { drawClear: u => {
+        const s = u.scales.bp; if (!s || s.min == null) return;
+        const ctx = u.ctx, { left, top, width, height } = u.bbox;
+        ctx.save(); ctx.beginPath(); ctx.rect(left, top, width, height); ctx.clip();
+        for (const b of BP_BANDS) {
+          const a = u.valToPos(b.to, "bp", true), z = u.valToPos(b.from, "bp", true);
+          ctx.fillStyle = b.color; ctx.fillRect(left, Math.min(a, z), width, Math.abs(z - a));
+        }
+        ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
+        for (const d of DIA_REFS) {
+          const y = u.valToPos(d.v, "bp", true);
+          ctx.strokeStyle = d.c; ctx.globalAlpha = .55;
+          ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + width, y); ctx.stroke();
+        }
+        ctx.restore();
+      } } };
+    }
+    function chartTS(el, xs, series, axes, plugins) {
+      el.innerHTML = "";
+      const mk = () => new uPlot({
+        width: el.clientWidth || 900, height: HEIGHT,
+        legend: { show: false },
+        cursor: { points: { size: 7 }, focus: { prox: 24 } },
+        scales: { x: { time: true }, dose: { range: (u, mn, mx) => [0, Math.max(5, (mx || 0) * 1.15)] } },
+        axes: [ax({ scale: "x" })].concat(axes),
+        series: [{}].concat(series),
+        plugins: plugins || [],
+      }, [xs].concat(series.map(s => s._data)), el);
+      let u = mk();
+      window.addEventListener("resize", () => u.setSize({ width: el.clientWidth || 900, height: HEIGHT }));
+      return u;
+    }
+    function chartXY(el, xs, series, xLabel, yLabel) {
       el.innerHTML = "";
       const u = new uPlot({
-        width: el.clientWidth || 900, height: 320,
-        scales: { x: { time: true }, dose: { range: (u2, mn, mx) => [0, Math.max(5, (mx || 0) * 1.15)] } },
-        legend: { live: true },
-        series: [{}].concat(series),
-        axes: [{}].concat(axes),
+        width: el.clientWidth || 900, height: HEIGHT,
+        legend: { show: false },
+        cursor: { focus: { prox: 16 } },
+        scales: { x: { time: false }, y: {} },
+        axes: [ax({ scale: "x", label: xLabel }), ax({ scale: "y", side: 3, label: yLabel })],
+        series: [{ label: xLabel }].concat(series.map(s => ({
+          label: s.label, scale: "y", stroke: s.color,
+          paths: () => null, points: { show: true, size: 8, stroke: s.color, fill: s.color, width: 1 },
+        }))),
       }, [xs].concat(series.map(s => s._data)), el);
-      window.addEventListener("resize", () => u.setSize({ width: el.clientWidth || 900, height: 320 }));
+      window.addEventListener("resize", () => u.setSize({ width: el.clientWidth || 900, height: HEIGHT }));
+      return u;
+    }
+    // custom legend: colored swatch + label + latest/current value (fixes the idle "--")
+    function legend(el, items) {
+      el.innerHTML = "";
+      for (const it of items) {
+        const chip = document.createElement("span"); chip.className = "chip";
+        const sw = document.createElement("span");
+        sw.className = "sw " + (it.kind || "line");
+        if (it.kind === "dash") { sw.style.color = it.color; }
+        else { sw.style.background = it.color; }
+        const lab = document.createElement("b"); lab.textContent = it.label;
+        chip.append(sw, lab);
+        if (it.value != null && it.value !== "") {
+          const v = document.createElement("span"); v.className = "v"; v.textContent = it.value;
+          chip.append(v);
+        }
+        el.append(chip);
+      }
     }
 
+    // ---- draw --------------------------------------------------------------
     async function draw() {
-      const e1 = document.getElementById("e1"), e2 = document.getElementById("e2");
-      e1.textContent = e2.textContent = "";
-      let weight = [];
-      const wAt = () => Object.fromEntries(weight.map(r => [ts(r.date), num(r.weight_lb)]));
+      const e1 = document.getElementById("e1"), e2 = document.getElementById("e2"), e3 = document.getElementById("e3");
+      e1.textContent = e2.textContent = e3.textContent = "";
+      let weight = [], bp = [];
+      const wAsc = () => weight.slice().sort((a, b) => ts(a.date) - ts(b.date));
 
-      // Chart 1: body weight (left) vs medication dose step (right)
+      // Card 1: body weight (left) vs medication dose step (right)
       try {
         const dose = await get("/api/mk/v_dose");
         weight = await get("/api/pump/v_weight");
         const meds = byMed(dose);
         const xs = buildX([weight.map(r => r.date)], dose);
-        const wBy = wAt();
-        const series = [{ label: "Weight (lb)", scale: "wt", stroke: "#2563eb", width: 2, spanGaps: true,
-                          _data: xs.map(t => wBy[t] ?? null) }]
-          .concat(Object.keys(meds).sort().map((name, i) => ({
-            label: name + " (mg)", scale: "dose", width: 2, stroke: PALETTE[i % PALETTE.length],
+        const wBy = Object.fromEntries(weight.map(r => [ts(r.date), num(r.weight_lb)]));
+        const medNames = Object.keys(meds).sort();
+        const series = [{ label: "Weight (lb)", scale: "wt", stroke: C.weight, width: 2.5, spanGaps: true,
+                          points: { show: true, size: 4 }, _data: xs.map(t => wBy[t] ?? null) }]
+          .concat(medNames.map((name, i) => ({
+            label: name, scale: "dose", width: 2.5, stroke: DOSE_PALETTE[i % DOSE_PALETTE.length],
             paths: uPlot.paths.stepped({ align: 1 }), _data: xs.map(t => doseAt(meds[name], t)),
           })));
-        chart(document.getElementById("c1"), xs, series,
-          [{ scale: "wt", side: 3, grid: { show: true } }, { scale: "dose", side: 1, label: "mg" }]);
+        chartTS(document.getElementById("c1"), xs, series,
+          [ax({ scale: "wt", side: 3, label: "Weight (lb)" }), ax({ scale: "dose", side: 1, label: "Dose (mg)", grid: { show: false } })]);
+        legend(document.getElementById("l1"), [
+          { label: "Weight", color: C.weight, value: r1(lastOf(weight, "weight_lb")) != null ? r1(lastOf(weight, "weight_lb")) + " lb" : "—" },
+        ].concat(medNames.map((name, i) => ({
+          label: name, color: DOSE_PALETTE[i % DOSE_PALETTE.length],
+          value: doseAt(meds[name], todaySec()) + " mg",
+        }))));
+        if (!weight.length) e1.textContent = "No body-weight data yet.";
       } catch (err) { e1.textContent = String(err); }
 
-      // Chart 2: blood pressure (left) vs body weight (right)
+      // Card 2: blood-pressure trend (own mmHg axis) + rolling averages + weight trend
       try {
-        const bp = await get("/api/mk/v_bp");
+        bp = await get("/api/mk/v_bp");
         if (!weight.length) weight = await get("/api/pump/v_weight");
+        const bpAsc = bp.slice().sort((a, b) => ts(a.date) - ts(b.date));
         const xs = buildX([bp.map(r => r.date), weight.map(r => r.date)], []);
         const sysBy = Object.fromEntries(bp.map(r => [ts(r.date), num(r.systolic_bp)]));
         const diaBy = Object.fromEntries(bp.map(r => [ts(r.date), num(r.diastolic_bp)]));
-        const wBy = wAt();
+        const wBy = Object.fromEntries(weight.map(r => [ts(r.date), num(r.weight_lb)]));
+        const pts = (map) => ({ points: { show: true, size: 7 }, paths: () => null, _data: xs.map(t => map[t] ?? null) });
         const series = [
-          { label: "Systolic", scale: "bp", stroke: "#dc2626", width: 2, spanGaps: true, _data: xs.map(t => sysBy[t] ?? null) },
-          { label: "Diastolic", scale: "bp", stroke: "#ea580c", width: 2, spanGaps: true, _data: xs.map(t => diaBy[t] ?? null) },
-          { label: "Weight (lb)", scale: "wt", stroke: "#2563eb", width: 2, spanGaps: true, _data: xs.map(t => wBy[t] ?? null) },
+          Object.assign({ label: "Systolic", scale: "bp", stroke: C.sys, width: 1 }, pts(sysBy)),
+          Object.assign({ label: "Diastolic", scale: "bp", stroke: C.dia, width: 1 }, pts(diaBy)),
+          { label: "Systolic 7-day avg", scale: "bp", stroke: C.sys, width: 2.5, spanGaps: true, _data: trailingMean(bpAsc, "systolic_bp", xs, 7) },
+          { label: "Systolic 30-day avg", scale: "bp", stroke: C.sysAvg, width: 2, dash: [6, 4], spanGaps: true, _data: trailingMean(bpAsc, "systolic_bp", xs, 30) },
+          { label: "Diastolic 30-day avg", scale: "bp", stroke: C.diaAvg, width: 2, dash: [6, 4], spanGaps: true, _data: trailingMean(bpAsc, "diastolic_bp", xs, 30) },
+          { label: "Weight (lb)", scale: "wt", stroke: C.weight, width: 1.5, spanGaps: true, _data: xs.map(t => wBy[t] ?? null) },
         ];
-        chart(document.getElementById("c2"), xs, series,
-          [{ scale: "bp", side: 3, grid: { show: true } }, { scale: "wt", side: 1, label: "lb" }]);
-        if (bp.length < 3) e2.textContent = "Only " + bp.length + " BP reading(s) in MediKeep — import the BP history to populate this chart.";
+        chartTS(document.getElementById("c2"), xs, series,
+          [ax({ scale: "bp", side: 3, label: "Blood pressure (mmHg)" }), ax({ scale: "wt", side: 1, label: "Weight (lb)", grid: { show: false } })],
+          [bpBandsPlugin()]);
+        legend(document.getElementById("l2"), [
+          { label: "Systolic", color: C.sys, kind: "dot", value: lastOf(bp, "systolic_bp") != null ? lastOf(bp, "systolic_bp") + " mmHg" : "—" },
+          { label: "Diastolic", color: C.dia, kind: "dot", value: lastOf(bp, "diastolic_bp") != null ? lastOf(bp, "diastolic_bp") + " mmHg" : "—" },
+          { label: "Systolic 7-day", color: C.sys, kind: "line" },
+          { label: "Systolic 30-day", color: C.sysAvg, kind: "dash" },
+          { label: "Diastolic 30-day", color: C.diaAvg, kind: "dash" },
+          { label: "Weight", color: C.weight, kind: "line", value: r1(lastOf(weight, "weight_lb")) != null ? r1(lastOf(weight, "weight_lb")) + " lb" : "—" },
+        ]);
+        if (bp.length < 3) e2.textContent = "Only " + bp.length + " BP reading(s) in the record — the trend fills in as more are imported.";
       } catch (err) { e2.textContent = String(err); }
+
+      // Card 3: correlation scatter — weight (x) vs systolic & diastolic (y)
+      try {
+        if (!bp.length) bp = await get("/api/mk/v_bp");
+        if (!weight.length) weight = await get("/api/pump/v_weight");
+        const wa = wAsc();
+        const rows = [];
+        for (const r of bp) {
+          const w = weightAsOf(wa, ts(r.date));
+          const sys = num(r.systolic_bp), dia = num(r.diastolic_bp);
+          if (w == null || (sys == null && dia == null)) continue;
+          rows.push({ w, sys, dia });
+        }
+        rows.sort((a, b) => a.w - b.w);
+        const xs = rows.map(r => r.w);
+        chartXY(document.getElementById("c3"), xs, [
+          { label: "Systolic", color: C.sys, _data: rows.map(r => r.sys) },
+          { label: "Diastolic", color: C.dia, _data: rows.map(r => r.dia) },
+        ], "Weight (lb)", "Blood pressure (mmHg)");
+        legend(document.getElementById("l3"), [
+          { label: "Systolic", color: C.sys, kind: "dot" },
+          { label: "Diastolic", color: C.dia, kind: "dot" },
+          { label: rows.length + " paired reading" + (rows.length === 1 ? "" : "s"), color: "transparent", value: "" },
+        ]);
+        if (rows.length < 3) e3.textContent = "Only " + rows.length + " date(s) with both a reading and a weight — needs more overlap to show a pattern.";
+      } catch (err) { e3.textContent = String(err); }
 
       document.getElementById("updated").textContent = "updated " + new Date().toLocaleString();
     }

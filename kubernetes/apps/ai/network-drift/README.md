@@ -39,6 +39,35 @@ It is **detect-only**: it cannot write NetBox, Omada, or any device.
   (shown in the digest) into [`app/resources/acked.txt`](app/resources/acked.txt)
   and merge. Git-native ack store — remove the line to un-ack.
 
+## Loop A write-back (Phase 3)
+
+`resources/netbox_writeback.py` (library) + `resources/writeback_cli.py` (CLI)
+are the **programmatic reconcile-on-write** complement to the discipline doc.
+After the operator mutates live state, they run one call to mirror it into NetBox
+in the same change — better than waiting for the nightly Loop B sweep to infer
+intent:
+
+```sh
+# after `netop-dns add-host foo 10.10.30.9`:
+writeback_cli.py ip-upsert 10.10.30.9/24 --dns-name foo.thesteamedcrab.com --apply
+# after `netop-dns remove-host foo`:
+writeback_cli.py ip-delete 10.10.30.9/24 --apply
+# after an Omada network/VLAN change:
+writeback_cli.py vlan-upsert 30 IoT --apply
+```
+
+- **Dry-run is the default** — nothing is written without `--apply`. Shipping this
+  code writes nothing.
+- Records it creates/updates are tagged **`netbox-sync`** (`OWNED_TAG`), which is
+  what lets Phase 4 scope a write-token / auto-write to only the objects the sync
+  owns.
+- Reads `NETBOX_URL` / `NETBOX_TOKEN` from the operator's environment at call
+  time; the module never bakes or logs a token.
+- **Still needs (operator / cross-repo):** calling `writeback_cli.py … --apply`
+  from the brain netop foothold wrappers and the Omada OpenAPI write recipe (both
+  live outside home-ops) so the mirror happens automatically; and a NetBox token
+  with write on `ipam` ip-addresses/prefixes/vlans.
+
 ## Operating
 
 ```sh

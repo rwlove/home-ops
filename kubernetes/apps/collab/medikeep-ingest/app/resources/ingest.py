@@ -49,6 +49,8 @@ class Config:
     vitals_source: str   # provenance tag written to vitals.import_source
     dose_source: str     # provenance tag written into treatment notes
     patient_id: int
+    weight_source_url: str  # base URL of the read-only weight view; "" => off
+    device_default: str     # default device_used for home readings; "" => unset
     dry_run: bool
 
     @staticmethod
@@ -71,6 +73,8 @@ class Config:
             vitals_source=os.environ.get("VITALS_SOURCE", "sheet-import"),
             dose_source=os.environ.get("DOSE_SOURCE", "sheet-import"),
             patient_id=int(os.environ.get("PATIENT_ID", "1")),
+            weight_source_url=os.environ.get("WEIGHT_SOURCE_URL", "").rstrip("/"),
+            device_default=os.environ.get("DEVICE_DEFAULT", "").strip(),
             # Default TRUE: a misconfigured job must not write medical rows.
             dry_run=os.environ.get("DRY_RUN", "true").lower() != "false",
         )
@@ -205,6 +209,51 @@ def derive_dose_periods(rows: list[tuple[date, int]]) -> list[DosePeriod]:
 
 
 # --------------------------------------------------------------------------- #
+# per-reading enrichment (bodyweight + device)
+# --------------------------------------------------------------------------- #
+# Notes that indicate a reading was taken in a clinic/office rather than on the
+# home monitor; such readings get device_used left null (it wasn't the home
+# device). Deliberately NOT matching a bare "Dr" — "late to Dr apt" is about an
+# appointment, not where the reading was taken. Every device decision is a
+# home/clinic classification only; the device *name* comes from cfg.device_default.
+CLINIC_RE = re.compile(r"\b(office|clinic|hospital|internal medicine|walk[- ]?in|at dr)\b", re.I)
+
+
+def fetch_weights(url: str) -> list[tuple[date, float]]:
+    """Bodyweight series (date asc) from the read-only PUMP weight view
+    (api.v_weight: columns date, weight_lb) proxied by the health service at
+    /api/pump/. Non-fatal by design: a fetch failure logs a warning and yields
+    an empty series so the core BP import still runs — weight is enrichment, not
+    a vital, and must never block the import or be fabricated."""
+    if not url:
+        return []
+    try:
+        r = requests.get(f"{url}/api/pump/v_weight?order=date.asc", timeout=30)
+        r.raise_for_status()
+        out: list[tuple[date, float]] = []
+        for w in r.json():
+            out.append((dtparse.parse(w["date"]).date(), float(w["weight_lb"])))
+        out.sort(key=lambda t: t[0])
+        log.info("weights: %d bodyweight points loaded", len(out))
+        return out
+    except (requests.RequestException, ValueError, KeyError, TypeError) as e:
+        log.warning("weights: fetch failed (%s) — proceeding without weight enrichment", e)
+        return []
+
+
+def weight_as_of(weights: list[tuple[date, float]], d: date) -> float | None:
+    """Latest bodyweight recorded on or before date d; None if none exists
+    (e.g. the reading predates the weight series) — never fabricated."""
+    best: float | None = None
+    for wd, wlb in weights:  # ascending
+        if wd <= d:
+            best = wlb
+        else:
+            break
+    return best
+
+
+# --------------------------------------------------------------------------- #
 # Medikeep API
 # --------------------------------------------------------------------------- #
 class Medikeep:
@@ -259,22 +308,32 @@ class Medikeep:
 # --------------------------------------------------------------------------- #
 # sync
 # --------------------------------------------------------------------------- #
-def sync_readings(mk: Medikeep, cfg: Config, readings: list[Reading]) -> None:
+def sync_readings(mk: Medikeep, cfg: Config, readings: list[Reading],
+                  weights: list[tuple[date, float]]) -> None:
     existing = set() if cfg.dry_run else mk.existing_vitals_keys()
     new = [r for r in readings if r.key() not in existing]
     log.info("readings: %d parsed, %d present, %d to add", len(readings), len(readings) - len(new), len(new))
     for r in new:
+        # Enrichment: bodyweight as of the reading's date (null if none), and the
+        # home device unless the note marks a clinic/office reading.
+        is_clinic = bool(r.notes and CLINIC_RE.search(r.notes))
+        weight = weight_as_of(weights, r.recorded_date.date())
+        device = None if is_clinic else (cfg.device_default or None)
         body = {
             "patient_id": cfg.patient_id,
             "recorded_date": r.recorded_date.isoformat(),
             "systolic_bp": r.systolic,
             "diastolic_bp": r.diastolic,
             "heart_rate": r.heart_rate,
+            "weight": weight,
+            "device_used": device,
             "notes": r.notes or None,
             "import_source": cfg.vitals_source,
         }
         if cfg.dry_run:
-            log.info("[dry-run] POST vitals %s", {k: v for k, v in body.items() if v is not None})
+            log.info("[dry-run] POST vitals %s (device=%s)",
+                     {k: v for k, v in body.items() if v is not None and k != "device_used"},
+                     "clinic/null" if device is None else "home")
             continue
         created = mk.post("/api/v1/vitals/", body)
         ok = (created.get("systolic_bp") == r.systolic and created.get("diastolic_bp") == r.diastolic
@@ -285,6 +344,13 @@ def sync_readings(mk: Medikeep, cfg: Config, readings: list[Reading]) -> None:
                       created.get("systolic_bp"), created.get("diastolic_bp"), created.get("heart_rate"))
         else:
             log.info("readings: added %s", r.key())
+        # Enrichment read-back is non-fatal (warn only) — weight/device are
+        # metadata, not vitals, and a mismatch must not fail the reading.
+        gw = created.get("weight")
+        if weight is not None and (gw is None or abs(float(gw) - weight) > 0.05):
+            log.warning("readings: weight read-back mismatch for %s: sent %s got %s", r.key(), weight, gw)
+        if device is not None and created.get("device_used") != device:
+            log.warning("readings: device read-back mismatch for %s", r.key())
 
 
 def sync_dose(mk: Medikeep, cfg: Config, periods: list[DosePeriod]) -> None:
@@ -363,10 +429,12 @@ def main() -> int:
         dose_rows.extend(parse_dose_rows(ws.get_all_values()))
     periods = derive_dose_periods(dose_rows)
 
+    weights = fetch_weights(cfg.weight_source_url)
+
     mk = Medikeep(cfg)
     if not cfg.dry_run:
         mk.login()
-    sync_readings(mk, cfg, readings)
+    sync_readings(mk, cfg, readings, weights)
     sync_dose(mk, cfg, periods)
     log.info("medikeep-ingest done")
     return 0

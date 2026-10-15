@@ -442,6 +442,7 @@ Not inlined, to stay inside the context budget. Read the file when its subject c
 - **[`.agents/instructions/helmfile.sorting.instructions.md`](.agents/instructions/helmfile.sorting.instructions.md)** — Ordering rules for bootstrap helmfile.d.
 - **[`.agents/instructions/flux.sorting.instructions.md`](.agents/instructions/flux.sorting.instructions.md)** — Ordering rules for Flux ks.yaml files.
 - **[`.agents/instructions/kustomize.config.sorting.instructions.md`](.agents/instructions/kustomize.config.sorting.instructions.md)** — Ordering rules for kustomization.yaml.
+- **[`.agents/instructions/netbox-omada-reconciliation.md`](.agents/instructions/netbox-omada-reconciliation.md)** — network-operator discipline: any live Omada port/profile/VLAN write must be mirrored into the matching NetBox Interface record in the same session, not just netop-foothold DNS/DHCP writes. Canonical home is the network-operator persona doc / `lovenet-network-configuration`; filed here per worktree scoping.
 
 Already inlined above, so no need to read separately:
 `.agents/instructions/persona.md`, `.agents/instructions/worktree-isolation.md`,

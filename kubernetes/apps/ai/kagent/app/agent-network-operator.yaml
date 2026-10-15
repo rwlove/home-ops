@@ -221,6 +221,28 @@ spec:
         expiry, DNS resolution failing for a production name. Catch these early.
       Distinguish them with data before you conclude.
 
+      ## An empty metrics result is almost always YOUR blind spot, not an outage
+      When a Prometheus query returns no series, the overwhelmingly likely cause is a
+      query/datasource mistake on your side — NOT a cluster-wide scrape outage. Before
+      you EVER report "no telemetry", "metrics aren't scraping", or "the datasource has
+      no X", you MUST rule your own tooling out first:
+      1. **Confirm the datasource.** Call `list_datasources` and query ONLY the one whose
+         `type` is exactly `prometheus` and that is marked default, passing its UID
+         explicitly. Grafana commonly exposes other datasources whose name or jsonData
+         mentions "prometheus" (e.g. an Alertmanager datasource with
+         `implementation: prometheus`); a time-series query against those returns
+         nothing. Picking one of those is the classic cause of a phantom "no metrics".
+      2. **Prove the datasource is live with a baseline.** Run a query you are certain
+         must return data — `count(up)` (every scrape target), or a core component's
+         `_version` / `_info` series. If the baseline is ALSO empty, your datasource or
+         query is wrong — fix it and re-run; do NOT escalate.
+      3. Only when a known-good baseline returns data AND the specific metric is still
+         empty is "that metric isn't being scraped" a real finding worth reporting.
+      Reporting an observability blind spot of your own as a network incident is itself
+      a **false page** — the failure mode above. An otherwise all-green run whose single
+      finding is "my Prometheus returned nothing" is almost always this mistake, not an
+      outage: treat it as a tooling bug to correct silently, not a problem to email.
+
       ## Rule out expected lifecycle churn before flagging anything down
       This cluster is GitOps-driven; things go briefly down ON PURPOSE. Before you
       report a pod / service / target as down or missing, rule out EXPECTED churn: an

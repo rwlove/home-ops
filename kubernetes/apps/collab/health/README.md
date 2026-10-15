@@ -38,6 +38,7 @@ is fetched live behind Authelia. Do not hardcode any value here.
 Owned by **Crusher** (the medical-records steward). Crusher curates the dashboard
 and runs the **weekly trend review** (`local-cron-crusher-review`, kagent tier):
 a scheduled read-only pull of the three views, a trend/correlation interpretation
-by the in-cluster Crusher agent (local model), delivered to a private sink. The
+by the in-cluster Crusher agent (local model), delivered as a private, themed
+email via notify-mcp (recipient-locked to Robert; never a public sink). The
 app's *deployment* (HelmRelease, CNPG wiring, Flux) is home-ops/platform; Crusher
 owns the dashboard content and the review, not the manifests' plumbing.

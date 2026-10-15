@@ -1,0 +1,127 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/cronjob-batch-v1.json
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: network-drift-upsert
+  labels:
+    # Shares the network-drift label so the existing egress CNP + the shared
+    # kagent-mcp-read-allow ingress cover its read backends; the extra envoy
+    # egress (NetBox write) is added to cnp-allow.yaml.
+    app.kubernetes.io/name: network-drift
+spec:
+  # Phase 4 — GATED auto-write of the SAFE drift residual. OFF by default, three
+  # ways: (1) suspend:true here, (2) AUTOWRITE_APPLY=false below, (3) the
+  # write-token ExternalSecret is NotReady until Rob provisions it. Merging this
+  # manifest writes NOTHING to NetBox.
+  #
+  # THE ONE TOGGLE that enables auto-write is the AUTOWRITE_APPLY env (default
+  # "false"). Turning Phase 4 on, after Phases 1-2 produce drift evidence:
+  #   1. Rob provisions the scoped write token (see externalsecret-write.yaml).
+  #   2. Unsuspend + dry-run test:
+  #        kubectl -n ai create job --from=cronjob/network-drift-upsert nbw-test
+  #      (AUTOWRITE_APPLY still false -> emails what it WOULD write).
+  #   3. Flip AUTOWRITE_APPLY to "true" and suspend:false.
+  suspend: true
+  schedule: "30 8 * * *"
+  timeZone: America/New_York
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 600
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: network-drift
+          annotations:
+            k8tz.io/inject: "false"
+        spec:
+          nodeSelector:
+            kubernetes.io/arch: amd64
+          # Scoped read-only SA for the live re-collection (same as the detector).
+          serviceAccountName: network-drift
+          automountServiceAccountToken: true
+          restartPolicy: Never
+          containers:
+            - name: upsert
+              image: docker.io/library/python:3.15
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -ceu
+                - exec python3 /config/autowrite.py
+              env:
+                - name: HOME
+                  value: /tmp
+                - name: TZ
+                  value: America/New_York
+                - name: PYTHONDONTWRITEBYTECODE
+                  value: "1"
+                - name: MCP_CONFIG
+                  value: /config/mcp.json
+                - name: ACKED_FILE
+                  value: /config/acked.txt
+                - name: NOTIFY_URL
+                  value: http://notify-mcp.mcp-system:8060/send
+                - name: AGENT
+                  value: network-operator
+                - name: ENABLE_GITHUB
+                  value: "true"
+                - name: ENABLE_K8S
+                  value: "true"
+                # NetBox write endpoint (the write-back lib hits the REST API via
+                # external envoy, same path netbox-mcp uses for reads).
+                - name: NETBOX_URL
+                  value: https://netbox.${SECRET_DOMAIN}
+                # ---- THE OFF GATE ----  default OFF. "true" permits writes.
+                - name: AUTOWRITE_APPLY
+                  value: "false"
+                # Intended upsert layer is NetBox Diode; until its server is
+                # deployed the working backend is the Phase 3 write-back library.
+                - name: UPSERT_BACKEND
+                  value: writeback
+                # Gated LLM/kagent residual classification (documented seam, off).
+                - name: LLM_RESIDUAL_ENABLED
+                  value: "false"
+              envFrom:
+                # Scoped WRITE token. NotReady until Rob provisions it -> the Job
+                # cannot start, an independent OFF gate.
+                - secretRef:
+                    name: network-drift-write-secret
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: config
+                  mountPath: /config
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: config
+              configMap:
+                name: network-drift-config
+                defaultMode: 0o555
+            - name: tmp
+              emptyDir:
+                medium: Memory
+                sizeLimit: 64Mi

@@ -104,7 +104,11 @@ def compare_lb_ips(lb_ips, nb_ips):
                 reality="LoadBalancer IP %s is assigned to %s" % (lb["ip"], lb["svc"]),
                 record="no ip-address %s in NetBox" % lb["ip"],
                 proposal="HUMAN-ONLY: add ip-address %s (svc %s) to NetBox"
-                         % (lb["ip"], lb["svc"])))
+                         % (lb["ip"], lb["svc"]),
+                # SAFE auto-write target (Phase 4): create the ip-address for this
+                # LoadBalancer IP (NetBox stores a bare host IP as /32).
+                target={"kind": "ip", "address": lb["ip"],
+                        "description": "LB svc %s" % lb["svc"]}))
     return drifts
 
 

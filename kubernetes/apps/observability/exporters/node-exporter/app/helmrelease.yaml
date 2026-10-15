@@ -109,13 +109,37 @@ spec:
               - kubernetes_node
             targetLabel: instance
 
+    # 2026-10-15: spark.thesteamedcrab.com OOMKills node-exporter every ~3.5-4h
+    # (5 restarts/21h, a multi-day pattern across pod incarnations; every other
+    # node sits at 0 restarts on the same limit). Both
+    # container_memory_working_set_bytes and the exporter's own
+    # go_memstats_heap_sys_bytes track an identical sawtooth climbing
+    # ~11MiB -> ~95MiB before each OOM, so the growth is inside node-exporter's
+    # own Go heap, not page cache. node_scrape_collector_duration_seconds{collector="hwmon"}
+    # is 70-300x slower on spark than on any worker (0.07s vs <0.001s) -- the
+    # likely trigger is a slow/blocking hwmon sysfs read against spark's NVIDIA
+    # GB10 sensor stack (same class as the FUSE statfs() hang fixed 2026-10-14;
+    # see reference_spark_node_exporter_fuse_portal_hang in memory). hwmon is
+    # kept ENABLED on purpose -- GB10 power/thermal is a signal worth watching
+    # (gpu-routing.md). GOMEMLIMIT gives the Go GC a soft target (80% of the
+    # hard limit) so it scavenges before the cgroup OOM-killer fires; the limit
+    # bump to 200M buys ~2x headroom over the observed ~95MiB peak either way.
+    # Fleet-wide (single DaemonSet, one resources block) but only spark is
+    # affected; the other 10 nodes plateau well under 100M, so +100M request/node
+    # (~1.1GiB reserved total) is the trivial cost of not splitting the DaemonSet.
+    # NOTE: this chart iterates .Values.env as a MAP (range $key,$value in
+    # templates/daemonset.yaml v4.60.0), NOT a list -- a list form silently
+    # no-ops the var.
+    env:
+      GOMEMLIMIT: 160MiB
+
     resources:
       limits:
-        memory: 100M
+        memory: 200M
 
       requests:
         cpu: 23m
-        memory: 100M
+        memory: 200M
 
   # The chart hardcodes httpGet.path: "/" for BOTH probes in
   # templates/daemonset.yaml — it's not exposed via values at all, so a

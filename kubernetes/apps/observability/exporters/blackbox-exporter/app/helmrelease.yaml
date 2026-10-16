@@ -263,7 +263,14 @@ spec:
           annotations:
             description: |-
               IoT/device {{ $labels.instance }} has been unreachable for 15m
-          expr: probe_success{job="probe/observability/devices"} == 0
+          # avg_over_time < 0.5 (not a strict ==0) because the strict form
+          # false-fired on ecowitt: blackbox's single-packet/no-retry ICMP
+          # probe plus ecowitt's ARP neighbor cache aging out cold between
+          # 2-min scrapes reads as "down" on an isolated missed probe even
+          # though the device is healthy. A sustained-rate check tolerates
+          # one missed sample inside the window while still catching a
+          # genuinely dead device.
+          expr: avg_over_time(probe_success{job="probe/observability/devices"}[15m]) < 0.5
           for: 15m
           labels:
             severity: warning

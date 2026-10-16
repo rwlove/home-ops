@@ -90,33 +90,34 @@ spec:
     # routine PR set (home-operations/konflate#331) — so the limit has
     # to leave the GC room to work, not just cover steady state.
     #
-    # Back to the chart default. The 2Gi that preceded this was a
-    # workaround for OOMKills that upstream root-caused to something else
-    # entirely (home-operations/konflate#434): flate #871 taught a
-    # `spec.path: ./` Kustomization to match every changed file, so this
-    # repo's old bootstrap KS pulled a FULL-CLUSTER render (~170 HRs) into
-    # every PR diff. Upstream measured 531MiB peak that way vs 194MiB for
-    # the same PR's real scope. #13502 deleted that Kustomization, so the
-    # trigger is gone — the sizing problem went with it.
+    # 2Gi again. The 1Gi chart-default drop-in (Aug 12) was a deliberate
+    # experiment: "if a sweeping PR OOMKills this, raise it back." It
+    # recurred 2026-10-16 — the 20-file kagent Pushover→email sink
+    # migration (#15010) triggered OOMKilled + CrashLoopBackOff for ~2h
+    # (19 restarts) — so the ceiling is back up.
     #
-    # Deliberately NOT measured first: GOMEMLIMIT scales with the limit,
-    # so at 2Gi Go simply spends the headroom it is handed and the true
-    # floor is unobservable from up there. Lowering the ceiling IS the
-    # measurement. Observed after the drop-in: ~264MiB working set for a
-    # scoped render. If a sweeping PR OOMKills this, raise it back —
-    # KubePodOOMKilled and the konflate alerts in prometheusrule.yaml both
-    # cover the failure, and the blast radius is one internal review UI.
+    # History: the 2Gi that preceded the Aug 12 drop-in was a workaround
+    # for OOMKills that upstream root-caused to something else entirely
+    # (home-operations/konflate#434): flate #871 taught a `spec.path: ./`
+    # Kustomization to match every changed file, so this repo's old
+    # bootstrap KS pulled a FULL-CLUSTER render (~170 HRs) into every PR
+    # diff. Upstream measured 531MiB peak that way vs 194MiB for the same
+    # PR's real scope. #13502 deleted that Kustomization, so that specific
+    # trigger is gone — but a 20-file sweeping PR is its own fan-out, and
+    # 1Gi wasn't enough headroom for it either.
     #
     # Do not "restore" 512Mi: that was #12803's bulk backfill halving the
     # chart default, and it is what OOMKilled 0.5.0 75 times in 9h.
     #
-    # If it recurs, the next levers are config `maxDiffConcurrency`
+    # If it recurs again, the next levers are config `maxDiffConcurrency`
     # (concurrent PR renders, auto-capped at 4) and `renderConcurrency`
     # (reconcile goroutines *within* one render, auto = NumCPU*4 = 40 on
     # a 10-core node, since no CPU limit is set here).
+    #
+    # workaround: https://github.com/home-operations/konflate/issues/434 — remove when a konflate release renders a sweeping PR within the chart's 1Gi default
     resources:
       requests:
         cpu: 50m
         memory: 256Mi
       limits:
-        memory: 1Gi
+        memory: 2Gi

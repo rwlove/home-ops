@@ -81,10 +81,11 @@ The original first-time activation order, for reference:
    P40.) No 1P work is required — the notify-mcp email sink is
    recipient-locked and needs no credentials.
 2. **Unsuspend the ks** — remove `spec.suspend: true` from
-   `local-cron/ks.yaml`. Flux then reconciles the ExternalSecret
-   (`local-cron-secret`), the CNP, the RBAC, and the CronJob object. The
+   `local-cron/ks.yaml`. Flux then reconciles the ExternalSecrets
+   (`kagent-doer` for the doer PR token, `cooter-recall` for the
+   LubeLogger key), the CNP, the RBAC, and the CronJob object. The
    CronJob is still `suspend: true`, so nothing fires yet. Verify:
-   `kubectl -n ai get externalsecret local-cron` shows `SecretSynced`.
+   `kubectl -n ai get externalsecret kagent-doer cooter-recall` shows `SecretSynced`.
 3. **Test once, out of band.** With the CronJobs still suspended, test each:
    - `kubectl -n ai create job --from=cronjob/local-cron-loki-error-skim skim-test`
    - `kubectl -n ai create job --from=cronjob/local-cron-renovate-pr-digest renovate-test`

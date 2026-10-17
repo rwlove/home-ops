@@ -1,0 +1,46 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+# Egress allows for the esphome compile+OTA reconciler (home ns). Additive — the
+# home namespace default-deny enforces both directions; these punch the holes.
+#
+# The reconciler's cluster-mutating power is NOT on this L4 surface — it is the
+# scoped `pods/exec` RBAC (see rbac.yaml). The compile/flash themselves run
+# INSIDE esphome-0 and leave over its Multus IoT NIC (Cilium does not govern
+# secondary interfaces), so no egress to the devices is needed or possible here.
+#
+#   * kube-apiserver (:6443) — the exec stream. Granted cluster-wide by the
+#     baseline `allow-apiserver` (reserved:kube-apiserver entity), so NOT
+#     repeated here. DNS is likewise baseline-provided.
+#   * notify-mcp (:8060) — the ONLY notification channel; the relay
+#     recipient-locks it to Rob. Ingress punched through in
+#     mcp-system/notify-mcp/app/cnp-allow.yaml.
+#   * world:443 — PyPI only, to `pip install` the official kubernetes client at
+#     start (the exec stream is a WebSocket; stdlib cannot speak it). Same
+#     pip-at-runtime pattern as ai/local-cron. Egress HTTPS grants no
+#     cluster-mutation power; the exec RBAC is the real boundary.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: esphome-reconciler-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: esphome-reconciler
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+            app.kubernetes.io/name: notify-mcp
+      toPorts:
+        - ports:
+            - port: "8060"
+              protocol: TCP
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

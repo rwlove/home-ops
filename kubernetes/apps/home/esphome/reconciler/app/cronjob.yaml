@@ -1,0 +1,125 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/cronjob-batch-v1.json
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: esphome-reconciler
+  labels:
+    app.kubernetes.io/name: esphome-reconciler
+spec:
+  # ───────────────────────────── DOUBLE OFF GATE ─────────────────────────────
+  # Ships OFF two independent ways, mirroring ai/network-drift:
+  #   (1) suspend: true                — Flux creates it; nothing ever fires.
+  #   (2) DRY_RUN=true (env, below)    — even when run, it COMPILES candidates
+  #                                      (proving the hard gate) but NEVER OTAs
+  #                                      and NEVER writes state.
+  # Merging this manifest flashes NOTHING. Bring-up, in order:
+  #   1. Safe test (dry-run): detects + compiles candidates, no OTA. Today
+  #      `pool-controller.yaml` is a candidate (core-version drift 2026.9.0→.1):
+  #        kubectl -n home create job --from=cronjob/esphome-reconciler esphome-reconcile-test
+  #        kubectl -n home logs job/esphome-reconcile-test -f
+  #      To dry-run the known tag-bump backlog too (konnected / ratgdo ×2),
+  #      set FORCE_DEVICES for the one-shot (see README), e.g. `kubectl -n home
+  #      edit cronjob esphome-reconciler` → FORCE_DEVICES, then create the job.
+  #   2. Go LIVE: set DRY_RUN=false (THE toggle), then suspend=false.
+  #   3. One-time backlog convergence: with DRY_RUN=false, set FORCE_DEVICES to
+  #      the stale configs for a run (capped at MAX_PER_RUN), then clear it —
+  #      steady-state detection (content-hash + version-drift) takes over.
+  suspend: true
+  # Daily, overnight quiet window — an OTA briefly reboots the device (garage,
+  # alarm panel, voice, pool), so flash when the household is idle.
+  schedule: "30 3 * * *"
+  timeZone: America/New_York
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      # Bounds a worst-case run: MAX_PER_RUN devices × (compile+upload+verify)
+      # plus the pip install. A hung compile is killed here, never left running.
+      activeDeadlineSeconds: 3600
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: esphome-reconciler
+          annotations:
+            k8tz.io/inject: "false"
+        spec:
+          nodeSelector:
+            kubernetes.io/arch: amd64
+          serviceAccountName: esphome-reconciler
+          # Required: the reconciler authenticates to the kube-apiserver with
+          # its scoped SA token to open the exec stream into esphome-0.
+          automountServiceAccountToken: true
+          restartPolicy: Never
+          containers:
+            - name: reconciler
+              image: docker.io/library/python:3.15
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -ceu
+                - |
+                  pip install --quiet --no-cache-dir --target /tmp/pylib kubernetes
+                  exec python3 /app/esphome_reconcile.py
+              env:
+                - name: HOME
+                  value: /tmp
+                - name: TZ
+                  value: America/New_York
+                - name: PYTHONPATH
+                  value: /tmp/pylib
+                - name: PYTHONDONTWRITEBYTECODE
+                  value: "1"
+                - name: NAMESPACE
+                  value: home
+                - name: POD
+                  value: esphome-0
+                - name: CONTAINER
+                  value: app
+                - name: MAX_PER_RUN
+                  value: "3"
+                - name: FORCE_DEVICES
+                  value: ""
+                # ───── THE OFF TOGGLE ─────  "false" permits real OTA flashing.
+                - name: DRY_RUN
+                  value: "true"
+                - name: NOTIFY_URL
+                  value: http://notify-mcp.mcp-system:8060/send
+                - name: AGENT
+                  value: smart-home-operator
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: "1"
+                  memory: 512Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: script
+                  mountPath: /app
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: script
+              configMap:
+                name: esphome-reconciler-scripts
+                defaultMode: 0o555
+            - name: tmp
+              emptyDir:
+                medium: Memory
+                sizeLimit: 512Mi

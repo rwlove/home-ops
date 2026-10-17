@@ -88,6 +88,50 @@ def classify_tag(text):
         return "allclear"
     return "problem"  # PROBLEM / URGENT / FYI / ISSUE → actionable → email
 
+
+# DETERMINISTIC ROSTER BACKSTOP. A reachable local model routinely leads with a
+# real PROBLEM: finding (correctly tripping the gate) then tacks on a healthy /
+# "Not actionable" roster the CONTRACT forbids — the adherence wall. The gate ships
+# the whole blob, so Rob gets the one real item buried under reassurance he has
+# repeatedly, emphatically rejected (4 correction emails 2026-10-17; see
+# feedback_digests_problems_only_no_allclear_roster). A 7B model won't reliably
+# obey the negative instruction, so we cut the body at the first line that INTRODUCES
+# such a section. Anchored to a line start that allows only whitespace / bold /
+# heading / quote markdown — NOT a list dash — so a bulleted *problem* line ("- ...")
+# is never a cut point; roster SECTION HEADERS in every observed case are standalone
+# lines ("Not actionable:", "ALL CLEAR:", "All other firing alerts are
+# non-actionable:"). Markers kept tight + logged on every cut so false cuts surface.
+_ROSTER_CUT = re.compile(
+    r"(?im)^[ \t>*_#`]*(?:"
+    r"not[ \t]+actionable"
+    r"|all[ \t]+clear"
+    r"|all[ \t]+other\b"
+    r"|all[ \t]+(?:bridge|pod|integration|hub)s?\b"
+    r"|pending[ \t]+alerts?\b"
+    r"|for[ \t]+reference\b"
+    r"|no[ \t]+(?:other[ \t]+)?action[ \t]+(?:needed|required)"
+    r"|not[ \t]+load[- \t]*bearing"
+    r"|worth[ \t]+monitoring"
+    r")"
+)
+
+
+def strip_roster(text):
+    """Cut a trailing benign/all-clear roster off an otherwise-actionable reply.
+    Returns the body up to (not including) the first roster-marker line, rstripped.
+    No marker → text unchanged."""
+    m = _ROSTER_CUT.search(text)
+    return text[:m.start()].rstrip() if m else text
+
+
+def is_empty_finding(body):
+    """True when a reply carried a PROBLEM-class tag but no real finding above the
+    roster (model emitted only a roster under a bare tag). Strip the leading tag
+    line, then all markdown/punctuation/space; <12 chars of substance left = empty."""
+    stripped = _TAG_RE.sub("", body, count=1)
+    stripped = re.sub(r"[\s>*_#`.\-:]+", "", stripped)
+    return len(stripped) < 12
+
 AGENT_URL = os.environ["AGENT_URL"]
 AGENT_NAME = os.environ.get("AGENT_NAME", "operator")
 TITLE = os.environ.get("TITLE", AGENT_NAME + " triage")
@@ -109,6 +153,15 @@ CONTRACT = (
     "known artifacts, or 'worth monitoring' non-problems. 'All green' is silence.\n"
     "- If you find one or more actionable problems, BEGIN your reply with exactly "
     "the tag  PROBLEM:  then each problem and its one proposed fix, as declaratives.\n"
+    "- END your reply immediately after the last problem's proposed fix. Do NOT add "
+    "any closing section, summary, roster, or reassurance. In particular NEVER append "
+    "a 'Not actionable', 'All clear', 'All other ...', or 'For reference' section, a "
+    "list of what is healthy or running (bridges/pods/integrations up), or an "
+    "explanation of why something benign is fine. Known/expected/always-on artifacts "
+    "— the Watchdog test alert, `zha` not_loaded when Zigbee runs on zigbee2mqtt, "
+    "bridge pods running, ESPHome 'unknown' probe artifacts, registry orphans — are "
+    "NEVER mentioned at all. The reader wants problems only; being told something is "
+    "fine or expected is noise he has explicitly rejected.\n"
     "- If nothing is actionable, reply with EXACTLY:  ALL CLEAR  (nothing else).\n"
     "- Keep the whole reply under 900 characters. Light markdown is fine (**bold**, "
     "`code`, `- bullets`, short `#`/`##` headings, [links](url)) — no tables, no "
@@ -218,8 +271,20 @@ def main():
                 result = "allclear"
                 log("ALL CLEAR — nothing sent")
             elif tag == "problem":
-                result = "sent"
-                notify_email("%s — %s" % (TITLE, day), text)
+                # Deterministic backstop: drop any trailing healthy/"not actionable"
+                # roster the model appended despite the contract (adherence wall).
+                body = strip_roster(text)
+                if is_empty_finding(body):
+                    # Nothing but a roster under a bare tag → nothing actionable.
+                    result = "allclear"
+                    log("roster-only under PROBLEM tag — nothing actionable after "
+                        "strip; not notifying")
+                else:
+                    result = "sent"
+                    if body != text:
+                        log("stripped trailing benign roster (%d -> %d chars)"
+                            % (len(text), len(body)))
+                    notify_email("%s — %s" % (TITLE, day), body)
             else:
                 result = "malformed"
                 log("no PROBLEM:/ALL CLEAR tag — malformed agent output, not notifying")

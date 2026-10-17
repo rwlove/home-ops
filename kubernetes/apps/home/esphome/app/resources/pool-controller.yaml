@@ -1,0 +1,285 @@
+# Pool Controller — Waveshare ESP32-S3-RELAY-6CH
+# STAGE 3: hybrid pump control. Relays drive the WhisperFlo VST (011533) digital speed
+# inputs; RS-485 is kept PASSIVE (read-only telemetry). No re-assert loop — a digital
+# input is a LEVEL, not a timed message. Replaces whisperflo-pool-pump at 10.10.20.25.
+#
+# ── DURABLE-OFF DESIGN (verified at the pad 2026-07-19) ─────────────────────
+# The pump is put into "External Control Only Mode" (keypad: hold Start/Stop 10s) with
+# SPEED 1 programmed to 0 RPM. Per the WhisperFlo manual, "no digital input asserted"
+# falls back to SPEED 1 — so SPEED1=0 means ALL RELAYS OPEN = pump OFF, and it stays off
+# even if this ESP dies (relays de-energize → no input → SPEED1=0). This is TRUE durable-off,
+# unattainable with the old RS-485 controller (where ESP death → pump ran its local program).
+# Confirmed live: select Off, all relays open → Pump RPM 0, Running off.
+#
+# Digital-input priority (manual): QuickClean > SPEED3 > SPEED2 > SPEED1. We only ever
+# assert ONE channel, so priority never conflicts.
+#
+# ── WIRING (active-HIGH, verified: LED lit = coil energized = NO closed) ─────
+#   WHITE=Speed1  -> CH1 NO   (UNUSED — SPEED1=0 is the Off base; never asserted)
+#   BLUE=Speed2   -> CH2 NO   (Low)
+#   ORANGE=Speed3 -> CH3 NO   (Medium)
+#   BROWN=QuickClean -> CH4 NO (High)
+#   BLACK (common/gnd) -> RS-485 G + all four relay COMs (single node)
+#   YELLOW(+DT) -> A     GREEN(-DT) -> B     RED(+5V) unused (do NOT power board from it)
+#   Power: USB-C 5V via the pad supercap module.
+#   VERIFIED Waveshare relay GPIO map: CH1/2/3/4/5/6 = GPIO1/2/41/42/45/46 (the migration
+#   plan's GPIO1/2/3/4/5/46 was WRONG for CH3/4 — cost a reflash). RS-485 TX17/RX18.
+#
+# ── PUMP KEYPAD SETUP (done once, at the pump — firmware cannot do these) ────
+#   Speeds:  SPEED1=0 (Off base, duration 24h)  SPEED2=1800(Low)  SPEED3=2800(Medium)
+#            QuickClean=3450(High).
+#   Mode:    External Control Only ENABLED (hold Start/Stop 10s → "Ext. Control Only" LED).
+#   Start/Stop LED must be LIT for the pump to accept inputs. Priming should be disabled
+#   (else it ramps to 3450 for 5min on every start).
+#
+# ── CONTROL MODEL: select "Pump Speed" {Off, Low, Medium, High} ─────────────
+#   Off    -> all relays open (SPEED1=0 base = pump off; durable through ESP death).
+#   Low    -> CH2 only (SPEED2 1800)   Medium -> CH3 only (SPEED3 2800)
+#   High   -> CH4 only (QuickClean 3450)
+#   Maintained-hold: relay stays closed while that speed is selected. on_boot re-applies the
+#   restored select so an ESP reboot re-selects the same speed.
+#
+# ── RESILIENCE ──────────────────────────────────────────────────────────────
+#   WiFi/API hardening + captive-portal AP + safe_mode (bad-flash boot-loop → OTA-only) +
+#   Last Restart Reason. NO RS-485 auto-reboot watchdog — control no longer depends on the
+#   UART, and a reboot momentarily drops the relays (would glitch the pump speed).
+
+substitutions:
+  name: pool-controller
+  friendly_name: "Pool Controller"
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  min_version: 2025.9.0
+  comment: "Waveshare ESP32-S3-RELAY-6CH — hybrid pump control (relays + passive RS-485)"
+  on_boot:
+    # After the select restores its value, re-drive the relay so a reboot re-selects the
+    # same speed (matters for a maintained digital input; harmless if latched).
+    priority: -100
+    then:
+      - delay: 6s
+      - lambda: |-
+          // ESPHome >=2026.x removed Select::state; current_option() returns a StringRef
+          // (empty when the select has no state). .str() gives the std::string this
+          // lambda compares against. The old `.state` form no longer compiles.
+          std::string opt = id(pump_speed).current_option().str();
+          if (opt == "Low")         id(relay_ch2).turn_on();  // SPEED2
+          else if (opt == "Medium") id(relay_ch3).turn_on();  // SPEED3
+          else if (opt == "High")   id(relay_ch4).turn_on();  // QuickClean
+          // "Off" / empty -> all relays de-energized (SPEED1=0 base = pump off).
+
+esp32:
+  variant: esp32s3
+  framework:
+    type: esp-idf
+
+logger:
+
+api:
+  encryption:
+    key: !secret pool_controller_api_key
+  # Never reboot on HA disconnect — WiFi may still be up, and a self-inflicted reboot
+  # loop on the pool controller is worse than a transient HA outage.
+  reboot_timeout: 0s
+
+ota:
+  - platform: esphome
+    password: !secret pool_controller_ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  use_address: pool-controller.thesteamedcrab.com
+  power_save_mode: NONE
+  reboot_timeout: 5min
+  ap:
+    ssid: "Pool Controller Fallback"
+    password: !secret pool_controller_ap_password
+
+captive_portal:
+
+# Bad-flash / boot-loop fallback: if a flashed firmware crashes before it stays up for
+# 30s, count it; after 3 such fast crashes the board boots into SAFE MODE — WiFi + OTA
+# only — so a fixed firmware can be pushed over WiFi WITHOUT a USB trip to the pad.
+safe_mode:
+  num_attempts: 3
+  boot_is_good_after: 30s
+  reboot_timeout: 5min
+
+external_components:
+  - source: github://freezereagle/Pool-Controller@main
+    components: [pentair_if_ic]
+
+# ── RS-485 (passive telemetry only) ─────────────────────────────────────────
+# Waveshare onboard isolated transceiver with hardware auto-direction -> NO
+# flow_control_pin (the old MAX3485 board needed GPIO4; that GPIO is now relay CH4).
+uart:
+  id: rs485_uart
+  tx_pin: GPIO17
+  rx_pin: GPIO18
+  baud_rate: 9600
+  data_bits: 8
+  stop_bits: 1
+  parity: NONE
+
+pentair_if_ic:
+  id: pump_ic
+  uart_id: rs485_uart
+  # Suppress the component's own poll (its update() calls pumpToLocalControl(), which
+  # kicks the pump OFF the digital inputs onto its local program = SPEED1 = 0 RPM);
+  # we issue a read-only requestPumpStatus() ourselves every 10s for telemetry.
+  # MUST be `never`, NOT a large number. `86400s` is not suppression — it fires once
+  # per 24h from boot and stopped the pump for ~40s every day (12:25:2x EDT, drifting
+  # +1s/day off the 2026-07-19 12:25:05 boot; observed 07/20 through 07/26). HA kept
+  # reporting the select as Medium the whole time (optimistic select, CH3 still closed)
+  # while the pad keypad showed the local program at 0 RPM. Each recovery cost a full
+  # prime ramp to 3450 — and the pad is suction-lift, so that is a real prime.
+  update_interval: never
+
+# ── relays -> WhisperFlo digital speed inputs ───────────────────────────────
+# ALWAYS_OFF at boot = fail-safe (no speed asserted until the select drives it). CH5/CH6
+# (GPIO45/GPIO46) are spare. Active-HIGH (verified: LED lit = NO closed).
+switch:
+  - platform: gpio
+    id: relay_ch1
+    name: "Relay CH1 (Speed1 — UNUSED)"
+    pin: GPIO1
+    restore_mode: ALWAYS_OFF
+    internal: true
+  - platform: gpio
+    id: relay_ch2
+    name: "Relay CH2 (Speed2 / Low)"
+    pin: GPIO2
+    restore_mode: ALWAYS_OFF
+    internal: true
+  - platform: gpio
+    id: relay_ch3
+    name: "Relay CH3 (Speed3 / Medium)"
+    pin: GPIO41
+    restore_mode: ALWAYS_OFF
+    internal: true
+  - platform: gpio
+    id: relay_ch4
+    name: "Relay CH4 (QuickClean / High)"
+    pin: GPIO42
+    restore_mode: ALWAYS_OFF
+    internal: true
+  # internal: true ONLY to satisfy the component hub-header includes (no AUTO_LOAD).
+  - platform: pentair_if_ic
+    pentair_if_ic_id: pump_ic
+    takeover_mode: { name: "Pump Takeover Mode", internal: true }
+
+# The pentair_if_ic.h header #includes number.h unconditionally, so the number
+# component MUST be pulled in even though we expose nothing from it — internal dummy.
+number:
+  - platform: pentair_if_ic
+    pentair_if_ic_id: pump_ic
+    swg_percent: { name: "SWG Percent", internal: true }
+
+# ── control: single select (source of truth) -> exactly one relay closed ────
+select:
+  - platform: template
+    name: "Pump Speed"
+    id: pump_speed
+    icon: mdi:pump
+    optimistic: true
+    restore_value: true
+    initial_option: "Off"
+    options: ["Off", "Low", "Medium", "High"]
+    set_action:
+      - lambda: |-
+          // SPEED1 (CH1) = 0 RPM = the Off base; never asserted. Off = all relays open.
+          bool ch2 = (x == "Low");     // SPEED2 = 1800
+          bool ch3 = (x == "Medium");  // SPEED3 = 2800
+          bool ch4 = (x == "High");    // QuickClean = 3450
+          // Open the non-selected channels first, then close the target — never two closed.
+          if (!ch2) id(relay_ch2).turn_off();
+          if (!ch3) id(relay_ch3).turn_off();
+          if (!ch4) id(relay_ch4).turn_off();
+          if (ch2) id(relay_ch2).turn_on();
+          if (ch3) id(relay_ch3).turn_on();
+          if (ch4) id(relay_ch4).turn_on();
+          id(relay_ch1).turn_off();    // SPEED1 input never used
+
+# ── telemetry (passive RS-485 readback — verified working under digital control) ──
+globals:
+  - id: last_pump_rx_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+
+sensor:
+  - platform: pentair_if_ic
+    pentair_if_ic_id: pump_ic
+    rpm: { name: "Pump RPM" }
+    power:
+      name: "Pump Power"
+      on_raw_value:
+        then:
+          - lambda: 'id(last_pump_rx_ms) = millis();'
+  - platform: uptime
+    name: "Uptime"
+    update_interval: 60s
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 60s
+
+binary_sensor:
+  - platform: pentair_if_ic
+    pentair_if_ic_id: pump_ic
+    running: { name: "Pump Running" }
+  - platform: template
+    name: "Pump Comms OK"
+    id: pump_comms_ok
+    device_class: connectivity
+    lambda: |-
+      if (millis() < 60000) return true;   // boot grace
+      return (millis() - id(last_pump_rx_ms)) < 30000;
+
+text_sensor:
+  - platform: pentair_if_ic
+    pentair_if_ic_id: pump_ic
+    program: { name: "Pump Program" }
+  - platform: template
+    name: "Last Restart Reason"
+    id: last_restart_reason
+    entity_category: diagnostic
+    update_interval: 60s
+    lambda: |-
+      esp_reset_reason_t r = esp_reset_reason();
+      switch (r) {
+        case ESP_RST_POWERON:    return {"power_on"};
+        case ESP_RST_EXT:        return {"external_reset"};
+        case ESP_RST_SW:         return {"software_reset"};
+        case ESP_RST_PANIC:      return {"exception_panic"};
+        case ESP_RST_INT_WDT:    return {"interrupt_watchdog"};
+        case ESP_RST_TASK_WDT:   return {"task_watchdog"};
+        case ESP_RST_WDT:        return {"other_watchdog"};
+        case ESP_RST_DEEPSLEEP:  return {"deep_sleep_wake"};
+        case ESP_RST_BROWNOUT:   return {"brownout"};
+        case ESP_RST_SDIO:       return {"sdio_reset"};
+      #ifdef ESP_RST_USB
+        case ESP_RST_USB:        return {"usb_reset"};
+      #endif
+      #ifdef ESP_RST_JTAG
+        case ESP_RST_JTAG:       return {"jtag_reset"};
+      #endif
+      #ifdef ESP_RST_EFUSE
+        case ESP_RST_EFUSE:      return {"efuse_error"};
+      #endif
+      #ifdef ESP_RST_PWR_GLITCH
+        case ESP_RST_PWR_GLITCH: return {"power_glitch"};
+      #endif
+      #ifdef ESP_RST_CPU_LOCKUP
+        case ESP_RST_CPU_LOCKUP: return {"cpu_lockup"};
+      #endif
+        default:
+          return {std::string("code_") + std::to_string((int)r)};
+      }
+
+# ── telemetry poll only (no control writes; no re-assert, no auto-reboot) ────
+interval:
+  - interval: 10s
+    then:
+      - lambda: 'if (id(pump_ic) != nullptr) id(pump_ic)->requestPumpStatus();'

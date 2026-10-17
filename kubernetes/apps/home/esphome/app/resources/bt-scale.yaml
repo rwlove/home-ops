@@ -1,0 +1,237 @@
+# bt-scale.yaml — direct POST to PUMP over plain HTTP, HA out of the data path
+#
+# Changes vs. the original firmware on the esphome-config PVC:
+#  1. time:  platform: homeassistant → sntp + America/New_York
+#  2. http_request:  new top-level component (HTTP only — TLS crashes the M5 Atom)
+#  3. substitutions:  pump_ingest_url added
+#  4. script.post_weight_to_pump:  deferred POST so the HTTP client runs
+#     on the main loop stack instead of the BLE callback stack (~4 KB).
+#  5. xiaomi_weight.on_value:  invokes the script instead of posting inline.
+#  6. 2026-06-07 CRASH FIX — raise the watchdog timeouts (sdkconfig_options).
+#     Every weigh crashed with PC 0x4008D1BA (esp_cpu_wait_for_intr, core 1
+#     idle) = INTERRUPT WATCHDOG timeout during the blocking esp_http_client
+#     POST while BLE+WiFi are active. RAM is ~22% so it's NOT memory — it's
+#     timing: the radio briefly starves a core past the 300ms INT_WDT limit.
+#     Tried and FAILED (all same crash): HTTP-not-HTTPS, stop_scan,
+#     ble.disable, and the Arduino framework (which kept http_request.idf
+#     anyway). The fix is to give the watchdogs headroom: INT_WDT 300ms→5s,
+#     task WDT 5s→30s. sdkconfig_options needs esp-idf framework.
+#  7. post_weight_to_pump is mode:single (continuous Mi Scale readings can't
+#     stack POSTs), pauses BLE scanning around the POST (stop_scan/start_scan
+#     — lowers radio contention during the POST), and drops capture_response
+#     (no response-body alloc; status_code still logs). Deferred via
+#     script.execute off the BLE callback.
+#
+# The internal Gateway http listener (from: All) lets the pump-ingest
+# HTTPRoute in collab bind to port 80, bypassing the catch-all 301 redirect.
+#
+# secrets.yaml on the PVC must contain:
+#   wifi_ssid: "<iot ssid>"
+#   wifi_password: "<iot psk>"
+#   wifi_domain: "<search domain>"
+#   pump_weight_ingest_key: "<same string as WEIGHT_INGEST_KEY in pump-secret>"
+#
+# https://smarthomepursuits.com/how-to-add-smart-scale-home-assistant/
+esphome:
+  name: bt-scale
+  comment: ESP32 Bluetooth Test Scale
+
+esp32:
+  board: m5stack-atom
+  framework:
+    type: esp-idf
+    # 2026-06-07: the POST crashes with an INTERRUPT WATCHDOG timeout
+    # (PC 0x4008D1BA esp_cpu_wait_for_intr, core 1 idle) during the
+    # blocking esp_http_client call while the BLE controller + WiFi are
+    # active. RAM is fine (~22%), so it's timing, not memory: BLE/WiFi
+    # briefly starve the other core past the 300 ms INT_WDT limit.
+    # Raise both watchdog timeouts so the short blocking POST can't panic:
+    # INT_WDT 300ms→5s (the crashing one), task WDT 5s→30s (the blocking
+    # http_request on the main loop could trip it too). sdkconfig_options
+    # is esp-idf-only, so we're back on esp-idf — no loss, http_request was
+    # always the .idf impl even on Arduino.
+    sdkconfig_options:
+      CONFIG_ESP_INT_WDT_TIMEOUT_MS: "5000"
+      CONFIG_ESP_TASK_WDT_TIMEOUT_S: "30"
+
+# Enable logging
+logger:
+
+# Home Assistant API — used by the ESPHome dashboard for live log
+# streaming and OTA visibility. HA is welcome to discover the device
+# via mDNS, but the ingest data path no longer depends on HA.
+api:
+  encryption:
+    key: !secret bt_scale_api_key
+
+ota:
+  platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  domain: !secret wifi_domain
+  fast_connect: true
+
+#captive_portal:
+
+esp32_ble_tracker:
+
+# Time comes from SNTP, not HA, so the ingest path is HA-independent.
+# Same id (esptime) so all downstream lambdas keep working.
+time:
+  - platform: sntp
+    id: esptime
+    timezone: America/New_York
+
+# HTTPS client used by post_weight_to_pump. verify_ssl off because the
+# internal Gateway terminates with the cluster's internal cert — flip
+# to true later if we embed the CA.
+http_request:
+  id: pump_http
+  verify_ssl: false
+  timeout: 10s
+  useragent: bt-scale-pump-ingest
+
+# Deferred POST — runs on the main loop's larger stack so the HTTP
+# client doesn't overflow the BLE callback stack.
+#
+# mode: single  → a burst of Mi Scale readings (on_value fires many
+#                 times per weigh) can't launch overlapping POSTs.
+# stop_scan/start_scan  → pause BLE scanning while the POST runs (cheap
+#                 insurance; on the Arduino framework the HTTP client and
+#                 BLE coexist fine, but pausing the scan keeps peak RAM down).
+script:
+  - id: post_weight_to_pump
+    mode: single
+    then:
+      - esp32_ble_tracker.stop_scan:
+      - delay: 250ms
+      - http_request.post:
+          url: ${pump_ingest_url}
+          capture_response: false
+          request_headers:
+            Content-Type: application/json
+            X-Api-Key: !secret pump_weight_ingest_key
+          json: |-
+            char date_buf[11];
+            char ts_buf[26];
+            auto now = id(esptime).now();
+            now.strftime(date_buf, sizeof(date_buf), "%Y-%m-%d");
+            now.strftime(ts_buf, sizeof(ts_buf), "%Y-%m-%dT%H:%M:%S%z");
+            root["Date"] = std::string(date_buf);
+            root["RecordedAt"] = std::string(ts_buf);
+            root["Weight"] = id(xiaomi_weight).state * 2.20462;
+          on_response:
+            then:
+              - lambda: |-
+                  ESP_LOGI("pump", "POST /api/weight status=%d", response->status_code);
+      - delay: 250ms
+      - esp32_ble_tracker.start_scan:
+          continuous: true
+
+# Configuration
+substitutions:
+  mac_address: "88:22:B2:EC:C4:E4"
+  user1_name: "Robert"
+  weight_user1_min: "90.72"   # 200 lb
+  weight_user1_max: "136.08"  # 300 lb
+  pump_ingest_url: "http://pump-ingest.thesteamedcrab.com/api/weight"
+
+number:
+  # User1
+  - platform: template
+    name: "Weight Num ${user1_name}"
+    id: weight_num_user1
+    restore_value: true
+    optimistic: true
+    min_value: 0
+    max_value: 400
+    step: 0.1
+    unit_of_measurement: "kg"
+    internal: true
+  - platform: template
+    name: "Impedance Num ${user1_name}"
+    id: impedance_num_user1
+    restore_value: true
+    optimistic: true
+    min_value: 0
+    max_value: 1000
+    step: 0.1
+    unit_of_measurement: "ohm"
+    internal: true
+  - platform: template
+    name: "Last Time Measurement Num ${user1_name}"
+    id: last_time_measurement_num_user1
+    min_value: 0
+    max_value: 4294967295
+    step: 0.1
+    optimistic: true
+    restore_value: true
+    internal: true
+
+sensor:
+  # Weight sensor User 1
+  - platform: template
+    name: "Weight ${user1_name}"
+    id: weight_user1
+    unit_of_measurement: "kg"
+    icon: mdi:scale-bathroom
+    #accuracy_decimals: 2
+    state_class: measurement
+    lambda: "return id(weight_num_user1).state;"
+  # Impedance sensor User 1
+  - platform: template
+    name: "Impedance ${user1_name}"
+    id: impedance_user1
+    unit_of_measurement: "ohm"
+    icon: mdi:omega
+    state_class: measurement
+    accuracy_decimals: 0
+    lambda: "return id(impedance_num_user1).state;"
+  # Last Measurement Time sensor User 1
+  - platform: template
+    name: "Last Time Measurement ${user1_name}"
+    id: last_time_measurement_user1
+    lambda: "return id(last_time_measurement_num_user1).state;"
+    device_class: timestamp
+  # Weight sensor Xiaomi Mi Scale
+  - platform: xiaomi_miscale
+    mac_address: ${mac_address}
+    weight:
+      name: "Xiaomi Mi Scale Weight"
+      id: xiaomi_weight
+      on_value:
+        then:
+          - if:
+              condition:
+                lambda: 'return (id(xiaomi_weight).state >= atof("${weight_user1_min}")) && (id(xiaomi_weight).state <= atof("${weight_user1_max}"));'
+              then:
+                - number.set:
+                    id: weight_num_user1
+                    value: !lambda "return id(xiaomi_weight).state;"
+                - number.set:
+                    id: last_time_measurement_num_user1
+                    value: !lambda "return id(esptime).now().timestamp;"
+                # Deferred POST — see the script above. Runs on the main loop
+                # (off the BLE callback) and pauses scanning for the request.
+                - script.execute: post_weight_to_pump
+              else:
+                # Reading outside the 200-300 lb band: dropped, not POSTed.
+                # ESP_LOGW is non-durable (scrolls off), but surfaces a
+                # silently-dropped good weigh-in if device logs are pulled.
+                - lambda: |-
+                    ESP_LOGW("pump", "rejected out-of-band weight: %.1f kg", id(xiaomi_weight).state);
+    # Impedance sensor Xiaomi Mi Scale
+    impedance:
+      name: "Xiaomi Mi Scale Impedance"
+      id: xiaomi_impedance
+      on_value:
+        then:
+          - if:
+              condition:
+                lambda: 'return (id(xiaomi_weight).state >= atof("${weight_user1_min}")) && (id(xiaomi_weight).state <= atof("${weight_user1_max}"));'
+              then:
+                - number.set:
+                    id: impedance_num_user1
+                    value: !lambda "return id(xiaomi_impedance).state;"

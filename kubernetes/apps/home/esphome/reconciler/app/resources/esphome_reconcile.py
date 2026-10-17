@@ -87,9 +87,16 @@ def exec_pod(cmd, timeout=60):
 
     rc comes from a sentinel echoed after the command (authoritative across
     client versions); a wall-clock timeout returns rc=124 like `timeout(1)`.
+
+    The bare `echo` before the sentinel forces it onto its OWN line even when
+    the command's stdout has no trailing newline (e.g. the dashboard /devices
+    JSON) — otherwise the sentinel concatenates onto the last output line, the
+    line-based stripping below misses it, and callers get the sentinel glued to
+    their payload. `$?` is captured into __rc FIRST, before the echos run, so it
+    reflects the command's exit status and not echo's.
     """
     sentinel = "__ESPHOME_RC__:"
-    wrapped = "%s; echo \"%s$?\"" % (cmd, sentinel)
+    wrapped = "%s; __rc=$?; echo; echo \"%s$__rc\"" % (cmd, sentinel)
     resp = stream(
         _core.connect_get_namespaced_pod_exec, POD, NAMESPACE,
         container=CONTAINER, command=["/bin/sh", "-c", wrapped],

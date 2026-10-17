@@ -14,13 +14,15 @@ spec:
   #                                      (proving the hard gate) but NEVER OTAs
   #                                      and NEVER writes state.
   # Merging this manifest flashes NOTHING. Bring-up, in order:
-  #   1. Safe test (dry-run): detects + compiles candidates, no OTA. Today
-  #      `pool-controller.yaml` is a candidate (core-version drift 2026.9.0→.1):
+  #   1. Safe test (dry-run): detects + compiles reachable candidates, no OTA.
+  #      pool-controller is EXCLUDED (winterized, below) so it is never a
+  #      candidate; a transiently-offline device is probed and skipped, never a
+  #      failure. Run the test:
   #        kubectl -n home create job --from=cronjob/esphome-reconciler esphome-reconcile-test
   #        kubectl -n home logs job/esphome-reconcile-test -f
-  #      To dry-run the known tag-bump backlog too (konnected / ratgdo ×2),
-  #      set FORCE_DEVICES for the one-shot (see README), e.g. `kubectl -n home
-  #      edit cronjob esphome-reconciler` → FORCE_DEVICES, then create the job.
+  #      To dry-run the known tag-bump backlog too (konnected / ratgdo ×2), set
+  #      FORCE_DEVICES for the one-shot (see README). Prefer a throwaway Job
+  #      manifest over `kubectl edit` here — Flux reverts edits to this CronJob.
   #   2. Go LIVE: set DRY_RUN=false (THE toggle), then suspend=false.
   #   3. One-time backlog convergence: with DRY_RUN=false, set FORCE_DEVICES to
   #      the stale configs for a run (capped at MAX_PER_RUN), then clear it —
@@ -83,6 +85,12 @@ spec:
                   value: "3"
                 - name: FORCE_DEVICES
                   value: ""
+                # Never touched — not even a candidate. pool-controller is
+                # winterized/offline (see memory project_pool_winterized_*); it
+                # would otherwise drift on core version and be skipped-offline
+                # every run. UN-EXCLUDE in spring when the pool comes back up.
+                - name: EXCLUDE_DEVICES
+                  value: "pool-controller.yaml"
                 # ───── THE OFF TOGGLE ─────  "false" permits real OTA flashing.
                 - name: DRY_RUN
                   value: "true"

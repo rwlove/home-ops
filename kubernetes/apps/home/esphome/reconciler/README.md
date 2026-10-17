@@ -49,8 +49,9 @@ despite stale pins). So detection is the union of:
 An **untracked** device (no baseline) that is *not* version-drifted is
 baseline-seeded, **not** flashed — so adopting the reconciler does not reflash
 healthy devices. The genuinely-stale backlog (konnected, ratgdo ×2) is
-converged once via `FORCE_DEVICES`; `pool-controller` is caught automatically by
-version-drift.
+converged once via `FORCE_DEVICES`. `pool-controller` version-drifts too, but it
+is **excluded** (`EXCLUDE_DEVICES`, below) while the pool is winterized/offline,
+so it is never a candidate — un-exclude it in spring.
 
 ## Sequencing & rate limit
 
@@ -61,6 +62,15 @@ cascades into the next device in an unknown state. `MAX_PER_RUN` (default 3)
 caps each run; the rest defer to subsequent runs. A core image bump marks the
 whole fleet out-of-date, so the cap + daily cadence drains it over several days
 — never a concurrent mass reflash of garage doors / alarm panel / voice / pool.
+
+**Offline devices are skipped, never failed.** Each candidate is TCP-probed on
+`:6053` *before* any compile/OTA; an unreachable device is skipped (not
+compiled, not flashed, no state write) and deferred to a future run — it does
+**not** count as a failure and does **not** stop the run. This is what keeps a
+transiently-offline device from paging, and is the reason a device like the
+winterized `pool-controller` (which also version-drifts) must be excluded
+rather than left to fail. Offline-detection proper is the monitoring stack's
+job, so a run that *only* skips offline devices stays silent.
 
 ## Notifications
 
@@ -81,11 +91,12 @@ Ships OFF two ways (mirrors `ai/network-drift`): `suspend: true` **and**
    kubectl -n home logs job/esphome-reconcile-test -f
    ```
 
-   Today `pool-controller.yaml` appears as a candidate (version-drift) and is
-   compiled. To dry-run the tag-bump backlog too, set `FORCE_DEVICES`
-   (`kubectl -n home edit cronjob esphome-reconciler`) to
-   `konnected-9d7cc0.yaml,ratgdo_primary-1bb40c.yaml,ratgdo_secondary-1bc561.yaml`
-   before creating the job, then clear it.
+   `pool-controller.yaml` is **excluded** (winterized), so it is not a
+   candidate; a transiently-offline device is probed and skipped, never failed.
+   To dry-run the tag-bump backlog, set `FORCE_DEVICES` to
+   `konnected-9d7cc0.yaml,ratgdo_primary-1bb40c.yaml,ratgdo_secondary-1bc561.yaml`.
+   Prefer a throwaway Job manifest carrying the env over `kubectl edit` on the
+   CronJob — Flux reverts edits to the managed CronJob.
 2. **Go live:** set `DRY_RUN=false` (the one toggle), then `suspend=false`.
 3. **One-time backlog convergence:** with `DRY_RUN=false`, set `FORCE_DEVICES`
    to the stale configs for a run (still capped), then clear it. Steady-state
@@ -93,6 +104,8 @@ Ships OFF two ways (mirrors `ai/network-drift`): `suspend: true` **and**
 
 ## Tunables (CronJob env)
 
-`MAX_PER_RUN` · `FORCE_DEVICES` · `DRY_RUN` · `COMPILE_TIMEOUT` ·
-`UPLOAD_TIMEOUT` · `VERIFY_TIMEOUT` · `VERIFY_POLL`. Schedule is daily 03:30 ET
-(overnight quiet window — an OTA briefly reboots the device).
+`MAX_PER_RUN` · `FORCE_DEVICES` · `EXCLUDE_DEVICES` (comma-sep config filenames
+never touched — wins over `FORCE_DEVICES`; currently `pool-controller.yaml`
+while winterized) · `DRY_RUN` · `COMPILE_TIMEOUT` · `UPLOAD_TIMEOUT` ·
+`VERIFY_TIMEOUT` · `VERIFY_POLL`. Schedule is daily 03:30 ET (overnight quiet
+window — an OTA briefly reboots the device).

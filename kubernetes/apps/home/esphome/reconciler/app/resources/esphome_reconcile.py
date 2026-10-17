@@ -21,6 +21,14 @@ HARD design constraints (repo policy / memory), encoded here:
   * ONE device at a time; verify API (:6053) back up before the next. A core
     image bump marks the whole fleet out-of-date, so MAX_PER_RUN caps each run
     and the rest drain over subsequent runs — never a concurrent mass reflash.
+  * Offline devices never fail a run. A candidate is TCP-probed on :6053 before
+    any compile/OTA; if unreachable it is SKIPPED (not compiled, not flashed, no
+    state write) and deferred to a future run — NOT treated as a failure (which
+    would stop the run and page). This is what keeps a seasonally-offline device
+    (e.g. the winterized pool controller) from failing every run. EXCLUDE_DEVICES
+    is the stronger, explicit form: a device on that list is never even a
+    candidate. Offline-detection itself belongs to the monitoring stack, so a
+    run that ONLY skips offline devices stays silent (no email).
   * notify-mcp email only; silent on a no-op run (problems/results only).
   * Double OFF gate: CronJob `suspend: true` AND `DRY_RUN=true`. DRY_RUN
     compiles candidates (proving the gate) but NEVER uploads and NEVER writes
@@ -32,6 +40,8 @@ Env (all optional except where noted; defaults shown):
   DASHBOARD=http://localhost:6052   (fetched via exec, inside the pod)
   MAX_PER_RUN=3
   FORCE_DEVICES=""   (comma-sep config filenames, or "ALL" — bypass detection)
+  EXCLUDE_DEVICES="" (comma-sep config filenames NEVER touched — wins over FORCE;
+                      e.g. pool-controller.yaml while the pool is winterized)
   DRY_RUN=true       (OFF gate; "false" permits OTA)
   COMPILE_TIMEOUT=600  UPLOAD_TIMEOUT=300  VERIFY_TIMEOUT=240  VERIFY_POLL=10
   DEVICE_API_PORT=6053
@@ -60,6 +70,7 @@ STATE_FILE = os.environ.get("STATE_FILE", "/config/.esphome-reconciler-state.jso
 DASHBOARD = os.environ.get("DASHBOARD", "http://localhost:6052")
 MAX_PER_RUN = int(os.environ.get("MAX_PER_RUN", "3"))
 FORCE = [x.strip() for x in os.environ.get("FORCE_DEVICES", "").split(",") if x.strip()]
+EXCLUDE = [x.strip() for x in os.environ.get("EXCLUDE_DEVICES", "").split(",") if x.strip()]
 DRY_RUN = os.environ.get("DRY_RUN", "true").lower() != "false"
 COMPILE_TIMEOUT = int(os.environ.get("COMPILE_TIMEOUT", "600"))
 UPLOAD_TIMEOUT = int(os.environ.get("UPLOAD_TIMEOUT", "300"))
@@ -186,6 +197,22 @@ def save_state(state):
         log("WARN: could not persist state (rc=%s err=%s)" % (rc, err.strip()))
 
 
+def is_reachable(address):
+    """Single-shot TCP probe of the device native-API port from inside esphome-0
+    (over the Multus IoT NIC). Unlike verify_online (which POLLS for a post-OTA
+    reboot), this is one quick check: 'is this device online right now?' — used
+    pre-flight so an unreachable device is skipped gracefully instead of hard-
+    failing its OTA and stopping the run. A device with no address is unreachable.
+    """
+    if not address:
+        return False
+    probe = ("python3 -c \"import socket;socket.setdefaulttimeout(4);"
+             "socket.create_connection(('%s',%s));print('UP')\""
+             % (address, DEVICE_API_PORT))
+    rc, out, _ = exec_pod(probe, timeout=10)
+    return rc == 0 and "UP" in out
+
+
 def verify_online(address):
     """Poll the device native-API port from inside esphome-0 (over the Multus
     IoT NIC) until it accepts a connection, i.e. the device rebooted cleanly."""
@@ -214,7 +241,12 @@ def classify(devs, state):
     devices whose baseline hash we recorded this run (no flash)."""
     candidates, seeded = [], []
     forced_all = "ALL" in FORCE
+    excluded = [fn for fn in sorted(devs) if fn in EXCLUDE]
+    if excluded:
+        log("excluded (EXCLUDE_DEVICES — never a candidate): %s" % ", ".join(excluded))
     for fn in sorted(devs):
+        if fn in EXCLUDE:
+            continue  # explicit do-not-touch; wins over FORCE and all detection
         d = devs[fn]
         cur = config_hash(fn)
         if cur is None:
@@ -287,8 +319,8 @@ def main():
         _die("cannot init in-cluster k8s client: %r" % e)
 
     mode = "DRY-RUN" if DRY_RUN else "LIVE"
-    log("esphome-reconciler start (%s, max_per_run=%d, force=%s)"
-        % (mode, MAX_PER_RUN, FORCE or "-"))
+    log("esphome-reconciler start (%s, max_per_run=%d, force=%s, exclude=%s)"
+        % (mode, MAX_PER_RUN, FORCE or "-", EXCLUDE or "-"))
 
     devs = fetch_devices()
     log("dashboard reports %d configured devices" % len(devs))
@@ -297,7 +329,8 @@ def main():
     candidates, seeded = classify(devs, state)
     if seeded:
         log("baseline-seeded (untracked, not flashed): %s" % ", ".join(seeded))
-        save_state(state)
+        if not DRY_RUN:
+            save_state(state)  # DRY_RUN never persists state (docstring contract)
 
     if not candidates:
         log("no out-of-date devices — silent no-op run")
@@ -313,6 +346,15 @@ def main():
 
     results, failure = [], None
     for fn, reason in batch:
+        # Pre-flight reachability: an offline device is skipped (not a failure),
+        # so it never stops the run or pages. Deferred to a future run; when it
+        # comes back online it is still a candidate (no state was written).
+        addr = devs[fn].get("address")
+        if not is_reachable(addr):
+            log("SKIP (offline): %s @ %s — unreachable on :%s, deferring"
+                % (fn, addr or "no-address", DEVICE_API_PORT))
+            results.append({"fn": fn, "status": "skipped-offline", "reason": reason})
+            continue
         try:
             res = flash_one(fn, devs, state)
             res["reason"] = reason
@@ -325,9 +367,14 @@ def main():
     # ---- report (problems/results only) ----
     flashed = [r["fn"] for r in results if r["status"] == "flashed"]
     compiled = [r["fn"] for r in results if r["status"] == "dry-run-compiled"]
-    send = bool(flashed) or failure is not None or (DRY_RUN and bool(batch))
+    skipped = [r for r in results if r["status"] == "skipped-offline"]
+    # An offline skip alone never emails (offline-detection is the monitoring
+    # stack's job, and nagging here would re-alert on known-offline states). It
+    # rides along as context only when an email is already going out for a
+    # flash / failure / dry-run compile.
+    send = bool(flashed) or failure is not None or (DRY_RUN and bool(compiled))
     if not send:
-        log("RECONCILE_RESULT=noop-no-action")
+        log("RECONCILE_RESULT=noop-no-action skipped=%d" % len(skipped))
         return 0
 
     day = datetime.datetime.now().strftime("%Y-%m-%d %H:%M %Z")
@@ -340,6 +387,9 @@ def main():
         lines.append("**Dry-run compiled OK (not flashed):**")
         lines += ["- `%s` — %s" % (r["fn"], r["reason"]) for r in results
                   if r["status"] == "dry-run-compiled"]
+    if skipped:
+        lines += ["", "**Skipped (offline — deferred to a future run):**"]
+        lines += ["- `%s` — %s" % (r["fn"], r["reason"]) for r in skipped]
     if failure:
         lines += ["", "**FAILED (run stopped):**", "- `%s`" % failure[0],
                   "```", failure[1][:600], "```"]
@@ -347,9 +397,10 @@ def main():
         lines += ["", "**Deferred to next run (per-run cap %d):**" % MAX_PER_RUN]
         lines += ["- `%s` — %s" % (f, r) for f, r in deferred]
 
-    subject = "esphome-reconciler: %d flashed%s%s" % (
+    subject = "esphome-reconciler: %d flashed%s%s%s" % (
         len(flashed),
         ", %d compiled" % len(compiled) if compiled else "",
+        ", %d offline" % len(skipped) if skipped else "",
         ", 1 FAILED" if failure else "")
     body = "\n".join(lines)
     try:
@@ -358,8 +409,9 @@ def main():
     except Exception as e:  # noqa: BLE001
         log("WARN: notify-mcp delivery failed: %r" % e)
         # analysis is in the log; do not hard-fail on a delivery hiccup.
-    log("RECONCILE_RESULT=flashed=%d compiled=%d failed=%d deferred=%d"
-        % (len(flashed), len(compiled), 1 if failure else 0, len(deferred)))
+    log("RECONCILE_RESULT=flashed=%d compiled=%d skipped=%d failed=%d deferred=%d"
+        % (len(flashed), len(compiled), len(skipped), 1 if failure else 0,
+           len(deferred)))
     return 0
 
 

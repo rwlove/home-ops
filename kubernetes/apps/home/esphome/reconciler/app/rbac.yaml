@@ -1,0 +1,45 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/serviceaccount-v1.json
+# Scoped identity for the esphome compile+OTA reconciler. A REAL RBAC boundary —
+# NOT the mcp-gateway broker (reference_mcp_broker_unsafe_for_unattended_loops).
+# Its only power is `exec` into the single esphome-0 pod (where the esphome CLI
+# and the IoT-VLAN Multus NIC live) plus `get` on that one pod to attach. No
+# other pod, no other verb, no secrets, no namespace-wide access.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: esphome-reconciler
+automountServiceAccountToken: false
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/role-rbac-v1.json
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: esphome-reconciler
+rules:
+  # `get` is needed to attach the exec stream; `create pods/exec` is the exec
+  # itself. resourceNames pins both to esphome-0 — a subresource create whose
+  # target name is carried in the request path, so resourceNames DOES constrain
+  # it (unlike create on a top-level resource).
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get"]
+    resourceNames: ["esphome-0"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+    resourceNames: ["esphome-0"]
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/rolebinding-rbac-v1.json
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: esphome-reconciler
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: esphome-reconciler
+subjects:
+  - kind: ServiceAccount
+    name: esphome-reconciler
+    namespace: home

@@ -84,6 +84,7 @@ discoverable via `just --list` and can't rot into dead doc links. Reserve
 |---|---|
 | `lint-cnp-empty-rules.py` | Reject CiliumNetworkPolicy manifests that select endpoints but define no ingress/egress rules — Cilium 1.19 silently fails to apply them. Wired into `.pre-commit-config.yaml` and the `Lint` GitHub Actions workflow. |
 | `lint-envsubst-shell-vars.py` | Reject container commands with unescaped shell vars that Flux's `envsubst` post-build would clobber. Wired into `.pre-commit-config.yaml` and the `Lint` workflow. |
+| `lint-esphome-config-substitutions.py` | Reject unescaped ESPHome `${var}` substitutions in the git-tracked device configs under `kubernetes/apps/home/esphome/app/resources/` — Flux's `envsubst` post-build runs strict-mode over the `esphome-devices` ConfigMap and wedges the Kustomization (bit the repo in #15068/#15070, fixed #15071). Wired into `.pre-commit-config.yaml` and the `Lint` workflow. |
 | `lint-readme-drift.py` | Verify that `README.md` badge values match live cluster data. Wired into `.pre-commit-config.yaml`. |
 | `check-readme-drift-vs-main.sh` | CI helper that compares README badge values against `origin/main`. Wired into `.pre-commit-config.yaml`. |
 

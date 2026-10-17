@@ -1,0 +1,49 @@
+esphome:
+  name: bluetooth-proxy-gym
+  friendly_name: bluetooth-proxy-gym
+  project:
+    name: esphome.bluetooth-proxy-gym
+    version: "1.0"
+
+esp32:
+  board: m5stack-atom
+  framework:
+    type: esp-idf
+
+# Enable logging
+logger:
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  domain: !secret wifi_domain
+  fast_connect: true
+  # Disabled WiFi modem-sleep: this proxy holds an active GATT session
+  # for pump-voltra and must answer ARP/mDNS reliably; light sleep was
+  # dropping multicast + new connections when idle (grey dashboard status).
+  power_save_mode: none
+
+# Native API. Encrypted, unlike bluetooth-proxy-wifi-1/-2: this proxy is an
+# active-connection path to the Voltra, which can command its motor, so an
+# unauthenticated API here is a physical-safety surface, not just a data one.
+api:
+  encryption:
+    key: !secret bluetooth_proxy_gym_api_key
+
+ota:
+  platform: esphome
+  # Require encrypted OTA (reuses the api encryption key). This proxy can
+  # command a physical motor, so refuse plaintext firmware pushes.
+  encryption:
+
+improv_serial:
+
+esp32_ble_tracker:
+  scan_parameters:
+    # Defaults, as on the sibling proxies — keeps BLE co-existing with WiFi.
+    active: true
+
+# Active connections required: pump-voltra opens a GATT session to the Voltra
+# through this proxy. Passive scanning alone is not sufficient.
+bluetooth_proxy:
+  active: true

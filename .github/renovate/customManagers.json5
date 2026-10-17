@@ -38,5 +38,34 @@
       datasourceTemplate: "{{#if datasource}}{{{datasource}}}{{else}}github-releases{{/if}}",
       versioningTemplate: "{{#if versioning}}{{{versioning}}}{{else}}semver{{/if}}",
     },
+    {
+      // Tracks the ESPHome "github-package" pin form used by the git-tracked
+      // device configs under kubernetes/apps/home/esphome/app/resources/:
+      //   packages:
+      //     some.key: github://<owner>/<repo>/<path>@<tag>
+      // and the equivalent external_components `source:` form:
+      //   - source: github://<owner>/<repo>@<tag>
+      //
+      // currentValue is deliberately restricted to tags that look like a
+      // version (leading digit, optionally "v"-prefixed) so this does NOT
+      // match a floating branch ref (`@main`) — three of the twelve configs
+      // (bluetooth-proxy-wifi-1, bluetooth-proxy-wifi-2, pool-controller)
+      // pin to `@main` on purpose and have no releases to track; apollo-
+      // msr-2-296890 has no `@ref` at all. Only the six devices with a real
+      // release tag (hass-voice x3, konnected, ratgdo x2) match and get
+      // Renovate PRs. versioning=semver-coerced handles non-strict tags
+      // like ratgdo's `v1535` (coerces to 1535.0.0) alongside strict
+      // semver tags like `26.9.0` / `2026.6.0`.
+      customType: "regex",
+      description: "Process ESPHome github:// package pins",
+      managerFilePatterns: [
+        "/^kubernetes/apps/home/esphome/app/resources/.+\\.yaml$/"
+      ],
+      matchStrings: [
+        "github://(?<depName>[^/\\s]+/[^/\\s]+)(?:/[^@\\s]+)?@(?<currentValue>v?\\d[\\w.-]*)",
+      ],
+      datasourceTemplate: "github-releases",
+      versioningTemplate: "semver-coerced",
+    },
   ]
 }

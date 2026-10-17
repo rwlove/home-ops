@@ -10,9 +10,10 @@ spec:
   # ACTIVE (unsuspended 2026-08-23). Governed by the claude-runner trial
   # policy (.agents/instructions/claude-runner-routing.md) — re-add
   # `suspend: true` to pause without tearing down objects.
-  # 30 12 * * * UTC = 08:30 EDT / 07:30 EST, daily — 30 min after the
-  # loki-error-skim (0 12) so the two don't share a P40 model-load spike,
-  # and off the mcp-gateway 04:30 rotation. Daily is justified here: this
+  # 30 12 * * * UTC = 08:30 EDT / 07:30 EST, daily — off the mcp-gateway
+  # 04:30 rotation and clear of the 00:00 UTC Longhorn window, so the P40
+  # model load doesn't collide with other scheduled bursts. Daily is justified
+  # here: this
   # cluster runs Renovate automerge, so the open queue turns over fast (see
   # the 27-PR-storm incident in memory) — a daily read of what is currently
   # pending/stuck is fresh, not repetitive. Silent on an empty queue, so a
@@ -44,7 +45,7 @@ spec:
           restartPolicy: OnFailure
           containers:
             - name: digest
-              # Carries curl + jq (same image as loki-error-skim). NOTE:
+              # Carries curl + jq (alpine/k8s). NOTE:
               # `date` is busybox — the PR-age math is done in jq (which has
               # `now` + `fromdateiso8601`), not with `date -d`.
               image: docker.io/alpine/k8s:1.37.1@sha256:712dc5385d1c1a3f83b747fa9e40f64d433a97f72ff42f9755ff7dd1f62846e4
@@ -56,8 +57,8 @@ spec:
                 # manifest: a bare ${VAR} is read as a Flux substitution and
                 # fails the whole Kustomization with "variable not set".
                 # Every shell `$` is doubled (`$$`) so the rendered manifest
-                # carries a literal `$` for /bin/sh. Same convention as
-                # cronjob-loki-error-skim.yaml.
+                # carries a literal `$` for /bin/sh. Same convention as the
+                # other shell-based crons here.
                 - |
                   GITHUB_API="https://api.github.com/repos/rwlove/home-ops/pulls"
                   OLLAMA="http://ollama.ai.svc.cluster.local:11434"

@@ -30,12 +30,12 @@ The load-bearing design points:
 
 | Workflow | Schedule (UTC) | Tier | What |
 |---|---|---|---|
-| `loki-error-skim` | `0 12 * * *` (08:00 EDT / 07:00 EST, daily) | Local (Ollama) | LogQL-rank the top error/panic/fatal log producers in Loki over 24h, pull a small sample of lines from the top 5, have the local model distill them into a terse pattern digest, send ONE email via notify-mcp. Silent (exit 0, no send) when there are no error lines. |
 | `renovate-pr-digest` | `30 12 * * *` (08:30 EDT / 07:30 EST, daily) | Local (Ollama) | List the open Renovate PRs (unauthenticated GitHub REST — the repo is public), have the local model produce a terse digest that flags likely major bumps + PRs stuck > 7 days and groups the rest by kind, send ONE email via notify-mcp. Silent (exit 0, no send) when the queue is empty. |
 
-Query path: `topk(15, sum by (namespace, app) (count_over_time({namespace=~".+"} |~ "(?i)(error|panic|fatal|traceback|exception)" [24h])))`
-against `loki:3100` (Loki stream labels here are `app` / `namespace` /
-`node`, set by the Vector aggregator sink).
+> `loki-error-skim` was retired 2026-10-17 (home-ops#15048): its substring
+> ranking surfaced the chattiest apps rather than the erroring ones, so every
+> digest read as noise, and it duplicated the `observability-operator` triage
+> watcher. The in-cluster triage fleet now covers log/error surfacing.
 
 ## Why Loki first, PR digest second
 
@@ -87,25 +87,22 @@ The original first-time activation order, for reference:
    CronJob is still `suspend: true`, so nothing fires yet. Verify:
    `kubectl -n ai get externalsecret kagent-doer cooter-recall` shows `SecretSynced`.
 3. **Test once, out of band.** With the CronJobs still suspended, test each:
-   - `kubectl -n ai create job --from=cronjob/local-cron-loki-error-skim skim-test`
    - `kubectl -n ai create job --from=cronjob/local-cron-renovate-pr-digest renovate-test`
 
-   then `kubectl -n ai logs job/<name> -f`. Expect (for the skim) the
-   ranked list, or (for the digest) `Open Renovate PRs (N):` + the list,
-   then the `----- local-model digest -----` block and `digest emailed`.
-   Empty-input is success, not failure: the skim prints "Nothing to
-   report" and the digest prints "No open Renovate PRs" — both exit 0 and
-   send nothing.
+   then `kubectl -n ai logs job/<name> -f`. Expect (for the digest)
+   `Open Renovate PRs (N):` + the list, then the
+   `----- local-model digest -----` block and `digest emailed`.
+   Empty-input is success, not failure: the digest prints "No open
+   Renovate PRs" — exit 0 and send nothing.
 4. **Unsuspend the CronJob(s)** — remove `spec.suspend: true` from
-   `cronjob-loki-error-skim.yaml` and/or `cronjob-renovate-pr-digest.yaml`.
-   They then run daily at 12:00 / 12:30 UTC respectively.
+   `cronjob-renovate-pr-digest.yaml`. It then runs daily at 12:30 UTC.
 
 To pause again: re-add `spec.suspend: true` to the CronJob (fast, keeps
 objects) or to the ks (full teardown of the app's objects on next prune).
 
 ## Add a local-tier workflow
 
-Copy `cronjob-loki-error-skim.yaml`, then:
+Copy `cronjob-renovate-pr-digest.yaml`, then:
 
 - Keep the hardening verbatim (non-root 1000, `readOnlyRootFilesystem`,
   drop `ALL`, `RuntimeDefault`, tmpfs `/tmp`, `automountServiceAccountToken:

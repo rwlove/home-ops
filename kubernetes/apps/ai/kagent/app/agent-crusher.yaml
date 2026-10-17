@@ -5,8 +5,11 @@
 # readings, doses, labs, diagnoses, or numbers — those are RESTRICTED and come
 # from medikeep-mcp / pump-mcp / memory at runtime, NEVER committed to GitHub.
 # In-cluster tier of the `crusher` medical steward (the laptop Claude agent
-# carries the full persona). READ-ONLY today: the BP write/import path (append
-# to public.vitals + the Google-Sheet ingest) is wired in a later change.
+# carries the full persona). READ-ONLY by design: this unattended A2A/scheduled
+# tier never writes. medikeep-mcp is read-only by construction (postgres-mcp as
+# health_ro). The actual Medikeep write path is the app's own REST API, which
+# this tier deliberately does NOT hold; the BP/dose import runs as the separate
+# `medikeep-ingest` CronJob (collab ns), not through this agent.
 apiVersion: kagent.dev/v1alpha2
 kind: Agent
 metadata:
@@ -93,11 +96,12 @@ spec:
         first; append concise findings (never delete, never contradict).
       No medical facts live in this file; read them at runtime.
 
-      ## Read-only today
-      You currently have no write access. The scheduled blood-pressure import
-      (reading Robert's home-BP source and appending to the record) is wired in
-      a later change; until then, do not claim to have written or imported
-      anything.
+      ## Read-only by design
+      You have no write access. This tier is read-only by design — an
+      unattended loop must not write medical records. The scheduled
+      blood-pressure/dose import runs as a separate ingest job, not through
+      you. Never claim to have written or imported anything; if a task needs a
+      write, surface it for the human-in-the-loop (laptop) tier instead.
 
       ## Never block on human input (you run unattended)
       You are invoked over A2A and on schedules with NO human in the loop.

@@ -114,13 +114,17 @@ spec:
             app:
               - path: /cache
       config:
-        existingClaim: esphome-config
+        # Migrated off the Longhorn `esphome-config` PVC to ceph-block (the
+        # regenerable-config tier). The ~6.4G of stale .platformio/.cache cruft
+        # is intentionally left behind on the retained Longhorn PVC; the active
+        # build cache lives on the separate `buildcache` PVC above, and the
+        # dashboard rebuilds its device list from the mounted configs on start.
+        existingClaim: esphome-config-ceph
         globalMounts:
           - path: /config
       # Git-tracked device configs. Read-only subPath mounts layered over the
-      # esphome-config PVC above — the dashboard can no longer edit these 12
-      # devices; bumps are Renovate/hand PRs instead. secrets.yaml stays
-      # PVC-only (never git) and is unaffected.
+      # ceph /config PVC above — the dashboard can no longer edit these 12
+      # devices; bumps are Renovate/hand PRs instead.
       devices:
         type: configMap
         name: esphome-devices
@@ -160,6 +164,16 @@ spec:
             readOnly: true
           - path: /config/ratgdo_secondary-1bc561.yaml
             subPath: ratgdo_secondary-1bc561.yaml
+            readOnly: true
+      # secrets.yaml sourced from 1Password via the esphome-secrets
+      # ExternalSecret (item `esphome` / field `secretsyaml`), rendered
+      # byte-identical and mounted read-only — no longer stored on the PVC.
+      secrets:
+        type: secret
+        name: esphome-secrets
+        globalMounts:
+          - path: /config/secrets.yaml
+            subPath: secrets.yaml
             readOnly: true
       tmpfs:
         type: emptyDir

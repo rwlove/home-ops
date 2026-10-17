@@ -17,17 +17,20 @@ kind: Role
 metadata:
   name: esphome-reconciler
 rules:
-  # `get` is needed to attach the exec stream; `create pods/exec` is the exec
-  # itself. resourceNames pins both to esphome-0 — a subresource create whose
-  # target name is carried in the request path, so resourceNames DOES constrain
-  # it (unlike create on a top-level resource).
+  # `get pods` attaches to the target; the pods/exec subresource is the exec
+  # itself. The python kubernetes websocket client opens the stream with a GET
+  # handshake (connect_get_namespaced_pod_exec), so RBAC authorizes it as `get`
+  # on pods/exec — NOT `create` (kubectl's SPDY path uses POST→create). Grant
+  # both so either transport works. resourceNames pins everything to esphome-0:
+  # a subresource whose target name is carried in the request path, so
+  # resourceNames DOES constrain it (unlike create on a top-level resource).
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get"]
     resourceNames: ["esphome-0"]
   - apiGroups: [""]
     resources: ["pods/exec"]
-    verbs: ["create"]
+    verbs: ["get", "create"]
     resourceNames: ["esphome-0"]
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/rolebinding-rbac-v1.json

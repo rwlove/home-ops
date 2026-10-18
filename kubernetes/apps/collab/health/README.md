@@ -18,6 +18,9 @@ page's `fetch()` calls stay same-origin behind the gate.
 
 - `api.v_bp` — blood pressure over time (from Medikeep)
 - `api.v_dose` — medication dose timeline (from Medikeep)
+- `api.v_planned` — planned/scheduled health actions coming due (from Medikeep);
+  `due_soon` flags items within ~14 days or overdue. Read by Crusher's weekly
+  review to surface reminders on state-change.
 - `api.v_weight` — body weight (PUMP-fed)
 
 ## Charts
@@ -37,8 +40,9 @@ is fetched live behind Authelia. Do not hardcode any value here.
 
 Owned by **Crusher** (the medical-records steward). Crusher curates the dashboard
 and runs the **weekly trend review** (`local-cron-crusher-review`, kagent tier):
-a scheduled read-only pull of the three views, a trend/correlation interpretation
-by the in-cluster Crusher agent (local model), delivered as a private, themed
-email via notify-mcp (recipient-locked to Robert; never a public sink). The
+a scheduled read-only pull of these views, a trend/correlation interpretation
+plus any planned action newly coming due (`api.v_planned`), by the in-cluster
+Crusher agent (local model), delivered as a private, themed email via notify-mcp
+(recipient-locked to Robert; never a public sink). The
 app's *deployment* (HelmRelease, CNPG wiring, Flux) is home-ops/platform; Crusher
 owns the dashboard content and the review, not the manifests' plumbing.

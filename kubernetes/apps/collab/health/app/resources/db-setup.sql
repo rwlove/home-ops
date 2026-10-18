@@ -29,10 +29,42 @@ CREATE OR REPLACE VIEW api.v_dose AS
   WHERE patient_id = 1 AND dosage IS NOT NULL AND dosage ~ '[0-9]'
   ORDER BY treatment_name, start_date;
 
+-- Planned/scheduled health actions coming due — the "remind me of things" feed
+-- for Crusher's weekly review (mirrors api.v_plan_progress.near_end below). One
+-- row per upcoming action: a scheduled lab/procedure (public.procedures,
+-- status='scheduled') plus a future planned treatment/follow-up
+-- (public.treatments, status='planned'). due_date is the day it is due;
+-- days_until is (due_date - today) as an integer (negative == overdue); due_soon
+-- flags "due within ~14 days OR already overdue" — the window at which the weekly
+-- review surfaces it as an actionable reminder. Extensible: add more planned-
+-- action sources as further UNION ALL branches sharing this column shape. Generic
+-- by construction — no action name or clinical value lives in this repo; rows
+-- come from the DB at runtime (data-classification: restricted).
+CREATE OR REPLACE VIEW api.v_planned AS
+  SELECT p.procedure_name              AS action,
+         p.procedure_type              AS action_type,
+         p.date                        AS due_date,
+         (p.date - current_date)       AS days_until,
+         (p.date - current_date) <= 14 AS due_soon,
+         'procedure'::text             AS source
+  FROM public.procedures p
+  WHERE p.patient_id = 1 AND p.status = 'scheduled' AND p.date IS NOT NULL
+  UNION ALL
+  SELECT t.treatment_name                  AS action,
+         t.treatment_type                  AS action_type,
+         t.start_date                      AS due_date,
+         (t.start_date - current_date)       AS days_until,
+         (t.start_date - current_date) <= 14 AS due_soon,
+         'treatment'::text                 AS source
+  FROM public.treatments t
+  WHERE t.patient_id = 1 AND t.status = 'planned' AND t.start_date IS NOT NULL
+  ORDER BY due_date;
+
 -- health_ro: PostgREST authenticator + anon role. Read-only, views only.
 -- CREATE ROLE health_ro LOGIN PASSWORD '<1Password health/RO_DB_PASS>'
 --   NOSUPERUSER NOCREATEDB NOCREATEROLE;
 GRANT USAGE ON SCHEMA api TO health_ro;
+-- Covers all api.* views above (v_bp, v_dose, v_planned). Re-run after adding a view.
 GRANT SELECT ON ALL TABLES IN SCHEMA api TO health_ro;
 
 -- ========================== postgres-pump / pump ==========================

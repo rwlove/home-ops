@@ -55,6 +55,18 @@ spec:
               ESPHOME__PORT: &httpPort 6052
               ESPHOME__APPLICATION_URL: &host "{{ .Release.Name }}.${SECRET_DOMAIN}"
               ESPHOME__LOG_LEVEL: info
+              # Put the ESP-IDF toolchain (framework + tools, ~2.5G) on the
+              # regenerable `/cache` PVC (50Gi) instead of `/config` (10Gi).
+              # ESPHome resolves its cache via platformdirs user_cache_dir, i.e.
+              # $XDG_CACHE_HOME/esphome (falling back to $HOME/.cache/esphome =
+              # /config/.cache/esphome when unset). The image already routes
+              # build/pio/data to /cache (ESPHOME_BUILD_PATH, PLATFORMIO_CORE_DIR,
+              # ESPHOME_DATA_DIR) but NOT this; so the IDF toolchain was landing
+              # on /config and was destroyed when the /config→ceph migration
+              # started /config fresh, and the auto-reinstall came down missing
+              # `ninja` → every esp-idf compile failed. Keeping the toolchain on
+              # /cache means a /config reset can never break compiles again.
+              XDG_CACHE_HOME: /cache/.cache
 
             probes:
               liveness:

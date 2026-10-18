@@ -43,18 +43,20 @@ CONTRACT = (
     "\n\nOUTPUT CONTRACT — follow it exactly, it is as important as the task:\n"
     "- Reply in ENGLISH ONLY. This is a ONE-WAY notification: never ask a question "
     "or request input or confirmation — nobody can reply.\n"
+    "- You have NO email/notify/alert tool and MUST NOT attempt to send anything "
+    "yourself — THIS job delivers your reply. Return ONLY a verdict, nothing else: "
+    "no reasoning, no preamble, no 'let me...' narration.\n"
     "- NEVER fabricate a number; the session count must come from your tool "
     "(api.v_plan_progress). If you cannot read it, reply with exactly: NONE\n"
-    "- DECIDE whether to remind, per the task. If NO reminder should be sent "
-    "(queue healthy, or you already reminded during this low-queue stretch), reply "
-    "with EXACTLY the single word NONE and nothing else.\n"
-    "- If a reminder IS due, return ONLY the short reminder message for Rob — a few "
-    "lines in your coaching voice, GENERIC training/check-in language, NO medical / "
-    "recovery / TRT specifics. Do not include the word NONE.\n"
+    "- If NO reminder should be sent (queue healthy, or you already reminded during "
+    "this low-queue stretch), reply with EXACTLY the single word NONE and nothing "
+    "else.\n"
+    "- If a reminder IS due, reply with EXACTLY 'REMIND:' (that literal prefix) "
+    "followed by the short reminder message for Rob — a few lines in your coaching "
+    "voice, GENERIC training/check-in language, NO medical / recovery / TRT "
+    "specifics. Put NOTHING before 'REMIND:'.\n"
     "- Keep the whole reply under 600 characters. Light markdown is fine; no tables, "
-    "no images.\n"
-    "- Do NOT call any notify/alert/email tool — THIS job delivers your reply. Just "
-    "return the message (or NONE)."
+    "no images."
 )
 
 
@@ -81,17 +83,26 @@ def main():
         log("ARNOLD_QUEUE_RESULT=skipped agent=%s state=%s" % (AGENT_NAME, state))
         return 0
 
-    # Sentinel: Arnold decided no reminder is due (queue healthy or already reminded).
-    sentinel = text.strip().upper().rstrip(". ")
-    if sentinel == "NONE" or sentinel == "":
-        log("agent returned NONE — queue healthy or already reminded; no email")
+    # Strict verdict parse: ONLY a leading REMIND: prefix triggers an email, and we
+    # email ONLY the message after it. The NONE sentinel, stray reasoning, a refusal,
+    # or any other shape stays silent — this guarantees the runner can never email
+    # the agent's deliberation (the CoT-leak bug). Belt-and-suspenders with removing
+    # Arnold's notify_rob tool (agent-arnold.yaml), so it also can't self-send.
+    t = text.strip()
+    if not t.upper().startswith("REMIND:"):
+        log("no REMIND verdict (NONE / healthy / unparseable) — no email")
+        log("ARNOLD_QUEUE_RESULT=none agent=%s state=%s" % (AGENT_NAME, state))
+        return 0
+    msg = t[len("REMIND:"):].strip()
+    if not msg:
+        log("REMIND: with empty message — no email")
         log("ARNOLD_QUEUE_RESULT=none agent=%s state=%s" % (AGENT_NAME, state))
         return 0
 
     log("----- %s (state=%s) -----" % (TITLE, state))
-    log(text)
+    log(msg)
     try:
-        code = notify_email(TITLE, text)
+        code = notify_email(TITLE, msg)
         log("reminder emailed via notify-mcp (HTTP %s)" % code)
         log("ARNOLD_QUEUE_RESULT=sent agent=%s" % AGENT_NAME)
     except Exception as e:  # noqa: BLE001

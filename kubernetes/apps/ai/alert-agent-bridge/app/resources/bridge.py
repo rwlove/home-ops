@@ -208,6 +208,26 @@ def _call_agent(prompt):
     return texts[-1] if texts else ""
 
 
+def _raw_fallback(alerts, err):
+    """When the enrichment agent is unreachable, degrade to the raw alert detail the
+    bridge already holds — strictly better than announcing the agent timed out and
+    dropping the alert entirely. Carries severity, description, and pre-gathered
+    evidence; AlertManager has paged the same alert separately."""
+    lines = []
+    for a in alerts[:MAX_ALERTS]:
+        loc = (" ns=%s" % a["namespace"]) if a.get("namespace") else ""
+        pod = (" pod=%s" % a["pod"]) if a.get("pod") else ""
+        sev = (" [%s]" % a["severity"]) if a.get("severity") else ""
+        lines.append("- %s%s%s%s:\n  %s" % (
+            a["alertname"], sev, loc, pod, (a.get("text") or "")[:400]))
+    evidence = _pregather(alerts)
+    return (
+        "Automated enrichment unavailable (observability-operator: %s).\n"
+        "Raw alert detail below — AlertManager has paged this separately.\n\n%s%s"
+        % (str(err)[:160], "\n".join(lines), evidence)
+    )
+
+
 def _notify(subject, body):
     """POST a themed HTML email through notify-mcp's /send route. No auth: notify-mcp
     holds the relay recipient-lock, so it can only ever email Rob. Non-fatal — a failed
@@ -236,8 +256,8 @@ def _handle(payload):
             text = _call_agent(_agent_prompt(alerts))
         except Exception as e:  # noqa: BLE001
             log("agent call failed for [%s]: %r" % (names, e))
-            _notify("kagent enrichment failed: %s" % names,
-                    "observability-operator did not respond: %s" % str(e)[:200])
+            _notify("%s (enrichment unavailable)" % names,
+                    _raw_fallback(alerts, e))
             return
         if not text:
             log("agent returned no text for [%s]" % names)

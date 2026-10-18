@@ -158,6 +158,22 @@ verify the labels.
   `Retain`. Manually deleting a PVC does not free the PV; you must
   delete the PV separately. This is intentional protection but
   surprising during a restore.
+- **Retired/old volumes keep their recurring-job labels** — after a
+  restore-to-new-volume (Scenario B/C) or a dynamic→static migration,
+  the old Longhorn Volume CR you leave behind (`Retain`) still carries
+  its `weekly-filesystem-trim` + `default` group labels. The `default`
+  jobs tolerate it (they auto-attach), but once it's detached for good it
+  silently poisons the weekly `filesystem-trim` sweep — trim can't
+  auto-attach, so one detached volume hard-fails the whole run. Strip the
+  trim label when you retire it:
+
+  ```sh
+  kubectl label volumes.longhorn.io <name> -n longhorn-system \
+    recurring-job-group.longhorn.io/weekly-filesystem-trim-
+  ```
+
+  See `storage-class.instructions.md` (filesystem-trim section). Recurred
+  2026-10-17 after six migration rollback orphans accumulated.
 
 ## Verification checklist
 

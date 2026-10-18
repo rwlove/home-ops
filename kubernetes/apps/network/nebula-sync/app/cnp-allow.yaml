@@ -1,0 +1,32 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+# Egress allows for nebula-sync (network ns). Additive — the network namespace
+# default-deny enforces both directions; this punches the holes. DNS egress is
+# provided cluster-wide by the baseline network-policy component (not repeated).
+#
+# nebula-sync reaches the two Pi-hole v6 admin APIs by IP on :80 (PIHOLE_WEBPORT=80):
+#   - 192.168.6.66  beast Pi-hole (PRIMARY) — on beast's virbr0, routed via brain
+#   - 10.20.20.2    brain Pi-hole (REPLICA) — on brain's netavark bridge, routed via
+#                   the pod's default gateway (brain). Reachability from a cluster pod
+#                   is verified by the first sync run; if a pod cannot reach it, the
+#                   fallback is to run nebula-sync as a brain-host quadlet instead.
+# No other egress: addresses are literal IPs, so no DNS/world is needed.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: nebula-sync-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: nebula-sync
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    - toCIDR:
+        - 192.168.6.66/32
+        - 10.20.20.2/32
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP

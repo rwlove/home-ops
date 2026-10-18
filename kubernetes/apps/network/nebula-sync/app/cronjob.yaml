@@ -1,0 +1,126 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/cronjob-batch-v1.json
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: nebula-sync
+  labels:
+    app.kubernetes.io/name: nebula-sync
+spec:
+  # Daily one-shot: nebula-sync runs a single sync and exits when CRON is unset,
+  # so the k8s CronJob (not nebula-sync's internal scheduler) owns the cadence —
+  # this is what lets kube-state-metrics track success/staleness for alerting.
+  # 05:30 ET: after beast's own weekly gravity refresh window (Sun 04:49), low
+  # household traffic. Blocklists change slowly, so stale sync is non-fatal (the
+  # replica keeps serving its last-compiled gravity); the PrometheusRule alerts
+  # only if sync stops for >2 days.
+  suspend: false
+  schedule: "30 5 * * *"
+  timeZone: America/New_York
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      # Gravity transfer for the primary's ~140MB DB over the v6 API; give it room.
+      activeDeadlineSeconds: 600
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: nebula-sync
+          annotations:
+            k8tz.io/inject: "false"
+        spec:
+          # amd64: nebula-sync is multi-arch, but pin so it can't land on the
+          # arm64 Spark node (which lives in other namespaces) unpredictably.
+          nodeSelector:
+            kubernetes.io/arch: amd64
+          # No cluster API access needed — reaches the two Pi-hole admin APIs over
+          # the LAN only. Zero-RBAC default SA, token not mounted.
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          containers:
+            - name: nebula-sync
+              image: ghcr.io/lovelaze/nebula-sync:v0.11.2
+              imagePullPolicy: IfNotPresent
+              # PRIMARY and REPLICAS (which embed each Pi-hole's admin web password)
+              # come from the ExternalSecret; everything else is non-secret policy.
+              envFrom:
+                - secretRef:
+                    name: nebula-sync-secret
+              env:
+                - name: TZ
+                  value: America/New_York
+                - name: TMPDIR
+                  value: /tmp
+                # Selective sync (not FULL/Teleporter): mirror only gravity-side
+                # state. Leave the replica's own config + admin password alone.
+                - name: FULL_SYNC
+                  value: "false"
+                # Recompile gravity on the replica after syncing adlists so it has a
+                # WORKING compiled blocklist, not just adlist rows — the property
+                # that makes the replica a real filtering fallback.
+                - name: RUN_GRAVITY
+                  value: "true"
+                - name: SYNC_GRAVITY_AD_LIST
+                  value: "true"
+                - name: SYNC_GRAVITY_AD_LIST_BY_GROUP
+                  value: "true"
+                - name: SYNC_GRAVITY_DOMAIN_LIST
+                  value: "true"
+                - name: SYNC_GRAVITY_DOMAIN_LIST_BY_GROUP
+                  value: "true"
+                - name: SYNC_GRAVITY_GROUP
+                  value: "true"
+                - name: SYNC_GRAVITY_CLIENT
+                  value: "true"
+                - name: SYNC_GRAVITY_CLIENT_BY_GROUP
+                  value: "true"
+                # DHCP is ISC dhcpd on brain, NOT Pi-hole — never sync leases.
+                - name: SYNC_GRAVITY_DHCP_LEASES
+                  value: "false"
+                # Config sync OFF across the board: protects the replica's own
+                # listen/DNS config and its (stronger, 1P-sourced) admin password
+                # from being overwritten with the primary's.
+                - name: SYNC_CONFIG_DNS
+                  value: "false"
+                - name: SYNC_CONFIG_DHCP
+                  value: "false"
+                - name: SYNC_CONFIG_NTP
+                  value: "false"
+                - name: SYNC_CONFIG_RESOLVER
+                  value: "false"
+                - name: SYNC_CONFIG_DATABASE
+                  value: "false"
+                - name: SYNC_CONFIG_MISC
+                  value: "false"
+                - name: SYNC_CONFIG_DEBUG
+                  value: "false"
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 1000m
+                  memory: 512Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir:
+                medium: Memory
+                sizeLimit: 256Mi

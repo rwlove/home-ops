@@ -11,9 +11,11 @@ spec:
   # the Sheet->Medikeep BP import (medikeep-ingest, Mon 06:00 ET) so it reviews
   # fresh data. It invokes the in-cluster `crusher` agent over A2A (local model,
   # qwen on the Spark via LiteLLM) and asks it to compute, from its READ-ONLY
-  # tools (medikeep-mcp v_bp/v_dose, pump-mcp v_weight, memory-mcp for prior
-  # context), the trailing BP trend, the weight<->BP correlation, and any
-  # relation to TRT dose, then DELIVERS the short interpretation to Robert as a
+  # tools (medikeep-mcp v_bp/v_dose/v_planned, pump-mcp v_weight, memory-mcp for
+  # prior context), the trailing BP trend, the weight<->BP correlation, any
+  # relation to TRT dose, and any planned/scheduled health action newly coming
+  # due (api.v_planned due_soon, surfaced once on state-change — not re-alerted
+  # every week), then DELIVERS the short interpretation to Robert as a
   # themed HTML email via notify-mcp (/send) — the same private sink the sibling
   # local-cron digests use; notify-mcp holds the recipient-lock, so it can only
   # email Robert. Unlike the problem-only triage crons this ALWAYS sends the
@@ -89,8 +91,22 @@ spec:
                     weight and blood pressure move together, and in which
                     direction; (3) whether any BP shift lines up with a TRT or
                     other dose change. Note anything sustained worth raising at the
-                    next clinician visit. Append a one-line concise finding to
-                    memory-mcp so next week can diff against it.
+                    next clinician visit.
+                    Then (4) also pull the planned/scheduled health actions
+                    (api.v_planned via medikeep-mcp) and look at rows where
+                    due_soon is true (due within ~14 days, or already overdue).
+                    For each such item add ONE actionable reminder line of the form
+                    "<action> due <due_date> (~<days_until> days)" — overdue if
+                    days_until is negative. DIGEST DISCIPLINE: only surface an item
+                    the FIRST week it enters the due_soon window (a state change) or
+                    if its due_date changed — compare against the planned items you
+                    recorded in memory-mcp last week and do NOT re-list an item you
+                    already flagged in a prior week. If nothing is newly due_soon,
+                    say nothing about reminders (no all-clear line). Never invent a
+                    date — every value comes from api.v_planned.
+                    Append a one-line concise finding to memory-mcp so next week can
+                    diff against it, and record the current due_soon planned items
+                    (action + due_date) so next week can tell what is newly due.
               # No envFrom: the notify-mcp email path needs no credentials
               # (notify-mcp holds the recipient-lock). The runner's NOTIFY_URL
               # defaults to http://notify-mcp.mcp-system:8060/send.

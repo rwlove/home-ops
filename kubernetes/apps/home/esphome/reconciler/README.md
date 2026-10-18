@@ -79,28 +79,40 @@ problems/results-only: a run that flashed something, failed, or (in dry-run)
 found candidates is reported; a no-op run sends nothing
 (`feedback_digests_problems_only_no_allclear_roster`).
 
-## Double OFF gate & bring-up
+## Status: LIVE (2026-10-18)
 
-Ships OFF two ways (mirrors `ai/network-drift`): `suspend: true` **and**
-`DRY_RUN=true`. Merging this flashes nothing.
+Both OFF gates are now off: `suspend: false` and `DRY_RUN=false` (real OTA
+permitted). Green compiles were unblocked first by the ninja compile workaround
+(#15086) plus a one-time `esphome clean` of the esp-idf build dirs left stale by
+the `/config`→`/cache` toolchain move.
 
-1. **Safe dry-run test** (compiles candidates, proves the gate, no OTA):
+The **first run after go-live flashes nothing**: with no state file yet and no
+config-hash/version drift on the online fleet, every device is baseline-seeded
+and skipped. Real OTA happens only on a later config-hash change (Renovate
+`@tag` bump / hand edit) or core-version drift — one device at a time,
+compile-gated, verified back online before the next.
 
-   ```sh
-   kubectl -n home create job --from=cronjob/esphome-reconciler esphome-reconcile-test
-   kubectl -n home logs job/esphome-reconcile-test -f
-   ```
+**To pause** reconciliation: set `suspend: true`. **To keep running but
+compile-only** (no OTA, no state writes): set `DRY_RUN=true`. Prefer a Git edit
+over `kubectl edit` — Flux reverts hand edits to the managed CronJob.
 
-   `pool-controller.yaml` is **excluded** (winterized), so it is not a
-   candidate; a transiently-offline device is probed and skipped, never failed.
-   To dry-run the tag-bump backlog, set `FORCE_DEVICES` to
-   `konnected-9d7cc0.yaml,ratgdo_primary-1bb40c.yaml,ratgdo_secondary-1bc561.yaml`.
-   Prefer a throwaway Job manifest carrying the env over `kubectl edit` on the
-   CronJob — Flux reverts edits to the managed CronJob.
-2. **Go live:** set `DRY_RUN=false` (the one toggle), then `suspend=false`.
-3. **One-time backlog convergence:** with `DRY_RUN=false`, set `FORCE_DEVICES`
-   to the stale configs for a run (still capped), then clear it. Steady-state
-   detection takes over.
+**One-time backlog convergence** — the pending external-component `@tag` bumps
+on `konnected` / `ratgdo ×2` are invisible to version-drift detection (the
+dashboard only tracks the esphome CORE version, not the component tag), so to
+push them set `FORCE_DEVICES` to
+`konnected-9d7cc0.yaml,ratgdo_primary-1bb40c.yaml,ratgdo_secondary-1bc561.yaml`
+for a single run (still capped at `MAX_PER_RUN`), then clear it. Steady-state
+detection takes over. `pool-controller.yaml` stays **excluded** (winterized) —
+un-exclude in spring.
+
+**Dry-run / smoke test** (compiles candidates, proves the gate, no OTA — useful
+after changes): set `DRY_RUN=true` on a throwaway Job manifest rather than
+editing the managed CronJob, then:
+
+```sh
+kubectl -n home create job --from=cronjob/esphome-reconciler esphome-reconcile-test
+kubectl -n home logs job/esphome-reconcile-test -f
+```
 
 ## Tunables (CronJob env)
 

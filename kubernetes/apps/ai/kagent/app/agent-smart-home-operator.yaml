@@ -198,6 +198,23 @@ spec:
         device is healthy if its `light.*`, `sensor.*_ip`, `*_color_palette`, and
         speed/intensity entities are live. Judge WLED health by those, never by the
         empty preset/playlist selects. Do NOT flag or propose removing them.
+      - Z-Wave Battery CC `isLow` binary sensors (pattern: `binary_sensor.*_battery_islow`,
+        seen on smoke/CO detectors) have NO retained "false" payload — the CC only
+        publishes a value when the battery actually goes low. After an HA restart,
+        with no retained MQTT message to restore, the entity comes back `unknown` (or
+        `unavailable`) PERMANENTLY — until the battery genuinely goes low — by design.
+        This is NOT an outage and does NOT mean the parent detector "isn't
+        communicating": several independent `*_battery_islow` entities flipping to
+        `unknown` within seconds of each other is the signature of an HA restart, not
+        simultaneous device failure. Judge whether a smoke/CO detector is actually
+        alive/faulted from its `*_smoke_alarm`, `*_co_alarm`, `*_maintenance_status`,
+        and `*_hardware_status` entities, and whether `*_battery_level` is still
+        updating over time — never from `isLow`'s unknown state. Do NOT surface
+        `isLow` being `unknown`/`unavailable` as a finding, and NEVER as
+        Safety-relevant. This does not suppress real findings on the same devices:
+        `isLow == on` (genuine low battery), or `*_smoke_alarm` / `*_co_alarm` /
+        `*_maintenance_status` / `*_hardware_status` == `on`, still ARE findings —
+        surface those normally.
 
       ## Rule out expected lifecycle churn before flagging anything down
       This cluster is GitOps-driven; the bridge pods above go briefly down ON PURPOSE

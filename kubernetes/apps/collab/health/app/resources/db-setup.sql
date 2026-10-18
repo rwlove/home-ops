@@ -48,8 +48,26 @@ CREATE OR REPLACE VIEW api.v_weight AS
   FROM public.weight
   ORDER BY date, recorded_at DESC;
 
+-- Training-plan queue progress — one row per program. Read by Arnold's
+-- in-cluster kagent queue-check task (local-cron-arnold-queue-check, via pump-mcc
+-- as health_ro) and available to the dashboard. cursor_position is the next-due
+-- session's position; sessions_remaining counts the current session through the
+-- end of the block. near_end flags "<= 8 sessions left" (~2 rotations/cycles) —
+-- the low-queue threshold at which Arnold reminds Rob to run a check-in.
+CREATE OR REPLACE VIEW api.v_plan_progress AS
+  SELECT p.id AS program_id, p.name, p.cursor_position,
+         c.total_sessions,
+         (c.total_sessions - p.cursor_position + 1) AS sessions_remaining,
+         (c.total_sessions > 0 AND (c.total_sessions - p.cursor_position + 1) <= 8) AS near_end
+  FROM public.programs p
+  CROSS JOIN LATERAL (
+    SELECT count(*)::int AS total_sessions
+    FROM public.prescribed_sessions s WHERE s.program_id = p.id
+  ) c;
+
 -- CREATE ROLE health_ro LOGIN PASSWORD '<same value>' NOSUPERUSER NOCREATEDB NOCREATEROLE;
 GRANT USAGE ON SCHEMA api TO health_ro;
+-- Covers all api.* views above (read-only). Re-run after adding a view.
 GRANT SELECT ON ALL TABLES IN SCHEMA api TO health_ro;
 
 -- Dose history is entered in MediKeep (Treatments: one row per dose period,

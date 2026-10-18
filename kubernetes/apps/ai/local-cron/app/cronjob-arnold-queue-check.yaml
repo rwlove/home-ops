@@ -1,0 +1,135 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/cronjob-batch-v1.json
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: local-cron-arnold-queue-check
+  labels:
+    app.kubernetes.io/name: local-cron
+spec:
+  # Weekly training-plan queue check (kagent tier). Invokes the in-cluster
+  # `arnold` fitness agent over A2A (local model) with a CHEAP, SHORT prompt: read
+  # Rob's PUMP queue progress (api.v_plan_progress via pump-mcp, read-only) and
+  # decide whether to remind him to run a check-in. It reminds ONLY when the queue
+  # is low — sessions_remaining <= 8 (~2 rotations left) — and not already reminded
+  # this low-queue stretch (dedup + re-arm tracked in Arnold's own memory-mcp).
+  # When a reminder is due Arnold returns the message and the runner delivers it to
+  # Rob as a themed HTML email via notify-mcp (/send); otherwise Arnold replies the
+  # sentinel NONE and the runner stays silent (so does a slow/unreachable agent —
+  # never a KubeJobFailed page).
+  #
+  # A forgot-to-check-in SAFETY NET: a check-in re-authors the block and tops the
+  # queue back up to ~40 sessions, so sessions_remaining climbs back above 8 and
+  # this normally never fires. Model: cronjob-crusher-review.yaml (same A2A +
+  # notify-mcp fleet mechanism); runner is resources/arnold_queue_check.py.
+  #
+  # SHIPPED SUSPENDED — the live queue is full (remaining well above 8), so a plain
+  # run correctly stays silent. Test the email path by pointing it at a low-queue
+  # program, or ad-hoc:
+  #   kubectl -n ai create job --from=cronjob/local-cron-arnold-queue-check arnold-queue-test
+  #   kubectl -n ai logs job/arnold-queue-test   # look for ARNOLD_QUEUE_RESULT=
+  # Then unsuspend by setting `suspend: false` here.
+  #
+  # Kill criteria (per claude-runner-routing): retire if it never surfaces anything
+  # acted upon or becomes noise — delete this file + its kustomization entries.
+  suspend: true
+  schedule: "0 9 * * 0"
+  timeZone: America/New_York
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      # > the client's 300s A2A budget so the client's graceful timeout fires
+      # first and exits 0 (silent), rather than the Job deadline killing it.
+      activeDeadlineSeconds: 420
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: local-cron
+          annotations:
+            k8tz.io/inject: "false"
+        spec:
+          nodeSelector:
+            kubernetes.io/arch: amd64
+          serviceAccountName: local-cron
+          automountServiceAccountToken: false
+          restartPolicy: OnFailure
+          containers:
+            - name: check
+              image: docker.io/library/python:3.15
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -ceu
+                - exec python3 /app/arnold_queue_check.py
+              env:
+                - name: HOME
+                  value: /tmp
+                - name: TZ
+                  value: America/New_York
+                - name: AGENT_URL
+                  value: http://arnold.ai:8080/
+                - name: AGENT_NAME
+                  value: arnold
+                - name: TITLE
+                  value: arnold plan-queue check
+                - name: BUDGET_SECONDS
+                  value: "300"
+                - name: PROMPT
+                  value: >-
+                    Quick check of Rob's PUMP training-plan queue. Using ONLY your
+                    read-only pump tool, query the view api.v_plan_progress and read
+                    sessions_remaining (and total_sessions) for his active program.
+                    Then decide whether to remind him to run a training check-in:
+                    (A) If sessions_remaining is GREATER THAN 8 the queue is healthy
+                    or was recently refreshed — do NOT remind; if you have a prior
+                    "plan-queue reminder sent" note in memory, append a one-line
+                    memory observation that the queue is refreshed (re-arming the
+                    reminder for next time), then reply with exactly NONE.
+                    (B) If sessions_remaining is 8 OR FEWER, first search memory-mcp
+                    for a recent "plan-queue reminder sent" note: if you already
+                    reminded him during this low-queue stretch (and it is still low),
+                    reply with exactly NONE — do not double-remind. Otherwise append a
+                    one-line memory observation that you are sending the reminder now
+                    (your dedup marker), then return ONLY a brief check-in reminder
+                    for Rob: his PUMP plan is down to that many sessions (~2 rotations)
+                    left, time to check in so you can refresh his next 90 days — tell
+                    him to ping Claude to run the check-in.
+              # No envFrom: the notify-mcp email path needs no credentials (notify-mcp
+              # holds the recipient-lock). NOTIFY_URL defaults to notify-mcp /send.
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: script
+                  mountPath: /app
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: script
+              configMap:
+                name: local-cron-scripts
+                defaultMode: 0o555
+            - name: tmp
+              emptyDir:
+                medium: Memory
+                sizeLimit: 64Mi

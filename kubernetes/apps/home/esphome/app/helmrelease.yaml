@@ -68,6 +68,26 @@ spec:
               # /cache means a /config reset can never break compiles again.
               XDG_CACHE_HOME: /cache/.cache
 
+            # workaround: https://github.com/esphome/esphome/pull/19871 — remove
+            # when the esphome image is >= 2026.10 (that PR runs cmake/ninja
+            # directly instead of through idf.py). esp-idf 5.5.5 pins ninja
+            # 1.12.1 at a managed path (tools/ninja/1.12.1/ninja), but this image
+            # ships ninja 1.13.0 only on PATH (/usr/local/bin/ninja) and esphome
+            # 2026.9.1 builds via idf.py, which references the managed path and
+            # never installs it → every esp-idf compile dies with "no such file
+            # or directory". Symlink the PATH ninja into the managed path on
+            # every pod start; the toolchain lives on the regenerable /cache PVC,
+            # so this is also re-created after any cache reset. Best-effort
+            # (|| true): a failure here must never crash the dashboard — the
+            # reconciler's compile gate is the backstop. Tracked: home-ops#15085.
+            lifecycle:
+              postStart:
+                exec:
+                  command:
+                    - /bin/sh
+                    - -c
+                    - mkdir -p /cache/.cache/esphome/idf/tools/ninja/1.12.1 && ln -sf /usr/local/bin/ninja /cache/.cache/esphome/idf/tools/ninja/1.12.1/ninja || true
+
             probes:
               liveness:
                 enabled: false

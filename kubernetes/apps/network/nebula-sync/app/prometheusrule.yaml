@@ -1,0 +1,33 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: nebula-sync-rules
+  labels:
+    app.kubernetes.io/name: nebula-sync
+spec:
+  groups:
+    - name: nebula-sync
+      rules:
+        # Dead-man's switch. A single failed daily sync is non-fatal — the brain
+        # Pi-hole keeps serving its last-compiled gravity — so this is NOT critical
+        # and fires only on SUSTAINED failure (no successful sync in >2 days = at
+        # least two consecutive daily runs missed). That is the point at which the
+        # replica's blocklist is meaningfully stale and the beast-outage-resilience
+        # guarantee is eroding. Warning severity, routed to email.
+        # (If nebula-sync has NEVER succeeded, this metric is absent and won't fire;
+        # the first run is verified by hand at deploy, which establishes the series.)
+        - alert: NebulaSyncStale
+          annotations:
+            summary: nebula-sync has not synced the brain Pi-hole in over 2 days
+            description: >
+              No successful nebula-sync run in >2 days. The brain Pi-hole's
+              blocklist is drifting from beast and may miss newly-added blocks.
+              Check: kubectl -n network get cronjob nebula-sync; kubectl -n network
+              logs job/$(kubectl -n network get job -o name | tail -1)
+          expr: |
+            time() - kube_cronjob_status_last_successful_time{namespace="network", cronjob="nebula-sync"} > 172800
+          for: 2h
+          labels:
+            severity: warning

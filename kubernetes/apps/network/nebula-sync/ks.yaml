@@ -1,0 +1,31 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/kustomization-kustomize-v1.json
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: &app nebula-sync
+spec:
+  # Pi-hole v6 blocklist/gravity sync — keeps the second (brain) Pi-hole instance's
+  # gravity, adlists, groups and clients mirrored from the primary (beast). Runs as
+  # a daily one-shot CronJob (nebula-sync exits after one sync when CRON is unset).
+  # beast = PRIMARY (source of truth for blocklist edits), brain = REPLICA. Selective
+  # gravity-only sync with RUN_GRAVITY=true so the replica COMPILES a working
+  # blocklist (not just adlist config) — that is what makes "filtering survives a
+  # beast outage" true. SYNC_CONFIG_* are all off so the replica's own DNS/listen
+  # config and (stronger) admin password are never clobbered by the primary.
+  commonMetadata:
+    labels:
+      app.kubernetes.io/name: *app
+  targetNamespace: network
+  path: ./kubernetes/apps/network/nebula-sync/app
+  interval: 1h
+  timeout: 5m
+  prune: true
+  wait: false
+  sourceRef:
+    kind: GitRepository
+    name: home-ops-kubernetes
+    namespace: flux-system
+  dependsOn:
+    - name: onepassword-connect
+      namespace: external-secrets

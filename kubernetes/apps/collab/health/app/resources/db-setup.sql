@@ -38,10 +38,15 @@ GRANT SELECT ON ALL TABLES IN SCHEMA api TO health_ro;
 -- ========================== postgres-pump / pump ==========================
 CREATE SCHEMA IF NOT EXISTS api;
 
+-- public.weight is an append-only per-reading log (the bt-scale gateway
+-- burst-posts the same reading as it settles, and distinct same-day weigh-ins
+-- are kept). DISTINCT ON (date) collapses to one canonical row per date,
+-- latest recorded_at wins — mirroring PUMP's own SelectW read semantics so
+-- consumers (dashboard, Arnold, Crusher) see the same series PUMP's UI shows.
 CREATE OR REPLACE VIEW api.v_weight AS
-  SELECT date, weight::numeric AS weight_lb
+  SELECT DISTINCT ON (date) date, weight::numeric AS weight_lb
   FROM public.weight
-  ORDER BY date;
+  ORDER BY date, recorded_at DESC;
 
 -- CREATE ROLE health_ro LOGIN PASSWORD '<same value>' NOSUPERUSER NOCREATEDB NOCREATEROLE;
 GRANT USAGE ON SCHEMA api TO health_ro;

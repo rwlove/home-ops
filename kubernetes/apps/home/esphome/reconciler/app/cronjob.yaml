@@ -7,27 +7,24 @@ metadata:
   labels:
     app.kubernetes.io/name: esphome-reconciler
 spec:
-  # ───────────────────────────── DOUBLE OFF GATE ─────────────────────────────
-  # Ships OFF two independent ways, mirroring ai/network-drift:
-  #   (1) suspend: true                — Flux creates it; nothing ever fires.
-  #   (2) DRY_RUN=true (env, below)    — even when run, it COMPILES candidates
-  #                                      (proving the hard gate) but NEVER OTAs
-  #                                      and NEVER writes state.
-  # Merging this manifest flashes NOTHING. Bring-up, in order:
-  #   1. Safe test (dry-run): detects + compiles reachable candidates, no OTA.
-  #      pool-controller is EXCLUDED (winterized, below) so it is never a
-  #      candidate; a transiently-offline device is probed and skipped, never a
-  #      failure. Run the test:
-  #        kubectl -n home create job --from=cronjob/esphome-reconciler esphome-reconcile-test
-  #        kubectl -n home logs job/esphome-reconcile-test -f
-  #      To dry-run the known tag-bump backlog too (konnected / ratgdo ×2), set
-  #      FORCE_DEVICES for the one-shot (see README). Prefer a throwaway Job
-  #      manifest over `kubectl edit` here — Flux reverts edits to this CronJob.
-  #   2. Go LIVE: set DRY_RUN=false (THE toggle), then suspend=false.
-  #   3. One-time backlog convergence: with DRY_RUN=false, set FORCE_DEVICES to
-  #      the stale configs for a run (capped at MAX_PER_RUN), then clear it —
-  #      steady-state detection (content-hash + version-drift) takes over.
-  suspend: true
+  # ───────────────────────────────── LIVE ────────────────────────────────────
+  # Went live 2026-10-18. Both OFF gates are now off: suspend: false (fires on
+  # schedule) and DRY_RUN=false (env below — real OTA permitted). The ninja
+  # compile workaround (#15086) + one-time esp-idf build-cache clean unblocked
+  # green compiles first.
+  # First run after go-live SEEDS a per-device baseline hash and flashes NOTHING
+  # (no state file yet + no config/version drift on the online fleet). Real OTA
+  # happens only on a later config-hash change (Renovate @tag bump / hand edit)
+  # or core-version drift, one device at a time, compile-gated and verified.
+  # To PAUSE reconciliation: set suspend: true. To keep running but compile-only
+  # (no OTA, no state writes): set DRY_RUN=true. Prefer a Git edit here over
+  # `kubectl edit` — Flux reverts hand edits to this CronJob.
+  # One-time backlog convergence (pending external-component @tag bumps on
+  # konnected / ratgdo ×2 that version-drift detection can't see because the
+  # dashboard only tracks the esphome CORE version): set FORCE_DEVICES to those
+  # configs for a single run (capped at MAX_PER_RUN), then clear it — see README.
+  # pool-controller stays EXCLUDED (winterized) — un-exclude in spring.
+  suspend: false
   # Daily, overnight quiet window — an OTA briefly reboots the device (garage,
   # alarm panel, voice, pool), so flash when the household is idle.
   schedule: "30 3 * * *"
@@ -92,8 +89,9 @@ spec:
                 - name: EXCLUDE_DEVICES
                   value: "pool-controller.yaml"
                 # ───── THE OFF TOGGLE ─────  "false" permits real OTA flashing.
+                # LIVE since 2026-10-18. Set back to "true" for compile-only.
                 - name: DRY_RUN
-                  value: "true"
+                  value: "false"
                 - name: NOTIFY_URL
                   value: http://notify-mcp.mcp-system:8060/send
                 - name: AGENT

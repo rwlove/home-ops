@@ -16,19 +16,40 @@ spec:
         # "recently OOMing" rather than "ever OOMed". A crash-loop keeps
         # incrementing restarts, so it stays firing; a stable-after-OOM
         # container clears once 15m passes without a new restart.
-        # keep_firing_for: 10m holds across the metric flapping to 0 mid
-        # restart cycle so tight crash-loops don't go silent. ignoring(reason)
-        # matches the gating series (no reason label) against the OOM series.
+        #
+        # 2026-10-18: a single OOM that restarts and comes back Ready was
+        # firing immediately (for: 0m) — paging AND triggering the kagent
+        # enrichment email for a container that had already self-healed by
+        # the time anyone read it. Added a second AND clause requiring the
+        # OOM be SUSTAINED (still not Ready) or RECURRING (2+ restarts) —
+        # per the home-ops self-heal-first alerting rule — plus for: 5m so
+        # a clean single restart never dwells long enough to fire. The
+        # recurring branch uses a 1h window (not 15m) so two restarts close
+        # together stay >= 2 for comfortably longer than the 5m dwell —
+        # a 15m window left a narrow edge case where two restarts landing
+        # near the window boundary could drop back under the threshold
+        # before for: elapsed. keep_firing_for: 10m holds across the metric
+        # flapping to 0 mid restart cycle so tight crash-loops don't go
+        # silent. ignoring(reason) matches the gating series (no reason
+        # label) against the OOM series; on(namespace,pod,container) scopes
+        # the sustained/recurring check to the same container.
         - alert: OOMKilled
           annotations:
-            summary: Container {{ $labels.container }} of pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is out of memory
-            message: Container {{ $labels.container }} of pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is out of memory
-            description: Container {{ $labels.container }} of pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is out of memory
+            summary: Container {{ $labels.container }} of pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is out of memory (sustained/recurring)
+            message: Container {{ $labels.container }} of pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is out of memory and has not cleanly self-healed
+            description: Container {{ $labels.container }} of pod {{ $labels.pod }} in namespace {{ $labels.namespace }} OOM-killed and is still not Ready, or has OOM-restarted 2+ times within an hour — not a single self-healed restart
           expr: |
-            (kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} == 1)
-            and ignoring(reason)
-            (changes(kube_pod_container_status_restarts_total[15m]) > 0)
-          for: 0m
+            (
+              (kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} == 1)
+              and ignoring(reason)
+              (changes(kube_pod_container_status_restarts_total[15m]) > 0)
+            )
+            and on (namespace, pod, container) (
+              (kube_pod_container_status_ready == 0)
+              or
+              (changes(kube_pod_container_status_restarts_total[1h]) >= 2)
+            )
+          for: 5m
           keep_firing_for: 10m
           labels:
             severity: critical

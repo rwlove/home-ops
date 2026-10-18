@@ -362,3 +362,24 @@ spec:
     staticConfig:
       static:
         - brain:53
+---
+# yaml-language-server: $schema=https://k8s-schemas.home-operations.com/monitoring.coreos.com/probe_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: dns-forwarder
+spec:
+  # Direct health probe of the upstream forwarder brain's named forwards to
+  # (pihole+unbound on beast, 192.168.6.66). Reuses the dns_brain module
+  # (asks for brain's A record, which the forwarder answers via its
+  # REV_SERVER back to brain) purely to assert the forwarder is responding;
+  # a stall here backpressures named and can masquerade as BrainDnsDown, so
+  # ForwarderDnsDown (helmrelease.yaml, warning) disambiguates the two.
+  interval: 1m
+  module: dns_brain
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - 192.168.6.66:53

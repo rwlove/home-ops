@@ -17,6 +17,17 @@ spec:
     # the `devices` job uses the icmp module and probe_success is 1 for
     # ~70 targets live. So this was a no-op, not a broken prober — do
     # not "restore" it by adding NET_RAW without evidence it's needed.
+    # Resilience: 2 replicas pinned to different nodes so one node's network
+    # blip can't zero the whole probe fleet and false-fire BrainDnsDown
+    # (incident 2026-10-18 — the sole prober was on worker3 when it blipped).
+    replicas: 2
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - topologyKey: kubernetes.io/hostname
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: prometheus-blackbox-exporter
     resources:
       requests:
         cpu: 10m
@@ -298,11 +309,33 @@ spec:
             description: |-
               brain authoritative DNS (named) is not answering A queries
               ({{ $labels.instance }}) — the whole home loses name
-              resolution. Check `systemctl status named` on brain.
+              resolution. TRIAGE: first rule out a prober-side false
+              positive — if other unrelated probes (nfs/http/icmp) also
+              went 0 at the same time, the blackbox-exporter or its node
+              blipped, not DNS (check the exporter pod + its node). If only
+              dns-brain is 0, check `systemctl status named` on brain and
+              its forwarder (pihole+unbound on beast, 192.168.6.66).
           expr: probe_success{job="probe/observability/dns-brain"} == 0
           for: 3m
           labels:
             severity: critical
+        # Direct health probe of the upstream forwarder brain's named forwards
+        # to (pihole+unbound on beast, 192.168.6.66). Disambiguates a forwarder
+        # stall (backpressures named → can masquerade as BrainDnsDown) from a
+        # brain-local DNS fault. Warning, not critical: BrainDnsDown already
+        # carries the house-visible critical page, and one root event shouldn't
+        # double-page. See reference_blackbox_single_replica_false_fires_fleet.
+        - alert: ForwarderDnsDown
+          annotations:
+            description: |-
+              Upstream DNS forwarder {{ $labels.instance }} (pihole+unbound on
+              beast) is not answering — brain named degrades for every recursive
+              query and may trip BrainDnsDown. Single-forwarder SPOF; see
+              dns-robust-private-target.
+          expr: probe_success{job="probe/observability/dns-forwarder"} == 0
+          for: 3m
+          labels:
+            severity: warning
     securityContext:
       allowPrivilegeEscalation: false
       capabilities:

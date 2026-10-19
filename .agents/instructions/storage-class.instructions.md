@@ -130,6 +130,29 @@ New Longhorn volumes need:
   Deployment/StatefulSet, never CronJob-only). Confirmed cluster-wide
   2026-10-11 after `beets-config-xfs` (CronJob-backed, normally
   detached) repeatedly broke the sweep.
+- **Second failure mode — retired migration rollback volumes.** A
+  dynamic→static migration keeps the old dynamic volume `Retain`'d as a
+  rollback copy (see any `longhorn-pvc*.yaml`). That now-permanently-
+  detached orphan Volume CR still carries the `weekly-filesystem-trim`
+  (and `default`) group labels it had while it was the live volume —
+  nothing strips them on retirement. `default` tasks tolerate the orphan
+  (they auto-attach, run, detach), but `filesystem-trim` hard-fails on it
+  and poisons the whole sweep exactly as above. This recurred 2026-10-17
+  once six such orphans had accumulated (forgejo + three media-pull-stack
+  config vols + lubelogger + medikeep, all migrated dynamic→static in the
+  2026-10 batch). **Longhorn has no volume selector that can auto-exclude
+  a volume by PV phase (`Released`/absent) — group-label membership is the
+  only selection mechanism — so this cannot be fixed on the RecurringJob
+  side.** It is a required manual retirement step: **when you retire a
+  dynamic volume during a dynamic→static migration (or leave an old
+  volume behind after a restore-to-new-volume), strip its trim label from
+  the Volume CR:**
+
+  ```sh
+  kubectl label volumes.longhorn.io <name> -n longhorn-system \
+    recurring-job-group.longhorn.io/weekly-filesystem-trim-
+  ```
+
 - `unmapMarkSnapChainRemoved=enabled` set per-Volume to prevent
   snapshot-pinned slack.
 - `chmod 755` on `lost+found` if the app runs non-root — fresh ext4

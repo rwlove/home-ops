@@ -80,6 +80,18 @@ spec:
   # `recurring-job-group.longhorn.io/weekly-filesystem-trim` to be trimmed.
   # Candidates are volumes backing a long-running Deployment/StatefulSet
   # (always attached); CronJob-only volumes are excluded by design.
+  #
+  # Second hazard -- retired migration rollback volumes: a dynamic->static
+  # migration keeps the old dynamic volume Retain'd as a rollback copy (see
+  # any longhorn-pvc*.yaml). That permanently-detached orphan Volume CR still
+  # carries the weekly-filesystem-trim + default labels from its live days,
+  # and nothing strips them on retirement -> it poisons the trim sweep the
+  # same way (recurred 2026-10-17 after 6 such orphans piled up). Longhorn
+  # has no volume selector that can exclude by PV phase, so this canNOT be
+  # fixed here -- retiring a dynamic volume MUST strip its trim label:
+  #   kubectl label volumes.longhorn.io <name> -n longhorn-system \
+  #     recurring-job-group.longhorn.io/weekly-filesystem-trim-
+  # See storage-class.instructions.md (filesystem-trim section) + longhorn_restore.md.
   groups:
     - weekly-filesystem-trim
   retain: 0

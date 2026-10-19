@@ -2573,7 +2573,20 @@ verify the labels.</p>
   <code>Retain</code>. Manually deleting a PVC does not free the PV; you must
   delete the PV separately. This is intentional protection but
   surprising during a restore.</li>
+<li><strong>Retired/old volumes keep their recurring-job labels</strong> — after a
+  restore-to-new-volume (Scenario B/C) or a dynamic→static migration,
+  the old Longhorn Volume CR you leave behind (<code>Retain</code>) still carries
+  its <code>weekly-filesystem-trim</code> + <code>default</code> group labels. The <code>default</code>
+  jobs tolerate it (they auto-attach), but once it's detached for good it
+  silently poisons the weekly <code>filesystem-trim</code> sweep — trim can't
+  auto-attach, so one detached volume hard-fails the whole run. Strip the
+  trim label when you retire it:</li>
 </ul>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>kubectl<span class="w"> </span>label<span class="w"> </span>volumes.longhorn.io<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>longhorn-system<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>recurring-job-group.longhorn.io/weekly-filesystem-trim-
+</span></code></pre></div>
+<p>See <code>storage-class.instructions.md</code> (filesystem-trim section). Recurred
+  2026-10-17 after six migration rollback orphans accumulated.</p>
 <h2 id="verification-checklist">Verification checklist<a class="headerlink" href="#verification-checklist" title="Permanent link">&para;</a></h2>
 <p>After any restore:</p>
 <ul class="task-list">

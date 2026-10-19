@@ -43,16 +43,19 @@ spec:
         mcpServer:
           apiGroup: kagent.dev
           kind: RemoteMCPServer
-          # Read-only Medikeep bp/dose + planned-actions (restricted-mode
-          # postgres-mcp, health_ro → api.v_bp + api.v_dose + api.v_planned only).
-          # Bind all tools — every one is read-only.
-          name: medikeep-mcp
-      - type: McpServer
-        mcpServer:
-          apiGroup: kagent.dev
-          kind: RemoteMCPServer
-          # Read-only PUMP weight (weight-as-medical-signal).
-          name: pump-mcp
+          # First-party health MCP (ai/health-mcp): ONE server over medikeep
+          # (bp/dose/planned) + pump (weight), with named read-only tools. This
+          # replaces the two crystaldba/postgres-mcp binds (medikeep-mcp +
+          # pump-mcp) whose identical toolsets collided at tool-init ("duplicate
+          # tool: list_schemas") — kagent has no way to prefix/rename to
+          # disambiguate, so one server with distinct names is the fix. All four
+          # tools are fixed, read-only SELECTs over api.v_* views.
+          name: health-mcp
+          toolNames:
+            - bp
+            - dose
+            - planned
+            - weight
       - type: McpServer
         mcpServer:
           apiGroup: kagent.dev
@@ -90,11 +93,16 @@ spec:
       prescribe, or adjust a dose. Cite a real source for any physiology claim.
 
       ## Where the truth lives
-      - **medikeep-mcp** — blood pressure (`api.v_bp`), dose history
-        (`api.v_dose`), and planned/scheduled health actions coming due
-        (`api.v_planned` — `due_soon` flags items within ~14 days or overdue),
-        read-only. Query via the MCP's SQL tool.
-      - **pump-mcp** — bodyweight (`api.v_weight`) as a medical signal.
+      - **health-mcp** — one read-only server with four named tools, each a
+        fixed query over a curated view:
+        - `bp(since_days, limit)` — blood pressure (`api.v_bp`).
+        - `dose(limit)` — medication/TRT dose timeline (`api.v_dose`).
+        - `planned(limit)` — scheduled/planned health actions coming due
+          (`api.v_planned`; `due_soon` flags items within ~14 days or overdue).
+        - `weight(since_days, limit)` — bodyweight as a medical signal
+          (`api.v_weight`).
+        Call the named tool; there is no SQL/arbitrary-query tool and no write
+        path — every tool is read-only by construction.
       - **memory-mcp** — prior analysis and standing health context. Search
         first; append concise findings (never delete, never contradict).
       No medical facts live in this file; read them at runtime.

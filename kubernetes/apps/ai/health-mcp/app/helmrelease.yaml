@@ -1,0 +1,146 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app health-mcp
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  values:
+    defaultPodOptions:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+    controllers:
+      health-mcp:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        type: deployment
+        replicas: 1
+        containers:
+          app:
+            image:
+              # First-party (containers repo). Read-only MCP fronting the
+              # medikeep + pump read-replicas with named tools (bp/dose/planned/
+              # weight), replacing Crusher's two colliding postgres-mcp binds.
+              # NOTE: digest-pin this after the first containers CI build.
+              repository: ghcr.io/rwlove/health-mcp
+              tag: 0.1.0
+            # Read-only three ways: health_ro role (SELECT api.* views only),
+            # default_transaction_read_only=on per connection, and no write tool
+            # in the server. Streamable-HTTP (stateless) binds 0.0.0.0:8080 /mcp.
+            env:
+              TZ: America/New_York
+            # MEDIKEEP_DB_URI + PUMP_DB_URI (both health_ro) from 1P via the
+            # ExternalSecret below.
+            envFrom:
+              - secretRef:
+                  name: health-mcp-secret
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /healthz
+                    port: &port 8080
+                  initialDelaySeconds: 15
+                  periodSeconds: 30
+                  failureThreshold: 5
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /readyz
+                    port: *port
+                  initialDelaySeconds: 10
+                  periodSeconds: 15
+                  failureThreshold: 3
+            resources:
+              requests:
+                cpu: 15m
+                memory: 128Mi
+              limits:
+                memory: 512Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              # readOnlyRootFilesystem left OFF for bring-up (same caution as
+              # medikeep-mcp/pump-mcp); /tmp is an emptyDir below. Tighten to
+              # true after soak.
+              readOnlyRootFilesystem: false
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+    service:
+      app:
+        controller: health-mcp
+        ports:
+          http:
+            port: *port
+    persistence:
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          health-mcp:
+            app:
+              - path: /tmp
+    externalSecrets:
+      health-mcp:
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: onepassword-connect
+        target:
+          name: health-mcp-secret
+          template:
+            data:
+              # One server, two read-only connections (health_ro, same 1P pass).
+              MEDIKEEP_DB_URI: "postgresql://health_ro:{{ .RO_DB_PASS }}@postgres-medikeep-ro.databases.svc.cluster.local:5432/medikeep"
+              PUMP_DB_URI: "postgresql://health_ro:{{ .RO_DB_PASS }}@postgres-pump-ro.databases.svc.cluster.local:5432/pump"
+        dataFrom:
+          - extract:
+              key: health
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: health-mcp-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: health-mcp
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # kagent agents (ai ns) call the MCP over streamable-HTTP on :8080.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: ai
+            toPorts:
+              - ports:
+                  - port: "8080"
+                    protocol: TCP
+        egress:
+          # → Medikeep CNPG read replica (bp / dose / planned).
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: databases
+                  cnpg.io/cluster: postgres-medikeep
+            toPorts:
+              - ports:
+                  - port: "5432"
+                    protocol: TCP
+          # → PUMP CNPG read replica (weight).
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: databases
+                  cnpg.io/cluster: postgres-pump
+            toPorts:
+              - ports:
+                  - port: "5432"
+                    protocol: TCP

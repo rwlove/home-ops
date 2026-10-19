@@ -70,6 +70,19 @@ spec:
                     a real gap or a schedule/timezone artifact, the likely cause,
                     and the single next step you would propose (name the backup
                     precondition for any destructive fix).
+                    A detached Longhorn volume with no pod owner is NOT
+                    automatically a zombie. Before flagging one for deletion,
+                    look up its PersistentVolume: a PV with reclaimPolicy=Retain
+                    in phase Released is an INTENTIONAL retained rollback/migration
+                    copy (the repo keeps the old volume after a dynamic->static or
+                    XFS->ext4 cutover), not an orphan. Classify these as
+                    "intentionally retained -- not a durability gap"; do NOT
+                    propose deleting them as zombies, at most note them as
+                    retirement candidates pending owner confirmation. A "unknown"
+                    robustness on a detached volume means Longhorn has not attached
+                    it to count replicas, not that replicas are lost. Only a
+                    detached volume whose PV is absent, or a PV in phase Released
+                    with reclaimPolicy=Delete, is a true orphan worth surfacing.
               resources:
                 requests:
                   cpu: 50m

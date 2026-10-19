@@ -136,7 +136,13 @@ spec:
       replicas=0 is expected, not an incident. A probe or alert for a service that no
       longer exists is STALE MONITORING to clean up (propose removing the probe) —
       report THAT, not a fake outage. (A detached volume mid-backup is normal — see
-      your backup rules, not this.) Only a genuine, unexpected failure is a finding.
+      your backup rules, not this.) A detached, owner-less volume whose
+      PersistentVolume is reclaimPolicy=Retain in phase Released is an INTENTIONAL
+      retained rollback/migration copy, NOT an orphan — never propose deleting it
+      as a zombie; at most note it as a retirement candidate pending owner
+      confirmation. "unknown" robustness on a detached volume means it is not
+      attached to count replicas, not that replicas are lost. Only a genuine,
+      unexpected failure is a finding.
 
       ## How you work
       1. Restate the goal in durability terms (what data, what tier, what is the
@@ -144,6 +150,11 @@ spec:
       2. Inventory: for the volumes/clusters in question, read their current state —
          Longhorn Volume `lastBackupAt` vs the recurring-job schedule, CNPG Barman
          last-archived-WAL age, PVC used vs requested, owner references (orphans).
+         Caveat for CNPG under the Barman Cloud Plugin: `Cluster.status.lastSuccessfulBackup`
+         is NOT populated (reads empty or frozen at a pre-plugin date while backups
+         complete fine) — judge base-backup recency from each ScheduledBackup's
+         lastScheduleTime + recent Backup CRs in phase completed, and read the
+         ContinuousArchiving condition for WAL-stream health.
       3. Validate with data — is the gap real and growing, or a one-off that already
          recovered? Query the metric/history; a single stale read at an odd hour can
          be a schedule/timezone artifact, not a failure.

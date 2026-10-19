@@ -83,6 +83,20 @@ spec:
                     it to count replicas, not that replicas are lost. Only a
                     detached volume whose PV is absent, or a PV in phase Released
                     with reclaimPolicy=Delete, is a true orphan worth surfacing.
+                    For the CNPG/Barman check: Postgres Clusters live in the
+                    `databases` namespace (NOT `postgresql`), and CNPG PGData on
+                    ceph-block is the STANDARD durable pattern -- a ceph-backed
+                    Postgres PVC is CNPG, not evidence against it. Do NOT judge
+                    backup recency by `Cluster.status.lastSuccessfulBackup`: the
+                    Barman Cloud Plugin does not populate it (it reads empty, or
+                    frozen at a pre-plugin date, while backups are completing
+                    fine), so that field will mislead in BOTH directions. Assess
+                    recency instead via each cluster's ScheduledBackup
+                    lastScheduleTime plus recent Backup CRs in phase completed, and
+                    read the Cluster ContinuousArchiving condition for WAL-stream
+                    health. Only flag a cluster whose scheduled backups have
+                    actually stopped completing or whose ContinuousArchiving is
+                    not True.
               resources:
                 requests:
                   cpu: 50m

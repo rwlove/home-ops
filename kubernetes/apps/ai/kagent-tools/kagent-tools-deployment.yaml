@@ -1,0 +1,119 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-v1.json
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kagent-tools
+  namespace: ai
+  labels:
+    app.kubernetes.io/instance: kagent
+    app.kubernetes.io/name: kagent-tools
+    app.kubernetes.io/version: 0.3.0
+    helm.sh/chart: kagent-tools-0.3.0
+  annotations:
+    meta.helm.sh/release-name: kagent
+    meta.helm.sh/release-namespace: ai
+spec:
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: kagent
+      app.kubernetes.io/name: kagent-tools
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: kagent
+        app.kubernetes.io/name: kagent-tools
+    spec:
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+      serviceAccountName: kagent-tools
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: tools
+        image: ghcr.io/kagent-dev/kagent/tools:0.3.0
+        imagePullPolicy: IfNotPresent
+        command:
+        - /tool-server
+        args:
+        - --port
+        - "8084"
+        - --metrics-port
+        - "8085"
+        ports:
+        - containerPort: 8084
+          name: http-tools
+          protocol: TCP
+        - containerPort: 8085
+          name: http-metrics
+          protocol: TCP
+        env:
+        - name: KAGENT_NAMESPACE
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.namespace
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              key: OPENAI_API_KEY
+              name: kagent-tools-openai
+              optional: true
+        - name: OTEL_TRACING_ENABLED
+          value: "false"
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: http://host.docker.internal:4317
+        - name: OTEL_EXPORTER_OTLP_TRACES_TIMEOUT
+          value: "15"
+        - name: OTEL_EXPORTER_OTLP_TRACES_INSECURE
+          value: "true"
+        - name: TOKEN_PASSTHROUGH
+          value: "false"
+        - name: PROMETHEUS_URL
+          value: prometheus.kagent.svc.cluster.local:9090
+        - name: PROMETHEUS_USERNAME
+          value: ""
+        - name: PROMETHEUS_PASSWORD
+          value: ""
+        - name: GRAFANA_URL
+          value: http://grafana.kagent.svc.cluster.local:3000
+        - name: GRAFANA_API_KEY
+          value: ""
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: "1"
+            memory: 2Gi
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http-tools
+            scheme: HTTP
+          initialDelaySeconds: 15
+          periodSeconds: 15
+          timeoutSeconds: 1
+          failureThreshold: 3
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp
+      volumes:
+      - emptyDir: {}
+        name: tmp

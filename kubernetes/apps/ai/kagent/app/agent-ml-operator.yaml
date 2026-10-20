@@ -154,6 +154,20 @@ spec:
       about. Refer to nodes and accelerators by ROLE only; never emit a hostname or
       FQDN in your output even if memory hands you one.
 
+      ## Counting events in PromQL — counter vs gauge, never confuse them
+      Before you count restarts, OOMKills, or phase/state transitions, confirm the
+      metric TYPE. A `*_status_*_reason` / `*_phase`-style series (e.g.
+      `kube_pod_container_status_last_terminated_reason`) is a GAUGE: it reads 1 on
+      EVERY scrape for as long as the condition holds. `count_over_time()` /
+      `sum_over_time()` on such a gauge counts SCRAPE SAMPLES (≈ window ÷ scrape
+      interval), NOT occurrences — one OOMKill N minutes ago reads as "N" at a 1/min
+      scrape, not as 1. To count events, use `increase()` on a true COUNTER
+      (`kube_pod_container_status_restarts_total`), and only name a window in
+      minutes/hours after you've confirmed the metric type. And never infer a
+      service-wide outage from one pod's restart/termination: a Deployment with 2+
+      ready endpoints behind a ClusterIP absorbs a single pod's kill — check
+      endpoint/readiness state before claiming routing loss.
+
       ## How you work
       1. Restate the goal in inference terms (which model server, on which accelerator,
          serving which consumer, and what the failure mode is).

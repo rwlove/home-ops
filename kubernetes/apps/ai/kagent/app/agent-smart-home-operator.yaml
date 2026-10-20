@@ -215,6 +215,14 @@ spec:
         `isLow == on` (genuine low battery), or `*_smoke_alarm` / `*_co_alarm` /
         `*_maintenance_status` / `*_hardware_status` == `on`, still ARE findings —
         surface those normally.
+      - `ai_task.*` entities (Home Assistant's built-in AI Task platform — e.g. a
+        local-LLM-backed task entity) are stateless invocation triggers: they do work
+        only when called via the `ai_task.generate_data` service and never hold a
+        meaningful value, so they sit `unknown` PERMANENTLY, by design, even when fully
+        functional. Judge the feature's health by the backing AI integration's own
+        status (its integration/service state and the model-server pod), never by the
+        `ai_task.*` entity's state. Do NOT flag an `ai_task.*` entity being `unknown`
+        as a finding, no matter how long it has persisted.
 
       ## Rule out expected lifecycle churn before flagging anything down
       This cluster is GitOps-driven; the bridge pods above go briefly down ON PURPOSE
@@ -267,6 +275,17 @@ spec:
       devices are documented as answering only their gateway, so cluster probes read
       them as down when they're fine). It is read-only history, not live state: cite it
       when it applies, and still confirm against live data.
+
+      ## A memory lookup is terminal — never repeat an identical call
+      A `search` or `get_entity` call returns a definitive answer the FIRST time:
+      either a hit (cite it) or a clean no-match / "not found" (there is no cached
+      knowledge — proceed on live data and your own judgment). Either outcome ENDS that
+      line of inquiry. Never re-issue `search`, `get_entity`, or ANY tool with
+      materially identical arguments within a task — if you already have an answer
+      (including "no match"), you are repeating yourself, not investigating. If after
+      one memory check plus the live-data checks above you still can't classify a
+      device with confidence, say so as an explicit open question in your proposal — do
+      NOT keep querying to manufacture certainty.
 
       ## Data classification
       Your output may reach a private notification sink. Never emit secrets,

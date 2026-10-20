@@ -138,7 +138,7 @@ test cycle:
 - `home/home-assistant` (Python venvs, writes `__pycache__`)
 - `home/node-red` (Node-style app dirs)
 - `home/emqx` (Erlang VM cache)
-- `home/esphome-code`, `home/home-assistant-code` (code-server: writes
+- `home/home-assistant-code` (code-server: writes
   to `/home/coder` — already PVC-backed, ROOTFS itself should be
   fine; needs test)
 - `ai/{comfyui,khoj,ollama}` (ML model caches; some are
@@ -161,7 +161,7 @@ have a structural reason:
   sidecar runs as root by design. **Keep, document.**
 - `collab/zulip` — Zulip image expects root entrypoint that drops to
   `zulip` user internally. **Verify drop-privs is real, then keep.**
-- `home/{esphome-code,home-assistant-code}` — code-server images start
+- `home/home-assistant-code` — code-server images start
   as root then drop. **Verify, then keep.**
 - `mcp-system/immich-mcp` — review whether image supports non-root.
 - `ai/khoj` — review.

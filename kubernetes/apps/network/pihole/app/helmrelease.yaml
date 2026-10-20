@@ -100,19 +100,27 @@ spec:
             #     FTL drops to its own uid internally.
             #   - readOnlyRootFilesystem: false: s6 + unbound + FTL write across
             #     the rootfs at startup.
-            # Still hardened: no privilege escalation, minimal cap set,
-            # RuntimeDefault seccomp. Cap set confirmed via test-boot
-            # (2026-10-20): SETFCAP is REQUIRED — the image's init runs
-            # `setcap CAP_CHOWN,CAP_NET_BIND_SERVICE+ep` on the pihole-FTL
-            # binary so FTL can run as the non-root pihole uid; without
-            # SETFCAP that step fails with "Operation not permitted" and the
-            # container exits 1 ("Cannot run as non-root"). This is cleaner
-            # than the image's DNSMASQ_USER=root fallback (which runs FTL as
-            # root). CHOWN/NET_BIND_SERVICE are the file-caps FTL ends up
-            # with; DAC_OVERRIDE/FOWNER/SETGID/SETUID cover the s6 init's
+            # Still hardened: drop-ALL + minimal cap set + RuntimeDefault
+            # seccomp. Cap set + allowPrivilegeEscalation confirmed via
+            # test-boot (2026-10-20), both REQUIRED by the image's non-root
+            # FTL design:
+            #   - SETFCAP: the init runs `setcap
+            #     CAP_CHOWN,CAP_NET_BIND_SERVICE+ep` on the pihole-FTL binary
+            #     so FTL can run as the non-root pihole uid. Without it that
+            #     step fails "Operation not permitted" -> exit 1.
+            #   - allowPrivilegeEscalation: true: file-capabilities are
+            #     IGNORED on exec when no_new_privs is set, and
+            #     allowPrivilegeEscalation:false sets no_new_privs. With it
+            #     false, FTL execs as pihole WITHOUT the NET_BIND_SERVICE
+            #     file-cap and dnsmasq fails to bind :53 ("Permission
+            #     denied"). true lets the file-cap take effect. Still far
+            #     better than DNSMASQ_USER=root (FTL as root): FTL runs
+            #     non-root with only CHOWN + NET_BIND_SERVICE.
+            # CHOWN/NET_BIND_SERVICE are the file-caps FTL ends up with;
+            # DAC_OVERRIDE/FOWNER/SETGID/SETUID cover the s6 init's
             # user/group + gravity-db setup before it drops privilege.
             securityContext:
-              allowPrivilegeEscalation: false
+              allowPrivilegeEscalation: true
               readOnlyRootFilesystem: false
               capabilities:
                 drop:

@@ -4,13 +4,17 @@
 # default-deny enforces both directions; this punches the holes. DNS egress is
 # provided cluster-wide by the baseline network-policy component (not repeated).
 #
-# nebula-sync reaches the two Pi-hole v6 admin APIs by IP on :80 (PIHOLE_WEBPORT=80):
+# nebula-sync reaches the Pi-hole v6 admin APIs on :80 (PIHOLE_WEBPORT=80):
 #   - 192.168.6.66  beast Pi-hole (PRIMARY) — on beast's virbr0, routed via brain
 #   - 10.20.20.2    brain Pi-hole (REPLICA) — on brain's netavark bridge, routed via
 #                   the pod's default gateway (brain). Reachability from a cluster pod
 #                   is verified by the first sync run; if a pod cannot reach it, the
 #                   fallback is to run nebula-sync as a brain-host quadlet instead.
-# No other egress: addresses are literal IPs, so no DNS/world is needed.
+#   - pihole (network ns)  in-cluster Pi-hole (REPLICA) — reached in-cluster by its
+#                   web Service name, so this adds an endpoint-selector egress rule
+#                   (below) rather than a literal IP. Cluster-wide DNS egress for
+#                   resolving the Service name is provided by the baseline component.
+# The two off-box replicas remain literal IPs; the in-cluster one is an endpoint.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -26,6 +30,15 @@ spec:
     - toCIDR:
         - 192.168.6.66/32
         - 10.20.20.2/32
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+    # In-cluster Pi-hole (REPLICA) — reached by its web Service name on :80.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: pihole
       toPorts:
         - ports:
             - port: "80"

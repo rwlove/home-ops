@@ -1,0 +1,72 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+# Ingress + egress allows for the in-cluster Pi-hole (network ns). Additive —
+# the network namespace default-deny enforces both directions; these rules
+# punch the holes. Cluster-wide DNS egress for the pod's OWN resolution is
+# provided by the baseline network-policy component (not repeated here).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: pihole-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: pihole
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    # DNS from every LAN VLAN + the cluster. The LoadBalancer Service uses
+    # externalTrafficPolicy=Local, so the client's real source IP is preserved
+    # and matched here (192.168.0.0/16 = mgmt/infra VLANs; 10.0.0.0/8 covers
+    # IoT 10.20, Guest 10.30, Security 10.40, and the pod/LB ranges 10.42-45).
+    - fromCIDR:
+        - 192.168.0.0/16
+        - 10.0.0.0/8
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: TCP
+            - port: "53"
+              protocol: UDP
+    # Web UI via the internal Envoy gateway (HTTPRoute → web Service :80).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+    # nebula-sync pushes gravity over the v6 admin API (:80).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: nebula-sync
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+  egress:
+    # Conditional forwarding (revServers): internal *.thesteamedcrab.com names
+    # go to brain's authoritative BIND. brain is the router and stays up during
+    # a beast outage, so internal resolution is beast-independent.
+    - toCIDR:
+        - 192.168.1.1/32
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: TCP
+            - port: "53"
+              protocol: UDP
+    # Recursive resolution: the bundled unbound process (127.0.0.1#5335) recurses
+    # from the root servers, so public-name egress is :53 to the internet. This
+    # is what makes public resolution independent of beast's unbound.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: TCP
+            - port: "53"
+              protocol: UDP

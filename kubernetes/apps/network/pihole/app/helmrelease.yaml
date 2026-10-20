@@ -1,0 +1,176 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app pihole
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 30m
+  values:
+    controllers:
+      pihole:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        type: deployment
+        # RWO ceph-block PVCs — a single instance, so Recreate avoids two pods
+        # fighting over the same volume during a roll.
+        strategy: Recreate
+        pod:
+          # HA rationale: run ONLY on the bare-metal M910q workers. A beast-VM
+          # outage must not evict this pod. worker2/3/4 are the physical nodes
+          # (CentOS 9, USB radio dongles attached); worker5-8 + master2/3 are
+          # beast VMs. No generic "bare-metal" node label exists, so the pin is
+          # by hostname; revisit if a NodeFeatureRule label is added later.
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: kubernetes.io/hostname
+                        operator: In
+                        values:
+                          - worker2.thesteamedcrab.com
+                          - worker3.thesteamedcrab.com
+                          - worker4.thesteamedcrab.com
+          # fsGroup so FTL (which drops to a non-root uid inside the image) can
+          # write the ceph-block PVCs.
+          securityContext:
+            fsGroup: 1000
+            fsGroupChangePolicy: OnRootMismatch
+        containers:
+          app:
+            # PARITY with beast + brain: both run mpgirro/pihole-unbound (NOT
+            # plain official pihole), pinned to this same digest. The bundled
+            # unbound recursive resolver (127.0.0.1#5335) is what makes public
+            # resolution independent of beast — the whole point of a 3rd node.
+            image:
+              repository: docker.io/mpgirro/pihole-unbound
+              tag: 2026.07.2@sha256:c1cdb715914076b5a74c920ed1446c9a061ef76eaaecce943c030bce01156a53
+            env:
+              TZ: America/New_York
+              PIHOLE_WEBPORT: "80"
+              # FTL answers only "local" clients by default; LAN clients arrive
+              # via the BGP-advertised LB IP and would be refused. ALL opens it
+              # (safe: the LB IP is internal-only + CNP-scoped, not WAN-facing).
+              FTLCONF_dns_listeningMode: "ALL"
+              # Upstream = in-pod unbound (recursive). Beast-independent.
+              FTLCONF_dns_upstreams: "127.0.0.1#5335"
+              # Conditional forwarding for internal names → brain BIND. This is
+              # the exact parity line from beast/brain; its ABSENCE is the bug
+              # that made brain NXDOMAIN internal names (revServers was []).
+              FTLCONF_dns_revServers: "true,192.168.0.0/16,192.168.1.1,thesteamedcrab.com"
+            envFrom:
+              - secretRef:
+                  name: pihole-secret
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: 53
+                  initialDelaySeconds: 30
+                  periodSeconds: 30
+                  failureThreshold: 5
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: 53
+                  initialDelaySeconds: 15
+                  periodSeconds: 10
+                  failureThreshold: 5
+              startup:
+                enabled: false
+            resources:
+              requests:
+                cpu: 50m
+                memory: 128Mi
+              limits:
+                memory: 512Mi
+            # DEVIATIONS from helmrelease.security.md, documented per its escape
+            # hatches, because this parity image bundles s6-overlay + unbound +
+            # FTL and is not built for a non-root / read-only-rootfs run (beast
+            # and brain run the same image as a root podman container):
+            #   - no runAsNonRoot/runAsUser: s6-overlay init needs root, then
+            #     FTL drops to its own uid internally.
+            #   - readOnlyRootFilesystem: false: s6 + unbound + FTL write across
+            #     the rootfs at startup.
+            # Still hardened: no privilege escalation, minimal cap set (only
+            # what s6's privilege-drop + FTL's :53 bind need), RuntimeDefault
+            # seccomp. The exact cap set needs a test-boot to confirm (scaffold).
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: false
+              capabilities:
+                drop:
+                  - ALL
+                add:
+                  - CHOWN
+                  - DAC_OVERRIDE
+                  - FOWNER
+                  - SETGID
+                  - SETUID
+                  - NET_BIND_SERVICE
+              seccompProfile:
+                type: RuntimeDefault
+    service:
+      dns:
+        type: LoadBalancer
+        annotations:
+          lbipam.cilium.io/ips: ${SVC_PIHOLE_ADDR}
+        controller: pihole
+        # Preserve the client source IP so Pi-hole per-client stats + the
+        # group/client rows synced from beast actually attribute correctly.
+        externalTrafficPolicy: Local
+        ports:
+          dns-tcp:
+            port: 53
+            protocol: TCP
+          dns-udp:
+            port: 53
+            protocol: UDP
+      web:
+        controller: pihole
+        ports:
+          http:
+            port: &webPort 80
+    route:
+      app:
+        annotations:
+          glance/name: "Pi-hole (cluster)"
+          glance/show: "true"
+          glance/id: "Network"
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: web
+                port: *webPort
+    persistence:
+      config:
+        type: persistentVolumeClaim
+        accessMode: ReadWriteOnce
+        size: 1Gi
+        storageClass: ceph-block
+        advancedMounts:
+          pihole:
+            app:
+              - path: /etc/pihole
+      dnsmasq:
+        type: persistentVolumeClaim
+        accessMode: ReadWriteOnce
+        size: 256Mi
+        storageClass: ceph-block
+        advancedMounts:
+          pihole:
+            app:
+              - path: /etc/dnsmasq.d

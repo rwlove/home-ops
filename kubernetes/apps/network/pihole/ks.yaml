@@ -1,0 +1,32 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/kustomization-kustomize-v1.json
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: &app pihole
+spec:
+  # In-cluster Pi-hole v6 — the THIRD house resolver, additive alongside the
+  # two podman instances (beast PRIMARY 192.168.6.66, brain REPLICA
+  # 10.20.20.2). Pinned to bare-metal workers (worker2/3/4) ONLY so a beast-VM
+  # outage cannot take it down. Gravity/blocklists arrive from beast via the
+  # existing nebula-sync job (as a REPLICA target, gravity-only); per-instance
+  # DNS config (revServers / unbound upstream) is set in the HelmRelease
+  # because nebula-sync's SYNC_CONFIG_* are all OFF by design.
+  commonMetadata:
+    labels:
+      app.kubernetes.io/name: *app
+  targetNamespace: network
+  path: ./kubernetes/apps/network/pihole/app
+  interval: 1h
+  timeout: 5m
+  prune: true
+  wait: false
+  sourceRef:
+    kind: GitRepository
+    name: home-ops-kubernetes
+    namespace: flux-system
+  dependsOn:
+    - name: onepassword-connect
+      namespace: external-secrets
+    - name: rook-ceph-cluster
+      namespace: rook-ceph

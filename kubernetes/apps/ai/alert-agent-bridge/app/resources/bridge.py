@@ -176,7 +176,12 @@ def _agent_prompt(alerts):
         "it already answers 'is the node healthy' for the affected pods, so don't re-query "
         "that. If one alert is squarely another domain's expertise "
         "(storage / network / ml / smart-home), you MAY delegate ONE focused deep-dive to "
-        "that specialist and fold their finding in. This is a one-way enrichment note that "
+        "that specialist and fold their finding in — but tell the specialist this is an "
+        "unattended one-way pipeline: it must answer directly from read-only inspection and "
+        "MUST NOT ask for confirmation or request any input. A specialist that stalls "
+        "waiting for approval hangs this whole enrichment until it times out, so if it "
+        "cannot answer without confirming an action, it should decline the deep-dive and "
+        "report what it found read-only. This is a one-way enrichment note that "
         "rides alongside the page AlertManager already sent — nobody can reply, so never ask "
         "a question. If it's all benign/known noise, say so briefly. Keep the whole reply "
         "under 900 characters, plain text, no markdown.\n\nFiring alerts:\n" + listing + evidence
@@ -208,26 +213,6 @@ def _call_agent(prompt):
     return texts[-1] if texts else ""
 
 
-def _raw_fallback(alerts, err):
-    """When the enrichment agent is unreachable, degrade to the raw alert detail the
-    bridge already holds — strictly better than announcing the agent timed out and
-    dropping the alert entirely. Carries severity, description, and pre-gathered
-    evidence; AlertManager has paged the same alert separately."""
-    lines = []
-    for a in alerts[:MAX_ALERTS]:
-        loc = (" ns=%s" % a["namespace"]) if a.get("namespace") else ""
-        pod = (" pod=%s" % a["pod"]) if a.get("pod") else ""
-        sev = (" [%s]" % a["severity"]) if a.get("severity") else ""
-        lines.append("- %s%s%s%s:\n  %s" % (
-            a["alertname"], sev, loc, pod, (a.get("text") or "")[:400]))
-    evidence = _pregather(alerts)
-    return (
-        "Automated enrichment unavailable (observability-operator: %s).\n"
-        "Raw alert detail below — AlertManager has paged this separately.\n\n%s%s"
-        % (str(err)[:160], "\n".join(lines), evidence)
-    )
-
-
 def _notify(subject, body):
     """POST a themed HTML email through notify-mcp's /send route. No auth: notify-mcp
     holds the relay recipient-lock, so it can only ever email Rob. Non-fatal — a failed
@@ -255,9 +240,19 @@ def _handle(payload):
         try:
             text = _call_agent(_agent_prompt(alerts))
         except Exception as e:  # noqa: BLE001
-            log("agent call failed for [%s]: %r" % (names, e))
-            _notify("%s (enrichment unavailable)" % names,
-                    _raw_fallback(alerts, e))
+            # Enrichment failed (timeout, stuck A2A delegation, agent down). Do NOT
+            # email a degraded fallback: AlertManager has already paged this alert
+            # independently (the route that forwards here uses continue: true), so a
+            # raw-detail email carrying no enrichment is a pure duplicate of the page
+            # Rob already got — the non-actionable noise the watcher rules forbid.
+            # Log only; the page stands on its own.
+            #
+            # LOAD-BEARING ASSUMPTION: every alert routed to this bridge also pages via
+            # AlertManager (continue: true on the forwarding route). If a future route
+            # ever forwards here WITHOUT an independent page, suppressing here would
+            # silently drop it — keep continue: true, or re-introduce a fallback.
+            log("agent call failed for [%s]: %r — fallback email suppressed "
+                "(AlertManager paged independently)" % (names, e))
             return
         if not text:
             log("agent returned no text for [%s]" % names)

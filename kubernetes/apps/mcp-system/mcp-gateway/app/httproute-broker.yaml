@@ -4,25 +4,14 @@ apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
   name: mcp-gateway-broker
-  annotations:
-    # This route attaches to the istio gateway (its own LB IP, .5), but the
-    # PUBLIC entry for mcp.${SECRET_DOMAIN} is the envoy *internal* gateway
-    # (the mcp-gateway-internal HTTPRoute → mcp-gateway-istio Service). Only
-    # the envoy internal gateway has a :443 HTTPS listener with the wildcard
-    # cert; the istio gateway listens on :8080 only.
-    #
-    # `external-dns.alpha.kubernetes.io/controller: none` was set here to
-    # suppress the istio record, BUT external-dns's gateway-httproute source
-    # (v0.23.0) does NOT honor that annotation on an HTTPRoute (only on a
-    # Gateway). So external-dns kept publishing mcp → istio .5, producing a
-    # split dual A-record (.5 + .12). Clients round-robin, and the ~half that
-    # hit .5 on :443 fail → intermittent MCP connection errors.
-    #
-    # Fix: force this route's target to the envoy internal gateway's address
-    # so it publishes the SAME A record as mcp-gateway-internal (.12); the two
-    # dedupe to a single public record and the stale .5 is withdrawn. Keep in
-    # sync with the `internal` gateway's SVC_GATEWAY_INT_ADDR.
-    external-dns.alpha.kubernetes.io/target: "${SVC_GATEWAY_INT_ADDR}"
+  # No external-dns annotation here on purpose. This route MUST keep
+  # mcp.${SECRET_DOMAIN} (the MCP router hair-pins back through the gateway with
+  # that exact Host), but it must not publish the istio LB IP (.5). external-dns
+  # v0.23.0's gateway-httproute source IGNORES route-level controller/target
+  # annotations, so suppression can't happen here — it's done at the GATEWAY:
+  # the mcp-gateway Gateway is labelled external-dns/exclude=true and dropped by
+  # external-dns-bind's --gateway-label-filter. The public name is served solely
+  # by the envoy internal gateway (.12) via the mcp-gateway-internal route.
 spec:
   hostnames:
     - mcp.${SECRET_DOMAIN}

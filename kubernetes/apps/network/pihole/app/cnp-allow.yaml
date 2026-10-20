@@ -70,3 +70,19 @@ spec:
               protocol: TCP
             - port: "53"
               protocol: UDP
+    # Gravity/blocklist downloads (`pihole -g`): the adlists synced from beast
+    # live on raw.githubusercontent.com / github.com (GitHub + Fastly CDN) and
+    # are fetched over HTTPS. Without this the gravity table stays empty and the
+    # resolver answers but blocks nothing. This is a broad world:443 rather than
+    # a toFQDNs rule on purpose: the pod resolves those hosts via its OWN bundled
+    # unbound (127.0.0.1#5335, loopback), so Cilium's DNS proxy never observes
+    # the lookup and toFQDNs can't learn the IPs to match. CIDR-pinning GitHub/
+    # Fastly ranges was rejected — they drift and nothing here tracks them;
+    # beast/brain fetch the same lists with fully unrestricted host egress, so
+    # world:443 scoped to this one pod is still tighter than the podman parity.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

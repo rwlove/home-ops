@@ -80,9 +80,23 @@ spec:
                     propose deleting them as zombies, at most note them as
                     retirement candidates pending owner confirmation. A "unknown"
                     robustness on a detached volume means Longhorn has not attached
-                    it to count replicas, not that replicas are lost. Only a
-                    detached volume whose PV is absent, or a PV in phase Released
-                    with reclaimPolicy=Delete, is a true orphan worth surfacing.
+                    it to count replicas, not that replicas are lost. A detached
+                    volume whose PV is phase Bound to a live PVC is NORMAL when its
+                    owner is a CronJob or a scaled-to-zero workload: the volume
+                    detaches between runs, and this cluster sets
+                    allowRecurringJobWhileVolumeDetached=true, so Longhorn
+                    auto-attaches it to run its scheduled snapshot/backup jobs, then
+                    detaches again. "detached" or "unknown" robustness on a
+                    Bound-PV volume is therefore NEVER a durability finding on its
+                    own (beets-config-xfs, owned by the media/beets CronJob, is the
+                    canonical example -- it sits detached between its twice-daily
+                    runs and is labeled for the `default` recurring-job group). Flag
+                    such a volume ONLY if its scheduled backups have actually stopped
+                    completing -- check its BackupVolume lastBackupAt against its
+                    backup schedule -- not merely because it is detached or reports
+                    "unknown". Only a detached volume whose PV is absent, or a PV in
+                    phase Released with reclaimPolicy=Delete, is a true orphan worth
+                    surfacing.
                     For the CNPG/Barman check: Postgres Clusters live in the
                     `databases` namespace (NOT `postgresql`), and CNPG PGData on
                     ceph-block is the STANDARD durable pattern -- a ceph-backed

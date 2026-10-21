@@ -7,17 +7,24 @@ metadata:
   labels:
     app.kubernetes.io/name: local-cron
 spec:
-  # ACTIVE (unsuspended 2026-08-23). Governed by the claude-runner trial
-  # policy (.agents/instructions/claude-runner-routing.md) — re-add
-  # `suspend: true` to pause without tearing down objects.
-  # 30 12 * * * UTC = 08:30 EDT / 07:30 EST, daily — off the mcp-gateway
-  # 04:30 rotation and clear of the 00:00 UTC Longhorn window, so the P40
-  # model load doesn't collide with other scheduled bursts. Daily is justified
-  # here: this
-  # cluster runs Renovate automerge, so the open queue turns over fast (see
-  # the 27-PR-storm incident in memory) — a daily read of what is currently
-  # pending/stuck is fresh, not repetitive. Silent on an empty queue, so a
-  # quiet day costs no notification.
+  # ACTIVE. Governed by the claude-runner trial policy
+  # (.agents/instructions/claude-runner-routing.md) — re-add `suspend: true`
+  # to pause without tearing down objects.
+  #
+  # ACTION-ONLY (narrowed 2026-10-21). This used to email the WHOLE open
+  # Renovate queue every day, which just duplicated the GitHub Renovate
+  # dashboard — a daily roster, not a problem (see
+  # feedback_digests_problems_only_no_allclear_roster). It now emails ONLY
+  # when a Renovate PR is STUCK: open longer than ${STALE_DAYS} days, meaning
+  # automerge did not take it (failing checks, conflict, or a major awaiting
+  # manual review). Silent on any day with nothing stuck. The full queue lives
+  # on the dashboard; this surface exists solely to push the subset waiting on
+  # Rob. Deterministic formatting — no local model needed for a 0-few item
+  # stuck list, which also removes any roster-narration adherence risk.
+  #
+  # 30 12 * * * UTC = 08:30 EDT / 07:30 EST, daily. Daily is still correct:
+  # the check is a single unauth GitHub call and is silent unless something is
+  # actually stuck, so a quiet day costs no notification.
   schedule: "30 12 * * *"
   timeZone: Etc/UTC
   concurrencyPolicy: Forbid
@@ -26,8 +33,8 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 1
-      # 15 min hard cap: one GitHub REST call + a qwen2.5:7b generation.
-      activeDeadlineSeconds: 900
+      # 5 min hard cap: one GitHub REST call + jq. No model call anymore.
+      activeDeadlineSeconds: 300
       ttlSecondsAfterFinished: 86400
       template:
         metadata:
@@ -45,9 +52,9 @@ spec:
           restartPolicy: OnFailure
           containers:
             - name: digest
-              # Carries curl + jq (alpine/k8s). NOTE:
-              # `date` is busybox — the PR-age math is done in jq (which has
-              # `now` + `fromdateiso8601`), not with `date -d`.
+              # Carries curl + jq (alpine/k8s). NOTE: `date` is busybox — the
+              # PR-age math is done in jq (`now` + `fromdateiso8601`), not with
+              # `date -d`.
               image: docker.io/alpine/k8s:1.37.1@sha256:712dc5385d1c1a3f83b747fa9e40f64d433a97f72ff42f9755ff7dd1f62846e4
               imagePullPolicy: IfNotPresent
               command:
@@ -61,9 +68,10 @@ spec:
                 # other shell-based crons here.
                 - |
                   GITHUB_API="https://api.github.com/repos/rwlove/home-ops/pulls"
-                  OLLAMA="http://ollama.ai.svc.cluster.local:11434"
-                  MODEL="qwen2.5:7b"
                   DAY="$$(date -u +%Y-%m-%d)"
+                  # A Renovate PR open longer than this is "stuck" — automerge
+                  # would have taken a healthy minor/patch well before now.
+                  STALE_DAYS=7
 
                   # (1) Fetch open PRs. home-ops is a PUBLIC repo, so this is
                   # UNAUTHENTICATED — no token, no secret. Unauth GitHub REST
@@ -89,57 +97,51 @@ spec:
                     exit 1
                   fi
 
-                  # (2) Keep only Renovate-authored PRs; format
-                  # "#<num> [<age>d] <title>", oldest first. jq computes age
-                  # from created_at.
-                  LIST="$$(printf '%s' "$$PRS" | jq -r '
-                    [ .[] | select(.user.login | test("renovate"; "i")) ]
-                    | sort_by(.created_at)
+                  # (2) Keep only Renovate-authored PRs STUCK past STALE_DAYS,
+                  # oldest first. Flag likely MAJOR bumps (leading version number
+                  # increases across the "old -> new" in the title) as needing
+                  # review. Unparseable titles (digest bumps, "to vX") still
+                  # list, just unflagged. jq computes age from created_at.
+                  # jq-internal variables ($$stale/$$ms/$$flag) are DOUBLED like
+                  # every other `$` here: Flux envsubst expands the bare dollar
+                  # form too, not only the braced form, so an undoubled jq var
+                  # would be clobbered (or fail strict substitution). After
+                  # envsubst the manifest carries a literal $stale/$ms/$flag.
+                  LIST="$$(printf '%s' "$$PRS" | jq -r --argjson stale "$$STALE_DAYS" '
+                    [ .[]
+                      | select(.user.login | test("renovate"; "i"))
+                      | { number, title,
+                          age: (((now - (.created_at | fromdateiso8601)) / 86400) | floor) }
+                      | select(.age > $$stale)
+                    ]
+                    | sort_by(-.age)
                     | .[]
-                    | "#\(.number) [\(((now - (.created_at | fromdateiso8601)) / 86400) | floor)d] \(.title)"
+                    | ( [ .title | capture("v?(?<old>[0-9]+)(?:\\.[0-9]+)*\\s*(?:→|->)\\s*v?(?<new>[0-9]+)") ] ) as $$ms
+                    | ( if ($$ms|length) > 0 and (($$ms[0].new|tonumber) > ($$ms[0].old|tonumber)) then "[MAJOR] " else "" end ) as $$flag
+                    | "#\(.number) [\(.age)d] \($$flag)\(.title)"
                   ')"
 
+                  # (3) Nothing stuck → silent. This is the whole point of the
+                  # narrowing: no email on a healthy queue.
                   if [ -z "$$LIST" ]; then
-                    echo "No open Renovate PRs. Nothing to report."
+                    echo "No Renovate PRs stuck past $${STALE_DAYS}d. Nothing to report."
                     exit 0
                   fi
 
                   COUNT="$$(printf '%s\n' "$$LIST" | grep -c '^#' || true)"
-                  echo "Open Renovate PRs ($$COUNT):"
+                  echo "Stuck Renovate PRs ($$COUNT):"
                   printf '%s\n' "$$LIST"
 
-                  # (3) Summarize with the LOCAL model (Ollama, P40) — never
-                  # Claude. Build the /api/generate body with jq so the PR
-                  # titles are safely JSON-escaped.
-                  PROMPT="You are a release-hygiene assistant for a home Kubernetes GitOps repo. Below are the currently-open Renovate dependency-update PRs (number, age in days, title). Produce a terse digest (max 10 short lines, plain text, no markdown): the total count; flag any likely MAJOR version bumps (a jump in the leading version number in the title) as needing manual review; call out any PR older than 7 days as stuck; group the rest briefly by kind (container images, Helm charts, GitHub Actions). Do not invent PRs that are not listed. Data:\n\n$${LIST}"
-
-                  REQ="$$(jq -n --arg m "$$MODEL" --arg p "$$PROMPT" \
-                          '{model:$$m, prompt:$$p, stream:false, options:{num_predict:400, temperature:0.2}}')"
-
-                  SUMMARY="$$(curl -sSf --max-time 300 \
-                              -H 'Content-Type: application/json' \
-                              -d "$$REQ" \
-                              "$${OLLAMA}/api/generate" \
-                            | jq -r '.response // empty')" || {
-                    echo "FATAL: Ollama summarization failed"
-                    exit 1
-                  }
-
-                  if [ -z "$$SUMMARY" ]; then
-                    echo "FATAL: Ollama returned an empty summary"
-                    exit 1
-                  fi
-
-                  echo "----- local-model digest -----"
-                  printf '%s\n' "$$SUMMARY"
+                  BODY="$$(printf '%s stuck Renovate PR(s) open > %sd — automerge has not taken them, needs review:\n\n%s\n\nFull queue: GitHub Renovate dashboard.' \
+                            "$$COUNT" "$$STALE_DAYS" "$$LIST")"
 
                   # (4) Send ONE themed HTML email via notify-mcp /send
-                  # (agent=homeops-operator — repo/release-hygiene domain, same sender
-                  # as the homeops-hygiene digest). notify-mcp renders the body in that
-                  # theme and holds the relay recipient-lock, so this can only ever
-                  # email Rob. jq -n escapes the body safely.
-                  MSG="$$(printf '%s' "$$SUMMARY" | cut -c1-3800)"
-                  REQ="$$(jq -n --arg s "renovate-pr-digest $${DAY}" \
+                  # (agent=homeops-operator — repo/release-hygiene domain, same
+                  # sender as the homeops-hygiene digest). notify-mcp renders the
+                  # body in that theme and holds the relay recipient-lock, so this
+                  # can only ever email Rob. jq -n escapes the body safely.
+                  MSG="$$(printf '%s' "$$BODY" | cut -c1-3800)"
+                  REQ="$$(jq -n --arg s "renovate: $${COUNT} stuck PR(s) need review $${DAY}" \
                                 --arg b "$$MSG" --arg a "homeops-operator" \
                             '{subject:$$s, body:$$b, agent:$$a}')"
                   HTTP="$$(curl -sS --max-time 30 -o /tmp/send.out -w '%{http_code}' \
@@ -159,8 +161,7 @@ spec:
                   value: America/New_York
               # No secretRef: the digest reaches Rob via notify-mcp /send, which holds
               # the relay recipient-lock and needs no credentials. (GitHub is read
-              # unauthenticated — home-ops is public; the P40 Ollama summarizer is
-              # intra-ns and unauthenticated.)
+              # unauthenticated — home-ops is public.)
               resources:
                 requests:
                   cpu: 50m

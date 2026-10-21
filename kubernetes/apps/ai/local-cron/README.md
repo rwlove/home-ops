@@ -30,7 +30,7 @@ The load-bearing design points:
 
 | Workflow | Schedule (UTC) | Tier | What |
 |---|---|---|---|
-| `renovate-pr-digest` | `30 12 * * *` (08:30 EDT / 07:30 EST, daily) | Local (Ollama) | List the open Renovate PRs (unauthenticated GitHub REST — the repo is public), have the local model produce a terse digest that flags likely major bumps + PRs stuck > 7 days and groups the rest by kind, send ONE email via notify-mcp. Silent (exit 0, no send) when the queue is empty. |
+| `renovate-pr-digest` | `30 12 * * *` (08:30 EDT / 07:30 EST, daily) | Local (deterministic, no model) | **Action-only (narrowed 2026-10-21).** Read the open Renovate PRs (unauthenticated GitHub REST — the repo is public) and email ONLY the subset **stuck > 7 days** (automerge did not take them), flagging likely major bumps. Silent (exit 0, no send) on any day with nothing stuck. The full queue lives on the GitHub Renovate dashboard; this surface only pushes what is waiting on Rob. Previously it emailed the whole queue daily (a roster that duplicated the dashboard — see `feedback_digests_problems_only_no_allclear_roster`); the local-model summarizer was dropped since a 0-few item stuck list needs no summarization. |
 
 > `loki-error-skim` was retired 2026-10-17 (home-ops#15048): its substring
 > ranking surfaced the chattiest apps rather than the erroring ones, so every
@@ -89,11 +89,12 @@ The original first-time activation order, for reference:
 3. **Test once, out of band.** With the CronJobs still suspended, test each:
    - `kubectl -n ai create job --from=cronjob/local-cron-renovate-pr-digest renovate-test`
 
-   then `kubectl -n ai logs job/<name> -f`. Expect (for the digest)
-   `Open Renovate PRs (N):` + the list, then the
-   `----- local-model digest -----` block and `digest emailed`.
-   Empty-input is success, not failure: the digest prints "No open
-   Renovate PRs" — exit 0 and send nothing.
+   then `kubectl -n ai logs job/<name> -f`. Expect (for the digest), when
+   something is stuck, `Stuck Renovate PRs (N):` + the list, then
+   `digest emailed`. Nothing-stuck is success, not failure: the digest
+   prints "No Renovate PRs stuck past 7d" — exit 0 and send nothing. (A
+   healthy queue is now the common case, so the test often legitimately
+   sends no email.)
 4. **Unsuspend the CronJob(s)** — remove `spec.suspend: true` from
    `cronjob-renovate-pr-digest.yaml`. It then runs daily at 12:30 UTC.
 

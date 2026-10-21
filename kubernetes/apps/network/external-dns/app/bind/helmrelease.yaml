@@ -60,15 +60,19 @@ spec:
               - --crd-source-kind=DNSEndpoint
               - --source=service
               - --source=gateway-httproute
-              # Exclude gateways labelled external-dns/exclude=true from LAN
-              # publication. Used for internal-only data-plane gateways whose
-              # routes must keep a public hostname for in-cluster reasons but
-              # must NOT be advertised (e.g. the Kuadrant MCP istio gateway,
-              # whose broker route keeps mcp.${SECRET_DOMAIN} for the router's
-              # hair-pin Host but is reached only via its ClusterIP Service).
-              # `!=true` matches every gateway that lacks the label, so only
-              # explicitly-labelled gateways are dropped.
-              - --gateway-label-filter=external-dns/exclude!=true
+              # Only publish routes on the envoy Gateways (the LAN ingress:
+              # network/internal + network/external, both labelled
+              # app.kubernetes.io/name=envoy-gateway). This deliberately EXCLUDES
+              # the Kuadrant MCP istio gateway (app.kubernetes.io/name=
+              # kuadrant-mcp-gateway): it is internal-only (reached via its
+              # ClusterIP Service by the envoy front + the MCP router hair-pin),
+              # and its broker route must keep mcp.${SECRET_DOMAIN} for that
+              # hair-pin Host but must NOT be advertised (external clients use the
+              # envoy internal gateway, .12). NOTE: --gateway-label-filter only
+              # accepts equality (=) selectors in external-dns v0.23.0 — `!=`
+              # is rejected at startup ("not a valid label selector operator"),
+              # so this is an INCLUDE filter, not an exclude.
+              - --gateway-label-filter=app.kubernetes.io/name=envoy-gateway
               # - --source=gateway-tlsroute
               - --txt-owner-id=homelab
               - --txt-prefix=k8s.

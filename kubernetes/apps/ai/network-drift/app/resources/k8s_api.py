@@ -10,12 +10,29 @@ but NetBox record absent) to stay low-noise; every proposal is HUMAN-ONLY.
 BGP peering health is intentionally NOT collected here: it is runtime health, not
 NetBox inventory — it belongs to the network-triage watcher, not this mirror.
 """
+import ipaddress
 import json
 import os
 import ssl
 import urllib.request
 
 import netbox_sync as ns
+
+
+def _norm_cidr(cidr):
+    """Normalize a CIDR to its network address (strip host bits) before string
+    comparison. Cilium's CiliumLoadBalancerIPPool config and Omada's reported
+    VLAN subnet both sometimes carry a literal host IP with the prefix length
+    (e.g. "10.45.0.1/24") rather than the network address ("10.45.0.0/24") —
+    the same two strings represent the identical network but never match via
+    exact string equality, which previously made this comparator permanently
+    false-positive against an already-correct NetBox prefix."""
+    if not cidr:
+        return cidr
+    try:
+        return str(ipaddress.ip_network(cidr, strict=False))
+    except ValueError:
+        return cidr
 
 _SA = "/var/run/secrets/kubernetes.io/serviceaccount"
 
@@ -114,9 +131,9 @@ def compare_lb_ips(lb_ips, nb_ips):
 
 def compare_lb_pools(pools, nb_prefixes):
     drifts = []
-    nb_subnets = {p["prefix"] for p in nb_prefixes if p.get("prefix")}
+    nb_subnets = {_norm_cidr(p["prefix"]) for p in nb_prefixes if p.get("prefix")}
     for p in pools:
-        if p["cidr"] and p["cidr"] not in nb_subnets:
+        if p["cidr"] and _norm_cidr(p["cidr"]) not in nb_subnets:
             drifts.append(ns.Drift(
                 "lb-pool-missing-in-netbox", "cidr=%s" % p["cidr"],
                 reality="Cilium LB pool '%s' advertises %s" % (p["pool"], p["cidr"]),

@@ -34,12 +34,26 @@ Stdlib only.
 """
 import datetime
 import hashlib
+import ipaddress
 import json
 import os
 import sys
 import urllib.request
 
 import mcp_http
+
+
+def _norm_cidr(cidr):
+    """Normalize a CIDR to its network address (strip host bits) before string
+    comparison. Omada's reported VLAN subnet sometimes carries a literal host
+    IP with the prefix length (e.g. "192.168.1.3/16") rather than the network
+    address ("192.168.0.0/16") — same network, never equal as strings."""
+    if not cidr:
+        return cidr
+    try:
+        return str(ipaddress.ip_network(cidr, strict=False))
+    except ValueError:
+        return cidr
 
 # ----------------------------------------------------------------------------
 # Config (env with safe defaults). Tool names/args live here so a correction is
@@ -148,20 +162,45 @@ def collect_omada_devices(omada):
     return out
 
 
+def netbox_get_all(netbox, object_type, fields=None):
+    """Fetch every object of `object_type`, handling pagination correctly.
+
+    `netbox_get_objects`'s `limit`/`offset` are TOP-LEVEL tool arguments (default
+    limit=5, max=100) — NOT entries inside `filters` (that dict is for NetBox API
+    query filters like `name__ic`, and silently ignores an unknown `limit` key).
+    Passing `{"filters": {"limit": 500}}` therefore always falls back to the
+    tool's default limit of 5, regardless of the number requested — every prior
+    `collect_netbox_*` call in this module did exactly that, so each one silently
+    saw only the first 5 objects of its type. See home-ops PR fixing the 5
+    network-drift read-path bugs (pagination, github-mcp content-block type,
+    dns_name bare-vs-FQDN, LB-pool CIDR host-bit, VLAN->prefix collapse).
+    """
+    out = []
+    offset = 0
+    while True:
+        args = {"object_type": object_type, "filters": {}, "limit": 100, "offset": offset}
+        if fields:
+            args["fields"] = fields
+        data = netbox.call("netbox_get_objects", args)
+        page = as_list(data)
+        out.extend(page)
+        nxt = data.get("next") if isinstance(data, dict) else None
+        if not nxt or not page:
+            break
+        offset += 100
+    return out
+
+
 def collect_netbox_vlans(netbox):
     out = []
-    data = netbox.call("netbox_get_objects",
-                       {"object_type": "ipam.vlan", "filters": {"limit": 500}})
-    for v in as_list(data):
+    for v in netbox_get_all(netbox, "ipam.vlan"):
         out.append({"vid": _int(pick(v, "vid")), "name": pick(v, "name")})
     return out
 
 
 def collect_netbox_prefixes(netbox):
     out = []
-    data = netbox.call("netbox_get_objects",
-                       {"object_type": "ipam.prefix", "filters": {"limit": 500}})
-    for p in as_list(data):
+    for p in netbox_get_all(netbox, "ipam.prefix"):
         vlan = p.get("vlan") if isinstance(p, dict) else None
         vid = _int(pick(vlan, "vid")) if isinstance(vlan, dict) else None
         out.append({"prefix": _norm_subnet(pick(p, "prefix")),
@@ -171,9 +210,7 @@ def collect_netbox_prefixes(netbox):
 
 def collect_netbox_devices(netbox):
     out = []
-    data = netbox.call("netbox_get_objects",
-                       {"object_type": "dcim.device", "filters": {"limit": 500}})
-    for d in as_list(data):
+    for d in netbox_get_all(netbox, "dcim.device"):
         out.append({"name": pick(d, "name")})
     return out
 
@@ -182,9 +219,7 @@ def collect_netbox_ips(netbox):
     # Flat ip-addresses (client-appliance convention) — consumed by the Phase 2
     # dhcpd / DNS / k8s / LB comparators.
     out = []
-    data = netbox.call("netbox_get_objects",
-                       {"object_type": "ipam.ipaddress", "filters": {"limit": 1000}})
-    for p in as_list(data):
+    for p in netbox_get_all(netbox, "ipam.ipaddress"):
         out.append({"address": pick(p, "address"),
                     "dns_name": pick(p, "dns_name"),
                     "description": pick(p, "description")})
@@ -253,22 +288,33 @@ def compare_vlans(omada_nets, nb_vlans):
 
 def compare_prefixes(omada_nets, nb_prefixes):
     drifts = []
-    nb_subnets = {p["prefix"] for p in nb_prefixes if p["prefix"]}
-    nb_by_vid = {p["vid"]: p for p in nb_prefixes if p["vid"] is not None}
+    nb_subnets = {_norm_cidr(p["prefix"]) for p in nb_prefixes if p["prefix"]}
+    # A VLAN can legitimately back MULTIPLE NetBox prefixes (this network's
+    # VLAN 1 maps to a supernet plus several role-based sub-prefixes) — collect
+    # every prefix per vid, not just the last one a naive {vid: prefix} dict
+    # comprehension would silently keep.
+    nb_by_vid = {}
+    for p in nb_prefixes:
+        if p["vid"] is not None:
+            nb_by_vid.setdefault(p["vid"], []).append(p)
     for n in omada_nets:
         sub = n["subnet"]
         if not sub:
             continue
-        if sub not in nb_subnets:
-            byvid = nb_by_vid.get(n["vid"])
-            if byvid and byvid["prefix"]:
+        if _norm_cidr(sub) not in nb_subnets:
+            byvid = nb_by_vid.get(n["vid"]) or []
+            # Only a real mismatch if NONE of this vid's NetBox prefixes match
+            # (normalized) — if the vid has prefixes but this specific subnet
+            # genuinely isn't among them, flag against the first for context.
+            if byvid and not any(_norm_cidr(p["prefix"]) == _norm_cidr(sub) for p in byvid):
                 drifts.append(Drift(
                     "prefix-mismatch", "vid=%s" % n["vid"],
                     reality="Omada VLAN %s subnet %s" % (n["vid"], sub),
-                    record="NetBox prefix for vid=%s is %s" % (n["vid"], byvid["prefix"]),
+                    record="NetBox prefix(es) for vid=%s: %s"
+                           % (n["vid"], ", ".join(p["prefix"] for p in byvid if p["prefix"])),
                     proposal="HUMAN-ONLY: reconcile NetBox prefix for vid=%s to %s"
                              % (n["vid"], sub)))
-            else:
+            elif not byvid:
                 drifts.append(Drift(
                     "prefix-missing-in-netbox", "subnet=%s" % sub,
                     reality="Omada VLAN %s uses subnet %s" % (n["vid"], sub),

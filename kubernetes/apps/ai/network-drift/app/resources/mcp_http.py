@@ -146,6 +146,18 @@ class MCPClient:
 
 
 def _first_text(result):
+    # Some tools (e.g. github-mcp's get_file_contents) return the real payload
+    # inside a content block of type "resource" (block["resource"]["text"]) and
+    # put only a short status line ("successfully downloaded text file...") in
+    # the first "text" block. Prefer a resource block's text when one exists —
+    # otherwise every github-mcp file read silently returns the status line
+    # instead of the file content, with no error (a total blind spot for any
+    # caller parsing the result as the file body).
+    for block in result.get("content") or []:
+        if isinstance(block, dict) and block.get("type") == "resource":
+            resource = block.get("resource") or {}
+            if isinstance(resource.get("text"), str):
+                return resource["text"]
     for block in result.get("content") or []:
         if isinstance(block, dict) and block.get("type") == "text":
             return block.get("text")

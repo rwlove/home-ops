@@ -1,0 +1,30 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+#
+# THROWAWAY — temporary egress hole so mcp-system/chrome-mcp (Playwright)
+# can reach the throwaway nightly instance's web UI at media:8095. mcp-system
+# is default-deny egress, so chrome-mcp needs this to drive the MCP Connect
+# Wizard + web-player registration for the support#6023 gateway test.
+# Paired with the ingress allow in
+# kubernetes/apps/media/music-assistant-nightly/app/cnp-chrome.yaml.
+# Pruned with this dir at teardown.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: chrome-mcp-to-nightly-egress
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: chrome-mcp
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: media
+            app.kubernetes.io/name: music-assistant-nightly
+      toPorts:
+        - ports:
+            - port: "8095"
+              protocol: TCP

@@ -1,0 +1,178 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+#
+# THROWAWAY test instance for music-assistant/support#6023 (fixed upstream in
+# music-assistant/models#442, shipping in nightly 2.11.0.dev2026102203):
+# config_set_player_value coerced a stringified boolean ("false"/"0"/"off")
+# with bool(value), so any MCP-gateway write of a `false`-valued on/off
+# player setting was silently discarded as True. This instance exists only
+# to confirm the fix through the MCP gateway path, then gets deleted.
+#
+# Deliberately NOT modeled 1:1 on kubernetes/apps/media/music-assistant's
+# HelmRelease — this test needs none of: the music library (OpenSubsonic/
+# gonic), the IoT-VLAN macvlan (see ks.yaml comment — using the built-in
+# web/browser player instead), SlimProto/Sendspin ports, or a LoadBalancer
+# VIP. Kept: the probe shape and the non-root securityContext, because
+# those are good defaults regardless of lifespan.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app music-assistant-nightly
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+
+  interval: 30m
+  timeout: 15m
+  values:
+    controllers:
+      music-assistant-nightly:
+        pod:
+          securityContext:
+            fsGroup: 1113
+            fsGroupChangePolicy: "OnRootMismatch"
+            runAsGroup: 1113
+            runAsNonRoot: true
+            runAsUser: 1113
+
+        type: statefulset
+
+        containers:
+          app:
+            image:
+              repository: ghcr.io/music-assistant/server
+              # Explicit dev tag, digest-pinned to the manifest-list digest
+              # (resolved 2026-10-22 via `skopeo inspect`). NOT `:nightly` —
+              # a floating tag would drift out from under this test the
+              # next time upstream publishes.
+              tag: 2.11.0.dev2026102203@sha256:8af16c0713bbcb2dc1d2819faf40c51fa3bf8f4710b760f79b2d7bb2b8a629bc
+
+            # Same /info probe shape as prod — cheap, catches a crash
+            # during DB/schema init before you waste the test window.
+            probes:
+              liveness: &probes
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /info
+                    port: 8095
+                  initialDelaySeconds: 0
+                  periodSeconds: 30
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              readiness: *probes
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /info
+                    port: 8095
+                  initialDelaySeconds: 5
+                  periodSeconds: 5
+                  timeoutSeconds: 5
+                  failureThreshold: 60
+
+            # No Smart Fades / crossfade testing planned here, so none of
+            # prod's 4GB feature-gate reasoning applies. This is a fresh
+            # PVC every time it's resurrected (teardown deletes it, see
+            # the runbook), so prod's 00-fix-webrtc-ownership initContainer
+            # (which exists for a *reused* volume whose files were chowned
+            # by a different uid in an earlier run) has nothing to fix
+            # here — omitted deliberately, not an oversight.
+            resources:
+              requests:
+                cpu: 50m
+                memory: 256Mi
+              limits:
+                # 2Gi (not 1Gi) — headroom for MA's boot/DB-init spike;
+                # requests unchanged.
+                memory: 2Gi
+
+            # readOnlyRootFilesystem: false (decision, not a placeholder) —
+            # matches prod's proven-good writable rootfs rather than an
+            # unverified hardening guess. Prod boots reliably this way;
+            # there's no prior evidence this image tolerates a read-only
+            # rootfs, and an EROFS crashloop would eat the test window for
+            # no benefit on a throwaway instance. The tmpfs emptyDir mounts
+            # below stay regardless — belt-and-suspenders scratch dirs
+            # (/tmp, /.audio, /.cache, /.config) that keep those paths
+            # pod-writable under non-root uid 1113 whether or not the rootfs
+            # itself is read-only.
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: false
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+
+    service:
+      app:
+        # ClusterIP only — no LoadBalancer VIP. This instance has no
+        # SlimProto/Sendspin players and does not need LAN reachability;
+        # the MCP gateway reaches it in-cluster, and the one-time player
+        # registration happens over `kubectl port-forward` (see the test
+        # runbook), which talks to the pod netns directly and doesn't need
+        # a Service type change or an extra CNP ingress hole.
+        controller: music-assistant-nightly
+        ports:
+          http:
+            port: &httpPort 8095
+
+    persistence:
+      data:
+        existingClaim: music-assistant-nightly-data-pvc
+
+      tmpfs:
+        type: emptyDir
+        globalMounts:
+          - path: /tmp
+            subPath: tmp
+          - path: /.audio
+            subPath: audio
+          - path: /.cache
+            subPath: cache
+          - path: /.config
+            subPath: config
+
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: music-assistant-nightly-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: music-assistant-nightly
+        # Additive — default-deny is what triggers the lockdown (media ns
+        # already runs default-deny; see kubernetes/apps/media/kustomization.yaml).
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # Mirrors prod's two mcp-gateway ingress rules exactly (see
+          # music-assistant's music-assistant-allow CNP) — both the broker
+          # (direct dial for registration + health ping) and the istio
+          # data-plane pod (per-tool-call path via the HTTPRoute) need to
+          # reach :8095/mcp. Paired with the egress CNP in
+          # kubernetes/apps/mcp-system/music-assistant-nightly-mcp/app/cnp-allow.yaml
+          # and the ReferenceGrant in referencegrant.yaml (this dir).
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: mcp-system
+                  app.kubernetes.io/name: mcp-gateway
+              - matchLabels:
+                  io.kubernetes.pod.namespace: mcp-system
+                  gateway.networking.k8s.io/gateway-name: mcp-gateway
+            toPorts:
+              - ports:
+                  - port: "8095"
+                    protocol: TCP
+        # No egress rules at all beyond the namespace-wide baseline
+        # (allow-dns, allow-apiserver, allow-host-probes, allow-intra-namespace
+        # — all namespace-scoped components, inherited for free). Deliberate:
+        # this instance has no provider that needs to reach a real device or
+        # an external API, and closing egress means a buggy provider can't
+        # accidentally reach out to the LAN/IoT VLAN during the test.

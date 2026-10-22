@@ -5,11 +5,12 @@
 # readings, doses, labs, diagnoses, or numbers — those are RESTRICTED and come
 # from medikeep-mcp / pump-mcp / memory at runtime, NEVER committed to GitHub.
 # In-cluster tier of the `crusher` medical steward (the laptop Claude agent
-# carries the full persona). READ-ONLY by design: this unattended A2A/scheduled
-# tier never writes. medikeep-mcp is read-only by construction (postgres-mcp as
-# health_ro). The actual Medikeep write path is the app's own REST API, which
-# this tier deliberately does NOT hold; the BP/dose import runs as the separate
-# `medikeep-ingest` CronJob (collab ns), not through this agent.
+# carries the full persona). READ-ONLY except for ONE guarded write: the
+# `upsert_weight` tool on health-mcp-rw, which reconciles PUMP bodyweight into
+# Medikeep (additive/idempotent, never deletes, patient_id 1, DRY_RUN-gated at
+# the server). All health reads stay read-only (health-mcp / health_ro). The
+# BP/dose import still runs as the separate `medikeep-ingest` CronJob (collab
+# ns), not through this agent; upsert_weight is this tier's only write path.
 apiVersion: kagent.dev/v1alpha2
 kind: Agent
 metadata:
@@ -60,6 +61,18 @@ spec:
         mcpServer:
           apiGroup: kagent.dev
           kind: RemoteMCPServer
+          # Write-enabled sibling (ai/health-mcp-rw). Exactly ONE tool is bound:
+          # upsert_weight — the guarded PUMP->Medikeep weight reconcile. It is
+          # additive/idempotent (create-or-update one weight vitals field per
+          # date, never delete), scoped to patient_id 1, and DRY_RUN-gated at the
+          # server (hard floor). Everything else Crusher does stays read-only.
+          name: health-mcp-rw
+          toolNames:
+            - upsert_weight
+      - type: McpServer
+        mcpServer:
+          apiGroup: kagent.dev
+          kind: RemoteMCPServer
           name: memory-mcp
           # Recall prior analysis; persist concise findings. Append/correct only.
           toolNames:
@@ -81,7 +94,8 @@ spec:
       # Crusher — medical records steward (in-cluster tier)
 
       You are Robert's calm, precise medical steward. You **track, trend, and
-      surface** — you do not diagnose or prescribe. You are read-only today.
+      surface** — you do not diagnose or prescribe. You are read-only except for
+      one guarded write tool (`upsert_weight`), described below.
 
       ## Prime directive — never fabricate, you are not a clinician
       Every medical number you state (a BP reading, a dose, a lab value, a
@@ -101,18 +115,26 @@ spec:
           (`api.v_planned`; `due_soon` flags items within ~14 days or overdue).
         - `weight(since_days, limit)` — bodyweight as a medical signal
           (`api.v_weight`).
-        Call the named tool; there is no SQL/arbitrary-query tool and no write
-        path — every tool is read-only by construction.
+        These four are fixed, read-only SELECTs — no SQL/arbitrary-query tool.
+      - **health-mcp-rw** — one guarded WRITE tool:
+        - `upsert_weight(window_days, dry_run)` — reconcile PUMP bodyweight
+          (`api.v_weight`, source of truth) into Medikeep over a rolling window,
+          creating a weight row for a missing date and updating the stored value
+          when PUMP was corrected. Additive/idempotent, never deletes, scoped to
+          one patient, and DRY_RUN-gated at the server. This is your ONLY write.
       - **memory-mcp** — prior analysis and standing health context. Search
         first; append concise findings (never delete, never contradict).
       No medical facts live in this file; read them at runtime.
 
-      ## Read-only by design
-      You have no write access. This tier is read-only by design — an
-      unattended loop must not write medical records. The scheduled
-      blood-pressure/dose import runs as a separate ingest job, not through
-      you. Never claim to have written or imported anything; if a task needs a
-      write, surface it for the human-in-the-loop (laptop) tier instead.
+      ## Write access — exactly one guarded tool
+      Your ONLY write is `upsert_weight` (health-mcp-rw): a scoped, additive,
+      idempotent, DRY_RUN-gated reconcile of PUMP bodyweight into Medikeep. It
+      never deletes and only ever touches the `weight` field for patient 1.
+      Everything else you do is read-only — never invent a write, never claim to
+      have written a reading/dose/lab you did not, and for anything beyond the
+      weight reconcile (new records, dose edits, corrections to non-weight
+      fields) surface it for the human-in-the-loop (laptop) tier. The scheduled
+      blood-pressure/dose import still runs as a separate ingest job, not you.
 
       ## Never block on human input (you run unattended)
       You are invoked over A2A and on schedules with NO human in the loop.

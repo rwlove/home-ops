@@ -1,0 +1,111 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app calendar-mcp
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  values:
+    defaultPodOptions:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+    controllers:
+      calendar-mcp:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        type: deployment
+        replicas: 1
+        containers:
+          app:
+            # No first-party image: the FastMCP server (resources/calendar_mcp.py,
+            # mounted via configMap) runs on the uv image with its pure-Python deps
+            # resolved ephemerally by `uv run --with` — same approach as the
+            # medikeep-ingest CronJob. Promote to a ghcr.io/rwlove image later if
+            # it earns its keep.
+            image:
+              repository: ghcr.io/astral-sh/uv
+              tag: python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58
+            command:
+              - /bin/sh
+              - -ceu
+              - |
+                export HOME=/tmp
+                export UV_CACHE_DIR=/tmp/uv
+                export XDG_CACHE_HOME=/tmp/.cache
+                exec uv run --no-project \
+                  --with mcp --with google-auth --with requests \
+                  /config/calendar_mcp.py
+            env:
+              TZ: America/New_York
+              # DRY_RUN (hard floor at the server): writes are described, not made.
+              # Shipped true to guard against unattended local-model runaway loops
+              # writing calendar spam; flip to "false" after validating dry-run
+              # output (mirrors health-mcp-rw's rollout).
+              DRY_RUN: "true"
+              MAX_WRITES_PER_HOUR: "50"
+            # GOOGLE_SA_KEY (Google SA JSON) + CALENDAR_ID — from 1Password via the
+            # ExternalSecret (externalsecret.yaml), never in this repo.
+            envFrom:
+              - secretRef:
+                  name: calendar-mcp-secret
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: &port 8080
+                  initialDelaySeconds: 25
+                  periodSeconds: 30
+                  failureThreshold: 5
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: *port
+                  initialDelaySeconds: 20
+                  periodSeconds: 15
+                  failureThreshold: 3
+            resources:
+              requests:
+                cpu: 15m
+                memory: 128Mi
+              limits:
+                memory: 512Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+    service:
+      app:
+        controller: calendar-mcp
+        ports:
+          http:
+            port: *port
+    persistence:
+      config:
+        type: configMap
+        name: calendar-mcp-configmap
+        advancedMounts:
+          calendar-mcp:
+            app:
+              - path: /config/calendar_mcp.py
+                subPath: calendar_mcp.py
+                readOnly: true
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          calendar-mcp:
+            app:
+              - path: /tmp

@@ -110,6 +110,11 @@ def main():
     actions = []
     if safe:
         nb = wb.NetBox()  # NETBOX_URL required; token optional in dry-run
+        if do_write:
+            # Create-or-get the owned tag up front; if it is absent AND this
+            # token cannot create/view it, writes degrade to UNTAGGED instead of
+            # 400-failing every PATCH (self-heals a from-scratch NetBox rebuild).
+            ns.log("  owned-tag: %s" % nb.ensure_tag())
         for d in sorted(safe, key=lambda x: (x.category, x.key)):
             try:
                 act = apply_one(nb, d, do_write)

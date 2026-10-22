@@ -41,6 +41,8 @@ class NetBox:
         self.base = (base_url or os.environ.get("NETBOX_URL", "")).rstrip("/")
         self.token = token or os.environ.get("NETBOX_TOKEN", "")
         self.timeout = timeout
+        # None = tag availability unchecked; set by ensure_tag().
+        self._tag_ok = None
         if not self.base:
             raise WritebackError("NETBOX_URL is required")
 
@@ -71,14 +73,52 @@ class NetBox:
         results = res.get("results") or []
         return results[0] if results else None
 
+    def ensure_tag(self):
+        """Create-or-get the OWNED_TAG so tagged writes never 400 on a missing
+        tag. Sets self._tag_ok: True = tag present & usable; False = tag is
+        unavailable (this token cannot view or create it) -> callers then write
+        UNTAGGED rather than failing every PATCH. NEVER raises — a tag problem
+        must not block the dns_name reconciliation itself.
+
+        Requires on the write token's user: `extras.view_tag` to attach an
+        existing tag, plus `extras.add_tag` only if this should also CREATE the
+        tag when absent (e.g. after a from-scratch NetBox rebuild). With neither,
+        writes degrade to untagged + a logged warning rather than a hard failure.
+        """
+        try:
+            if self.get_first("/api/extras/tags/", {"slug": OWNED_TAG}) is not None:
+                self._tag_ok = True
+                return "tag '%s' present" % OWNED_TAG
+            try:
+                self._req("POST", "/api/extras/tags/",
+                          {"name": OWNED_TAG, "slug": OWNED_TAG, "color": "00bcd4",
+                           "description": "Applied by network-drift Phase 4 auto-write"})
+                self._tag_ok = True
+                return "tag '%s' created" % OWNED_TAG
+            except WritebackError as e:
+                self._tag_ok = False
+                return ("tag '%s' absent and not creatable by this token (%s) -> "
+                        "writing UNTAGGED" % (OWNED_TAG, e))
+        except WritebackError as e:
+            self._tag_ok = False
+            return ("tag '%s' not viewable by this token (%s) -> writing "
+                    "UNTAGGED" % (OWNED_TAG, e))
+
     def _tags(self, use_tag):
-        return [{"slug": OWNED_TAG}] if use_tag else None
+        # Omit the tag when ensure_tag() proved it unusable (_tag_ok is False),
+        # so a missing/unviewable tag degrades to untagged writes instead of
+        # 400-failing every PATCH. _tag_ok None = unchecked -> legacy behaviour
+        # (include the tag).
+        if use_tag and self._tag_ok is not False:
+            return [{"slug": OWNED_TAG}]
+        return None
 
 
 def _merge(desired, use_tag, nb):
     payload = {k: v for k, v in desired.items() if v is not None}
-    if use_tag:
-        payload["tags"] = nb._tags(True)
+    tags = nb._tags(use_tag)
+    if tags:
+        payload["tags"] = tags
     return payload
 
 
@@ -115,8 +155,9 @@ def upsert_ip(nb, address, dns_name=None, description=None, apply=False, use_tag
         return "no-op ip-address %s (already matches)" % address
     action = "update ip-address %s: %s" % (address, diff)
     if apply:
-        if use_tag:
-            diff["tags"] = nb._tags(True)
+        tags = nb._tags(use_tag)
+        if tags:
+            diff["tags"] = tags
         nb._req("PATCH", "/api/ipam/ip-addresses/%d/" % existing["id"], diff)
     return action
 
@@ -149,8 +190,9 @@ def upsert_prefix(nb, prefix, description=None, apply=False, use_tag=True):
         return "no-op prefix %s (already matches)" % prefix
     action = "update prefix %s: %s" % (prefix, diff)
     if apply:
-        if use_tag:
-            diff["tags"] = nb._tags(True)
+        tags = nb._tags(use_tag)
+        if tags:
+            diff["tags"] = tags
         nb._req("PATCH", "/api/ipam/prefixes/%d/" % existing["id"], diff)
     return action
 
@@ -165,8 +207,9 @@ def upsert_vlan(nb, vid, name, apply=False, use_tag=True):
         action = "create vlan vid=%s name=%s" % (vid, name)
         if apply:
             body = {"vid": int(vid), "name": name}
-            if use_tag:
-                body["tags"] = nb._tags(True)
+            tags = nb._tags(use_tag)
+            if tags:
+                body["tags"] = tags
             nb._req("POST", "/api/ipam/vlans/", body)
         return action
     diff = _changed(existing, desired)
@@ -174,8 +217,9 @@ def upsert_vlan(nb, vid, name, apply=False, use_tag=True):
         return "no-op vlan vid=%s (already matches)" % vid
     action = "update vlan vid=%s: %s" % (vid, diff)
     if apply:
-        if use_tag:
-            diff["tags"] = nb._tags(True)
+        tags = nb._tags(use_tag)
+        if tags:
+            diff["tags"] = tags
         nb._req("PATCH", "/api/ipam/vlans/%d/" % existing["id"], diff)
     return action
 

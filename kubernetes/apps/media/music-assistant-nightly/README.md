@@ -42,16 +42,16 @@ follow-up commit. Do not unsuspend without Rob's explicit go-ahead.
   it turns out the browser player doesn't carry a settable on/off field,
   come back to this README and reopen the VLAN-route discussion with Rob
   rather than silently wiring up the macvlan.
-- **Security context.** `readOnlyRootFilesystem: true` + the rest of
-  `.agents/instructions/helmrelease.security.md`'s baseline is applied, but
-  **unverified** against this image/tag — prod's HelmRelease runs a writable
-  rootfs with no documented reason, so there's no prior evidence MA
-  tolerates a read-only one. Tmpfs mounts cover `/tmp`, `/.audio` (prod
-  writes there), `/.cache`, `/.config` (HOME=`/`, non-root uid 1113). If the
-  pod CrashLoops with an EROFS/"Read-only file system" error in its logs,
-  flip `readOnlyRootFilesystem: false` for this one container as the fast
-  unblock — acceptable for a throwaway instance, but say so in the PR/commit
-  so it doesn't quietly become the template for the next one.
+- **Security context.** `allowPrivilegeEscalation: false` + `capabilities:
+  drop: [ALL]` + `seccompProfile: RuntimeDefault` from
+  `.agents/instructions/helmrelease.security.md`'s baseline are applied.
+  `readOnlyRootFilesystem` is deliberately **`false`** (Rob's call,
+  2026-10-22) — matches prod's proven-good writable rootfs rather than an
+  unverified hardening guess; an EROFS crashloop on this exact image/tag
+  would burn the test window for no benefit on a throwaway instance. The
+  tmpfs mounts (`/tmp`, `/.audio` — prod writes there, `/.cache`,
+  `/.config` for HOME=`/` non-root uid 1113) stay regardless, as
+  belt-and-suspenders scratch dirs.
 - **Egress closed.** No `world` egress rule at all — unlike prod (which
   needs Spotify/Tidal/Sonos/mDNS egress), this instance has no provider that
   should ever reach a real device or external API during the test. Only the

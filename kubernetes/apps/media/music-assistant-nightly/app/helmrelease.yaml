@@ -87,23 +87,23 @@ spec:
                 cpu: 50m
                 memory: 256Mi
               limits:
-                memory: 1Gi
+                # 2Gi (not 1Gi) — headroom for MA's boot/DB-init spike;
+                # requests unchanged.
+                memory: 2Gi
 
-            # helmrelease.security.md baseline. UNVERIFIED against this
-            # specific image/tag — prod's HelmRelease runs a writable
-            # rootfs and doesn't document why, so I can't confirm MA
-            # tolerates readOnlyRootFilesystem from prior evidence. Tmpfs
-            # mounts below cover the write paths prod's comments reveal
-            # (/.audio) plus the usual HOME=/ dotfile writes (/.cache,
-            # /.config) and /tmp. If the pod CrashLoops with an EROFS /
-            # "Read-only file system" error in its logs, the fast unblock
-            # for this throwaway instance is to flip
-            # `readOnlyRootFilesystem: false` right here — call it out in
-            # the PR if you do, so it doesn't quietly become the template
-            # for the next throwaway MA test.
+            # readOnlyRootFilesystem: false (decision, not a placeholder) —
+            # matches prod's proven-good writable rootfs rather than an
+            # unverified hardening guess. Prod boots reliably this way;
+            # there's no prior evidence this image tolerates a read-only
+            # rootfs, and an EROFS crashloop would eat the test window for
+            # no benefit on a throwaway instance. The tmpfs emptyDir mounts
+            # below stay regardless — belt-and-suspenders scratch dirs
+            # (/tmp, /.audio, /.cache, /.config) that keep those paths
+            # pod-writable under non-root uid 1113 whether or not the rootfs
+            # itself is read-only.
             securityContext:
               allowPrivilegeEscalation: false
-              readOnlyRootFilesystem: true
+              readOnlyRootFilesystem: false
               capabilities:
                 drop:
                   - ALL

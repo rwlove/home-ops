@@ -1,0 +1,159 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app health-mcp-rw
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  values:
+    defaultPodOptions:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+    controllers:
+      health-mcp-rw:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        type: deployment
+        replicas: 1
+        containers:
+          app:
+            image:
+              # Same first-party image as the read-only health-mcp, deployed a
+              # SECOND time with the Medikeep REST write env set so the one
+              # guarded `upsert_weight` tool is live. The read-only instance
+              # (ai/health-mcp) has no write env and leaves the tool inert; this
+              # instance's CNP admits ONLY the Crusher pod, so the write surface
+              # is not reachable by the rest of the ai namespace.
+              repository: ghcr.io/rwlove/health-mcp
+              tag: v0.2.0@sha256:6a5a32c44941cc5da7c18699c381a475da29bb73d3ee60014e6dd279877d2725
+            env:
+              TZ: America/New_York
+              # Medikeep REST base for the write path (login + vitals upsert).
+              MEDIKEEP_URL: http://medikeep.collab.svc.cluster.local:8000
+              # HARD FLOOR: ships true so a merge cannot write. A manual
+              # dry-run test precedes flipping this to "false" to go live.
+              UPSERT_WEIGHT_DRY_RUN: "true"
+            # upsert_weight reads PUMP v_weight (read-only) + writes Medikeep via
+            # REST. MEDIKEEP_DB_URI is deliberately NOT set here, so bp/dose/
+            # planned stay inert on this instance (least privilege: the write
+            # sibling cannot even read the medikeep DB).
+            envFrom:
+              - secretRef:
+                  name: health-mcp-rw-secret
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /healthz
+                    port: &port 8080
+                  initialDelaySeconds: 15
+                  periodSeconds: 30
+                  failureThreshold: 5
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /readyz
+                    port: *port
+                  initialDelaySeconds: 10
+                  periodSeconds: 15
+                  failureThreshold: 3
+            resources:
+              requests:
+                cpu: 15m
+                memory: 128Mi
+              limits:
+                memory: 512Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              # Matches the read-only health-mcp bring-up posture; /tmp is an
+              # emptyDir below. Tighten to true after soak.
+              readOnlyRootFilesystem: false
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+    service:
+      app:
+        controller: health-mcp-rw
+        ports:
+          http:
+            port: *port
+    persistence:
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          health-mcp-rw:
+            app:
+              - path: /tmp
+    externalSecrets:
+      health-mcp-rw:
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: onepassword-connect
+        target:
+          name: health-mcp-rw-secret
+          template:
+            data:
+              # PUMP read replica (health_ro) — the upsert_weight source.
+              PUMP_DB_URI: "postgresql://health_ro:{{ .RO_DB_PASS }}@postgres-pump-ro.databases.svc.cluster.local:5432/pump"
+              # Medikeep app login (the patient's own account => patient_id 1),
+              # the SAME scoped credential the medikeep-ingest CronJob uses.
+              MEDIKEEP_USER: "{{ .MEDIKEEP_USER }}"
+              MEDIKEEP_PASS: "{{ .MEDIKEEP_PASS }}"
+        dataFrom:
+          - extract:
+              key: health
+          - extract:
+              key: medikeep
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: health-mcp-rw-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: health-mcp-rw
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # ONLY the Crusher agent pod may reach the write tool — not the whole
+          # ai namespace (unlike the read-only health-mcp). This is the blast-
+          # radius boundary for the Medikeep write path.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: ai
+                  app.kubernetes.io/name: crusher
+            toPorts:
+              - ports:
+                  - port: "8080"
+                    protocol: TCP
+        egress:
+          # → PUMP CNPG read replica (weight source).
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: databases
+                  cnpg.io/cluster: postgres-pump
+            toPorts:
+              - ports:
+                  - port: "5432"
+                    protocol: TCP
+          # → Medikeep REST API (collab ns) for the vitals upsert.
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: collab
+                  app.kubernetes.io/name: medikeep
+            toPorts:
+              - ports:
+                  - port: "8000"
+                    protocol: TCP

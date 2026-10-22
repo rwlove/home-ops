@@ -10,19 +10,20 @@ metadata:
     # egress (NetBox write) is added to cnp-allow.yaml.
     app.kubernetes.io/name: network-drift
 spec:
-  # Phase 4 — GATED auto-write of the SAFE drift residual. OFF by default, three
-  # ways: (1) suspend:true here, (2) AUTOWRITE_APPLY=false below, (3) the
-  # write-token ExternalSecret is NotReady until Rob provisions it. Merging this
-  # manifest writes NOTHING to NetBox.
+  # Phase 4 — GATED auto-write of the SAFE drift residual.
+  # ENABLED 2026-10-22 (Rob's explicit call, after a week of P1/P2 detect-only
+  # evidence; dry-run deliberately skipped at his direction). suspend:false +
+  # AUTOWRITE_APPLY:"true" below.
   #
-  # THE ONE TOGGLE that enables auto-write is the AUTOWRITE_APPLY env (default
-  # "false"). Turning Phase 4 on, after Phases 1-2 produce drift evidence:
-  #   1. Rob provisions the scoped write token (see externalsecret-write.yaml).
-  #   2. Unsuspend + dry-run test:
-  #        kubectl -n ai create job --from=cronjob/network-drift-upsert nbw-test
-  #      (AUTOWRITE_APPLY still false -> emails what it WOULD write).
-  #   3. Flip AUTOWRITE_APPLY to "true" and suspend:false.
-  suspend: true
+  # ONE GATE REMAINS: the write-token ExternalSecret (externalsecret-write.yaml)
+  # stays NotReady until the scoped NetBox token exists in 1Password, and the
+  # token secret is mounted non-optionally — so the Job pod cannot start and
+  # NOTHING is written to NetBox until that token is provisioned. Once it is,
+  # the next scheduled run (08:30 America/New_York) writes for real.
+  #
+  # To pause auto-write again without un-provisioning the token: set suspend:true
+  # (or AUTOWRITE_APPLY:"false") and merge.
+  suspend: false
   schedule: "30 8 * * *"
   timeZone: America/New_York
   concurrencyPolicy: Forbid
@@ -77,9 +78,10 @@ spec:
                 # external envoy, same path netbox-mcp uses for reads).
                 - name: NETBOX_URL
                   value: https://netbox.${SECRET_DOMAIN}
-                # ---- THE OFF GATE ----  default OFF. "true" permits writes.
+                # ---- THE APPLY GATE ----  "true" permits writes (ENABLED
+                # 2026-10-22). Set back to "false" to return to detect-only.
                 - name: AUTOWRITE_APPLY
-                  value: "false"
+                  value: "true"
                 # Intended upsert layer is NetBox Diode; until its server is
                 # deployed the working backend is the Phase 3 write-back library.
                 - name: UPSERT_BACKEND

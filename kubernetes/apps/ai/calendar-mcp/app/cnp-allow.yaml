@@ -1,0 +1,43 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: calendar-mcp-allow
+spec:
+  # Additive allow on top of the ai default-deny. Apiserver + DNS are covered by
+  # the baseline component.
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: calendar-mcp
+  ingress:
+    # ONLY the five concierge agents may reach the calendar write tools — not the
+    # whole ai namespace. Belt-and-suspenders with the per-agent tool bindings
+    # (the cluster operators are not bound to this server at all). This is the
+    # blast-radius boundary for the Google Calendar write path.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+          matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values:
+                - arnold
+                - cooter
+                - crusher
+                - gordon
+                - warren
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+  egress:
+    # → Google Calendar API (www/oauth2/accounts.googleapis.com) + PyPI for the
+    # ephemeral `uv run --with` dependency fetch. Broad HTTPS egress; could be
+    # tightened to toFQDNs later.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

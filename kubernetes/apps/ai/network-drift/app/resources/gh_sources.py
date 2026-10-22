@@ -160,17 +160,6 @@ def compare_dhcpd_subnets(subs, nb_prefixes):
     return drifts
 
 
-def _bare_name(fqdn):
-    """Strip the configured DNS_DOMAIN suffix. NetBox's own dns_name convention
-    (confirmed against every ip-address record in this NetBox instance) stores
-    a BARE hostname, never an FQDN — so the comparison (and the Phase 4
-    auto-write target below) must compare/write the bare form, not `fqdn`
-    as-is. Comparing bare-vs-FQDN directly made this comparator fire on nearly
-    every correctly-populated record."""
-    suffix = "." + DNS_DOMAIN
-    return fqdn[: -len(suffix)] if fqdn.endswith(suffix) else fqdn
-
-
 def compare_dns_names(recs, nb_ips):
     # Only fire when the IP exists in NetBox but its dns_name is missing/stale —
     # a freshness check, not a "missing IP" check (those are covered elsewhere).
@@ -184,19 +173,24 @@ def compare_dns_names(recs, nb_ips):
         if p is None:
             continue
         have = (p.get("dns_name") or "").strip().lower()
-        bare = _bare_name(r["fqdn"])
-        if have != bare:
+        # NetBox dns_name convention = the FQDN (Rob's standing rule, 2026-10-22):
+        # NetBox mirrors what live DNS actually serves, and the zone serves FQDNs.
+        # r["fqdn"] is already canonical + lowercased by parse_zone_a_records(), so
+        # a record that already holds the correct FQDN does NOT drift (the old
+        # bare-name truncation flagged — and would have shortened — those).
+        want = r["fqdn"]
+        if have != want:
             drifts.append(ns.Drift(
                 "netbox-dns-name-stale", "ip=%s" % r["ip"],
                 reality="DNS zone maps %s -> '%s'" % (r["ip"], r["fqdn"]),
                 record="NetBox dns_name for %s is '%s'" % (r["ip"], have or "(empty)"),
                 proposal="HUMAN-ONLY: set NetBox dns_name of %s to '%s'"
-                         % (r["ip"], bare),
+                         % (r["ip"], want),
                 # SAFE auto-write target (Phase 4): PATCH dns_name on the existing
                 # NetBox ip-address (use its stored CIDR so the match is exact).
-                # Write the bare name, matching NetBox's own convention.
+                # Write the FQDN, matching live DNS (the mirror convention).
                 target={"kind": "ip", "address": p.get("address"),
-                        "dns_name": bare}))
+                        "dns_name": want}))
     return drifts
 
 

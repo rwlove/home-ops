@@ -88,9 +88,20 @@ def main():
     drifts, _ = ns.compute_drifts(eps)
 
     acked = ns.load_acked()
-    safe = [d for d in drifts
-            if d.category in SAFE_CATEGORIES and d.target
-            and d.fingerprint not in acked]
+    safe_eligible = [d for d in drifts
+                     if d.category in SAFE_CATEGORIES and d.target
+                     and d.fingerprint not in acked]
+    # Protected ranges (recovery-path floor) can never be auto-written, so they
+    # are not real upsert candidates. Drop them at SELECTION rather than letting
+    # them through to a per-address "SKIP (protected range)" line in the email:
+    # an all-protected run must send no mail (problems-only digest). The
+    # apply_one() excluded() guard stays as defense-in-depth.
+    safe = [d for d in safe_eligible
+            if not excluded((d.target or {}).get("address") or "")]
+    protected_n = len(safe_eligible) - len(safe)
+    if protected_n:
+        ns.log("autowrite: %d safe-category item(s) in protected ranges dropped "
+               "from candidates (recovery-path floor; not emailed)" % protected_n)
     residual = [d for d in drifts
                 if d.category not in SAFE_CATEGORIES
                 and d.category != "source-unreadable"

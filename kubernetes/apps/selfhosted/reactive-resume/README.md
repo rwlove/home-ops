@@ -37,12 +37,14 @@ already present in the `cloudnative-pg` item (shared superuser).
 ## Account bootstrap + lockdown (after first healthy reconcile)
 
 1. Browse to `https://reactive-resume.${SECRET_DOMAIN}` and register Robert's
-   account, then a dedicated **`herman`** account (career-coach agent).
-2. Capture Herman's credentials into 1Password (`reactive-resume` item,
-   `HERMAN_EMAIL` / `HERMAN_PASSWORD`) — Herman logs in via the REST API for a
-   JWT (see the herman persona access recipe).
-3. Seal the instance: uncomment `FLAG_DISABLE_SIGNUPS: "true"` in
-   `app/helmrelease.yaml` and merge. No new accounts after that.
+   account (use a **unique** RR password).
+2. Capture those credentials into 1Password (`reactive-resume` item,
+   `RR_USER_EMAIL` / `RR_USER_PASSWORD`). Herman (career-coach agent) logs in
+   **as Robert** via the REST API — no separate account, because RR resumes are
+   per-account with no shared editing, so a dedicated agent account couldn't see
+   Robert's résumés.
+3. Seal the instance: `FLAG_DISABLE_SIGNUPS: "true"` in `app/helmrelease.yaml`
+   (set once the account exists). No new accounts after that.
 
 ## Notes
 

@@ -375,27 +375,23 @@ def save_seen(fingerprints):
     os.replace(tmp, SEEN_PATH)
 
 
-def build_digest(day, new_drifts, resolved_fps, active_total):
-    lines = ["FYI: NetBox-freshness sweep found a CHANGE in network drift "
+def build_digest(day, new_drifts, active_total):
+    # Problems-only digest: only NEW, actionable drift is emailed. Resolved items
+    # (a drift that fixed itself) are an all-clear roster — logged, never mailed.
+    lines = ["FYI: NetBox-freshness sweep found NEW network drift "
              "(%s). NetBox mirrors live reality; every fix below is **human-only** "
              "(this sweep writes nothing)." % day, ""]
-    if new_drifts:
-        shown = sorted(new_drifts, key=lambda d: (d.category, d.key))[:DIGEST_ITEM_CAP]
-        lines.append("## New drift (%d)" % len(new_drifts))
-        for d in shown:
-            lines.append("- **%s** `%s` (`%s`)" % (d.category, d.key, d.fingerprint))
-            lines.append("  - reality: %s" % d.reality)
-            lines.append("  - record: %s" % d.record)
-            lines.append("  - %s" % d.proposal)
-        if len(new_drifts) > len(shown):
-            lines.append("- _…and %d more (full list in the job logs)._"
-                         % (len(new_drifts) - len(shown)))
-        lines.append("")
-    if resolved_fps:
-        lines.append("## Resolved since last sweep (%d)" % len(resolved_fps))
-        for f in sorted(resolved_fps)[:DIGEST_ITEM_CAP]:
-            lines.append("- `%s` no longer drifting" % f)
-        lines.append("")
+    shown = sorted(new_drifts, key=lambda d: (d.category, d.key))[:DIGEST_ITEM_CAP]
+    lines.append("## New drift (%d)" % len(new_drifts))
+    for d in shown:
+        lines.append("- **%s** `%s` (`%s`)" % (d.category, d.key, d.fingerprint))
+        lines.append("  - reality: %s" % d.reality)
+        lines.append("  - record: %s" % d.record)
+        lines.append("  - %s" % d.proposal)
+    if len(new_drifts) > len(shown):
+        lines.append("- _…and %d more (full list in the job logs)._"
+                     % (len(new_drifts) - len(shown)))
+    lines.append("")
     lines.append("_%d drift item(s) currently active. To silence a known/planned "
                  "item, add its `fingerprint` to `acked.txt` in the "
                  "network-drift app._" % active_total)
@@ -519,10 +515,13 @@ def main():
         log("DRIFT [%s] %s %s (%s): %s" % (new_mark, d.category, d.key,
                                            d.fingerprint, d.reality))
 
-    if new_drifts or resolved_fps:
-        body = build_digest(day, new_drifts, resolved_fps, len(active))
+    if new_drifts:
+        body = build_digest(day, new_drifts, len(active))
         notify("network drift — %s" % day, body)
         RESULT["emailed"] = True
+    elif resolved_fps:
+        log("%d drift item(s) resolved since last sweep, 0 new — silent "
+            "(resolved roster is log-only, not emailed)" % len(resolved_fps))
     else:
         log("no state change — silent")
 

@@ -19,7 +19,13 @@ spec:
         # a Deployment is correct. Single replica: the PVC is RWO.
         type: deployment
         replicas: 1
-        strategy: RollingUpdate
+        # Recreate (not RollingUpdate): single replica on an RWO ceph-block PVC.
+        # RollingUpdate spins the new pod before terminating the old one, but the
+        # new pod can't mount the RWO volume the old pod still holds → it never
+        # goes Ready → Helm upgrade times out and Flux rolls the release back,
+        # every reconcile. Recreate tears the old pod down first (brief downtime,
+        # acceptable for a single-user internal app) so the new pod can mount.
+        strategy: Recreate
         pod:
           securityContext:
             runAsUser: 1000

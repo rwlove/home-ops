@@ -30,16 +30,27 @@ Reach for these first:
 
 | Need | Tool |
 |---|---|
-| What is running / failing | `kubectl_get_pods`, `kubectl_get_events`, `kubectl_get_pod_events` |
-| Why a pod is unhealthy | `kubectl_diagnose_pod_crash`, `kubectl_check_pod_health`, `kubectl_get_logs`, `kubectl_get_previous_logs` |
-| Node / capacity | `kubectl_get_nodes`, `kubectl_get_nodes_summary`, `kubectl_get_node_metrics` |
-| Storage | `kubectl_get_pvcs`, `kubectl_get_persistent_volumes`, `kubectl_get_storage_classes` |
-| Flux / GitOps state | `kubectl_gitops_apps_list_tool`, `kubectl_gitops_app_status_tool`, `kubectl_gitops_sources_list_tool` |
+| What is running / failing | `kubectl_kubectl_get` (`resource_type: pods`/`events`/…) |
+| Why a pod is unhealthy | `kubectl_diagnose_pod_crash`, `kubectl_check_pod_health`, `kubectl_kubectl_logs` (prior logs via `previous: true`) |
+| Node / capacity | `kubectl_kubectl_get` (`nodes`), `kubectl_get_nodes_summary`, `kubectl_kubectl_top`, `kubectl_node_stats_summary` |
+| Storage | `kubectl_kubectl_get` (`persistentvolumeclaims`/`persistentvolumes`/`storageclasses`) |
+| Flux / GitOps state | `kubectl_kubectl_get` (`kustomizations`/`helmreleases`) — the `kubectl_gitops_*` tools exist but return `total: 0` on this cluster (a detection limit, not an outage) |
 | Metrics | `prom_execute_query`, `prom_execute_range_query` |
 | Network policy | `cilium_*`, `kubectl_analyze_network_policies` |
 
-The allowlist is **read-only**. There is no apply/patch/delete/scale/rollout,
-and `kubectl_get_secrets` / `kubectl_kubeconfig_view` are deliberately absent.
+> **2.0 tool naming (since the 2026-10-23 upgrade):** the generic verbs are
+> gateway-exposed **double-prefixed** — `kubectl_kubectl_get` / `_describe` /
+> `_logs` / `_top` (the backend tool is itself named `kubectl_*`, so the broker's
+> `kubectl_` prefix doubles up). One generic `kubectl_kubectl_get` covers **every**
+> kind including CRDs (Longhorn/CNPG/Cilium) — pass `resource_type`. The
+> specialized tools (`diagnose_pod_crash`, `gitops_*`, `analyze_network_policies`,
+> `get_nodes_summary`, `check_pod_health`) are single-prefixed `kubectl_*`. The 1.x
+> per-kind tools (`kubectl_get_pods`, `kubectl_get_pvcs`, …) no longer exist.
+
+The server runs in **read-only safety mode** (`MCP_SAFETY_MODE=read-only`): every
+state-changing tool (apply/patch/delete/scale/rollout/exec) is blocked server-side
+and hidden from the tool list. Secret *values* are protected two ways — the RBAC
+grants no `secrets` read verb, and `MCP_MASK_SECRETS` redacts any that would surface.
 If a task seems to need a mutating or credential tool, that is a signal to
 stop and propose the change as a Flux commit — not to look for a way around
 the gate. Git is canonical for cluster state.

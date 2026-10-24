@@ -176,8 +176,8 @@ async def get_starred(account: str = "both") -> dict[str, Any]:
 
 
 @mcp.tool()
-async def search(query: str, artist_count: int = 10, album_count: int = 20,
-                 song_count: int = 30, account: str = "both") -> dict[str, Any]:
+async def search_library(query: str, artist_count: int = 10, album_count: int = 20,
+                         song_count: int = 30, account: str = "both") -> dict[str, Any]:
     """Search artists / albums / songs by name. Wraps search3.
 
     Use to dedupe a candidate against the library before recommending, and to

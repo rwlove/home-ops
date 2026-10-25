@@ -1,0 +1,196 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app rick-library-mcp
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  values:
+    defaultPodOptions:
+      securityContext:
+        # Writes to the library must land as the `media` group (GID 1001); the
+        # files are mode 0664 group-writable, so a GID-1001 process can edit them
+        # in place. 1115 is this app's own UID (unused elsewhere in the media
+        # group). fsGroup 1001 lets it write the Longhorn /revert backup volume.
+        runAsNonRoot: true
+        runAsUser: 1115
+        runAsGroup: 1001
+        fsGroup: 1001
+        fsGroupChangePolicy: OnRootMismatch
+        supplementalGroupsPolicy: Strict
+    controllers:
+      rick-library-mcp:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        type: deployment
+        replicas: 1
+        containers:
+          app:
+            # uv on GHCR; the server is mounted from the configMap and its
+            # pure-Python deps (mcp SDK + mutagen) resolve ephemerally at start.
+            # readOnlyRootFilesystem stays on by pointing uv's HOME/cache at the
+            # tmpfs below. mcp pinned <2 (FastMCP API; 2.x dropped
+            # mcp.server.fastmcp) — same constraint as rick-gonic-mcp (#14986).
+            image:
+              repository: ghcr.io/astral-sh/uv
+              tag: python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58
+            command:
+              - /bin/sh
+              - -ceu
+              - |
+                export HOME=/tmp
+                export UV_CACHE_DIR=/tmp/uv
+                export XDG_CACHE_HOME=/tmp/.cache
+                uv run --no-project \
+                  --with 'mcp<2' --with mutagen \
+                  /config/server.py
+            env:
+              TZ: America/New_York
+              MEDIA_ROOT: /media
+              BACKUP_ROOT: /revert
+              PORT: &port "8095"
+              GONIC_URL: http://gonic.media.svc.cluster.local:80
+              # ALIAS_PAIRS intentionally unset — artist names are restricted-tier
+              # (HOMELAB-SPEC L2 #10) and never committed. Supply at runtime from a
+              # secret to suppress benign rename mismatches in evaluate().
+            # GONIC_ADMIN_USER/PASS (Robert's gonic admin) from 1Password, used only
+            # by the rescan tool to trigger a Subsonic library rescan after a fix.
+            envFrom:
+              - secretRef:
+                  name: rick-library-mcp-secret
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: 8095
+                  initialDelaySeconds: 20
+                  periodSeconds: 30
+                  failureThreshold: 5
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: 8095
+                  initialDelaySeconds: 15
+                  periodSeconds: 15
+                  failureThreshold: 3
+            resources:
+              requests:
+                cpu: 10m
+                memory: 128Mi
+              limits:
+                memory: 512Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+    service:
+      app:
+        controller: rick-library-mcp
+        ports:
+          http:
+            port: *port
+    persistence:
+      # The remediation server (configMapGenerator in kustomization.yaml).
+      server:
+        type: configMap
+        name: rick-library-mcp-server
+        advancedMounts:
+          rick-library-mcp:
+            app:
+              - path: /config/server.py
+                subPath: server.py
+                readOnly: true
+      # The music library, READ-WRITE (Rick edits tags / moves in place). Own
+      # direct-NFS PV/PVC to the same beast path the other media apps mount.
+      media:
+        existingClaim: rick-library-mcp-music-pvc
+        globalMounts:
+          - path: /media
+      # OFF-LIBRARY revert/backup volume (Longhorn, in-cluster durable + backed
+      # up). Holds original-file copies + ledger.jsonl so every change is
+      # revertible. NOT under the music library, by design.
+      revert:
+        existingClaim: rick-library-mcp-backup-pvc
+        globalMounts:
+          - path: /revert
+      # uv HOME/cache; keeps the root filesystem read-only.
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          rick-library-mcp:
+            app:
+              - path: /tmp
+    externalSecrets:
+      rick-library-mcp:
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: onepassword-connect
+        target:
+          name: rick-library-mcp-secret
+          creationPolicy: Owner
+        # Reuses the EXISTING `gonic` 1Password item (same admin account
+        # rick-gonic-mcp reads) — only to trigger a post-fix library rescan.
+        data:
+          - secretKey: GONIC_ADMIN_USER
+            remoteRef:
+              key: gonic
+              property: GONIC_ADMIN_USER
+          - secretKey: GONIC_ADMIN_PASS
+            remoteRef:
+              key: gonic
+              property: GONIC_ADMIN_PASS
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: rick-library-mcp-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: rick-library-mcp
+        # Additive — the media default-deny enforces both directions; these punch
+        # the holes. NFS PV traffic is node-level (kubelet mount), not pod egress,
+        # so the library + Longhorn mounts need no egress rule here.
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # kagent (ai ns — the rick agent pods AND the controller's tool-discovery
+          # dial) call this MCP over Streamable HTTP on :8095. Cross-namespace, so
+          # the matching egress halves live in ai/kagent/app/cnp-allow.yaml
+          # (kagent-agents-allow + kagent-controller-mcp-discovery-allow).
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: ai
+            toPorts:
+              - ports:
+                  - port: "8095"
+                    protocol: TCP
+        egress:
+          # -> gonic's Subsonic API (media ns) for the rescan tool. Service is :80,
+          # pod/endpoint port is 4747 (Cilium evaluates the post-xlate port).
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: media
+                  app.kubernetes.io/name: gonic
+            toPorts:
+              - ports:
+                  - port: "4747"
+                    protocol: TCP
+          # -> PyPI (443) for the ephemeral `uv run --with` dependency fetch.
+          - toEntities:
+              - world
+            toPorts:
+              - ports:
+                  - port: "443"
+                    protocol: TCP

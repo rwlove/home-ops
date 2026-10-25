@@ -159,18 +159,57 @@ spec:
           for: 30m
           labels:
             severity: warning
-        # changes()[25h] false-fires when the gauge is re-emitted after a CNPG
-        # pod restart, even when the last failure is weeks old (same gauge
-        # re-emission problem documented for BackupStale above). Gate on the
-        # failure timestamp being genuinely recent (<24h) instead.
+        # BackupFailed — a backup RAN AND FAILED recently and has NOT since
+        # been superseded by a successful one. Two guards over the raw
+        # last-failed gauge:
+        #
+        #   1. recency (<24h). The gauge persists the last-failed timestamp
+        #      and is re-emitted on CNPG pod restart, so changes()[25h] /
+        #      delta() over it false-fire weeks after a stale failure (same
+        #      gauge re-emission class documented for BackupStale above).
+        #      Gating on genuine recency avoids that.
+        #
+        #   2. supersede / DEBOUNCE (the `unless`). Without it the alert flaps
+        #      for a full 24h on a one-off failure that a retry fixed minutes
+        #      later — e.g. postgres-reactive-resume's bootstrap backup raced
+        #      a late secret sync (fail 2026-10-23 11:50 EDT), then succeeded
+        #      on retry by 16:39 EDT, yet the old rule kept paging until the
+        #      failure timestamp aged past 24h. The `unless` drops the alert
+        #      the moment a backup succeeds *after* the recorded failure.
+        #
+        # Success signal is barman_cloud_cloudnative_pg_io_last_available_backup_timestamp
+        # — the CNPG-I barman-cloud plugin's LIVE per-pod object-store recency
+        # gauge (same :9187 exporter / label set as the cnpg_collector series,
+        # so it matches 1:1). The legacy cnpg_collector_last_available_backup_timestamp
+        # is DEAD for plugin clusters (frozen at migration time, or 0) and
+        # cannot be the success signal — see the BackupStale note above and
+        # home-ops#12075. The whole fleet is plugin-backed today; the
+        # cnpg_collector branch in the `or` is the in-core barmanObjectStore
+        # fallback — currently inert (its values are stale, never newer than a
+        # real failure, so it can't wrongly debounce) but keeps the rule
+        # correct for any future non-plugin cluster.
+        #
+        # Written with `unless` (not `and failed > available`) ON PURPOSE:
+        # `unless` FAILS OPEN. If the success signal is ever absent (a cluster
+        # whose very first backup fails, an exporter gap), the alert still
+        # FIRES rather than going silently dark. A real backup failure must
+        # never be muted by a missing success metric.
         - alert: BackupFailed
           annotations:
-            description: Cluster {{ $labels.job }} in {{ $labels.namespace }} has a recent backup failure.
+            description: Cluster {{ $labels.job }} in {{ $labels.namespace }} has a recent backup failure not yet superseded by a successful backup.
             summary: CNPG cluster backup failed recently.
           expr: |-
-            (cnpg_collector_last_failed_backup_timestamp > 0)
-            and
-            (time() - cnpg_collector_last_failed_backup_timestamp < 86400)
+            (
+              (cnpg_collector_last_failed_backup_timestamp > 0)
+              and
+              (time() - cnpg_collector_last_failed_backup_timestamp < 86400)
+            )
+            unless
+            (
+              (barman_cloud_cloudnative_pg_io_last_available_backup_timestamp > cnpg_collector_last_failed_backup_timestamp)
+              or
+              (cnpg_collector_last_available_backup_timestamp > cnpg_collector_last_failed_backup_timestamp)
+            )
           for: 10m
           labels:
             severity: warning

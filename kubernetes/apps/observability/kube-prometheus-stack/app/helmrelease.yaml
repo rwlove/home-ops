@@ -117,6 +117,14 @@ spec:
             regex: ".*apiserver_request_total.*"
 
             sourceLabels: ["__name__"]
+          # Drop high-cardinality apiserver histograms unused by any dashboard
+          # or recording/alerting rule (verified 2026-10-25: 0 rule refs).
+          # request_body_size_bytes_bucket alone is the #1 series source (~34k);
+          # with the two watch buckets this trims ~60k+ active series. Durable
+          # cardinality reduction so the 4G ceiling keeps its headroom.
+          - action: drop
+            regex: apiserver_(request|response)_body_size_bytes_bucket|apiserver_watch_(list_duration|cache_read_wait)_seconds_bucket
+            sourceLabels: ["__name__"]
     kubeControllerManager:
       enabled: true
       endpoints: ["192.168.1.9", "192.168.4.9", "192.168.4.10"]
@@ -138,6 +146,12 @@ spec:
     kubelet:
       enabled: true
       serviceMonitor:
+        cAdvisorMetricRelabelings:
+          # container_blkio_device_usage_total: ~6k series, per-device blkio,
+          # unused by any dashboard/rule (verified 2026-10-25).
+          - action: drop
+            regex: container_blkio_device_usage_total
+            sourceLabels: ["__name__"]
         metricRelabelings:
           # Drop high cardinality labels
           - action: labeldrop
@@ -176,6 +190,12 @@ spec:
         # the observed peak at ~71%. Revisit if peak/limit climbs back
         # over ~80% — Prometheus memory tracks active series, so this
         # moves with cluster growth.
+        #
+        # 2026-10-25: working-set peak had crept to ~3.03Gi (76%) as
+        # active series grew to ~600k, so the headroom above was being
+        # spent. Rather than raise the ceiling, trimmed ~65k series via
+        # the apiserver/cadvisor metricRelabelings drops above — pulling
+        # the footprint back down instead of chasing it. Limit held at 4G.
         #
         # Keeping memory request == limit is deliberate: kubelet ranks
         # eviction by usage *above request*, so a pod that can never

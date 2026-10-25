@@ -14,7 +14,7 @@ Bound cross-namespace to `rick` as a `RemoteMCPServer`
 Every mutation this server performs is:
 
 - **Backed up first** — the original file is copied to an **off-library** volume
-  (`/revert`, a separate Longhorn PVC, never under the library) before it is
+  (`/revert`, a separate ceph-block PVC, never under the library) before it is
   touched. Fully revertible.
 - **Recorded** — appended to a durable `ledger.jsonl` on that volume and returned
   to the agent (which also mirrors it to its memory).

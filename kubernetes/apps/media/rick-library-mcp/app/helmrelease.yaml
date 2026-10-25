@@ -15,7 +15,7 @@ spec:
         # Writes to the library must land as the `media` group (GID 1001); the
         # files are mode 0664 group-writable, so a GID-1001 process can edit them
         # in place. 1115 is this app's own UID (unused elsewhere in the media
-        # group). fsGroup 1001 lets it write the Longhorn /revert backup volume.
+        # group). fsGroup 1001 lets it write the ceph-block /revert backup volume.
         runAsNonRoot: true
         runAsUser: 1115
         runAsGroup: 1001
@@ -28,6 +28,9 @@ spec:
           reloader.stakater.com/auto: "true"
         type: deployment
         replicas: 1
+        # RWO ceph-block backup PVC — Recreate avoids a rollout deadlock where a
+        # new pod can't attach the volume the terminating pod still holds.
+        strategy: Recreate
         containers:
           app:
             # uv on GHCR; the server is mounted from the configMap and its
@@ -118,9 +121,9 @@ spec:
         existingClaim: rick-library-mcp-music-pvc
         globalMounts:
           - path: /media
-      # OFF-LIBRARY revert/backup volume (Longhorn, in-cluster durable + backed
-      # up). Holds original-file copies + ledger.jsonl so every change is
-      # revertible. NOT under the music library, by design.
+      # OFF-LIBRARY revert/backup volume (ceph-block, in-cluster durable). Holds
+      # original-file copies + ledger.jsonl so every change is revertible. NOT
+      # under the music library, by design.
       revert:
         existingClaim: rick-library-mcp-backup-pvc
         globalMounts:
@@ -160,7 +163,7 @@ spec:
             app.kubernetes.io/name: rick-library-mcp
         # Additive — the media default-deny enforces both directions; these punch
         # the holes. NFS PV traffic is node-level (kubelet mount), not pod egress,
-        # so the library + Longhorn mounts need no egress rule here.
+        # so the library + ceph-block mounts need no egress rule here.
         enableDefaultDeny:
           egress: false
           ingress: false

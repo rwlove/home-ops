@@ -113,8 +113,23 @@ def _load_aliases():
 ALIASES = _load_aliases()
 
 
+def _casenorm(s):
+    """Accent-stripped, whitespace-collapsed, lowercased — but KEEPS non-Latin
+    letters and symbols. norm() reduces to [a-z0-9] and empties out all-symbol
+    or non-Latin names (e.g. a symbol-only or Korean artist name), which made
+    related() wrongly flag a folder whose album-artist tag is identical."""
+    s = unicodedata.normalize("NFKD", s or "")
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    return re.sub(r"\s+", " ", s.strip().lower())
+
+
 def related(a, b):
-    """True if two names are the same or one is a substring of the other."""
+    """True if two names are the same (including non-Latin/symbol names that
+    norm() would reduce to empty) or one's alnum form is a substring of the
+    other's."""
+    ca, cb = _casenorm(a), _casenorm(b)
+    if ca and ca == cb:
+        return True
     na, nb = norm(a), norm(b)
     return bool(na and nb and (na == nb or na in nb or nb in na))
 

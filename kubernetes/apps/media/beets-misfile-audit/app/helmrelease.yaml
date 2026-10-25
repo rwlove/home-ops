@@ -48,8 +48,19 @@ spec:
                 export PATH="/lsiopy/bin:$PATH"
                 python3 /scripts/misfile-audit.py
             env:
+              # notify-mcp sender/theme for the findings digest email.
+              AGENT_NAME: rick
+              # Pass 2 (album-tag) scans everything by default (0) so the first
+              # runs clear the existing backlog; raise once backlog is clean to
+              # focus weekly runs on new imports.
+              ALBUM_LOOKBACK_DAYS: "0"
               LOOKBACK_DAYS: "8"
               MIN_SCORE: "0.90"
+              # Findings digest sink. Artist aliases (ALIAS_PAIRS) are NOT set
+              # here: artist names are restricted-tier (HOMELAB-SPEC L2 #10) and
+              # must not be committed. Supply known aliases at runtime from a
+              # secret / 1Password to quiet benign rename mismatches.
+              NOTIFY_URL: http://notify-mcp.mcp-system.svc.cluster.local:8060/send
             resources:
               requests:
                 cpu: 100m
@@ -91,4 +102,13 @@ spec:
             toPorts:
               - ports:
                   - port: "443"
+                    protocol: TCP
+          # notify-mcp (mcp-system) for the findings-digest email.
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: mcp-system
+                  app.kubernetes.io/name: notify-mcp
+            toPorts:
+              - ports:
+                  - port: "8060"
                     protocol: TCP

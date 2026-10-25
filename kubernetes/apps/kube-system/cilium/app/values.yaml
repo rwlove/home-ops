@@ -125,6 +125,16 @@ hubble:
     # scraped. Drives the network-policy drop alerts.
     serviceMonitor:
       enabled: true
+      # Drop unused high-cardinality hubble series (~35k): the response-side
+      # DNS breakdown and port-distribution. hubble_dns_queries_total is
+      # deliberately KEPT — the egress-FQDN baselining + egress-detection
+      # alerts depend on it. Scrape-level drop only; the agent still emits
+      # these (metrics.enabled unchanged), so nothing about what the CNI
+      # generates changes. Verified 2026-10-25: 0 dashboard/rule refs.
+      metricRelabelings:
+        - action: drop
+          regex: hubble_dns_responses_total|hubble_dns_response_types_total|hubble_port_distribution_total
+          sourceLabels: ["__name__"]
 
   relay:
     enabled: true

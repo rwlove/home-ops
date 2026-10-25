@@ -79,6 +79,7 @@ def _firing(payload):
             "text": text,
             "pod": lbl.get("pod", ""),
             "node": lbl.get("node", ""),
+            "container": lbl.get("container", ""),
         })
     return out
 
@@ -114,6 +115,7 @@ def _pregather(alerts):
     seen_pods = set()
     for a in alerts[:MAX_ALERTS]:
         ns, pod = a.get("namespace"), a.get("pod")
+        container = a.get("container") or ""
         if not pod or (ns, pod) in seen_pods:
             continue
         seen_pods.add((ns, pod))
@@ -123,13 +125,28 @@ def _pregather(alerts):
         restarts = _first(_prom('max(kube_pod_container_status_restarts_total{%s})' % sel))
         info = _prom('kube_pod_info{%s}' % sel)
         node = (info[0][0].get("node") if info else "") or a.get("node") or ""
+        # Memory limit + recent peak working-set: the numbers an OOM triage needs
+        # but can't infer. Scope to the alert's container when known, else pod-wide.
+        csel = sel + (',container="%s"' % container if container else ',container!=""')
+        lim = _first(_prom('max(kube_pod_container_resource_limits{%s,resource="memory"})' % csel))
+        peak = _first(_prom('max(max_over_time(container_memory_working_set_bytes{%s}[30m]))' % csel))
         seg = "  %s/%s:" % (ns, pod)
+        if container:
+            seg += " container=%s" % container
         if restarts is not None:
             seg += " restarts=%s" % str(restarts).split(".")[0]
         if node:
             seg += " node=%s" % node.split(".")[0]
             if node not in nodes:
                 nodes.append(node)
+        try:
+            if peak is not None and lim is not None:
+                seg += " mem_peak=%dMi/limit=%dMi" % (
+                    round(float(peak) / 1048576), round(float(lim) / 1048576))
+            elif peak is not None:
+                seg += " mem_peak=%dMi" % round(float(peak) / 1048576)
+        except (TypeError, ValueError):
+            pass
         lines.append(seg)
 
     for node in nodes[:MAX_PREGATHER_NODES]:
@@ -155,8 +172,10 @@ def _pregather(alerts):
     return (
         "\n\nPre-gathered evidence (Prometheus, live):\n" + "\n".join(lines) +
         "\n(A node at temp>=90°C or load1 far above its core count means the NODE may "
-        "be the cause, not the pod. If a pod is unhealthy, pull its failing container's "
-        "logs via Loki to confirm before concluding.)"
+        "be the cause, not the pod. For an OOMKilled/memory alert the relevant comparison "
+        "is the pod's mem_peak vs its limit above — a healthy node does NOT rule out a "
+        "per-container cgroup-limit OOM. If a pod is unhealthy, pull its failing "
+        "container's logs via Loki to confirm before concluding.)"
     )
 
 
@@ -165,8 +184,9 @@ def _agent_prompt(alerts):
     for a in alerts[:MAX_ALERTS]:
         loc = (" ns=%s" % a["namespace"]) if a["namespace"] else ""
         pod = (" pod=%s" % a["pod"]) if a["pod"] else ""
+        cont = (" container=%s" % a["container"]) if a.get("container") else ""
         sev = (" [%s]" % a["severity"]) if a["severity"] else ""
-        lines.append("- %s%s%s%s: %s" % (a["alertname"], sev, loc, pod, a["text"][:200]))
+        lines.append("- %s%s%s%s%s: %s" % (a["alertname"], sev, loc, pod, cont, a["text"][:200]))
     listing = "\n".join(lines)
     evidence = _pregather(alerts)
     return (
@@ -181,10 +201,14 @@ def _agent_prompt(alerts):
         "MUST NOT ask for confirmation or request any input. A specialist that stalls "
         "waiting for approval hangs this whole enrichment until it times out, so if it "
         "cannot answer without confirming an action, it should decline the deep-dive and "
-        "report what it found read-only. This is a one-way enrichment note that "
+        "report what it found read-only. For any OOMKilled or memory alert, your reply MUST "
+        "name the workload (namespace/pod/container) and state its memory limit and recent "
+        "peak working-set from the pre-gathered evidence — never omit the identity or those "
+        "numbers. An OOMKill is a per-container cgroup-limit event: compare peak vs limit, "
+        "not node memory. This is a one-way enrichment note that "
         "rides alongside the page AlertManager already sent — nobody can reply, so never ask "
         "a question. If it's all benign/known noise, say so briefly. Keep the whole reply "
-        "under 900 characters, plain text, no markdown.\n\nFiring alerts:\n" + listing + evidence
+        "under 1400 characters, plain text, no markdown.\n\nFiring alerts:\n" + listing + evidence
     )
 
 

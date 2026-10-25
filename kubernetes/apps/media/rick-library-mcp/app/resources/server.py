@@ -286,12 +286,14 @@ def _assess(album_abs, rel, artist_folder):
     }
 
 
-def _canonical(artist_folder, artist_tags):
-    """The album-artist value to write for a HIGH fix: prefer a track ARTIST that
-    relates to the folder (keeps the exact canonical spelling), else the folder name."""
-    for a in sorted(artist_tags):
-        if _related(a, artist_folder):
-            return a
+def _canonical(artist_folder, _artist_tags):
+    """The album-artist value to write for a HIGH fix: the FOLDER name — the clean
+    grouping identity the album should sit under, matching how the artist's other
+    albums are foldered. Deliberately NOT a track ARTIST: those can be a 'ft. …'
+    credit or a short/alias form that relates to the folder but would group the
+    album under a one-off string (e.g. 'Daft Punk ft. …' or 'Ye' instead of
+    'Daft Punk' / 'Kanye West'). The player groups by this text, so it must be the
+    folder's canonical name."""
     return artist_folder
 
 

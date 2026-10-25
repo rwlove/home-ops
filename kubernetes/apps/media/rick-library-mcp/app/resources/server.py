@@ -331,6 +331,10 @@ def apply(album_path: str, set_album_artist: str = "", confirmed: bool = False) 
     target = set_album_artist.strip() or (assessment.get("recommend") or {}).get("set_album_artist", "")
     if not target:
         return {"error": "no album_artist to set and none recommended", "assessment": assessment}
+    # Already correct on every track → nothing to do. No backup, no ledger churn.
+    if assessment.get("distinct_album_artist_tags") == [target]:
+        return {"noop": True, "path": rel, "album_artist": target,
+                "reason": "every track already has this album_artist; nothing to change"}
     if assessment["confidence"] != "HIGH" and not confirmed:
         return {"refused": "assessment is not HIGH confidence; pass confirmed=true to override",
                 "assessment": assessment}
@@ -373,7 +377,10 @@ def revert(change_id: str) -> dict:
         bak = os.path.join(backup_dir, f["file"])
         dst = os.path.join(album_abs, f["file"])
         if os.path.isfile(bak):
-            shutil.copy2(bak, dst)
+            # copyfile (data only) — NOT copy2: the library file is group-writable
+            # but owned by another uid, so copy2's copystat (chmod/utime) would
+            # EPERM. The file keeps its own owner/mode; only the bytes are restored.
+            shutil.copyfile(bak, dst)
             restored.append(f["file"])
     _append_ledger({"change_id": change_id, "ts": _now(), "op": "revert",
                     "restored": restored, "path": entry["path"]})

@@ -183,6 +183,20 @@ spec:
         - ports:
             - port: "3000"
               protocol: TCP
+    # Music-library remediation MCP — rick (ward of the library). Cross-ns in
+    # MEDIA (not mcp-system) because it mounts the library + the off-library
+    # backup volume. Reversible, confidence-gated writes; the write gate is
+    # behavioral (rick's prime directive) + the toolNames allowlist, not this L4
+    # policy. Ingress half is inline in media/rick-library-mcp HelmRelease
+    # networkpolicies (from the whole ai ns).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: media
+            app.kubernetes.io/name: rick-library-mcp
+      toPorts:
+        - ports:
+            - port: "8095"
+              protocol: TCP
     # Paperless-ngx document store MCP — warren, READ-ONLY. warren sources filed
     # tax/financial documents (statements, 1099s, tax returns, prospectuses); the
     # read-only scope is enforced by warren's toolNames allowlist (5 doc-read
@@ -343,4 +357,17 @@ spec:
       toPorts:
         - ports:
             - port: "3000"
+              protocol: TCP
+    # rick-library-mcp (media) — controller dials it to reconcile the
+    # rick-library-mcp RemoteMCPServer's tool list (rick's library-remediation
+    # surface). Cross-ns in MEDIA; without this the controller reconcile fails
+    # "context deadline exceeded" every ~65s for this CR. Ingress half is inline
+    # in media/rick-library-mcp HelmRelease networkpolicies (from the ai ns).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: media
+            app.kubernetes.io/name: rick-library-mcp
+      toPorts:
+        - ports:
+            - port: "8095"
               protocol: TCP

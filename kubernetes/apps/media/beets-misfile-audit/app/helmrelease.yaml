@@ -61,6 +61,11 @@ spec:
               # must not be committed. Supply known aliases at runtime from a
               # secret / 1Password to quiet benign rename mismatches.
               NOTIFY_URL: http://notify-mcp.mcp-system.svc.cluster.local:8060/send
+              # Weekly loop: hand album-tag findings to the rick ward agent to
+              # auto-fix the HIGH-confidence ones + rescan the player. Set false
+              # to go back to report-only (email + log, no remediation).
+              REMEDIATE: "true"
+              REMEDIATE_AGENT_URL: http://rick.ai.svc.cluster.local:8080/
             resources:
               requests:
                 cpu: 100m
@@ -111,4 +116,16 @@ spec:
             toPorts:
               - ports:
                   - port: "8060"
+                    protocol: TCP
+          # rick ward agent (ai ns) A2A endpoint — hand album-tag findings off for
+          # autonomous HIGH-confidence remediation (the weekly loop). The agent
+          # pods carry app.kubernetes.io/part-of: kagent. Ingress half is in
+          # ai/kagent/app/cnp-allow.yaml (kagent-agents-allow).
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: ai
+                  app.kubernetes.io/part-of: kagent
+            toPorts:
+              - ports:
+                  - port: "8080"
                     protocol: TCP

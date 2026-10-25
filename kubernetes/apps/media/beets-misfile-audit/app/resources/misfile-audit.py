@@ -75,6 +75,13 @@ ALBUM_LOOKBACK_DAYS = int(os.environ.get("ALBUM_LOOKBACK_DAYS", "0"))
 NOTIFY_URL = os.environ.get("NOTIFY_URL",
                             "http://notify-mcp.mcp-system.svc.cluster.local:8060/send")
 AGENT_NAME = os.environ.get("AGENT_NAME", "rick")
+# Weekly remediation handoff: pass album-tag findings to the rick ward agent
+# (A2A) so it auto-fixes the HIGH-confidence ones and proposes the rest. Artist
+# names stay runtime-only — the folder list is inserted at call time; this
+# template carries none.
+REMEDIATE = os.environ.get("REMEDIATE", "true").lower() in ("1", "true", "yes")
+REMEDIATE_AGENT_URL = os.environ.get("REMEDIATE_AGENT_URL",
+                                     "http://rick.ai.svc.cluster.local:8080/")
 
 # Various-artists / compilation markers — pass 2 skips a dir whose artist folder
 # or album-artist tag is a VA bucket (per-track artists differ by design). These
@@ -295,6 +302,47 @@ def notify(subject, body):
         print(f"[misfile-audit] notify failed: {type(e).__name__}: {str(e)[:120]}")
 
 
+def remediate(album):
+    """Hand the album-tag findings to the rick ward agent (A2A) to autonomously
+    fix the HIGH-confidence ones (its ward directive gates to HIGH; ambiguous
+    stay proposals) and rescan the player. This closes the weekly loop:
+    detect -> remediate -> surface. Best-effort — the audit is report-only and
+    NEVER fails on a remediation handoff error (the digest email already went)."""
+    if not (REMEDIATE and REMEDIATE_AGENT_URL and album):
+        return
+    folders = "\n".join(f"- {rel}" for rel, _folder, _aa in album)
+    prompt = (
+        "Weekly library-ward sweep. Using rick-library-mcp, evaluate each album "
+        "directory below and AUTONOMOUSLY apply ONLY the HIGH-confidence fixes "
+        "(per your ward directive — never confirmed=true on this unattended run); "
+        "leave PROPOSE/SUPPRESS untouched. After applying any fix, call rescan "
+        "once before finishing so changes surface in the player. Then notify Rob "
+        "(notify_rob) ONLY if there are PROPOSE items needing his judgement, "
+        "listing them. This is unattended — never ask for confirmation.\n\n"
+        "Album directories:\n" + folders
+    )
+    body = json.dumps({
+        "jsonrpc": "2.0", "id": 1, "method": "message/send",
+        "params": {"message": {
+            "role": "user",
+            "parts": [{"kind": "text", "text": prompt}],
+            "messageId": "misfile-audit-remediate", "kind": "message",
+        }},
+    }).encode()
+    try:
+        req = urllib.request.Request(REMEDIATE_AGENT_URL, data=body, headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        })
+        with urllib.request.urlopen(req, timeout=900) as r:
+            r.read()
+        print(f"[misfile-audit] handed {len(album)} album finding(s) to the ward "
+              "agent for autonomous remediation")
+    except Exception as e:  # noqa: BLE001 - never fail the audit on handoff error
+        # A client-side timeout is non-fatal: the agent keeps working in-cluster.
+        print(f"[misfile-audit] remediation handoff returned: {type(e).__name__}: {str(e)[:120]}")
+
+
 def main():
     content, cstats = scan_single_track_content()
     album, astats = scan_album_tag()
@@ -317,6 +365,10 @@ def main():
         notify(f"Music misfile audit: {n} finding(s)", _digest(content, cstats, album, astats))
     else:
         print("[misfile-audit] no misfiles found (both passes clear).")
+    # Close the loop: hand album-tag findings to the ward agent to auto-fix the
+    # HIGH-confidence ones (content misfiles stay email-only — they need a move,
+    # not a tag flip, which is a human/agent judgement call).
+    remediate(album)
     # Report-only: always succeed so a finding is never a job failure.
     return 0
 

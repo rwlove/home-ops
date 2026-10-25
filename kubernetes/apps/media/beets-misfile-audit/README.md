@@ -44,6 +44,23 @@ and known artist aliases/renames (see `ALIAS_PAIRS`).
 | `ALIAS_PAIRS` | *(unset)* | pass 2 noise control — see below |
 | `NOTIFY_URL` | in-cluster `notify-mcp` `/send` | digest sink; empty = stdout only |
 | `AGENT_NAME` | `rick` | notify-mcp sender/theme |
+| `REMEDIATE` | `true` | hand album-tag findings to the rick ward agent to auto-fix HIGH ones; `false` = report-only |
+| `REMEDIATE_AGENT_URL` | in-cluster `rick` A2A | the ward agent's A2A endpoint |
+
+## Weekly remediation loop (detect → fix → surface)
+
+When `REMEDIATE=true`, after emailing the digest the job hands its **album-tag**
+findings to the `rick` ward agent over A2A. Rick evaluates each via
+`rick-library-mcp` and, per its ward directive, **autonomously applies only the
+HIGH-confidence fixes** (ARTIST agrees with the folder, only `album_artist` is
+corrupt), backs each up to its off-library revert volume, then calls `rescan` so
+the player updates. Ambiguous cases (covers, wrong content, renames) are left as
+proposals and surfaced to Rob — never auto-written. Content misfiles (pass 1) are
+**not** handed off: they need a *move*, not a tag flip, which is a judgement call.
+
+The handoff is best-effort — the audit is report-only and never fails on it (the
+digest email already went, and the agent keeps working in-cluster past a
+client-side timeout).
 
 ### `ALIAS_PAIRS` — artist aliases are supplied at runtime, never committed
 

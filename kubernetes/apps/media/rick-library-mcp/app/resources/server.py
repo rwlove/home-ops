@@ -339,11 +339,25 @@ def apply(album_path: str, set_album_artist: str = "", confirmed: bool = False) 
         return {"refused": "assessment is not HIGH confidence; pass confirmed=true to override",
                 "assessment": assessment}
 
+    # Pre-flight: EVERY file must be writable before we touch ANY. This keeps apply
+    # atomic — a mid-album permission failure would otherwise leave the album
+    # half-changed with no ledger entry (unrevertable). A file that is not writable
+    # is almost always mode 644 owned by another uid; report it for a permission fix
+    # rather than corrupting the album.
+    files = _audio_files(album_abs)
+    unwritable = [fn for fn in files if not os.access(os.path.join(album_abs, fn), os.W_OK)]
+    if unwritable:
+        return {"blocked": True, "path": rel,
+                "reason": (f"{len(unwritable)} of {len(files)} files are not writable "
+                           "(likely mode 644 owned by another uid); permission "
+                           "normalization needed before this album can be fixed"),
+                "unwritable": unwritable[:10]}
+
     change_id = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:8]
     backup_dir = os.path.join(BACKUP_ROOT, change_id)
     os.makedirs(backup_dir, exist_ok=True)
     changed = []
-    for fn in _audio_files(album_abs):
+    for fn in files:
         src = os.path.join(album_abs, fn)
         _old_artist, old_aa = _read_tags(src)
         shutil.copy2(src, os.path.join(backup_dir, fn))  # backup-first (full file)

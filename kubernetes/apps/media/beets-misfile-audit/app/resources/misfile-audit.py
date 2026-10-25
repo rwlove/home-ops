@@ -319,6 +319,10 @@ def remediate(album):
         "once before finishing so changes surface in the player. Then notify Rob "
         "(notify_rob) ONLY if there are PROPOSE items needing his judgement, "
         "listing them. This is unattended — never ask for confirmation.\n\n"
+        "REPORT ACCURATELY: in your summary, list every album you APPLIED a fix to "
+        "with its new album_artist (from the apply result's change_id) SEPARATELY "
+        "from the PROPOSE items. An album you just fixed is NOT a no-op — never "
+        "describe an applied change as 'already correct' or 'no changes needed'.\n\n"
         "Album directories:\n" + folders
     )
     body = json.dumps({

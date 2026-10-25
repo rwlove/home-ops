@@ -2844,6 +2844,20 @@ watching <code>cnpg_cluster_condition_last_transition_time{type=
 "LastBackupSucceeded"}</code> instead, with an 8-day threshold (one full
 week + a day of grace, since every cluster is on a weekly cadence)
 — replicate that query if you're spot-checking staleness by hand.</p>
+<p>The <strong>live</strong> per-cluster backup-recency gauge for plugin-method
+clusters is the barman-cloud plugin's own metric,
+<code>barman_cloud_cloudnative_pg_io_last_available_backup_timestamp</code>
+(with <code>…_first_recoverability_point</code> and <code>…_last_failed_backup_timestamp</code>
+alongside it) — same <code>:9187</code> exporter and label set as the
+<code>cnpg_collector_*</code> family, so it joins 1:1 against them. Prefer it over
+<code>cnpg_collector_last_available_backup_timestamp</code> for any plugin cluster.
+The <code>BackupFailed</code> alert uses it to <strong>debounce</strong>: a recent failure is
+suppressed the moment a successful backup lands after it, so a one-off
+failure that a retry fixes minutes later no longer flaps for 24h. The
+rule keeps <code>cnpg_collector_last_available_backup_timestamp</code> as a
+secondary (in-core <code>barmanObjectStore</code>) fallback and is written with
+<code>unless</code> so a missing success signal fails open — a genuine failure is
+never muted.</p>
 <h3 id="spotting-a-stalled-wal-archive">Spotting a stalled WAL archive<a class="headerlink" href="#spotting-a-stalled-wal-archive" title="Permanent link">&para;</a></h3>
 <p>An <strong>idle</strong> cluster with no writes will legitimately stop advancing
 WAL forever — Postgres won't force a segment switch just because
@@ -2968,7 +2982,11 @@ above.</p>
   <code>Cluster</code> conditions instead.</li>
 <li><code>cnpg_collector_last_available_backup_timestamp</code> is stale/frozen on
   every cluster in this fleet (plugin-method backups aren't reflected)
-  — use the <code>LastBackupSucceeded</code> condition transition time.</li>
+  — use the <code>LastBackupSucceeded</code> condition transition time for
+  staleness, or the plugin's live
+  <code>barman_cloud_cloudnative_pg_io_last_available_backup_timestamp</code> for
+  per-cluster backup recency. <code>BackupFailed</code> debounces against the
+  latter (a later success clears a recent failure).</li>
 <li>WAL-archive staleness by clock time is a false signal on an idle
   database — watch the <code>.ready</code>-segment backlog count, not time-since-
   last-archive.</li>

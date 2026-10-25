@@ -140,3 +140,25 @@ spec:
       target:
         group: kustomize.toolkit.fluxcd.io
         kind: Kustomization
+    # Exclusion: kagent-agents reconciles from the PRIVATE in-cluster Forgejo
+    # source (GitRepository/kagent-agents → windmill/kagent-agents), not public
+    # GitHub — the agent personas are internal-tier and must not live in the
+    # public repo. The blanket sourceRef patch at the top of this list flips
+    # every child KS to home-ops-kubernetes; re-set it here so this one stays on
+    # Forgejo. Patches apply in order; this one wins. If this exclusion is
+    # dropped, the KS falls back to GitHub at ./agents (a path that does not
+    # exist there) → build fails → NO prune (fail-safe; agents are not deleted).
+    - patch: |-
+        apiVersion: kustomize.toolkit.fluxcd.io/v1
+        kind: Kustomization
+        metadata:
+          name: _
+        spec:
+          sourceRef:
+            kind: GitRepository
+            name: kagent-agents
+            namespace: flux-system
+      target:
+        group: kustomize.toolkit.fluxcd.io
+        kind: Kustomization
+        name: kagent-agents

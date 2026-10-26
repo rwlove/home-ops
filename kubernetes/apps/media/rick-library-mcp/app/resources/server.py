@@ -190,20 +190,57 @@ def _dominant(mbids):
     return max(counts, key=counts.get) if counts else None
 
 
+# Per-album identity is the expensive primitive (reads every track's tags over
+# NFS). It's recomputed constantly: once per album in evaluate, again in apply's
+# re-assess, and once per sibling for EVERY album in a multi-album folder (so a
+# 7-album artist re-read its siblings ~7x). That O(albums x tracks) NFS churn is
+# what blew past the agent's tool-call timeout on the first live sweep (a big
+# apply "executed despite reporting timeouts"). Memoize it, keyed by (realpath,
+# dir-mtime): a tag retag/relocate never changes the embedded MBID a folder's
+# identity is built from, and adding/removing a file bumps the dir mtime so a
+# stale entry self-invalidates.
+_ident_cache = {}  # realpath -> (dir_mtime, ident_mbid, cached_at)
+# A stale identity could drive a WRONG relocate, so the cache self-invalidates two
+# ways: the dir-mtime key catches our own writes and any add/remove, and a short TTL
+# bounds the window for an in-place external MBID edit (which wouldn't bump the dir
+# mtime). A full sweep runs in minutes, well inside the TTL, so it stays hot.
+_IDENT_TTL = 3600.0
+# Bound the folder walk: sample at most this many sibling albums for the folder's
+# identity. A handful of albums settles a folder's canonical artist by majority;
+# reading an entire large discography to re-confirm it is wasted NFS I/O. (We take
+# the dominant over the whole sample rather than stopping at the first repeat, so a
+# pair of similarly-misfiled siblings can't short-circuit to the wrong identity.)
+_FOLDER_SCAN_CAP = 6
+
+
 def _album_identity_mbid(album_abs):
     """The content (performer) MBID of an album: the dominant embedded artist MBID
-    across its tracks, else the dominant album-artist MBID. None if untagged."""
+    across its tracks, else the dominant album-artist MBID. None if untagged.
+    Memoized by (realpath, dir-mtime) with a TTL — see _ident_cache above."""
+    real = os.path.realpath(album_abs)
+    try:
+        mt = os.stat(real).st_mtime
+    except OSError:
+        mt = 0.0
+    now = time.time()
+    hit = _ident_cache.get(real)
+    if hit is not None and hit[0] == mt and (now - hit[2]) < _IDENT_TTL:
+        return hit[1]
     tracks = [_read_tags(os.path.join(album_abs, fn)) for fn in _audio_files(album_abs)]
-    return _dominant([t[2] for t in tracks]) or _dominant([t[3] for t in tracks])
+    ident = _dominant([t[2] for t in tracks]) or _dominant([t[3] for t in tracks])
+    _ident_cache[real] = (mt, ident, now)
+    return ident
 
 
 def _folder_mbid(artist_folder, exclude_abs):
     """The folder's canonical artist MBID, derived from its OTHER albums' embedded
     MBIDs (library-authoritative — the user's 'evaluate the whole library'
-    principle). None if no sibling album carries an MBID."""
+    principle). Samples siblings until an MBID holds a clear majority or the scan
+    cap is hit (bounded I/O; see _FOLDER_SCAN_CAP). None if no sibling carries one."""
     folder_dir = os.path.join(MEDIA_ROOT, artist_folder)
     exclude_real = os.path.realpath(exclude_abs)
     mbids = []
+    sampled = 0
     try:
         for name in sorted(os.listdir(folder_dir)):
             sub = os.path.join(folder_dir, name)
@@ -219,6 +256,9 @@ def _folder_mbid(artist_folder, exclude_abs):
                             break
             if ident:
                 mbids.append(ident)
+                sampled += 1
+                if sampled >= _FOLDER_SCAN_CAP:
+                    break
     except OSError:
         pass
     return _dominant(mbids)

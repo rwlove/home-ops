@@ -23,10 +23,11 @@ spec:
             fsGroupChangePolicy: OnRootMismatch
             supplementalGroupsPolicy: Strict
         cronjob:
-          # Ship SUSPENDED: manual-test first
-          # (kubectl -n media create job --from=cronjob/beets-misfile-audit \
-          #   beets-misfile-audit-test), verify logs, then flip suspend:false.
-          suspend: true
+          # Live: the weekly ward loop (detect -> hand to the rick agent ->
+          # MusicBrainz-resolve autonomously -> email the action summary).
+          # Manual run: kubectl -n media create job \
+          #   --from=cronjob/beets-misfile-audit beets-misfile-audit-test.
+          suspend: false
           schedule: "0 5 * * 1" # Monday 05:00
           timeZone: America/New_York
           concurrencyPolicy: Forbid
@@ -56,14 +57,16 @@ spec:
               ALBUM_LOOKBACK_DAYS: "0"
               LOOKBACK_DAYS: "8"
               MIN_SCORE: "0.90"
-              # Findings digest sink. Artist aliases (ALIAS_PAIRS) are NOT set
-              # here: artist names are restricted-tier (HOMELAB-SPEC L2 #10) and
-              # must not be committed. Supply known aliases at runtime from a
-              # secret / 1Password to quiet benign rename mismatches.
+              # Findings digest sink (used only when REMEDIATE is off). No artist
+              # names in env — identity is decided by the ward agent via
+              # MusicBrainz, not a hand-maintained alias list (artist names are
+              # restricted-tier, HOMELAB-SPEC L2 #10, and must not be committed).
               NOTIFY_URL: http://notify-mcp.mcp-system.svc.cluster.local:8060/send
-              # Weekly loop: hand album-tag findings to the rick ward agent to
-              # auto-fix the HIGH-confidence ones + rescan the player. Set false
-              # to go back to report-only (email + log, no remediation).
+              # Weekly loop: hand the candidate dirs to the rick ward agent, which
+              # MusicBrainz-resolves and fixes each autonomously (retag / relocate
+              # / leave) + rescans, then emails Rob the single action summary. Set
+              # false to go back to report-only (audit digest email + log, no
+              # remediation).
               REMEDIATE: "true"
               REMEDIATE_AGENT_URL: http://rick.ai.svc.cluster.local:8080/
             resources:

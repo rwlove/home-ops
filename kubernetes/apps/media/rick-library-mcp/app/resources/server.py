@@ -395,16 +395,16 @@ def _assess(album_abs, rel, artist_folder):
 
     if folder_mbid and content_mbid:
         if folder_mbid == content_mbid:
-            # Content IS the folder artist (MBID-confirmed). Retag a corrupt text label.
-            if aa_val is None:
-                return {**base, "action": "leave", "confidence": "PROPOSE",
-                        "reason": "album_artist inconsistent across tracks; content is the folder artist"}
-            if _related(aa_val, artist_folder):
+            # Content IS the folder artist (MBID-confirmed), so album_artist SHOULD be
+            # the folder name. Leave only if it already is (single value matching the
+            # folder); otherwise retag — whether the current album_artist is a single
+            # wrong value OR inconsistent across tracks (both are corruption).
+            if aa_val is not None and _related(aa_val, artist_folder):
                 return {**base, "action": "leave", "confidence": "SUPPRESS",
                         "reason": "content, folder and album_artist agree (MBID-confirmed)"}
             return {**base, "action": "retag", "target": artist_folder, "confidence": "HIGH",
                     "recommend": {"set_album_artist": artist_folder},
-                    "reason": "MBID says the content is the folder artist; album_artist text is corrupt -> retag"}
+                    "reason": "MBID says the content is the folder artist; album_artist is corrupt -> retag to folder"}
         # Content is a DIFFERENT artist by MBID -> wrong content -> relocate, but only
         # with a reliably-resolved target name (exact MBID lookup, else the ARTIST tag).
         target = _mb_mbid_to_name(content_mbid) or art_val

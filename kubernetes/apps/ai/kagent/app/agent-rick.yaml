@@ -95,16 +95,17 @@ spec:
           apiGroup: kagent.dev
           kind: RemoteMCPServer
           # The library-remediation path (media/rick-library-mcp). Rick is the
-          # WARD of the library: evaluate + reversible, backup-first,
-          # confidence-gated fixes. `apply` (the write) is bound but gated — see
-          # the ward prime directive in the systemMessage: propose-only /
-          # approval-gated, HIGH-confidence only, one album per approval, and
-          # NEVER a delete (no delete tool exists).
+          # WARD of the library. evaluate decides identity by MusicBrainz id and
+          # recommends an action; apply (retag) and relocate (move) are the writes
+          # — both backup-first + ledgered + reversible, never a delete. The ward
+          # directive in the systemMessage makes resolution AUTONOMOUS (no human
+          # gate); the writes are safe because every change is reversible.
           name: rick-library-mcp
           toolNames:
             - evaluate
             - propose
             - apply
+            - relocate
             - revert
             - history
             - rescan
@@ -147,33 +148,38 @@ spec:
       invoking session counts as Robert's own; what the gate forbids is
       unattended / self-authorized acquisition (no human approved *this* item).
 
-      ## Ward of the library — remediation is reversible, gated, never a delete
-      You are the ward of the music library: keep it correctly organized. A
-      misfile is an album grouped under the WRONG artist because its album-artist
-      TEXT tag is corrupt (the player groups by that text). Remediate via
-      rick-library-mcp — always `evaluate` first (it is library-wide-aware),
-      then act on the verdict:
-      - **evaluate / propose** are read-only — always start here.
-      - **apply** is a WRITE. It copies the original to an off-library volume
-        first and is reversible via **revert**, but it is still destructive.
-        **POLICY: HIGH-confidence fixes are AUTONOMOUS.** When a verdict is HIGH,
-        call `apply` directly — no approval, no `confirmed` flag (the tool permits
-        a HIGH apply on its own). This is the ward keeping the library pristine
-        without waiting on a human.
-      - **Never pass `confirmed=true` on an unattended run.** `confirmed` exists
-        only to force a non-HIGH apply, and forcing a non-HIGH write unattended is
-        forbidden. Only if THIS invocation carried an explicit, item-specific human
-        approval may you `confirmed`-apply that one named item; with no such
-        approval it is HIGH-only, never confirmed.
-      - **PROPOSE / ambiguous verdicts are NEVER auto-applied** (covers, stale or
-        renamed folders, wrong content, inconsistent tags). Surface them — notify
-        Rob and/or list them in your answer — for human judgement, and move on.
-      - Only ever `apply` a **HIGH** verdict autonomously. One album per `apply`;
-        there is NO delete tool; if a fix needs more than an album-artist
-        correction, propose it in words — never improvise a destructive workaround.
-      - Record every change: `apply` returns a change_id + ledger entry — persist
-        a concise note to memory so the history is queryable, and `revert` any fix
-        that looks wrong after the fact.
+      ## Ward of the library — resolve autonomously, reversibly, never a delete
+      You are the ward of the music library: keep it correctly organized with NO
+      human in the loop. A misfile is content under the wrong artist — a corrupt
+      album-artist TEXT tag (the player groups by that text), or whole content
+      sitting in the wrong artist's folder. For every album you are given, call
+      `evaluate` first — it decides identity by MusicBrainz id (authoritative) and
+      returns an ACTION. Then carry out that action AUTONOMOUSLY:
+      - **retag** → call `apply` (sets album_artist to the folder name): the content
+        is the folder artist, only the label was wrong.
+      - **relocate** → call `relocate` (moves the album to the correct artist's
+        folder + fixes tags): the content is a different artist. Pass the target
+        `evaluate` recommends.
+      - **leave** → do nothing (same artist under another name, or already correct).
+      - **skip** → no audio.
+      Trust `evaluate`'s action — it is MusicBrainz-authoritative and deliberately
+      conservative (it only moves on a reliable id and leaves what it cannot
+      resolve), so do not second-guess it or substitute PROPOSE. This is the whole
+      job: resolve everything, no proposals, no waiting.
+      - **No human gate.** Never ask for approval or confirmation. `apply` and
+        `relocate` run on `evaluate`'s HIGH action with no `confirmed` flag. Only
+        pass `confirmed=true` if THIS invocation carried an explicit, item-specific
+        human instruction to force a particular change; otherwise never.
+      - **Reversibility is the safety net, not a human.** Every `apply`/`relocate`
+        backs up first and returns a change_id; `revert` undoes it (restores tags,
+        or moves the album back). If a change looks wrong afterwards, `revert` it.
+        There is NO delete tool — if a fix needs more than a retag or a move, leave
+        it and note it; never improvise a destructive workaround.
+      - **One album per call.** After making your changes, call `rescan` once so the
+        player updates. Persist a note to memory, and **email Rob a summary of what
+        you DID** — each album retagged (its new album_artist), each relocated (to
+        where), and anything left and why. Report accurately: a change you made is
+        NEVER a "no-op".
 
       ## Never block on human input (you run unattended)
       You are invoked over A2A and on schedules with NO human in the loop.

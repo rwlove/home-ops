@@ -20,12 +20,16 @@ tags, or writes anything to the library:
     the album then shows under the wrong artist. Pass 1 misses this because
     it only looks at single-track dirs. This pass reads the embedded
     album-artist of ONE representative track per album directory and flags
-    any that does not relate to the top-level artist folder — after
-    suppressing known artist aliases/renames (ALIAS_PAIRS, below) and
-    various-artists compilations (the benign cases that are not misfiles).
+    any that does not relate to the top-level artist folder (after skipping
+    various-artists compilations, the one benign case decidable offline).
 
-Findings from both passes are emailed as one digest via notify-mcp /send
-(ALL CLEAR -> nothing sent) and also printed to stdout (kubectl logs).
+This is a DETECTOR only — it never moves, deletes, or tags. Both passes'
+findings are a candidate list handed to the rick ward agent (A2A), which
+decides identity by MusicBrainz and resolves each one autonomously (retag /
+relocate / leave) — so an artist rename/alias is recognized as the SAME
+entity by fact, not suppressed by a hand-maintained list. When REMEDIATE is
+off the findings are emailed as a report-only digest via notify-mcp /send
+(ALL CLEAR -> nothing sent); either way they are printed to stdout.
 
 Env:
   MEDIA_ROOT           media tree root (default /media)
@@ -37,15 +41,6 @@ Env:
                        changed within N days (default 0 = scan everything;
                        set >0 once the existing backlog is cleared to keep
                        weekly runs light and focused on new imports)
-  ALIAS_PAIRS          pass 2 noise control: JSON array of arrays of artist
-                       names that are the SAME act under different names, e.g.
-                       [["name a","name b"],["name c","name d"]]. A folder-vs-tag
-                       mismatch whose two sides fall in one group is benign and
-                       suppressed. Supplied at RUNTIME (from a secret / 1Password,
-                       never committed) because artist names are restricted-tier
-                       and must not live in this public repo (HOMELAB-SPEC L2 #10).
-                       Unset -> no alias suppression (benign renames show as
-                       findings until the list is populated).
   NOTIFY_URL           notify-mcp /send endpoint (default the in-cluster svc);
                        empty disables the email (stdout only)
   AGENT_NAME           notify-mcp sender/theme (default "rick")
@@ -75,10 +70,12 @@ ALBUM_LOOKBACK_DAYS = int(os.environ.get("ALBUM_LOOKBACK_DAYS", "0"))
 NOTIFY_URL = os.environ.get("NOTIFY_URL",
                             "http://notify-mcp.mcp-system.svc.cluster.local:8060/send")
 AGENT_NAME = os.environ.get("AGENT_NAME", "rick")
-# Weekly remediation handoff: pass album-tag findings to the rick ward agent
-# (A2A) so it auto-fixes the HIGH-confidence ones and proposes the rest. Artist
-# names stay runtime-only — the folder list is inserted at call time; this
-# template carries none.
+# Weekly remediation handoff: pass the candidate dirs to the rick ward agent
+# (A2A), which MusicBrainz-resolves and fixes each one autonomously (retag /
+# relocate / leave) with no human gate. Artist names stay runtime-only — the
+# folder list is built at call time; this template carries none. When REMEDIATE
+# is on, Rick's action summary is the single report (the audit skips its own
+# digest email to avoid a duplicate).
 REMEDIATE = os.environ.get("REMEDIATE", "true").lower() in ("1", "true", "yes")
 REMEDIATE_AGENT_URL = os.environ.get("REMEDIATE_AGENT_URL",
                                      "http://rick.ai.svc.cluster.local:8080/")
@@ -98,26 +95,6 @@ def norm(s):
     s = s.lower()
     s = re.split(r"\b(feat\.?|ft\.?|featuring|&|,|with|presents|pres\.?|vs\.?|x )\b", s)[0]
     return re.sub(r"[^a-z0-9]", "", s)
-
-
-# Alias allowlist, built from the ALIAS_PAIRS env (artist names kept out of git
-# per HOMELAB-SPEC L2 #10). Each group is a set of normalised names that are the
-# same act; a folder-vs-tag mismatch within one group is benign.
-def _load_aliases():
-    try:
-        pairs = json.loads(os.environ.get("ALIAS_PAIRS", "[]"))
-    except Exception:  # noqa: BLE001 - bad env must not crash the audit
-        return []
-    out = []
-    for grp in pairs:
-        if isinstance(grp, (list, tuple)):
-            s = {norm(x) for x in grp if norm(x)}
-            if len(s) >= 2:
-                out.append(s)
-    return out
-
-
-ALIASES = _load_aliases()
 
 
 def _casenorm(s):
@@ -144,14 +121,6 @@ def related(a, b):
 def is_va(name):
     n = norm(name)
     return n in _VA_NORMS or bool(_VA_FOLDER_RE.match(name or ""))
-
-
-def alias_ok(folder, tag):
-    """True if folder vs tag is benign: related, or a known alias group."""
-    if related(folder, tag):
-        return True
-    nf, nt = norm(folder), norm(tag)
-    return any(nf in grp and nt in grp for grp in ALIASES)
 
 
 def audio_files(dirpath):
@@ -259,7 +228,12 @@ def scan_album_tag():
         aa = read_album_artist(rep)
         if not aa or is_va(aa):
             continue
-        if not alias_ok(artist_folder, aa):
+        # Offline, only the trivially-benign cases are suppressed here (identical
+        # or substring names). Genuine aliases/renames (two different names, one MB
+        # entity) are NOT guessed at offline — they're flagged and handed to the
+        # ward agent, which recognizes them as the same entity by MusicBrainz and
+        # leaves them. No hand-maintained alias list.
+        if not related(artist_folder, aa):
             out.append((rel, artist_folder, aa))
     return out, {"scanned": scanned}
 
@@ -302,28 +276,41 @@ def notify(subject, body):
         print(f"[misfile-audit] notify failed: {type(e).__name__}: {str(e)[:120]}")
 
 
-def remediate(album):
-    """Hand the album-tag findings to the rick ward agent (A2A) to autonomously
-    fix the HIGH-confidence ones (its ward directive gates to HIGH; ambiguous
-    stay proposals) and rescan the player. This closes the weekly loop:
-    detect -> remediate -> surface. Best-effort — the audit is report-only and
-    NEVER fails on a remediation handoff error (the digest email already went)."""
-    if not (REMEDIATE and REMEDIATE_AGENT_URL and album):
+def remediate(content, album):
+    """Hand the candidate directories (both passes) to the rick ward agent (A2A)
+    to resolve AUTONOMOUSLY — MusicBrainz decides identity, the agent retags /
+    relocates / leaves each one with no human gate, and rescans the player. This
+    closes the weekly loop: detect -> resolve -> surface. Best-effort — the audit
+    is a detector and NEVER fails on a handoff error (the agent keeps working
+    in-cluster even past a client-side timeout)."""
+    if not (REMEDIATE and REMEDIATE_AGENT_URL):
         return
-    folders = "\n".join(f"- {rel}" for rel, _folder, _aa in album)
+    # Union the two passes' directories (a dir can trip both); one line each.
+    dirs = []
+    seen = set()
+    for rel in [c[0] for c in content] + [a[0] for a in album]:
+        if rel not in seen:
+            seen.add(rel)
+            dirs.append(rel)
+    if not dirs:
+        return
+    listing = "\n".join(f"- {rel}" for rel in dirs)
     prompt = (
-        "Weekly library-ward sweep. Using rick-library-mcp, evaluate each album "
-        "directory below and AUTONOMOUSLY apply ONLY the HIGH-confidence fixes "
-        "(per your ward directive — never confirmed=true on this unattended run); "
-        "leave PROPOSE/SUPPRESS untouched. After applying any fix, call rescan "
-        "once before finishing so changes surface in the player. Then notify Rob "
-        "(notify_rob) ONLY if there are PROPOSE items needing his judgement, "
-        "listing them. This is unattended — never ask for confirmation.\n\n"
-        "REPORT ACCURATELY: in your summary, list every album you APPLIED a fix to "
-        "with its new album_artist (from the apply result's change_id) SEPARATELY "
-        "from the PROPOSE items. An album you just fixed is NOT a no-op — never "
-        "describe an applied change as 'already correct' or 'no changes needed'.\n\n"
-        "Album directories:\n" + folders
+        "Weekly library-ward sweep. You are the ward of the library. Using "
+        "rick-library-mcp, `evaluate` each directory below (MusicBrainz is the "
+        "identity authority) and AUTONOMOUSLY carry out the action it returns — "
+        "`apply` a retag, `relocate` a wrong-content album, or leave an "
+        "alias/rename/correct one. Resolve every item yourself: there is NO "
+        "PROPOSE list and NO approval step. This is unattended — never ask for "
+        "confirmation and never pass confirmed=true. Every write is backed up and "
+        "reversible; that is the safety net, not a human. After making any "
+        "change(s), call `rescan` once so the player updates.\n\n"
+        "Then notify Rob (notify_rob) with a summary of what you DID — each album "
+        "retagged (its new album_artist, from the result's change_id), each "
+        "relocated (to which artist), and anything left and why. REPORT "
+        "ACCURATELY: an item you just fixed is NOT a no-op — never describe an "
+        "applied change as 'already correct' or 'no changes needed'.\n\n"
+        "Directories:\n" + listing
     )
     body = json.dumps({
         "jsonrpc": "2.0", "id": 1, "method": "message/send",
@@ -340,8 +327,8 @@ def remediate(album):
         })
         with urllib.request.urlopen(req, timeout=900) as r:
             r.read()
-        print(f"[misfile-audit] handed {len(album)} album finding(s) to the ward "
-              "agent for autonomous remediation")
+        print(f"[misfile-audit] handed {len(dirs)} candidate dir(s) to the ward "
+              "agent for autonomous resolution")
     except Exception as e:  # noqa: BLE001 - never fail the audit on handoff error
         # A client-side timeout is non-fatal: the agent keeps working in-cluster.
         print(f"[misfile-audit] remediation handoff returned: {type(e).__name__}: {str(e)[:120]}")
@@ -355,8 +342,9 @@ def main():
           f"single-track(lookback={LOOKBACK_DAYS},min_score={MIN_SCORE}): "
           f"scanned={cstats['scanned']} errors={cstats['errors']} "
           f"misfiled={len(content)} | "
-          f"album-tag(lookback={ALBUM_LOOKBACK_DAYS},aliases={len(ALIASES)}): "
-          f"scanned={astats['scanned']} mismatches={len(album)}")
+          f"album-tag(lookback={ALBUM_LOOKBACK_DAYS}): "
+          f"scanned={astats['scanned']} mismatches={len(album)} | "
+          f"remediate={REMEDIATE}")
     for rel, folder, fp_artist, fp_title, score in content:
         print(f"[misfile-audit] CONTENT misfiled under {folder!r} but fingerprints "
               f"as {fp_artist!r} — {fp_title!r} (score {score:.2f}) :: {rel}")
@@ -364,16 +352,22 @@ def main():
         print(f"[misfile-audit] ALBUM-TAG under {folder!r} but album-artist tag is "
               f"{aa!r} :: {rel}")
 
-    if content or album:
+    if not (content or album):
+        print("[misfile-audit] no misfiles found (both passes clear).")
+    elif REMEDIATE:
+        # The ward agent resolves the findings and emails Rob the single action
+        # summary — skip the audit's own digest so Rob gets ONE report, not two.
+        print("[misfile-audit] findings handed to the ward agent; audit digest "
+              "email suppressed (REMEDIATE on).")
+    else:
         n = len(content) + len(album)
         notify(f"Music misfile audit: {n} finding(s)", _digest(content, cstats, album, astats))
-    else:
-        print("[misfile-audit] no misfiles found (both passes clear).")
-    # Close the loop: hand album-tag findings to the ward agent to auto-fix the
-    # HIGH-confidence ones (content misfiles stay email-only — they need a move,
-    # not a tag flip, which is a human/agent judgement call).
-    remediate(album)
-    # Report-only: always succeed so a finding is never a job failure.
+
+    # Close the loop: hand every candidate dir (both passes) to the ward agent to
+    # MusicBrainz-resolve autonomously (retag / relocate / leave). No-op when
+    # REMEDIATE is off.
+    remediate(content, album)
+    # Detector only: always succeed so a finding is never a job failure.
     return 0
 
 

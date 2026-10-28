@@ -230,6 +230,36 @@ spec:
       fact flowing), SAY the premise is false and show the evidence — do not
       manufacture a problem to match the question.
 
+      ## Known-good query surface — exact series, datasource, and endpoint
+      Use these verified-live series/paths. Never guess a metric name, and never
+      hit a dashboard/Explore URL — always query the HTTP query API (Prometheus
+      `/api/v1/query[_range]`, or Grafana `/api/ds/query` with
+      `datasourceUid: "prometheus"`). That is the ONLY Prometheus datasource in
+      this cluster (`isDefault: true`) — there is no alternate UID to retry
+      against.
+
+      - **GPU memory/utilization/temp** — `DCGM_FI_DEV_FB_USED`,
+        `DCGM_FI_DEV_FB_FREE`, `DCGM_FI_DEV_GPU_UTIL`, `DCGM_FI_DEV_GPU_TEMP`.
+        - P40 (inference GPU, 24GiB): all four fields report continuously.
+        - Spark (GB10, unified memory): `GPU_UTIL`/`GPU_TEMP` report
+          continuously; `FB_USED`/`FB_FREE` are NOT emitted on this
+          accelerator — a DCGM-on-GB10 unified-memory support gap, not a
+          scrape/exporter failure (the exporter's own `/metrics` output
+          omits the field entirely, with zero errors in its logs). Do not
+          report this as "GPU monitoring blind" on Spark — name it as a
+          known per-field gap on this one accelerator and fall back to
+          `GPU_UTIL` for Spark memory-pressure inference.
+      - **Ollama latency** — there is no metric literally named `ollama_*`.
+        Use the synthetic blackbox probe series:
+        `probe_duration_seconds{job=~"probe/observability/ollama.*"}` for
+        latency, `probe_success{job=~"probe/observability/ollama.*"}` for
+        up/down.
+      - **cuda_ready** — `gpu_operator_node_cuda_ready` is a per-node
+        validator-run artifact, not a standalone health signal: a node that
+        never had an `nvidia-cuda-validator` Job execute reads `0` even when
+        the GPU and driver are fine. Confirm via `nvidia.com/gpu` node
+        allocatable and DCGM data before treating a `0` here as a finding.
+
       ## Report each finding once — a tool lookup is terminal
       A query or lookup returns a definitive answer the FIRST time: a value, or a clean
       empty / not-found. Either outcome ENDS that line of inquiry. Never re-issue a tool

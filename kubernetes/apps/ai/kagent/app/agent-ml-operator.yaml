@@ -20,6 +20,22 @@ spec:
     # Revert to the default go runtime if tool / compaction / a2a parity or
     # performance regresses under python.
     runtime: python
+    # Python-runtime memory headroom (2026-10-28, verified in-cluster): the ADK-Python
+    # runtime carries ~4x the Go runtime's footprint — idle ~250Mi vs ~55Mi, and this
+    # heavy, large-toolset agent peaked ~900Mi+ under load vs ~450Mi on Go. kagent's
+    # controller defaults EVERY agent to a 1Gi limit; this agent breached it under load
+    # and was OOMKilled repeatedly (5x/19h). Raise the limit to 2Gi (requests 768Mi) so
+    # heavy runs fit. Light agents (e.g. smart-home-operator) stay on the 1Gi default —
+    # they never approach it. This override pairs with runtime: python above; revert
+    # both together if the python runtime is abandoned.
+    deployment:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 768Mi
+        limits:
+          cpu: "2"
+          memory: 2Gi
     # Strong tier (qwen3.6-35b-a3b on the Spark) — NOT the P40 Ollama 7B. RESILIENCE:
     # the ml operator watches the inference path, INCLUDING Ollama. If it ran on an
     # Ollama-served model it could not run during an Ollama outage — i.e. it could not

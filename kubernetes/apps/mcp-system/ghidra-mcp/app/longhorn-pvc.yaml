@@ -1,0 +1,55 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/persistentvolumeclaim-v1.json
+#
+# Ghidra project DB (.gpr/.rep) + tool config. This is accumulated,
+# irreplaceable analysis state that cannot be rebuilt from upstream, so it
+# goes on Longhorn with the recurring-backup groups (NFS-backed target on
+# beast) per the storage-class instruction's tier-3 rule. Static PV + PVC
+# bound by volumeName, mirroring the ollama / kitchenowl / wardrowbe pattern.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ghidra-mcp-project-pvc
+  labels:
+    type: longhorn
+spec:
+  accessModes:
+    - ReadWriteOnce
+  volumeMode: Filesystem
+  resources:
+    requests:
+      # Ghidra project DBs grow with the number/size of analyzed programs.
+      # 20Gi is a conservative start; the StorageClass allows expansion.
+      storage: 20Gi
+  volumeName: ghidra-mcp-project-pv
+  storageClassName: ghidra-mcp-project-storage-class
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ghidra-mcp-project-pv
+  labels:
+    type: longhorn
+    recurring-job-group.longhorn.io/weekly-backup: enabled
+    recurring-job-group.longhorn.io/daily-snapshot: enabled
+    # ghidra-mcp is a long-running Deployment (reliably attached), so the
+    # filesystem-trim job is safe to opt into here (see the storage-class
+    # instruction's detached-volume caveat).
+    recurring-job-group.longhorn.io/weekly-filesystem-trim: enabled
+spec:
+  capacity:
+    storage: 20Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ghidra-mcp-project-storage-class
+  csi:
+    driver: driver.longhorn.io
+    fsType: xfs
+    volumeAttributes:
+      numberOfReplicas: "2"
+      staleReplicaTimeout: "2880"
+      dataLocality: disabled
+    volumeHandle: ghidra-mcp-project-xfs

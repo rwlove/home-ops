@@ -55,6 +55,13 @@ spec:
           protocols:
             grpc:
               endpoint: 0.0.0.0:4317
+              # Default (grpc-go) is 4 MiB; a single oversized span
+              # batch from the kagent fleet has hit this and been
+              # rejected with RESOURCE_EXHAUSTED (observability-operator
+              # investigation, 2026-10-28 — storage-operator, one
+              # 8.48 MB batch). Headroom bump, not a capacity fix for
+              # the memory_limiter (which has never tripped).
+              max_recv_msg_size_mib: 16
             http:
               endpoint: 0.0.0.0:4318
 
@@ -98,6 +105,17 @@ spec:
       extensions:
         health_check:
           endpoint: 0.0.0.0:13133
+
+    # The chart gates the metrics port behind its own flag separately
+    # from serviceMonitor.enabled below — without this, the
+    # ServiceMonitor's `port: metrics` has nothing to bind to and the
+    # scrape silently has zero targets (confirmed live 2026-10-28: zero
+    # otelcol_* series in Prometheus despite serviceMonitor.enabled
+    # being set since this app's introduction). This is the chart's own
+    # documented pattern, not a workaround.
+    ports:
+      metrics:
+        enabled: true
 
     # ServiceMonitor for the collector's own Prom metrics endpoint.
     serviceMonitor:

@@ -66,6 +66,50 @@ The procedure below is for the UID-drift case — when the existing files need t
 - **Symptom looks like "fresh PVC won't bind"** — that's usually a StorageClass / `volumeName` / capacity mismatch, not a permission issue. Check `kubectl describe pvc` first.
 - **App documented as needing root** (some legacy images legitimately require it) — running the procedure won't help; the app needs `runAsUser: 0` and the security defaults in `helmrelease.security.md` overridden. See the memory for the canonical pattern.
 
+## Static-Longhorn backend `Volume` CRs (`volumes/`)
+
+Every app that uses the repo's static-Longhorn pattern (a binding-only
+StorageClass + a static PV whose `csi.volumeHandle` is a readable name + a
+PVC that binds by `volumeName`) also needs a backend `longhorn.io/v1beta2
+Volume` object in `longhorn-system` whose `metadata.name` equals that
+`volumeHandle`. Longhorn's CSI driver does **not** auto-create that object for a
+statically-provisioned PV, so without it the PV attach fails `NotFound` and the
+consumer pod hangs `Init:0/1`.
+
+Those Volume CRs used to be hand-applied with `kubectl apply` and committed
+nowhere. That was a disaster-recovery gap: a cluster rebuild recreates every
+PV/PVC from Flux but **not** the backend volumes, so every static-Longhorn app
+would come up `Init:0/1` until each CR was re-applied from memory. The
+[`volumes/`](volumes/) directory closes that gap — one file per volume,
+reconciled by the `longhorn-volumes` Flux Kustomization in
+[`ks.yaml`](ks.yaml) (targets `longhorn-system`, `dependsOn: longhorn`).
+
+### Rules for these files
+
+- **Match the live Volume CR exactly.** The committed spec is built from the
+  *live* object, not from the PV's `csi.volumeAttributes` — those attributes are
+  only consulted at dynamic-provision time and routinely drift from the real
+  volume (e.g. a PV attribute of `numberOfReplicas: "2"` on a volume Longhorn
+  actually runs at 3). Adopting an attached, data-bearing volume **must** be a
+  no-op; building from the PV attribute would make Flux patch the live replica
+  count down. Verify with a server-side-apply dry-run
+  (`kubectl apply --server-side --dry-run=server`) before trusting a new file.
+- **Minimal, stable field set only.** Include the fields Longhorn persists as
+  durable config (`accessMode`, `backingImage`, `backupCompressionMethod`,
+  `backupTargetName`, `dataEngine`, `dataLocality`, `frontend`,
+  `numberOfReplicas`, `size` as a quoted string, `staleReplicaTimeout`,
+  `unmapMarkSnapChainRemoved`) plus the `backup-target` / `longhornvolume` /
+  `recurring-job-group.longhorn.io/*` labels. **Omit** operationally-managed
+  fields (`nodeID`, `image`, defaulted `snapshot*`/`replica*` settings) — Flux
+  server-side-apply leaves fields it doesn't declare owned by longhorn-manager.
+- **Omit `fromBackup` / `dataSource`.** These are create-time restore directives.
+  On an existing volume they're inert, but committing a *fixed* `fromBackup`
+  pointer is a DR footgun: a from-scratch rebuild would restore that specific
+  (stale) backup instead of the latest. DR data recovery is a separate
+  "restore the latest backup" operation, not a recreate-from-fixed-backup.
+- **No `commonMetadata` on the Kustomization** — it would inject a label not on
+  the live volumes, turning adoption into a metadata patch.
+
 ## Related
 
 - [`.agents/instructions/helmrelease.security.md`](../../../../.agents/instructions/helmrelease.security.md) — securityContext defaults and the read-only-rootfs deviations.

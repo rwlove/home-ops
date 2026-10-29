@@ -16,6 +16,32 @@ spec:
   values:
     controllers:
       vllm:
+        # SCALE-TO-ZERO BETWEEN SESSIONS (2026-10-29). LLM4Decompile is a
+        # single-purpose, bursty workload — its ONLY consumer is mitnick's
+        # decai (via the LiteLLM `decompile` group, which has NO fallback,
+        # by design). Holding its ~22 GiB resident 24/7 on the shared GB10
+        # unified pool buys nothing when no RE session is running, so the
+        # resting state is replicas:0 and it is woken on demand.
+        #
+        # ON-DEMAND bring-up (weights already cached on the PVC → warm
+        # start ~2-3 min: load-to-GPU + CUDA-graph compile, NOT the ~20 min
+        # first-download):
+        #     kubectl scale statefulset vllm-llm4decompile-spark -n ai --replicas=1
+        #     kubectl rollout status statefulset vllm-llm4decompile-spark -n ai   # wait Ready
+        #     # ... run the RE / decai session ...
+        #     kubectl scale statefulset vllm-llm4decompile-spark -n ai --replicas=0
+        #
+        # No `flux suspend` needed: drift detection is OFF on this HR (Flux
+        # default; only actions-runner / mutating-webhook opt in), so a
+        # manual scale PERSISTS — Flux re-asserts replicas:0 only on an
+        # actual helm upgrade (a values/chart/image change to THIS HR). The
+        # one edge case: if a Renovate image bump or any edit to this HR
+        # lands mid-session, that upgrade scales it back to 0 — just scale
+        # up again. While it's at 0, decai calls to the `decompile` group
+        # hard-fail (503/connection refused) rather than silently degrade;
+        # bring the model up first.
+        replicas: 0
+
         annotations:
           reloader.stakater.com/auto: "true"
 

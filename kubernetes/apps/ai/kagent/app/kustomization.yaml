@@ -51,6 +51,34 @@ resources:
   - ./remotemcpserver-rick-library-mcp.yaml
   - ./remotemcpserver-tim-mcp.yaml
   - ./securitypolicy.yaml
+patches:
+  # Fleet runaway-loop policy (2026-10-29): pin EVERY agent to the Python ADK runtime
+  # and give it 2Gi. The default Go ADK runtime enforces NO per-invocation LLM-call cap
+  # — a stuck agent loops unbounded (the 46h smart-home-operator incident). ADK-Python
+  # caps ~500 calls/invocation (LlmCallsLimitExceededError), the only native stop the
+  # Agent CRD exposes. Python costs ~4x the Go memory footprint (verified in-cluster:
+  # ml-operator idle 55->253Mi, peak 454->956Mi), which breaches kagent's 1Gi controller
+  # default on heavier agents -> OOMKills; 2Gi gives headroom (nodes have room). Applied
+  # fleet-wide here so new agents inherit it; a per-agent exception goes in its own
+  # targeted patch below this one.
+  - target:
+      kind: Agent
+    patch: |-
+      apiVersion: kagent.dev/v1alpha2
+      kind: Agent
+      metadata:
+        name: ignored-when-target-selector-is-used
+      spec:
+        declarative:
+          runtime: python
+          deployment:
+            resources:
+              requests:
+                cpu: 100m
+                memory: 768Mi
+              limits:
+                cpu: "2"
+                memory: 2Gi
 configMapGenerator:
   - name: kagent-values
     files:

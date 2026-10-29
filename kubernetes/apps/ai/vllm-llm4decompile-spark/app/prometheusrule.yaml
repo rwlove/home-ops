@@ -1,0 +1,38 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: vllm-llm4decompile-spark-rules
+spec:
+  groups:
+    # GB10 DCGM utilization counters are broken on this arch (POWER_USAGE /
+    # SM_CLOCK are the only reliable signals — see gpu-routing.md). Pod
+    # liveness is the reliable, actionable signal here. Deliberately
+    # lighter than vllm-driver-spark's rule set (no synthetic wedge probe)
+    # — this is a utility/batch workload with no wired consumer yet (see
+    # the scope-boundary note on the CNP ingress rules); richer alerts
+    # land with the LiteLLM/decai follow-up once this has real traffic.
+    - name: vllm-llm4decompile-spark.availability
+      rules:
+        # Pod-level failure: image-pull, OOM, GPU-bind, node loss.
+        # Severity warning (not critical) — unlike vllm-driver-spark,
+        # nothing user-facing depends on this endpoint yet.
+        - alert: SparkVllmDecompilePodDown
+          annotations:
+            summary: vllm-llm4decompile-spark Pod not Ready (decompile model unavailable)
+            description: |
+              Pod {{ $labels.namespace }}/{{ $labels.pod }} on Spark has
+              been not-Ready for >10 minutes. Inspect with
+              `kubectl -n ai describe pod {{ $labels.pod }}` and
+              `kubectl -n ai logs {{ $labels.pod }} --previous`.
+              No wired consumer yet (serving-only PR) — this does not
+              page as critical, but check it isn't dragging down
+              co-resident Spark workloads (vllm-driver-spark, tei-spark,
+              tei-embed-spark, comfyui-spark) via shared unified memory
+              before restarting.
+          expr: |-
+            kube_pod_status_ready{namespace="ai",pod=~"vllm-llm4decompile-spark-.*",condition="true"} == 0
+          for: 10m
+          labels:
+            severity: warning

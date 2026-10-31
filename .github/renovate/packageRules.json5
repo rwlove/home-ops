@@ -127,17 +127,20 @@
       schedule: ["after 2am and before 5am"],
     },
     {
-      // github-mcp-server pinned to the v2.0.x line. v2's structured-output tool
-      // schemas (outputSchema.type != "object") can fail the Kuadrant mcp-gateway
-      // aggregated tools/list closed — but ONLY when the server negotiates MCP
-      // protocol >= 2026-07-28. v2.0.3 caps negotiation at 2025-11-25 and emits
-      // zero outputSchema (gated isolated-backend test, home-ops#14840), so it is
-      // safe. A future v2.1+ could raise that ceiling and silently reintroduce the
-      // break, so hold below 2.1.0 — re-run the gated test before widening.
-      description: 'Pin github-mcp-server to the v2.0.x line — v2.1+ may raise its MCP protocol ceiling and reintroduce the gateway tools/list break. Re-test before widening. See home-ops#14840',
+      // github-mcp-server v2.x negotiates MCP protocol 2026-07-28 and emits
+      // structured-output tool schemas that strict MCP clients reject. Behind
+      // the Kuadrant mcp-gateway this surfaces as outputSchema.type != "object"
+      // and fails the ENTIRE aggregated tools/list closed (one bad schema →
+      // zero tools), taking down the whole lovenet-gateway MCP surface. Upstream
+      // confirms (github/github-mcp-server#3453, OPEN) and recommends pinning to
+      // v1.14.0 until v2 ships complete 2026-07-28 support. allowedVersions holds
+      // the v1 line; Renovate won't offer v2 and won't downgrade on its own (the
+      // revert to v1.14.0 is the manual helmrelease edit in this same PR).
+      // workaround: https://github.com/github/github-mcp-server/issues/3453 — remove when #3453 closes.
+      description: 'Hold github-mcp-server at v1 — v2 breaks strict MCP clients, failing the gateway tools/list closed. See github/github-mcp-server#3453',
       matchDatasources: ["docker"],
       matchPackageNames: ["ghcr.io/github/github-mcp-server"],
-      allowedVersions: "<2.1.0",
+      allowedVersions: "<2.0.0",
     }
   ]
 }

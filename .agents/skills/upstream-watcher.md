@@ -11,13 +11,21 @@ still necessary upstream.
 
 ## When to use
 
-Manually, ~weekly, to author the removal PRs. The **discovery** step is now
-scheduled: the `adoption-scout` claude-runner CronJob
-(`kubernetes/apps/ai/claude-runner/app/cronjob-adoption-scout.yaml`) re-checks
-`# workaround:` annotations + `workaround`-labeled issues weekly and reports
-retirable candidates in a public GitHub issue. This skill is the interactive
-**back-end**: it turns a scout candidate (or your own find) into a verified
-removal PR. The scout only reports; it never opens PRs.
+Manually, ~weekly, to author the removal PRs. The **discovery** step is
+scheduled on the local-GPU kagent fleet (zero Anthropic tokens): the
+`local-cron-homeops-hygiene` CronJob
+(`kubernetes/apps/ai/local-cron/app/cronjob-homeops-hygiene.yaml`) invokes the
+read-only `homeops-operator` kagent agent weekly (Mon 08:00 ET). Its sweep
+includes a retirable-workaround scan (area 5) — for each `# workaround:`
+annotation it checks, via read-only github-mcp, whether the upstream condition
+now holds AND the fix is in our pinned version — and emails Rob the retirement
+candidates in the FYI digest (ALL CLEAR → silent). It **only flags candidates;
+it never opens removal PRs**. This skill is the interactive **back-end**: it
+turns a flagged candidate (or your own find) into a verified removal PR.
+
+(Prior note: this used to describe an `adoption-scout` claude-runner CronJob —
+that was never deployed. Discovery lives in the homeops-operator hygiene sweep
+above, on local models, not on the Claude-tier runner.)
 
 ## Inputs
 

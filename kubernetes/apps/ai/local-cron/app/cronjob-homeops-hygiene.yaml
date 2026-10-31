@@ -10,10 +10,19 @@ spec:
   # Autonomous repo-hygiene watcher for the `homeops-operator` kagent agent
   # (read-only, Green tier). Weekly it asks the agent to sweep the home-ops repo
   # + live cluster for API-version drift, missing/wrong schemas, doc-vs-code
-  # drift, and git-vs-cluster drift, then emails Rob a concise ranked digest of
-  # findings (ALL CLEAR → nothing sent). This is the scheduled-pull form and the
-  # ONLY way the agent currently reaches Rob — the agent itself has no mail tool;
-  # this cron is the auditable glue that does the send (notify-mcp /send -> smtp-relay).
+  # drift, git-vs-cluster drift, and retirable upstream workarounds, then emails
+  # Rob a concise ranked digest of findings (ALL CLEAR → nothing sent). This is
+  # the scheduled-pull form and the ONLY way the agent currently reaches Rob —
+  # the agent itself has no mail tool; this cron is the auditable glue that does
+  # the send (notify-mcp /send -> smtp-relay).
+  #
+  # Area 5 (retirable workarounds, added 2026-10-31) is the scheduled DISCOVERY
+  # half of the `upstream-watcher` skill: the agent flags `# workaround:`
+  # annotations whose upstream condition now holds in our pinned version. It
+  # ONLY flags candidates — a human runs the skill to author the verified
+  # removal PR. Folded into this existing weekly run (not a new agent/cron) per
+  # the repo's fewer-moving-parts rule; homeops-operator already binds the
+  # read-only github-mcp tools and carries the workaround-resolution skill tag.
   #
   # Findings are PROPOSALS, never same-day-urgent — so there is no Pushover/pager
   # branch (unlike the observability triage): it either emails an FYI digest or
@@ -79,7 +88,7 @@ spec:
                     jsonrpc:"2.0", id:1, method:"message/send",
                     params:{ message:{
                       role:"user",
-                      parts:[{kind:"text", text:"Using your read-only tools, sweep the home-ops repo and the live cluster for repo-hygiene issues in your four areas: (1) deprecated/removed apiVersions vs the versions the cluster serves, (2) missing/wrong/dead yaml-language-server schema lines, (3) docs that no longer match the manifests they describe, (4) git-vs-cluster drift (respecting deliberate Flux suspensions). Read AGENTS.md and .agents/instructions/ first for the repo conventions. Report the TOP findings you are confident about (at most 8), ranked most-actionable first; for each give: file path, the one-line problem, and the one-line proposed fix. Do NOT include full diffs. If you find nothing confident, reply with EXACTLY: ALL CLEAR. Otherwise BEGIN your reply with exactly the tag FYI: then the findings list. This is a one-way notification — never ask a question or request confirmation (nobody can reply). Under 3500 characters. You may use light markdown — **bold**, `code`, `- bullets`, short `#`/`##` headings, [links](url) — it is rendered into a themed HTML email; do not use tables or images."}],
+                      parts:[{kind:"text", text:"Using your read-only tools, sweep the home-ops repo and the live cluster for repo-hygiene issues in your five areas: (1) deprecated/removed apiVersions vs the versions the cluster serves, (2) missing/wrong/dead yaml-language-server schema lines, (3) docs that no longer match the manifests they describe, (4) git-vs-cluster drift (respecting deliberate Flux suspensions), (5) retirable upstream workarounds — search the repo for the marker `# workaround:`; for each annotation read its upstream link and its remove-when condition, then using ONLY your read-only GitHub tools check whether that condition now holds AND the fix is in the version this repo actually pins (read our pin with get_file_contents; check upstream with get_latest_release and search_pull_requests). Flag an annotation ONLY when you can show both — resolved upstream AND reachable in our pinned version; if you cannot confirm it with read-only tools, do NOT flag it (a false retirement is worse than a missed one). Do NOT open a removal PR yourself — a human runs the upstream-watcher skill to verify and remove; just report the file path and a one-line upstream-resolution evidence. Read AGENTS.md and .agents/instructions/ (including workarounds.md) first for the repo conventions. Report the TOP findings you are confident about (at most 8, but ALWAYS include any area-5 retirement candidate even if it displaces a lower-priority item from areas 1-4), ranked most-actionable first; for each give: file path, the one-line problem, and the one-line proposed fix. Do NOT include full diffs. If you find nothing confident, reply with EXACTLY: ALL CLEAR. Otherwise BEGIN your reply with exactly the tag FYI: then the findings list. This is a one-way notification — never ask a question or request confirmation (nobody can reply). Under 3500 characters. You may use light markdown — **bold**, `code`, `- bullets`, short `#`/`##` headings, [links](url) — it is rendered into a themed HTML email; do not use tables or images."}],
                       messageId:"homeops-hygiene-cron", kind:"message"
                     }}
                   }')"

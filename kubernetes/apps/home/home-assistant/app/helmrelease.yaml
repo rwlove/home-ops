@@ -492,6 +492,31 @@ spec:
               - ports:
                   - port: "11434"
                     protocol: TCP
+          # WS1 of the HA-notification -> smart-home-agent loop (2026-10-30
+          # plan, Option A direct). The notify_tiered chokepoint (WS2, lands
+          # separately) will fire-and-forget a warning/urgent notification at
+          # the smart-home-operator kagent's A2A endpoint for investigate-and-
+          # email triage. Scoped to that ONE agent's own Deployment/Service —
+          # NOT the `app.kubernetes.io/part-of: kagent` fleet-wide label the
+          # Windmill-workers rule uses (kagent-agents-allow in
+          # ai/kagent/app/cnp-allow.yaml) — each declarative Agent CR gets its
+          # own Deployment+Service+Pod labelled uniquely by
+          # `app.kubernetes.io/name: <agent-name>` (confirmed against the
+          # kagent v0.10.1 controller source,
+          # go/core/internal/controller/translator/agent/{deployments,
+          # manifest_builder}.go), so this selector can ONLY resolve to the
+          # smart-home-operator pod, not any other agent in the fleet. The
+          # ingress half lives in ai/kagent/app/cnp-allow.yaml
+          # (kagent-smart-home-operator-allow-ha). This hole is dormant until
+          # WS2 ships the caller.
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: ai
+                  app.kubernetes.io/name: smart-home-operator
+            toPorts:
+              - ports:
+                  - port: "8080"
+                    protocol: TCP
           # LAN discovery multicast/broadcast from HA's eth0 interface. HA's
           # `zeroconf` and `ssdp` integrations bind to all interfaces by
           # default and emit periodic discovery on the cilium-governed pod

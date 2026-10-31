@@ -1,0 +1,148 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: ghidra-mcp
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  # Default Flux timeout is 5m; first install (2026-10-28) timed out — the
+  # large single-arch Ghidra image pull + Xvfb/JVM startup kept the pod from
+  # Ready for ~1h43m, well past 5m. Both install attempts hit 5m and left the
+  # HR Stalled / MissingRollbackTarget (no prior good release to roll back to)
+  # even though the Deployment later became healthy on its own. 15m gives the
+  # slow first start room without affecting steady-state behaviour. See
+  # `docs/src/failure_mode_runbooks.md` → "Stalled HelmRelease with
+  # MissingRollbackTarget" for the recovery procedure.
+  timeout: 15m
+  values:
+    defaultPodOptions:
+      securityContext:
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        # Writable Longhorn PVC mounted at $HOME — chown the mount root to the
+        # non-root `ghidra` user (uid/gid 1000). OnRootMismatch skips the
+        # recursive chown once the top level is already correct.
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+    controllers:
+      ghidra-mcp:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        pod:
+          annotations:
+            sidecar.istio.io/inject: "true"
+          # amd64-only image (Ghidra 12.1.4 + GhidraMCP extension; single-arch
+          # base) — keep it off the arm64 Spark.
+          nodeSelector:
+            kubernetes.io/arch: amd64
+          # Keep ghidra-mcp OFF the GPU nodes — the P40 node (worker8) is
+          # reserved for inference and RE is CPU/JVM work. Siblings that WANT a
+          # GPU pin TO `nvidia.com/gpu.present: "true"` (see ai/ollama); this is
+          # the inverse — schedule only where that label is absent/false, which
+          # excludes worker8 (and any future GPU node) without hardcoding a
+          # hostname that could drift.
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: nvidia.com/gpu.present
+                        operator: NotIn
+                        values:
+                          - "true"
+        containers:
+          app:
+            image:
+              # Own-code / hand-versioned image (not auto-bumped by a
+              # version-ARG) — see rwlove/containers/ghidra-mcp/README.md.
+              # Renovate still re-pins the digest on a new tag. Ghidra +
+              # GhidraMCP are version-coupled (exact-match extension load);
+              # bump both in lockstep upstream.
+              repository: ghcr.io/rwlove/ghidra-mcp
+              tag: v0.1.0@sha256:0ecdf88aee1f7a07e00ee1bf540d53c213741722eba272f7698153bed02ee15d
+            env:
+              TZ: America/New_York
+              # server mode = the persistent GUI-plugin model (Xvfb-backed
+              # Ghidra, extension HTTP backend on :8080, MCP bridge on :8081).
+              # This is the only mode that keeps a long-lived MCP endpoint able
+              # to load/swap programs across a session — which is what a
+              # gateway-registered server mitnick drives needs. The `headless`
+              # default analyzes ONE GHIDRA_MCP_BINARY for the life of the
+              # container, so it is unsuitable here.
+              #
+              # CAVEAT (flagged for review): upstream calls server mode "the
+              # iteration surface, not a finished path" — the GhidraMCP plugin
+              # auto-enable in a headless-GUI Ghidra tool is fiddly and may need
+              # a pre-seeded ~/.ghidra tool config on the PVC before :8080 comes
+              # up reliably. Expect to iterate on-box. HOST/PORT/TRANSPORT keep
+              # their image defaults (0.0.0.0 : 8081, streamable-http).
+              GHIDRA_MCP_MODE: server
+            resources:
+              # Ghidra analysis is JVM + memory heavy; Xvfb adds a little.
+              # Conservative start — tunable. Raise the memory limit if large
+              # programs OOMKill the pod.
+              requests:
+                cpu: 500m
+                memory: 2Gi
+              limits:
+                memory: 6Gi
+            securityContext:
+              allowPrivilegeEscalation: false
+              # readOnlyRootFilesystem deliberately NOT set: Ghidra + Xvfb write
+              # to many rootfs paths (/tmp/.X11-unix, Ghidra temp/cache, the
+              # extension enable-state under the install dir). A read-only rootfs
+              # breaks startup; project/tool state that must persist lives on the
+              # Longhorn PVC mounted at $HOME.
+              readOnlyRootFilesystem: false
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+    service:
+      app:
+        controller: ghidra-mcp
+        ports:
+          http:
+            port: 8081
+    route:
+      app:
+        hostnames:
+          - "ghidra-mcp.mcp.local"
+        parentRefs:
+          - name: mcp-gateway
+            namespace: mcp-system
+            sectionName: mcps
+        rules:
+          - matches:
+              - path:
+                  type: PathPrefix
+                  value: /mcp
+            filters:
+              # Strip inbound Authorization before forwarding — mirrors
+              # comfyui-mcp / arr-mcp: the broker's Bearer would otherwise mask
+              # the backend's own credential handling. ghidra-mcp has no auth of
+              # its own; istio mTLS + the in-ns broker + intra-ns CNP are the
+              # boundary.
+              - type: RequestHeaderModifier
+                requestHeaderModifier:
+                  remove:
+                    - Authorization
+            backendRefs:
+              - identifier: app
+                port: 8081
+    persistence:
+      # Ghidra project DB + tool config persist under $HOME (/home/ghidra),
+      # which holds ~/.ghidra (settings + default project location). Longhorn,
+      # backed up — see longhorn-pvc.yaml.
+      project:
+        existingClaim: ghidra-mcp-project-pvc
+        advancedMounts:
+          ghidra-mcp:
+            app:
+              - path: /home/ghidra

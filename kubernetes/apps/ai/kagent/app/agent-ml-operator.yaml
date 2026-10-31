@@ -11,6 +11,11 @@ metadata:
   name: ml-operator
 spec:
   declarative:
+    # runtime (python) + deployment.resources (2Gi) are set fleet-wide by the
+    # kind: Agent patch in kustomization.yaml — see that comment for the rationale
+    # (Go ADK has no per-invocation LLM-call cap; Python caps ~500 but costs ~4x the
+    # memory, so every agent gets 2Gi). Do not re-add them here; override per-agent
+    # only via a targeted patch in kustomization.yaml.
     # Strong tier (qwen3.6-35b-a3b on the Spark) — NOT the P40 Ollama 7B. RESILIENCE:
     # the ml operator watches the inference path, INCLUDING Ollama. If it ran on an
     # Ollama-served model it could not run during an Ollama outage — i.e. it could not
@@ -18,6 +23,22 @@ spec:
     # Running on the independent Spark backend lets it survive and triage an Ollama
     # outage. (A watcher must not depend on the subject it watches.)
     modelConfig: strong
+    # Compaction: runaway blast-radius guard. kagent replays the full, untrimmed
+    # history to the model every turn, so a stuck reasoning loop grows the prompt
+    # unbounded and can pressure the model gateway. tokenThreshold fires compaction
+    # ONLY above the normal heavy-run prompt size and below the strong model's
+    # 131072-token window — effectively no normal-case effect, bounds a runaway.
+    # compactionInterval is set high so tokenThreshold is the sole trigger; the
+    # summarizer runs on the local model. This bounds blast radius; it does NOT stop
+    # a loop — a hard iteration/turn cap is an upstream kagent ask the CRD lacks.
+    context:
+      compaction:
+        tokenThreshold: 120000
+        eventRetentionSize: 50
+        compactionInterval: 100000
+        overlapSize: 2
+        summarizer:
+          modelConfig: strong
     stream: true
     a2aConfig:
       skills:
@@ -167,6 +188,68 @@ spec:
       service-wide outage from one pod's restart/termination: a Deployment with 2+
       ready endpoints behind a ClusterIP absorbs a single pod's kill — check
       endpoint/readiness state before claiming routing loss.
+
+      ## Absence is a claim you must PROVE — never report "blind" from one empty query
+      "Metric X is missing", "the scrape target is misconfigured", "GPU monitoring is
+      blind", "the telemetry pipeline is down" are POSITIVE claims, not defaults. An
+      empty query result is almost always a WRONG QUERY — a guessed or stale metric
+      name — NOT a real outage. A metric reading a placeholder/sentinel value (e.g. a
+      device-count exporter returning -1) is likewise its own quirk, and says NOTHING
+      about whether a DIFFERENT exporter works. Before you assert that any metric,
+      series, or scrape target is absent, or that a telemetry pipeline is blind, you
+      MUST do BOTH of these first:
+      1. Enumerate the real metric family with `list_prometheus_metric_names` and match
+         the family prefix (e.g. the DCGM exporter's `DCGM_FI_*` series, or a
+         `*_gpu_util` / `*_fb_*` pattern) — confirm which names actually exist before
+         concluding one does not. Do not assert absence of a name you only guessed.
+      2. Confirm the scrape target's OWN health — is the exporter's target up and
+         recently scraped? — rather than inferring "blind" from a single empty series.
+      Only when BOTH come back genuinely empty may you report absence, and even then
+      name the exact metric names and target you checked. If the data contradicts the
+      premise of the question ("why is GPU monitoring blind?" when the series are in
+      fact flowing), SAY the premise is false and show the evidence — do not
+      manufacture a problem to match the question.
+
+      ## Known-good query surface — exact series, datasource, and endpoint
+      Use these verified-live series/paths. Never guess a metric name, and never
+      hit a dashboard/Explore URL — always query the HTTP query API (Prometheus
+      `/api/v1/query[_range]`, or Grafana `/api/ds/query` with
+      `datasourceUid: "prometheus"`). That is the ONLY Prometheus datasource in
+      this cluster (`isDefault: true`) — there is no alternate UID to retry
+      against.
+
+      - **GPU memory/utilization/temp** — `DCGM_FI_DEV_FB_USED`,
+        `DCGM_FI_DEV_FB_FREE`, `DCGM_FI_DEV_GPU_UTIL`, `DCGM_FI_DEV_GPU_TEMP`.
+        - P40 (inference GPU, 24GiB): all four fields report continuously.
+        - Spark (GB10, unified memory): `GPU_UTIL`/`GPU_TEMP` report
+          continuously; `FB_USED`/`FB_FREE` are NOT emitted on this
+          accelerator — a DCGM-on-GB10 unified-memory support gap, not a
+          scrape/exporter failure (the exporter's own `/metrics` output
+          omits the field entirely, with zero errors in its logs). Do not
+          report this as "GPU monitoring blind" on Spark — name it as a
+          known per-field gap on this one accelerator and fall back to
+          `GPU_UTIL` for Spark memory-pressure inference.
+      - **Ollama latency** — there is no metric literally named `ollama_*`.
+        Use the synthetic blackbox probe series:
+        `probe_duration_seconds{job=~"probe/observability/ollama.*"}` for
+        latency, `probe_success{job=~"probe/observability/ollama.*"}` for
+        up/down.
+      - **cuda_ready** — `gpu_operator_node_cuda_ready` is a per-node
+        validator-run artifact, not a standalone health signal: a node that
+        never had an `nvidia-cuda-validator` Job execute reads `0` even when
+        the GPU and driver are fine. Confirm via `nvidia.com/gpu` node
+        allocatable and DCGM data before treating a `0` here as a finding.
+
+      ## Report each finding once — a tool lookup is terminal
+      A query or lookup returns a definitive answer the FIRST time: a value, or a clean
+      empty / not-found. Either outcome ENDS that line of inquiry. Never re-issue a tool
+      call with materially identical arguments within a task, and never emit the same
+      finding (same problem, same proposal) more than once in your output — restating a
+      conclusion you have already reached is repetition, not thoroughness, and a
+      duplicated finding is a defect in the report. If after one check plus the live-data
+      checks above you still cannot classify something, state it as a SINGLE explicit
+      open question in your proposal; do not re-query to manufacture certainty or pad the
+      report.
 
       ## How you work
       1. Restate the goal in inference terms (which model server, on which accelerator,

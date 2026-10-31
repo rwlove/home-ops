@@ -1,0 +1,104 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: re-toolbox
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  values:
+    defaultPodOptions:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+    controllers:
+      re-toolbox:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        type: deployment
+        replicas: 1
+        pod:
+          # amd64-only image (radare2 .deb is amd64; the whole toolbox is
+          # built FROM a single-arch base) — keep it off the arm64 Spark.
+          nodeSelector:
+            kubernetes.io/arch: amd64
+          # Keep the toolbox OFF the GPU nodes — the P40 node (worker8) is
+          # reserved for inference, and the toolbox is idle most of the time.
+          # Siblings that WANT a GPU pin TO `nvidia.com/gpu.present: "true"`
+          # (see ai/ollama); this is the inverse — schedule only where that
+          # label is absent/false, which excludes worker8 (and any future GPU
+          # node) without hardcoding a hostname that could drift.
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: nvidia.com/gpu.present
+                        operator: NotIn
+                        values:
+                          - "true"
+        containers:
+          app:
+            image:
+              # Own-code / hand-versioned image (not auto-bumped by a
+              # version-ARG) — see rwlove/containers/re-toolbox/README.md.
+              # Renovate still re-pins the digest on a new tag.
+              repository: ghcr.io/rwlove/re-toolbox
+              tag: v0.1.0@sha256:cb592b475ec81fb284dcf157f9deab502a108f2dc32bab87bf9662bcdc2cf481
+            # The image CMD is an interactive /bin/bash (a workbench, no
+            # daemon). Hold the pod open so mitnick can `kubectl exec` in for
+            # long-lived RE sessions; nothing listens on a port.
+            command:
+              - sleep
+              - infinity
+            env:
+              TZ: America/New_York
+              # decai (the r2 LLM decompiler) talks to an OpenAI-compatible
+              # endpoint. Point it at the in-cluster LiteLLM proxy (OpenAI-
+              # compatible, fronts the specialized LLM4Decompile-9B model on
+              # Spark — see the `decompile` model group in
+              # ai/litellm/app/config.yaml).
+              # No-auth proxy, but the OpenAI client still requires a key, so
+              # a dummy is fine — NOT a secret, so a literal value (not an
+              # ExternalSecret). These OPENAI_* vars are the primary wiring
+              # for any OpenAI-client tool in the toolbox.
+              OPENAI_BASE_URL: http://litellm.ai.svc.cluster.local:4000/v1
+              OPENAI_API_KEY: sk-noauth-local-vllm
+              # NOTE on decai specifically: per the image README, decai reads
+              # its provider/model config via `decai -e <key>=<value>` at
+              # session start (only DECAI_HEADERS/R2AI_HEADERS are env-settable;
+              # decai does NOT read OPENAI_BASE_URL). So inside r2, run:
+              #     decai -e api=openai
+              #     decai -e baseurl=http://litellm.ai.svc.cluster.local:4000/v1
+              #     decai -e model=decompile
+              #     decai -e apikey=sk-noauth-local-vllm
+              # (model `decompile` = Spark LLM4Decompile-9B-v2, a specialized
+              # decompile model — NO fallback. Previously `strong` (the
+              # general Spark 35B-A3B driver); decai now targets the
+              # purpose-built model instead.)
+            resources:
+              # Conservative — the toolbox is idle until mitnick execs in, then
+              # jadx/ilspycmd (JVM/.NET) can spike. Tunable; raise the memory
+              # limit if a large APK/.NET decompile gets OOMKilled.
+              requests:
+                cpu: 25m
+                memory: 256Mi
+              limits:
+                memory: 2Gi
+            securityContext:
+              allowPrivilegeEscalation: false
+              # readOnlyRootFilesystem is deliberately NOT set: r2pm installed
+              # decai into the `re` user's HOME (/home/re) at build time, and
+              # decai writes its runtime config/state back under $HOME — a
+              # read-only rootfs blocks that, and an emptyDir over /home/re
+              # would shadow the baked-in plugin and make decai disappear.
+              readOnlyRootFilesystem: false
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault

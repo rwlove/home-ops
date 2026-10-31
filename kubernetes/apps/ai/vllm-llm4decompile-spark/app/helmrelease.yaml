@@ -1,0 +1,313 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: vllm-llm4decompile-spark
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 30m
+  install:
+    disableWait: true
+  upgrade:
+    disableWait: true
+  values:
+    controllers:
+      vllm:
+        # SCALE-TO-ZERO BETWEEN SESSIONS (2026-10-29). LLM4Decompile is a
+        # single-purpose, bursty workload — its ONLY consumer is mitnick's
+        # decai (via the LiteLLM `decompile` group, which has NO fallback,
+        # by design). Holding its ~22 GiB resident 24/7 on the shared GB10
+        # unified pool buys nothing when no RE session is running, so the
+        # resting state is replicas:0 and it is woken on demand.
+        #
+        # ON-DEMAND bring-up (weights already cached on the PVC → warm
+        # start ~2-3 min: load-to-GPU + CUDA-graph compile, NOT the ~20 min
+        # first-download):
+        #     kubectl scale statefulset vllm-llm4decompile-spark -n ai --replicas=1
+        #     kubectl rollout status statefulset vllm-llm4decompile-spark -n ai   # wait Ready
+        #     # ... run the RE / decai session ...
+        #     kubectl scale statefulset vllm-llm4decompile-spark -n ai --replicas=0
+        #
+        # No `flux suspend` needed: drift detection is OFF on this HR (Flux
+        # default; only actions-runner / mutating-webhook opt in), so a
+        # manual scale PERSISTS — Flux re-asserts replicas:0 only on an
+        # actual helm upgrade (a values/chart/image change to THIS HR). The
+        # one edge case: if a Renovate image bump or any edit to this HR
+        # lands mid-session, that upgrade scales it back to 0 — just scale
+        # up again. While it's at 0, decai calls to the `decompile` group
+        # hard-fail (503/connection refused) rather than silently degrade;
+        # bring the model up first.
+        replicas: 0
+
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        # StatefulSet (not Deployment) for the same reason as
+        # vllm-driver-spark / vllm-coder-spark: the weight-cache PVC is
+        # RWO and we must never have two pods contending for the single
+        # GPU slice — a StatefulSet terminates the old pod before
+        # starting the new one.
+        type: statefulset
+
+        pod:
+          nodeSelector:
+            nvidia.com/gpu.family: blackwell
+
+          # Spark taints: arm64 (keeps amd64-only workloads off) + the
+          # nvidia.com/gpu reservation. Mirrors the other *-spark apps.
+          tolerations:
+            - key: kubernetes.io/arch
+              operator: Equal
+              value: arm64
+              effect: NoSchedule
+            - key: nvidia.com/gpu
+              operator: Equal
+              value: "true"
+              effect: NoSchedule
+
+        # Deliberately NO priorityClassName on this controller — same
+        # choice as comfyui-spark, for the same reason: this is a
+        # utility/batch decompile workload, not the primary chat/
+        # reasoning path. Sitting below ai-gpu-critical
+        # (vllm-driver-spark, tei-spark, tei-embed-spark) means that if
+        # the Spark node ever hits memory pressure, the kubelet evicts
+        # THIS pod first and protects the driver — directly serving the
+        # "cannot crash the inference path" constraint this PR was
+        # scoped under.
+
+        containers:
+          app:
+            image:
+              # workaround: https://github.com/vllm-project/vllm/issues/36821
+              #   — remove when upstream vLLM publishes an official sm_121
+              #   (GB10) arm64 image. Same community image + digest-pin
+              #   rationale as vllm-driver-spark / vllm-coder-spark;
+              #   reusing the driver's already-validated tag rather than
+              #   introducing a second untested vLLM build on this node.
+              #   Base image has no entrypoint (Cmd=bash) → `command`
+              #   below invokes vLLM explicitly. Renovate-held — bump
+              #   deliberately, validate on-box before merging.
+              repository: ghcr.io/timothystewart6/vllm-gb10
+              tag: v0.30.0-gb10.2
+
+            command: ["vllm", "serve"]
+            args:
+              # LLM4Binary/llm4decompile-9b-v2 — Yi-Coder-9B base
+              # (LlamaForCausalLM), plain safetensors (4 shards, ~17.7 GB
+              # total). Standard vLLM-supported architecture — no
+              # --trust-remote-code, no NVFP4/compressed-tensors kernel
+              # selection, no reasoning/tool-call parser needed (this is
+              # a straight decompile-completion model, not an agentic
+              # chat/tool-use model like the driver/coder).
+              - LLM4Binary/llm4decompile-9b-v2
+              - --served-model-name
+              - llm4decompile-9b-v2
+              - --host
+              - 0.0.0.0
+              - --port
+              - "8000"
+              # NATIVE max for this model — do NOT raise. Trained at a
+              # 4096-token max sequence length (model card); unlike the
+              # driver's long-context Qwen3.6, there is no headroom to
+              # grow here, and decompile inputs (one function's
+              # pseudocode) comfortably fit.
+              - --max-model-len
+              - "4096"
+              # Utility/batch sizing, not a chat-concurrency target.
+              # Caps KV cache small so this instance's footprint stays
+              # predictable and conservative relative to the driver.
+              - --max-num-seqs
+              - "4"
+              # CONSERVATIVE PACKING — the whole point of this instance.
+              # 0.18 of the 121.6 GiB unified pool vLLM sees on this node
+              # (confirmed live 2026-10-29: node_memory_MemAvailable_bytes
+              # ~55.4 GiB free, flat over 24h, GPU util ~9% avg) ≈ 22 GiB:
+              # ~17.7 GiB weights + ~4 GiB KV/compile scratch at
+              # max-num-seqs 4 / max-model-len 4096. Do NOT raise above
+              # 0.20 without re-confirming headroom against the driver's
+              # live footprint first — gpu-memory-utilization is a
+              # REQUEST vLLM makes against the shared unified pool, not a
+              # hard cap the allocator enforces against other tenants
+              # (see docs/src/vllm_spark_migration_plan.md and the
+              # vllm-coder-spark parked-manifest history, where the
+              # driver's actual footprint once ran far above its nominal
+              # util and starved a co-resident instance).
+              - --gpu-memory-utilization
+              - "0.18"
+
+            env:
+              # HF Hub cache on the PVC so the ~17.7 GB download survives
+              # pod restarts (re-download otherwise, and it fails under
+              # default-deny without the world:443 egress below).
+              HF_HOME: &cachePath /data
+              VLLM_LOGGING_LEVEL: INFO
+
+            probes:
+              # /health returns 200 once the engine is up and the model is
+              # loaded. Fast once warm.
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /health
+                    port: &httpPort 8000
+                  initialDelaySeconds: 60
+                  periodSeconds: 30
+                  timeoutSeconds: 5
+                  failureThreshold: 5
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /health
+                    port: *httpPort
+                  initialDelaySeconds: 30
+                  periodSeconds: 15
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              # Generous startup budget: FIRST start downloads ~17.7 GB
+              # weights from HF + loads to GPU + compiles CUDA graphs.
+              # 80 * 15s = 20 min (shorter than the driver's 30 min —
+              # this model is roughly half the download size).
+              # disableWait above means Flux won't block on this.
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /health
+                    port: *httpPort
+                  initialDelaySeconds: 30
+                  periodSeconds: 15
+                  timeoutSeconds: 5
+                  failureThreshold: 80
+
+            resources:
+              requests:
+                cpu: 500m
+                memory: 8Gi
+                nvidia.com/gpu: 1
+              limits:
+                # Sized off the driver/coder's cgroup-mem : nominal-util
+                # ratio (~1.4-1.7x), for an expected ~22 GiB engine
+                # footprint at gpu-memory-utilization 0.18. Generous
+                # ceiling to avoid a cgroup OOMKill on a unified-memory
+                # node where CUDA allocation accounting is incomplete
+                # (kubectl top undercounts CUDA on GB10 — see
+                # gpu-routing.md).
+                memory: 32Gi
+                nvidia.com/gpu: 1
+
+            securityContext:
+              # Image runs as root and vLLM compiles CUDA graphs + writes
+              # the HF cache, so runAsNonRoot / readOnlyRootFilesystem are
+              # off (same rationale as vllm-driver-spark / vllm-coder-spark
+              # / ollama-spark). Rest of the baseline hardening kept.
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop: ["ALL"]
+              seccompProfile:
+                type: RuntimeDefault
+
+    service:
+      app:
+        controller: vllm
+        ports:
+          http:
+            port: *httpPort
+
+    # Internal (LAN-only) route so off-cluster consumers (manual testing
+    # from Rob's workstation ahead of the LiteLLM/decai wiring follow-up)
+    # reach the OpenAI /v1 endpoint. Mirrors vllm-driver-spark /
+    # vllm-coder-spark's route.
+    route:
+      main:
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: *httpPort
+
+    persistence:
+      cache:
+        existingClaim: vllm-llm4decompile-spark-cache-pvc
+        advancedMounts:
+          vllm:
+            app:
+              - path: *cachePath
+
+      # vLLM uses /dev/shm for intra-process IPC; the default 64 MB is too
+      # small and causes cryptic startup failures. 8 Gi emptyDir(Memory).
+      shm:
+        type: emptyDir
+        medium: Memory
+        sizeLimit: 8Gi
+        advancedMounts:
+          vllm:
+            app:
+              - path: /dev/shm
+
+      # Writable /tmp for compilation scratch (torch.compile / CUDA graphs).
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          vllm:
+            app:
+              - path: /tmp
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: vllm-llm4decompile-spark-allow
+        # Explicit endpointSelector preserves the pre-inline selector
+        # instead of the chart's controller-derived default, matching the
+        # other *-spark apps.
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: vllm-llm4decompile-spark
+        # Additive — default-deny triggers the lockdown; these rules punch holes.
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # HTTPRoute on the internal gateway → vllm-llm4decompile-spark:8000.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: network
+                  app.kubernetes.io/name: envoy
+            toPorts:
+              - ports:
+                  - port: "8000"
+                    protocol: TCP
+          # Prometheus /metrics scrape only. SCOPE BOUNDARY: no LiteLLM or
+          # decai (re-toolbox) ingress rule yet — wiring a model group /
+          # consumer into this endpoint is a deliberate follow-up once
+          # this instance is confirmed healthy under the rollout plan
+          # below, not part of this PR.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: observability
+                  app.kubernetes.io/name: prometheus
+            toPorts:
+              - ports:
+                  - port: "8000"
+                    protocol: TCP
+        egress:
+          # HuggingFace Hub — vLLM downloads the weights to the cache PVC
+          # on first start. Same world:443 pattern as vllm-driver-spark /
+          # vllm-coder-spark / tei-spark (HF / CDN IPs are not FQDN-stable
+          # enough for toFQDNs).
+          - toEntities: [world]
+            toPorts:
+              - ports:
+                  - port: "443"
+                    protocol: TCP

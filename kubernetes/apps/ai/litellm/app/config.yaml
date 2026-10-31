@@ -3,8 +3,9 @@
 # opencode) point ModelConfigs at a model GROUP here, not a raw backend, so a single
 # GPU/pod outage degrades instead of blinding the agent.
 #
-#   strong -> Spark vLLM (qwen3.6-35b-a3b), falls back to P40 Ollama (qwen2.5:7b)
-#   fast   -> P40 Ollama (qwen2.5:7b),       falls back to Spark vLLM
+#   strong     -> Spark vLLM (qwen3.6-35b-a3b),       falls back to P40 Ollama (qwen2.5:7b)
+#   fast       -> P40 Ollama (qwen2.5:7b),             falls back to Spark vLLM
+#   decompile  -> Spark vLLM (llm4decompile-9b-v2),    NO fallback (specialized model; see below)
 #
 # No-auth (internal, ai-namespace, CNP-gated — same posture as the vLLM/Ollama
 # backends). Callers still send the dummy sk-noauth-local-vllm key (kagent's OpenAI
@@ -48,6 +49,28 @@ model_list:
       model: openai/qwen3.6-35b-a3b
       api_base: http://vllm-driver-spark.ai.svc.cluster.local:8000/v1
       api_key: sk-noauth-local-vllm
+  - model_name: decompile
+    litellm_params:
+      model: openai/llm4decompile-9b-v2
+      api_base: http://vllm-llm4decompile-spark.ai.svc.cluster.local:8000/v1
+      api_key: sk-noauth-local-vllm
+      # The model's NATIVE max-model-len (vllm-llm4decompile-spark's
+      # helmrelease pins --max-model-len 4096 — do not raise either side
+      # without raising both). Declaring it here lets enable_pre_call_checks
+      # REJECT an over-window prompt with ContextWindowExceededError instead
+      # of forwarding it to vLLM to be silently clipped mid-sequence — same
+      # rationale as strong-fallback's max_input_tokens above.
+      max_input_tokens: 4096
+  # decompile is DELIBERATELY NOT given a fallback entry in
+  # router_settings.fallbacks below. It is a specialized decompile model
+  # (LLM4Binary/llm4decompile-9b-v2, fine-tuned specifically for
+  # pseudocode-to-source decompilation); the general-purpose
+  # qwen3.6-35b-a3b driver is not a substitute for that task, and silently
+  # routing a decompile request to it on a transient vLLM hiccup would
+  # return a plausible-looking but worse decompilation with no signal to
+  # the caller (decai/re-toolbox) that anything degraded. A real outage on
+  # this instance should surface as a clean error, not a quietly-worse
+  # answer.
 
 router_settings:
   num_retries: 2

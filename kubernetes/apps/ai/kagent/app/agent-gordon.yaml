@@ -15,6 +15,22 @@ spec:
     # Strong tier (qwen3.6-35b-a3b on the Spark) — recipe scaling, list diffing,
     # and careful fact-grounding; the small model fabricates numbers.
     modelConfig: strong
+    # Compaction: runaway blast-radius guard. kagent replays the full, untrimmed
+    # history to the model every turn, so a stuck reasoning loop grows the prompt
+    # unbounded and can pressure the model gateway. tokenThreshold fires compaction
+    # ONLY above the normal heavy-run prompt size and below the strong model's
+    # 131072-token window — effectively no normal-case effect, bounds a runaway.
+    # compactionInterval is set high so tokenThreshold is the sole trigger; the
+    # summarizer runs on the local model. This bounds blast radius; it does NOT stop
+    # a loop — a hard iteration/turn cap is an upstream kagent ask the CRD lacks.
+    context:
+      compaction:
+        tokenThreshold: 120000
+        eventRetentionSize: 50
+        compactionInterval: 100000
+        overlapSize: 2
+        summarizer:
+          modelConfig: strong
     stream: true
     a2aConfig:
       skills:

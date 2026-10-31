@@ -383,3 +383,43 @@ spec:
         - ports:
             - port: "8095"
               protocol: TCP
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+#
+# WS1 of the HA-notification -> smart-home-agent loop (2026-10-30 plan,
+# Option A direct). HA's notify_tiered chokepoint (WS2, lands separately)
+# fire-and-forgets a warning/urgent notification at this ONE agent's A2A
+# endpoint (:8080, JSON-RPC message/send) for read-only investigate-and-email
+# triage. Dormant until WS2 ships the caller.
+#
+# Deliberately its OWN CNP, not an addition to kagent-agents-allow above:
+# that policy's endpointSelector (`app.kubernetes.io/part-of: kagent`) is
+# fleet-wide BY DESIGN (the Windmill-workers rule dispatches to "any of
+# them"), so adding home-assistant there would let HA reach every agent in
+# the fleet, not just this one. Each declarative Agent CR instead gets its
+# own Deployment + Service + Pod uniquely labelled
+# `app.kubernetes.io/name: <agent-name>` (confirmed against the kagent
+# v0.10.1 controller source,
+# go/core/internal/controller/translator/agent/{deployments,
+# manifest_builder}.go: getDefaultLabels() sets AppName = agent.GetName()
+# on the pod template) — so this endpointSelector resolves to the
+# smart-home-operator pod ONLY. The egress half is in
+# home/home-assistant/app/helmrelease.yaml (home-assistant-allow).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: kagent-smart-home-operator-allow-ha
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: smart-home-operator
+      app.kubernetes.io/part-of: kagent
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: home-assistant
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP

@@ -88,6 +88,12 @@ spec:
             # `list_alert_rules` (renamed upstream; absent from pinned
             # mcp-grafana 2.0.2). Green-tier — the write variant
             # (alerting_rules_write) is gated behind --disable-write and not bound.
+            # NOTE: GRAFANA-MANAGED rules only. This stack defines alerting via
+            # PrometheusRule CRs + Alertmanager, so this returns null/empty BY
+            # DESIGN (even with operation: list). It is NOT the firing-alert
+            # source — that is the Prometheus `ALERTS` series (see systemMessage).
+            # Do not "fix" the null by adding an operation arg; it is empty because
+            # Grafana owns no rules here.
             - alerting_rules_read
             # ADDED 2026-10-14 (silence-aware triage): read-only Alertmanager
             # silence listing (via Grafana's managed-Alertmanager proxy).
@@ -204,6 +210,40 @@ spec:
         raised past existing rules; a retention cut that breaks post-incident replay).
       State which one you protect against and which one your proposal risks.
 
+      ## Firing-alert state lives in Prometheus `ALERTS`, not Grafana unified alerting
+      The authoritative inventory of what is firing or pending RIGHT NOW is the
+      Prometheus `ALERTS` series — query it with `query_prometheus`:
+      `ALERTS{alertstate="firing"}` and `ALERTS{alertstate="pending"}`. Each series
+      carries the alert's identity in its labels (`alertname`, `severity`, and the
+      instance-identifying labels — `instance` / `namespace` / `node` / `device`).
+      That is your triage inventory; build it FIRST, every run, before anything else.
+
+      `alerting_rules_read` reads GRAFANA-MANAGED alert rules. Where alerting is
+      defined by PrometheusRule CRs and routed by Alertmanager, Grafana manages no
+      rules, so `alerting_rules_read` returns null/empty **by design** — even called
+      correctly (`operation: list`). That null means "Grafana owns no rules here," NOT
+      an outage, an unreachable datasource, or a mute. Never triage off it; to read a
+      rule's `for:` / threshold definition, get the PrometheusRule via
+      `k8s_get_resources`.
+
+      ## One null/empty tool result is never, by itself, "datasource down" or a mute
+      A single tool returning null, empty, or an error means "no data," "wrong source,"
+      or "feature unused" far more often than "backend down." Before reporting ANY
+      datasource or pipeline as unreachable, corroborate: call `list_datasources` and
+      confirm the specific datasource is actually unhealthy (an Alertmanager-type
+      datasource reporting health "unknown" is NORMAL — that plugin exposes no backend
+      probe), AND confirm the symptom in a second independent signal. If you cannot
+      corroborate, report that the tool returned empty with the likely benign reason —
+      never invent an outage from one null.
+
+      ## Watchdog is the mute signal — check it before ever claiming a mute
+      This stack ships a dead-man's-switch alert (`Watchdog`) that is ALWAYS firing by
+      design, to prove the fire->route->notify path is alive.
+      `ALERTS{alertname="Watchdog",alertstate="firing"}` present → the alerting pipeline
+      is healthy and NOT muted; cite that as your evidence whenever you assess mute risk.
+      A genuine mute is `Watchdog` ABSENT or STALE — that, not a rules API returning zero
+      rows, is what "alerts may be going undetected" looks like.
+
       ## Flap protection
       Any alerting rule on a metric that can be transient needs a `for:` clause of at
       least 5 minutes. `up == 0` with no `for:` flaps on every pod restart. Validate a
@@ -276,7 +316,9 @@ spec:
       ## How you work
       1. Restate the goal in observability terms (alert X fires when metric Y crosses
          threshold Z, routes to receiver R, because the failure mode is F).
-      2. Inventory current state — existing rules, routing, and dashboards for the same signal.
+      2. Inventory current state — FIRST the live firing/pending alerts from the
+         Prometheus `ALERTS` series (the source of truth, not Grafana unified alerting),
+         then existing rules, routing, and dashboards for the same signal.
       3. Validate with data — does the metric exist? what's its typical value? does the
          proposed threshold flap on recent data?
       4. Produce the proposal — the exact rule/routing/dashboard YAML, with a `for:`

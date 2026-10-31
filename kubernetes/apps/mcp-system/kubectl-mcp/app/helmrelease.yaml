@@ -19,33 +19,54 @@ spec:
             reloader.stakater.com/auto: "true"
             sidecar.istio.io/inject: "true"
           securityContext:
-            fsGroup: 1000
+            fsGroup: 10001
             fsGroupChangePolicy: OnRootMismatch
-            runAsGroup: 1000
+            runAsGroup: 10001
             runAsNonRoot: true
-            runAsUser: 1000
+            runAsUser: 10001
+            seccompProfile:
+              type: RuntimeDefault
         annotations:
           reloader.stakater.com/auto: "true"
         containers:
           app:
-            # workaround: https://github.com/rohitg00/kubectl-mcp-server/issues/93 — remove when #93 is fixed AND the 2.0.0 migration (rwlove/home-ops#15285) lands.
-            # 2.0.0 crashloops in-cluster (PermissionError '.env' at import): the image
-            # expects its built-in UID 10001 and cannot stat .env in its home when we pin
-            # non-root runAsUser 1000. 2.0.0 is also a breaking tool-surface migration
-            # (default tools 280→26, per-kind tools renamed). Held at 1.24.0 via
-            # .github/renovate/packageRules.json5 allowedVersions "<2.0.0".
             image:
               repository: ghcr.io/rohitg00/kubectl-mcp-server
-              tag: 1.24.0@sha256:17134e36a3e1d3a5e457c12d61e8c7f7c52a7927c6ae4250131dfd95a74a2331
-            args: ["--transport=streamable-http"]
+              tag: 2.0.0@sha256:f1f57aa5d4952f3c49e4d9bb8071a143d0812bdc8253922d51eeca8a2615ea29
             env:
-              MCP_DEBUG: true
+              # 2.0.0 image defaults to stdio transport and a 0.0.0.0 bind, and fails
+              # closed on a non-loopback bind without auth. We serve HTTP and opt into
+              # unauthenticated-at-backend: the Kuadrant mcp-gateway + CiliumNetworkPolicy
+              # are the real gate, and the HTTPRoute strips inbound Authorization.
+              MCP_SERVER_TRANSPORT: http
+              MCP_SERVER_HOST: 0.0.0.0
+              MCP_SERVER_PORT: "8000"
+              MCP_ALLOW_UNAUTHENTICATED: "true"
+              # Read-only safety mode blocks every state-changing tool server-side
+              # (2.0 finally enforces this). Toolsets restore our surface: default
+              # (core+helm) = generic kubectl verbs + diagnose_pod_crash; diagnostics =
+              # check_pod_health/get_nodes_summary; security = analyze_network_policies;
+              # gitops = the Flux/Argo readers.
+              MCP_SAFETY_MODE: read-only
+              MCP_TOOLSETS: "default,diagnostics,security,gitops"
+              MCP_MASK_SECRETS: "true"
+              # Gateway forwards a non-loopback Host/Origin; 2.0 defaults these to
+              # loopback-only and would 400. Narrow once the forwarded Host is confirmed.
+              MCP_ALLOWED_HOSTS: "*"
+              MCP_ALLOWED_ORIGINS: "*"
             resources:
               requests:
                 cpu: 50m
                 memory: 512Mi
               limits:
                 memory: 768Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop: ["ALL"]
+              readOnlyRootFilesystem: true
+              seccompProfile:
+                type: RuntimeDefault
     service:
       app:
         controller: kubectl-mcp
@@ -84,19 +105,29 @@ spec:
               - identifier: app
                 port: 8000
 
+    persistence:
+      # readOnlyRootFilesystem is true, so give the non-root (10001) process
+      # writable scratch: /tmp plus the HOME subdirs kubectl (discovery cache
+      # ~/.kube/cache) and helm (~/.cache, ~/.config) write to at tool-call time.
+      tmpfs:
+        type: emptyDir
+        advancedMounts:
+          kubectl-mcp:
+            app:
+              - path: /tmp
+                subPath: tmp
+              - path: /home/mcp/.cache
+                subPath: cache
+              - path: /home/mcp/.config
+                subPath: config
+              - path: /home/mcp/.kube
+                subPath: kube
     rbac:
       bindings:
         kubectl-mcp-read-all:
           type: ClusterRoleBinding
           roleRef:
             identifier: kubectl-mcp-read-all
-          subjects:
-            - identifier: kubectl-mcp
-              serviceAccount: kubectl-mcp
-        kubectl-mcp-write-restricted:
-          type: RoleBinding
-          roleRef:
-            identifier: kubectl-mcp-write-restricted
           subjects:
             - identifier: kubectl-mcp
               serviceAccount: kubectl-mcp
@@ -193,20 +224,5 @@ spec:
             - apiGroups: ["admissionregistration.k8s.io"]
               resources: ["validatingwebhookconfigurations", "mutatingwebhookconfigurations"]
               verbs: ["get", "list", "watch"]
-        kubectl-mcp-write-restricted:
-          type: Role
-          rules:
-            - apiGroups: [""]
-              resources: ["pods"]
-              verbs: ["delete"]
-            - apiGroups: ["batch"]
-              resources: ["jobs"]
-              verbs: ["delete"]
-            - apiGroups: [""]
-              resources: ["pods/exec"]
-              verbs: ["create"]
-            - apiGroups: ["apps"]
-              resources: ["deployments"]
-              verbs: ["patch", "update"]
     serviceAccount:
       kubectl-mcp: {}

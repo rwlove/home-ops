@@ -122,14 +122,27 @@ kagent-tools:
 # invocation and every tool call becomes a span: the observability/audit surface for
 # the watcher fleet today, and the prerequisite trace trail for the future doer tier
 # (every mutating tool call recorded as a span, correlatable with the apiserver audit
-# log Vector already ships to Loki). gRPC endpoint is bare host:port (otlptracegrpc
-# form), not a URL. Additive + reversible: drop this block to turn tracing back off.
+# log Vector already ships to Loki). Additive + reversible: drop this block to turn
+# tracing back off.
+#
+# 2026-10-28: kagent-controller's own traces never exported (6+ days of
+# "delegating_resolver: invalid target address \"\": missing address" in its logs)
+# while the persona agents' traces exported fine off this SAME value. Root cause:
+# the endpoint was bare host:port (no scheme). Go's otlptracegrpc SDK runs
+# url.Parse() on the endpoint and, per RFC 3986, a string with no "//" has its
+# entire content parsed as the URL *scheme* — Host ends up empty, so the gRPC
+# dial target is "". The Python agent runtime tolerates the bare form; Go's SDK
+# requires a scheme. Added "http://" (paired with the already-set insecure: true
+# below → plaintext gRPC, unchanged transport) to fix the controller. This value
+# is shared with the persona agent Deployments — their Python exporter is
+# expected to tolerate the http:// prefix as a no-op, but it wasn't exercised
+# before merge; verify post-reconcile (see PR description).
 otel:
   tracing:
     enabled: true
     exporter:
       otlp:
-        endpoint: "opentelemetry-collector.observability.svc.cluster.local:4317"
+        endpoint: "http://opentelemetry-collector.observability.svc.cluster.local:4317"
         protocol: "grpc"
         timeout: 15000
 

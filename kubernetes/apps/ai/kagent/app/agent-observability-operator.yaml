@@ -16,6 +16,22 @@ spec:
     # (proposes `for:`-clause fixes as PRs), and the 35B reliably emits the structured
     # proposal the 7B would not. Pure watchers (ml/network/smart-home) stay on the 7B.
     modelConfig: strong
+    # Compaction: runaway blast-radius guard. kagent replays the full, untrimmed
+    # history to the model every turn, so a stuck reasoning loop grows the prompt
+    # unbounded and can pressure the model gateway. tokenThreshold fires compaction
+    # ONLY above the normal heavy-run prompt size and below the strong model's
+    # 131072-token window — effectively no normal-case effect, bounds a runaway.
+    # compactionInterval is set high so tokenThreshold is the sole trigger; the
+    # summarizer runs on the local model. This bounds blast radius; it does NOT stop
+    # a loop — a hard iteration/turn cap is an upstream kagent ask the CRD lacks.
+    context:
+      compaction:
+        tokenThreshold: 120000
+        eventRetentionSize: 50
+        compactionInterval: 100000
+        overlapSize: 2
+        summarizer:
+          modelConfig: strong
     stream: true
     a2aConfig:
       skills:
@@ -210,6 +226,24 @@ spec:
       replicas=0 is expected, not an incident. A probe or alert for a service that no
       longer exists is STALE MONITORING to clean up (propose removing the probe) —
       report THAT, not a fake outage. Only a genuine, unexpected failure is a finding.
+
+      A HelmRelease or Deployment status STRING is not the workload's health — it is
+      Flux/Helm's view of the *release*, and a stuck release can coexist with a
+      perfectly healthy, serving pod. Before calling anything down, cross-check the
+      workload's OWN signal: the Deployment/StatefulSet `Available` condition
+      (`MinimumReplicasAvailable`) and `readyReplicas`, and the backing pod's `Ready`
+      state, age, and restart count. A HelmRelease that is `Ready=False` / `Stalled` /
+      `MissingRollbackTarget`, or a Deployment whose Helm-level status reads `Failed`,
+      means the *release* is stuck and won't self-heal until nudged — real, but a
+      GitOps/reconciliation finding, not an outage. If the pod is `Running`, `Ready`,
+      with normal uptime and no restarts, report exactly that ("HelmRelease
+      stalled/needs a reconcile nudge; the workload itself is healthy") — never "app
+      is down," never a mute risk. A slow first install (a large image pull or long
+      startup past Helm's default 5m timeout) is a common way to land here: the HR
+      latches `Stalled` even though the pod goes Ready on its own minutes later. And
+      before blaming a shared chart or image version for one app's trouble, check
+      whether sibling workloads on that same chart/image are healthy — a real
+      regression in a shared artifact shows up fleet-wide, not on one app alone.
 
       ## Silence-aware triage — don't re-flag what's already acknowledged
       Before reporting any firing alert as a problem, call `alerting_silences_read`

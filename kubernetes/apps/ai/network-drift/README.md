@@ -25,9 +25,10 @@ A **deterministic, stdlib-only Python detector** (`resources/netbox_sync.py` +
      (freshness); **k8s** nodes + **LoadBalancer** Service IPs + **Cilium LB
      pools** (via a scoped read-only ServiceAccount) ↔ NetBox. All
      one-directional (reality → record) except the dns_name freshness check.
-3. Emails Rob via `notify-mcp /send` **only when the drift picture CHANGES** —
-   new drift appears or known drift resolves. A healthy or unchanged network
-   sends nothing.
+3. Emails Rob via `notify-mcp /send` **only when NEW, actionable drift appears**
+   (problems-only digest). A healthy or unchanged network sends nothing;
+   resolved items (a drift that fixed itself) are an all-clear roster — logged,
+   never emailed.
 
 It is **detect-only**: it cannot write NetBox, Omada, or any device.
 

@@ -25,12 +25,23 @@ spec:
           automountServiceAccountToken: false
           restartPolicy: Never
         cronjob:
-          # Native-import test (#11854, #14158) FAILED its own bar: with the
-          # sidecar suspended ~3 days, the queue did NOT clear without
-          # intervention — a completed SAB download stuck in importFailed.
-          # Sidecar restored; the regression is still compensated for here.
-          # Re-run the retirement test deliberately against a controlled
-          # batch, not the live queue.
+          # Workaround still required — retirement history is MIXED, not a
+          # clean "failed twice":
+          #   - Sep 2026 (#11854, #14158): sidecar suspended ~3 days against
+          #     the LIVE queue; a completed download stuck in importFailed.
+          #   - 2026-10-29 (#11854): re-tested on Lidarr 3.2.0 (#15381) with a
+          #     controlled single-item batch. INCONCLUSIVE, not a failure: the
+          #     native auto-scan DID fire (albumImportIncomplete +9s after the
+          #     grab, with THIS sidecar suspended) — a positive signal the
+          #     3.1.x scan-never-fired regression may be fixed. The import then
+          #     failed on a match-score rejection (50.1% vs 80% threshold) on a
+          #     bad probe, NOT the scan regression, so 3.2.0's full import path
+          #     was never actually exercised.
+          # scan.py compensates for both halves of the original 3.1.x bug
+          # (DownloadedAlbumsScan auto-fire + stale 100%-imported queue-row
+          # drop). A valid retest needs a probe that both grabs AND matches
+          # >=80%; easiest caught opportunistically on the next Lidarr minor
+          # bump against a real completed import, not a manufactured probe.
           suspend: false
           schedule: "*/5 * * * *"
           concurrencyPolicy: Forbid
@@ -47,7 +58,7 @@ spec:
           app:
             image:
               repository: python
-              tag: 3.15-alpine@sha256:d44b1254cb92329418d164b22b20d86bbd3869d48e80e09e476531a409a728bb
+              tag: 3.15-alpine@sha256:20a82dbc2783112ddb91d1534603f802d222a3e63e593cd002eb2ac534e70211
 
             command:
               - python3

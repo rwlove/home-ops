@@ -34,3 +34,27 @@ spec:
   dependsOn:
     - name: longhorn
       namespace: longhorn-system
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/kustomization-kustomize-v1.json
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: &app longhorn-volumes
+  labels:
+    substitution.flux.home.arpa/enabled: "true"
+spec:
+  # Deliberately NO commonMetadata here. Unlike the longhorn / longhorn-jobs
+  # Kustomizations above, these Volume CRs ADOPT pre-existing, attached,
+  # data-bearing Longhorn volumes. commonMetadata would inject an
+  # app.kubernetes.io/name label that is not already on the live volumes,
+  # turning first reconcile into a metadata patch; omitting it keeps adoption
+  # inert (verified: server-side-apply dry-run of every volume is a spec+label
+  # no-op; Flux still adds its own two kustomize.toolkit.fluxcd.io/* tracking
+  # labels, which are metadata-only and do not disturb the volume).
+  targetNamespace: longhorn-system
+  path: ./kubernetes/apps/longhorn-system/longhorn/volumes
+  interval: 30m
+  timeout: 3m
+  dependsOn:
+    - name: longhorn
+      namespace: longhorn-system

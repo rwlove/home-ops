@@ -23,10 +23,11 @@ spec:
             fsGroupChangePolicy: OnRootMismatch
             supplementalGroupsPolicy: Strict
         cronjob:
-          # Ship SUSPENDED: manual-test first
-          # (kubectl -n media create job --from=cronjob/beets-misfile-audit \
-          #   beets-misfile-audit-test), verify logs, then flip suspend:false.
-          suspend: true
+          # Live: the weekly ward loop (detect -> hand to the rick agent ->
+          # MusicBrainz-resolve autonomously -> email the action summary).
+          # Manual run: kubectl -n media create job \
+          #   --from=cronjob/beets-misfile-audit beets-misfile-audit-test.
+          suspend: false
           schedule: "0 5 * * 1" # Monday 05:00
           timeZone: America/New_York
           concurrencyPolicy: Forbid
@@ -40,7 +41,7 @@ spec:
           app:
             image:
               repository: ghcr.io/linuxserver/beets
-              tag: 2.14.1@sha256:ae076820ec34ea5e9ec05a22931e98ab555e9c25e784c5fb001c84f411119c73
+              tag: 2.14.1@sha256:acef8a6ea96a0e2a391504aaae361f27fe77eac8e448cf14b675b3b64c50465a
             command:
               - /bin/bash
               - -c
@@ -48,8 +49,26 @@ spec:
                 export PATH="/lsiopy/bin:$PATH"
                 python3 /scripts/misfile-audit.py
             env:
+              # notify-mcp sender/theme for the findings digest email.
+              AGENT_NAME: rick
+              # Pass 2 (album-tag) scans everything by default (0) so the first
+              # runs clear the existing backlog; raise once backlog is clean to
+              # focus weekly runs on new imports.
+              ALBUM_LOOKBACK_DAYS: "0"
               LOOKBACK_DAYS: "8"
               MIN_SCORE: "0.90"
+              # Findings digest sink (used only when REMEDIATE is off). No artist
+              # names in env — identity is decided by the ward agent via
+              # MusicBrainz, not a hand-maintained alias list (artist names are
+              # restricted-tier, HOMELAB-SPEC L2 #10, and must not be committed).
+              NOTIFY_URL: http://notify-mcp.mcp-system.svc.cluster.local:8060/send
+              # Weekly loop: hand the candidate dirs to the rick ward agent, which
+              # MusicBrainz-resolves and fixes each autonomously (retag / relocate
+              # / leave) + rescans, then emails Rob the single action summary. Set
+              # false to go back to report-only (audit digest email + log, no
+              # remediation).
+              REMEDIATE: "true"
+              REMEDIATE_AGENT_URL: http://rick.ai.svc.cluster.local:8080/
             resources:
               requests:
                 cpu: 100m
@@ -91,4 +110,25 @@ spec:
             toPorts:
               - ports:
                   - port: "443"
+                    protocol: TCP
+          # notify-mcp (mcp-system) for the findings-digest email.
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: mcp-system
+                  app.kubernetes.io/name: notify-mcp
+            toPorts:
+              - ports:
+                  - port: "8060"
+                    protocol: TCP
+          # rick ward agent (ai ns) A2A endpoint — hand album-tag findings off for
+          # autonomous HIGH-confidence remediation (the weekly loop). The agent
+          # pods carry app.kubernetes.io/part-of: kagent. Ingress half is in
+          # ai/kagent/app/cnp-allow.yaml (kagent-agents-allow).
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: ai
+                  app.kubernetes.io/part-of: kagent
+            toPorts:
+              - ports:
+                  - port: "8080"
                     protocol: TCP

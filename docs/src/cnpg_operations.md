@@ -244,6 +244,21 @@ watching `cnpg_cluster_condition_last_transition_time{type=
 week + a day of grace, since every cluster is on a weekly cadence)
 — replicate that query if you're spot-checking staleness by hand.
 
+The **live** per-cluster backup-recency gauge for plugin-method
+clusters is the barman-cloud plugin's own metric,
+`barman_cloud_cloudnative_pg_io_last_available_backup_timestamp`
+(with `…_first_recoverability_point` and `…_last_failed_backup_timestamp`
+alongside it) — same `:9187` exporter and label set as the
+`cnpg_collector_*` family, so it joins 1:1 against them. Prefer it over
+`cnpg_collector_last_available_backup_timestamp` for any plugin cluster.
+The `BackupFailed` alert uses it to **debounce**: a recent failure is
+suppressed the moment a successful backup lands after it, so a one-off
+failure that a retry fixes minutes later no longer flaps for 24h. The
+rule keeps `cnpg_collector_last_available_backup_timestamp` as a
+secondary (in-core `barmanObjectStore`) fallback and is written with
+`unless` so a missing success signal fails open — a genuine failure is
+never muted.
+
 ### Spotting a stalled WAL archive
 
 An **idle** cluster with no writes will legitimately stop advancing
@@ -407,7 +422,11 @@ above.
   `Cluster` conditions instead.
 - `cnpg_collector_last_available_backup_timestamp` is stale/frozen on
   every cluster in this fleet (plugin-method backups aren't reflected)
-  — use the `LastBackupSucceeded` condition transition time.
+  — use the `LastBackupSucceeded` condition transition time for
+  staleness, or the plugin's live
+  `barman_cloud_cloudnative_pg_io_last_available_backup_timestamp` for
+  per-cluster backup recency. `BackupFailed` debounces against the
+  latter (a later success clears a recent failure).
 - WAL-archive staleness by clock time is a false signal on an idle
   database — watch the `.ready`-segment backlog count, not time-since-
   last-archive.

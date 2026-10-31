@@ -14,6 +14,22 @@ spec:
     # Strong tier (qwen3.6-35b-a3b on the Spark) — taste-profile synthesis and
     # relationship-graph reasoning; the 7B is unreliable for this.
     modelConfig: strong
+    # Compaction: runaway blast-radius guard. kagent replays the full, untrimmed
+    # history to the model every turn, so a stuck reasoning loop grows the prompt
+    # unbounded and can pressure the model gateway. tokenThreshold fires compaction
+    # ONLY above the normal heavy-run prompt size and below the strong model's
+    # 131072-token window — effectively no normal-case effect, bounds a runaway.
+    # compactionInterval is set high so tokenThreshold is the sole trigger; the
+    # summarizer runs on the local model. This bounds blast radius; it does NOT stop
+    # a loop — a hard iteration/turn cap is an upstream kagent ask the CRD lacks.
+    context:
+      compaction:
+        tokenThreshold: 120000
+        eventRetentionSize: 50
+        compactionInterval: 100000
+        overlapSize: 2
+        summarizer:
+          modelConfig: strong
     stream: true
     a2aConfig:
       skills:
@@ -47,11 +63,28 @@ spec:
         mcpServer:
           apiGroup: kagent.dev
           kind: RemoteMCPServer
-          # The media-stack acquisition MCP. Reads (root folders, quality
-          # profiles, library/missing state) are free; any acquisition is
-          # single-item, approval-gated by the prime directive — bind all tools,
-          # the gate is behavioral, not toolNames.
+          # The media-stack acquisition MCP. Scoped to the music tools only —
+          # this is the music operator, so the TV / movie / indexer / reference
+          # tools don't belong here (least privilege). Reads (root folders,
+          # quality/metadata profiles, library/missing state) are free; any
+          # acquisition is single-item, approval-gated by the prime directive.
+          # Scoping by name also collapses an upstream duplicate-tool
+          # registration in this MCP (its generic config-tool helper and its
+          # music block both declare get_root_folders + get_quality_profiles),
+          # which the tool aggregator would otherwise reject at agent init.
           name: arr-mcp
+          toolNames:
+            - lidarr_search
+            - lidarr_get_artists
+            - lidarr_get_albums
+            - lidarr_add_artist
+            - lidarr_get_root_folders
+            - lidarr_get_quality_profiles
+            - lidarr_get_metadata_profiles
+            - lidarr_search_album
+            - lidarr_search_missing
+            - lidarr_get_queue
+            - lidarr_get_tags
       - type: McpServer
         mcpServer:
           apiGroup: kagent.dev
@@ -73,6 +106,25 @@ spec:
           name: notify-mcp
           toolNames:
             - notify_rob
+      - type: McpServer
+        mcpServer:
+          apiGroup: kagent.dev
+          kind: RemoteMCPServer
+          # The library-remediation path (media/rick-library-mcp). Rick is the
+          # WARD of the library. evaluate decides identity by MusicBrainz id and
+          # recommends an action; apply (retag) and relocate (move) are the writes
+          # — both backup-first + ledgered + reversible, never a delete. The ward
+          # directive in the systemMessage makes resolution AUTONOMOUS (no human
+          # gate); the writes are safe because every change is reversible.
+          name: rick-library-mcp
+          toolNames:
+            - evaluate
+            - propose
+            - apply
+            - relocate
+            - revert
+            - history
+            - rescan
     systemMessage: |
       # Rick — music recommendation operator (in-cluster tier)
 
@@ -85,8 +137,8 @@ spec:
       Read the signal via rick-gonic-mcp: most_played_albums is the PRIMARY
       signal (Robert replays what he likes and rarely stars), recently_played_
       albums is recency, get_starred is the sparse high-precision bonus,
-      get_album / get_song give per-track play counts, search dedupes a
-      candidate against the library. The signal spans TWO accounts — both
+      get_album / get_song give per-track play counts, search_library
+      dedupes a candidate against the library. The signal spans TWO accounts — both
       Robert's — so default account="both" and union; absence of a star is NOT
       a negative. The reader is read-only; there is no path to write it.
 
@@ -111,6 +163,39 @@ spec:
       metadata profiles first — don't invent them. A relayed approval from the
       invoking session counts as Robert's own; what the gate forbids is
       unattended / self-authorized acquisition (no human approved *this* item).
+
+      ## Ward of the library — resolve autonomously, reversibly, never a delete
+      You are the ward of the music library: keep it correctly organized with NO
+      human in the loop. A misfile is content under the wrong artist — a corrupt
+      album-artist TEXT tag (the player groups by that text), or whole content
+      sitting in the wrong artist's folder. For every album you are given, call
+      `evaluate` first — it decides identity by MusicBrainz id (authoritative) and
+      returns an ACTION. Then carry out that action AUTONOMOUSLY:
+      - **retag** → call `apply` (sets album_artist to the folder name): the content
+        is the folder artist, only the label was wrong.
+      - **relocate** → call `relocate` (moves the album to the correct artist's
+        folder + fixes tags): the content is a different artist. Pass the target
+        `evaluate` recommends.
+      - **leave** → do nothing (same artist under another name, or already correct).
+      - **skip** → no audio.
+      Trust `evaluate`'s action — it is MusicBrainz-authoritative and deliberately
+      conservative (it only moves on a reliable id and leaves what it cannot
+      resolve), so do not second-guess it or substitute PROPOSE. This is the whole
+      job: resolve everything, no proposals, no waiting.
+      - **No human gate.** Never ask for approval or confirmation. `apply` and
+        `relocate` run on `evaluate`'s HIGH action with no `confirmed` flag. Only
+        pass `confirmed=true` if THIS invocation carried an explicit, item-specific
+        human instruction to force a particular change; otherwise never.
+      - **Reversibility is the safety net, not a human.** Every `apply`/`relocate`
+        backs up first and returns a change_id; `revert` undoes it (restores tags,
+        or moves the album back). If a change looks wrong afterwards, `revert` it.
+        There is NO delete tool — if a fix needs more than a retag or a move, leave
+        it and note it; never improvise a destructive workaround.
+      - **One album per call.** After making your changes, call `rescan` once so the
+        player updates. Persist a note to memory, and **email Rob a summary of what
+        you DID** — each album retagged (its new album_artist), each relocated (to
+        where), and anything left and why. Report accurately: a change you made is
+        NEVER a "no-op".
 
       ## Never block on human input (you run unattended)
       You are invoked over A2A and on schedules with NO human in the loop.

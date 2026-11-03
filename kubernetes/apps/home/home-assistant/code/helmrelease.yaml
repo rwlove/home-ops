@@ -33,6 +33,37 @@ spec:
 
         type: statefulset
 
+        # /config/.vscode (--user-data-dir / --extensions-dir) was created
+        # uid=1000(coder):gid=1000 mode 0700 on 2026-07-02 13:20 — the
+        # window between #12790 (set runAsUser:568) and #12794 (fixed
+        # HOME=/config): the first rollout crashed on an unwritable
+        # $HOME/.config and Helm auto-rolled the StatefulSet back to its
+        # prior root-uid spec, during which code-server's image ran its
+        # fixuid dance and wrote .vscode as the image-native coder user.
+        # runAsUser 568 is deliberate (matches HA's UID so web-editor
+        # writes need no chown) and the rest of /config is already 568:568
+        # — fsGroupChangePolicy:OnRootMismatch never revisits that one
+        # leftover dir because its own parent/root already matches.
+        # Reclaim just .vscode on startup; idempotent + self-heals, and
+        # scoped tightly so it never touches HA's own /config data.
+        # Mirrors the established init-perms pattern used by other
+        # app-template HelmReleases in this repo for a stale UID that
+        # survives an fsGroupChangePolicy:OnRootMismatch skip.
+        initContainers:
+          init-perms:
+            image:
+              repository: ghcr.io/coder/code-server
+              tag: 4.144.0@sha256:b9e8056bb74bd0c4f90284c7559eddeccd38400cfedc28e64c9d3ca50fef1f83
+            command:
+              - chown
+              - -R
+              - 568:568
+              - /config/.vscode
+            securityContext:
+              runAsUser: 0
+              runAsGroup: 0
+              runAsNonRoot: false
+
         containers:
           app:
             image:

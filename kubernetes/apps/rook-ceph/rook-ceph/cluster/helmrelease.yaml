@@ -149,14 +149,35 @@ spec:
           limits:
             memory: 1Gi
           requests:
+            # EXCLUDED from the fleet-wide memory-request right-size sweep —
+            # Guaranteed QoS (req == limit) kept on purpose. This is a single
+            # shared value applied to all 3 mons (k/l/m); any trim has to be
+            # safe for the hottest one, and mon-m runs materially hotter than
+            # mon-k/mon-l (14d raw peak 724.2Mi vs 497.6Mi/561.6Mi; live VPA
+            # upperBound 855.6Mi vs 581.3Mi/621.8Mi — 83.6% of this 1024Mi
+            # request already). Mon has no recycle safety valve like mgr, and
+            # losing 2-of-3 mons loses write quorum for the whole cluster — the
+            # highest-consequence failure mode in this sweep. Left unchanged;
+            # see the PR description for the full durability read.
             cpu: 50m
             memory: 1Gi
         osd:
           limits:
             memory: 4Gi
           requests:
+            # Conservative trim only — single shared value applied to all 8
+            # OSDs, so it has to be safe for the hottest one (osd-2: 14d raw
+            # peak 3061.0Mi, live VPA upperBound 3624.4Mi — the other 7 OSDs
+            # range 2465.8-2701.1Mi raw / up to 3266.9Mi upperBound). 3968Mi
+            # keeps 344Mi (~9.5%) over osd-2's VPA upperBound and 907Mi (~30%)
+            # over its observed peak. Deliberately NOT trimmed further: OSD
+            # memory climbs during backfill/recovery (exactly the scenario a
+            # worker loss triggers, which is this sweep's own motivation), and
+            # the last 14d may not include a real rebalance event. See the PR
+            # description — "no change" is the safer alternative if Rob/the
+            # guardian review would rather not spend any of osd-2's margin.
             cpu: 100m
-            memory: 4Gi
+            memory: 3968Mi
 
       # Rotate CephX daemon keys (mon/mgr/osd/mds, RGW, and Rook's admin key)
       # from legacy AES to the aes256k cipher — the fix for CVE-2025-30156. This
@@ -264,8 +285,17 @@ spec:
               limits:
                 memory: 2Gi
               requests:
+                # Request trimmed — this is a single shared value applied to
+                # both mds-a/mds-b (one filesystem spec, activeStandby pair),
+                # so sized for the hotter of the two. Live VPA upperBound:
+                # 131.5Mi (mds-b) / 113.9Mi (mds-a); 14d raw peak: 112.3Mi
+                # (mds-b) / 87.5Mi (mds-a). 192Mi keeps ~46% headroom over the
+                # worst upperBound. Low risk: mds-a/b are an active/standby
+                # pair with graceful Ceph-native failover, no quorum concept,
+                # and the limit above (2Gi, sized for mds_cache_memory_limit)
+                # is untouched.
                 cpu: 1000m
-                memory: 256Mi
+                memory: 192Mi
 
         storageClass:
           allowVolumeExpansion: true

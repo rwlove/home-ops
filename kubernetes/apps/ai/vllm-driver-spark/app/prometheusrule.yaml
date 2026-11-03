@@ -105,10 +105,26 @@ spec:
         # (wedge probe green) while --tool-call-parser leaks tool calls into
         # plain text — which silently breaks Hermes' agentic execution loop.
         # The vllm-driver-spark-toolcall Probe (30-min cadence) POSTs a
-        # tools request and asserts a "tool_calls" field. for:31m spans just
-        # over one probe interval, so it needs two consecutive misses to fire
-        # (no flap on a single slow/transient scrape). Warning: this degrades
-        # tool-calling, not chat, and outages are covered by the alerts above.
+        # tools request and asserts a "tool_calls" field.
+        #
+        # Was `probe_success{...} == 0` with `for: 31m` (intent: two
+        # consecutive misses, no flap on one transient scrape). That's
+        # structurally unable to fire: Prometheus's default
+        # --query.lookback-delta is 5m, far under this probe's 30m interval,
+        # so probe_success only exists in instant-query results for ~5 of
+        # every 30 minutes. The `for:` pending timer resets the instant the
+        # series goes stale — it can never accumulate 31 continuous minutes,
+        # so a real, persistent regression would silently never page.
+        # Confirmed live 2026-11-03: alert state stayed "inactive" with zero
+        # ALERTS history over 15d despite the probe running the whole time.
+        #
+        # Fix: avg_over_time([65m]) reads samples directly from storage
+        # (unaffected by instant-query staleness) and guarantees >=2 samples
+        # at the 30m cadence — preserving the original "two consecutive
+        # misses" intent via the window instead of via `for:`. for:1m is
+        # just rule-eval debounce, not the mechanism anymore. Warning: this
+        # degrades tool-calling, not chat, and outages are covered by the
+        # alerts above.
         - alert: SparkVllmDriverToolCallBroken
           annotations:
             summary: vllm-driver-spark tool-call parser regression (Hermes execution loop degraded)
@@ -123,7 +139,7 @@ spec:
               --tool-call-parser / --reasoning-parser / --enable-auto-tool-choice
               args, and confirm with a live tools request against :8000.
           expr: |-
-            probe_success{instance=~"https?://vllm-driver-spark.*/v1/chat/completions",job=~"probe/observability/vllm-driver-spark-toolcall"} == 0
-          for: 31m
+            avg_over_time(probe_success{instance=~"https?://vllm-driver-spark.*/v1/chat/completions",job=~"probe/observability/vllm-driver-spark-toolcall"}[65m]) == 0
+          for: 1m
           labels:
             severity: warning

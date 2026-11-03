@@ -16,11 +16,11 @@ _Production-grade Kubernetes for a household._
 
 <br/>
 
-![apps](https://img.shields.io/badge/apps-204-blue?style=for-the-badge)
-![helmreleases](https://img.shields.io/badge/HelmReleases-210-326CE5?style=for-the-badge&logo=helm&logoColor=white)
+![apps](https://img.shields.io/badge/apps-203-blue?style=for-the-badge)
+![helmreleases](https://img.shields.io/badge/HelmReleases-209-326CE5?style=for-the-badge&logo=helm&logoColor=white)
 ![nodes](https://img.shields.io/badge/k8s_nodes-11-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white)
 ![cnpg](https://img.shields.io/badge/Postgres_clusters-26-336791?style=for-the-badge&logo=postgresql&logoColor=white)
-![secrets](https://img.shields.io/badge/secrets-56-0572EC?style=for-the-badge&logo=1password&logoColor=white)
+![secrets](https://img.shields.io/badge/secrets-55-0572EC?style=for-the-badge&logo=1password&logoColor=white)
 ![age](https://img.shields.io/badge/cluster_age-5%2B_years-success?style=for-the-badge)
 
 </div>
@@ -274,7 +274,7 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 </details>
 
 <details>
-<summary>🔌 <b>MCP Servers</b> — 21 Model Context Protocol servers behind an Authelia-gated gateway</summary>
+<summary>🔌 <b>MCP Servers</b> — 20 Model Context Protocol servers behind an Authelia-gated gateway</summary>
 
 | Server | Exposes |
 |--------|---------|
@@ -297,7 +297,6 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 | **cilium-mcp** | Read-only Cilium / Hubble introspection (kubectl-mcp-style, Cilium-scoped) |
 | **windmill-mcp** | Aggregated Windmill workspace tools (script run, flow trigger) |
 | **ghidra-mcp** | Headless Ghidra + GhidraMCP 2.0 reverse-engineering tools |
-| **pump-mcp** | Read-only PUMP weight view — _gated bring-up (suspended; SSE-upstream probe)_ |
 
 </details>
 

@@ -84,6 +84,55 @@ patches:
               limits:
                 cpu: "2"
                 memory: 2Gi
+  # Per-agent limit bumps (OOM-exposed, 2026-11-03): ml-operator, network-operator,
+  # and storage-operator sustain genuine memory growth under the Python ADK runtime
+  # that the fleet-wide 2Gi limit above doesn't cover for these three specifically.
+  # Root cause is NOT runaway recurrence (the 10-29 46h-loop incident this fleet
+  # patch was built for) -- it's a CPython heap ratchet: these agents' tool calls
+  # return large broad-cluster-read payloads (kubectl/Omada/Ceph listings spanning
+  # many resources), and CPython's allocator doesn't release that heap back to the
+  # OS between invocations, so peak RSS ratchets upward over the agent's uptime.
+  # Observed in-cluster: ml-operator 7 OOM restarts, network-operator 3, and
+  # storage-operator (proactive catch, same ~2.14Gi peak signature, 0 restarts yet
+  # but trending the same way) -- all peaking ~2.0-2.14Gi against the 2Gi ceiling.
+  # 3Gi gives ~50% headroom over the observed peak. Limits only -- requests stay at
+  # the fleet-default 768Mi; idle baseline for these three (280-500Mi) doesn't
+  # justify a request bump, and request only affects scheduling, not the OOM
+  # trigger. Counterpart to the request-trim sweep below: this is the fleet
+  # right-sizing UP for a genuine under-provisioning, not VPA-target trimming.
+  - patch: |-
+      apiVersion: kagent.dev/v1alpha2
+      kind: Agent
+      metadata:
+        name: ml-operator
+      spec:
+        declarative:
+          deployment:
+            resources:
+              limits:
+                memory: 3Gi
+  - patch: |-
+      apiVersion: kagent.dev/v1alpha2
+      kind: Agent
+      metadata:
+        name: network-operator
+      spec:
+        declarative:
+          deployment:
+            resources:
+              limits:
+                memory: 3Gi
+  - patch: |-
+      apiVersion: kagent.dev/v1alpha2
+      kind: Agent
+      metadata:
+        name: storage-operator
+      spec:
+        declarative:
+          deployment:
+            resources:
+              limits:
+                memory: 3Gi
   # Per-agent request trims (PR-sweep, fleet right-size): 14d Prometheus peak
   # was well under the shared 768Mi fleet-default request for these 10
   # agents. Limit stays 2Gi (fleet default, unchanged) — only the scheduler

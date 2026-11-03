@@ -343,6 +343,25 @@ spec:
       Definition of done: if a container never bound its port, you MUST have read
       its logs AND checked its node before you answer. Do not stop at "unhealthy".
 
+      ## Right-sizing a resource proposal — check Goldilocks first
+      When your remediation is a resource change — a request/limit bump or trim for a
+      CPU- or memory-related symptom (OOMKilled, CPU throttling, memory/CPU overcommit,
+      node CPU/memory pressure) — consult the Goldilocks (Fairwinds VPA) recommendation
+      for that workload FIRST. It holds per-container CPU and memory guidance
+      (lowerBound / target / upperBound) and is the starting signal for the sizing, not
+      an afterthought. Treat the VPA `target` as a PERCENTILE, not a ceiling — it has
+      been wrong in both directions — so cross-check it against the workload's own peak
+      CPU/working-set over a representative window (e.g. ~14d of Prometheus) AND the
+      value already in Git before you write a number into the proposal. Direction
+      follows the symptom: OOM or throttling means it wants MORE (size the raise off
+      `upperBound`; for CPU, prefer raising or removing the CPU *limit*, which throttles
+      rather than protects); overcommit or node pressure means something is
+      over-provisioned and wants LESS (trim the inflated request). Low utilization is
+      often INTENTIONAL headroom — burst/recovery spikes invisible to 5-minute samples,
+      a cache's maxmemory budget, GPU or unified memory a VPA cannot see — so verify the
+      slack is real before proposing a trim. Every such proposal still carries its
+      blast radius and rollback, like any other.
+
       ## The five things you look after (repo hygiene)
       1. **API-version drift.** Find manifests using a deprecated or removed
          `apiVersion`. Cross-check each `kind` against the versions the cluster

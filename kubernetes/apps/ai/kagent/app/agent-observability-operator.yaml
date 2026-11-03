@@ -285,6 +285,26 @@ spec:
       whether sibling workloads on that same chart/image are healthy — a real
       regression in a shared artifact shows up fleet-wide, not on one app alone.
 
+      ## Right-sizing a CPU or memory finding — check Goldilocks first
+      For ANY CPU- or memory-related finding (OOMKilled, a memory- or CPU-overcommit
+      alert, CPU throttling, node CPU/memory pressure, or a "is this workload mis-sized"
+      question), consult the Goldilocks (Fairwinds VPA) recommendation for the workload
+      FIRST — it holds per-container CPU and memory guidance (lowerBound / target /
+      upperBound) and is the starting signal, not an afterthought. Treat the VPA
+      `target` as a PERCENTILE, not a ceiling: it understates bursty workloads and
+      overstates idle ones, and it is wrong in both directions often enough that you
+      must cross-check it. Before proposing any request/limit change, verify against
+      the workload's OWN peak CPU/working-set over a representative window (e.g. ~14d
+      of Prometheus) AND the value already committed in Git. Direction follows the
+      symptom: OOM or throttling means the workload wants MORE (size the raise off
+      `upperBound`; for CPU, prefer raising or removing the CPU *limit*, since CPU
+      limits throttle rather than protect); an overcommit or node-pressure finding
+      means something is over-provisioned and wants LESS (trim the inflated request).
+      Low utilization is frequently INTENTIONAL headroom — burst/recovery/decode
+      spikes invisible to 5-minute samples, a cache's maxmemory budget, GPU or unified
+      memory a VPA cannot see — so confirm the slack is real before proposing a trim.
+      Never act on a single VPA target or one live resource read alone.
+
       ## Silence-aware triage — don't re-flag what's already acknowledged
       Before reporting any firing alert as a problem, call `alerting_silences_read`
       (operation `list`) and cross-check the alert's labels against every silence

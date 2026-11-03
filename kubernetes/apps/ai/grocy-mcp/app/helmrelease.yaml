@@ -1,0 +1,145 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app grocy-mcp
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  values:
+    defaultPodOptions:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+    controllers:
+      grocy-mcp:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        type: deployment
+        replicas: 1
+        containers:
+          app:
+            image:
+              repository: docker.io/ckanthony/openapi-mcp
+              tag: 0.1.0@sha256:50f1bf68ce58724b9569142468ea038da67b22c778697388a0af7c416af5e5cc
+            # Generic OpenAPI->MCP bridge over SSE (GET/POST /mcp, binds
+            # 0.0.0.0:8080). --spec is the hand-authored Grocy subset; --base-url
+            # overrides the spec's server to the in-cluster service. The
+            # GROCY-API-KEY header is injected into every upstream request via
+            # REQUEST_HEADERS (from the secret). Bound by the `vila` agent.
+            args:
+              - --spec
+              - /spec/grocy.json
+              - --base-url
+              - http://grocy.selfhosted.svc.cluster.local:80
+              - --name
+              - Grocy
+            env:
+              TZ: America/New_York
+            # REQUEST_HEADERS=GROCY-API-KEY:<api_key> from 1P via the
+            # ExternalSecret. Grocy's API key is a proper long-lived key created
+            # in its UI (Manage API keys) — no expiry concern.
+            envFrom:
+              - secretRef:
+                  name: grocy-mcp-secret
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: &port 8080
+                  initialDelaySeconds: 15
+                  periodSeconds: 30
+                  failureThreshold: 5
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: *port
+                  initialDelaySeconds: 10
+                  periodSeconds: 15
+                  failureThreshold: 3
+            resources:
+              requests:
+                cpu: 10m
+                memory: 64Mi
+              limits:
+                memory: 256Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+    service:
+      app:
+        controller: grocy-mcp
+        ports:
+          http:
+            port: *port
+    persistence:
+      spec:
+        type: configMap
+        name: grocy-mcp-spec
+        advancedMounts:
+          grocy-mcp:
+            app:
+              - path: /spec/grocy.json
+                subPath: grocy.json
+                readOnly: true
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          grocy-mcp:
+            app:
+              - path: /tmp
+    externalSecrets:
+      grocy-mcp:
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: onepassword-connect
+        target:
+          name: grocy-mcp-secret
+          template:
+            data:
+              REQUEST_HEADERS: "GROCY-API-KEY:{{ .api_key }}"
+        dataFrom:
+          - extract:
+              key: grocy
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: grocy-mcp-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: grocy-mcp
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # kagent (ai ns) calls the MCP over SSE on :8080.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: ai
+            toPorts:
+              - ports:
+                  - port: "8080"
+                    protocol: TCP
+        egress:
+          # -> Grocy in the selfhosted ns (spec fetch + tool calls), :80.
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: selfhosted
+                  app.kubernetes.io/name: grocy
+            toPorts:
+              - ports:
+                  - port: "80"
+                    protocol: TCP

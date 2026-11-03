@@ -10,15 +10,15 @@ spec:
   # vila (property/utilities steward) — weekly warranty-expiry + maintenance-due
   # watch. Reads HomeBox entities (warrantyExpires) and Grocy chores/batteries
   # (next-estimated) AT RUNTIME (so no private property facts live in this PUBLIC
-  # repo) and emails Rob ONE message PER concern via notify-mcp /send (agent=vila).
-  # Silent when nothing is due/expiring. Deterministic: no LLM, no k8s API.
+  # repo) and emails Rob ONE ACTIONABLE message PER concern via notify-mcp /send
+  # (agent=vila): what to do, the step-by-step PROCEDURE (pulled from the Grocy
+  # chore's own description), and how to clear it, with deep links. Silent when
+  # nothing is due. Deterministic: no LLM, no k8s API.
   #
-  # HomeBox here is the sysadminsmedia fork (v0.26): the API is /api/v1/entities
+  # HomeBox here is the sysadminsmedia fork (v0.26): API is /api/v1/entities
   # (+ per-entity detail for warrantyExpires), NOT the classic /api/v1/items.
   #
-  # SHIPPED SUSPENDED. Test manually before unsuspending:
-  #   kubectl -n ai create job --from=cronjob/local-cron-vila-warranty-digest vila-digest-test
-  # Tested 2026-11-03 (7 concerns correctly flagged, 7 emails sent, 0 failed) -> unsuspended.
+  # Tested 2026-11-03 → unsuspended.
   suspend: false
   schedule: "0 8 * * 1"
   timeZone: America/New_York
@@ -49,12 +49,10 @@ spec:
               command:
                 - /bin/sh
                 - -ceu
-                # Flux postBuild envsubst runs STRICT over this manifest: EVERY
-                # shell `$` is doubled (`$$`) so the rendered manifest carries a
-                # literal `$` for /bin/sh and jq. Do NOT use positional params
-                # (`$1`,`${2}`) in-script — strict envsubst reads `${2}` as an
-                # unset variable and fails the whole kustomization. Same
-                # convention as the cooter reminder digest.
+                # Flux postBuild envsubst runs STRICT: EVERY shell `$` is doubled
+                # (`$$`) so the rendered manifest carries a literal `$`. Only the
+                # ${SECRET_DOMAIN} in the env block below is a REAL Flux var (single
+                # `$`). Do NOT use positional params (`$1`,`${2}`) in-script.
                 - |
                   HB="http://homebox.selfhosted:7745"
                   GR="http://grocy.selfhosted:80"
@@ -62,11 +60,9 @@ spec:
                   MAX=15              # hard cap on emails per run
                   NOW="$$(date +%s)"
                   TAB="$$(printf '\t')"
-                  : > /tmp/due.tsv
+                  : > /tmp/due.tsv     # rows: KIND<TAB>NAME<TAB>DETAIL<TAB>ID
 
                   # ---- HomeBox: entities whose warranty expires within WINDOW --
-                  # List entities (summary), then read warranty off each entity's
-                  # DETAIL (the list payload omits warranty). type<TAB>name<TAB>when.
                   ENTS="$$(curl -sS --max-time 30 \
                             -H "Authorization: Bearer $${HOMEBOX_TOKEN}" \
                             "$$HB/api/v1/entities?pageSize=500")" || {
@@ -88,17 +84,17 @@ spec:
                         DAYS="$$(( (EPOCH - NOW) / 86400 ))"
                         if [ "$$DAYS" -le "$$WINDOW" ]; then
                           if [ "$$DAYS" -lt 0 ]; then STATE="EXPIRED"; else STATE="expiring"; fi
-                          printf 'warranty\t%s\t%s (%s, %s days)\n' \
-                            "$$NAME" "$$STATE" "$$WEXP" "$$DAYS" >> /tmp/due.tsv
+                          printf 'warranty\t%s\t%s (%s, %s days)\t%s\n' \
+                            "$$NAME" "$$STATE" "$$WEXP" "$$DAYS" "$$ID" >> /tmp/due.tsv
                         fi
                       done
                   done
 
-                  # ---- Grocy chores due within WINDOW -------------------------
+                  # ---- Grocy chores due within WINDOW (keep chore_id) ---------
                   CH="$$(curl -sS --max-time 30 -H "GROCY-API-KEY: $${GROCY_API_KEY}" \
                           "$$GR/api/chores")" || CH='[]'
-                  printf '%s' "$$CH" | jq -r '.[]? | [ (.next_estimated_execution_time // ""), (.chore_name // "") ] | @tsv' 2>/dev/null > /tmp/gr.tsv || : > /tmp/gr.tsv
-                  while IFS="$$TAB" read -r WHEN NAME; do
+                  printf '%s' "$$CH" | jq -r '.[]? | [ (.next_estimated_execution_time // ""), (.chore_name // ""), ((.chore_id|tostring) // "") ] | @tsv' 2>/dev/null > /tmp/gr.tsv || : > /tmp/gr.tsv
+                  while IFS="$$TAB" read -r WHEN NAME CID; do
                     [ -z "$$WHEN" ] && continue
                     WD="$${WHEN%% *}"
                     EPOCH="$$(date -d "$$WD" +%s 2>/dev/null || echo '')"
@@ -106,15 +102,15 @@ spec:
                     DAYS="$$(( (EPOCH - NOW) / 86400 ))"
                     if [ "$$DAYS" -le "$$WINDOW" ]; then
                       if [ "$$DAYS" -lt 0 ]; then STATE="OVERDUE"; else STATE="due"; fi
-                      printf 'chore\t%s\t%s (%s, %s days)\n' "$$NAME" "$$STATE" "$$WD" "$$DAYS" >> /tmp/due.tsv
+                      printf 'chore\t%s\t%s (%s, %s days)\t%s\n' "$$NAME" "$$STATE" "$$WD" "$$DAYS" "$$CID" >> /tmp/due.tsv
                     fi
                   done < /tmp/gr.tsv
 
                   # ---- Grocy batteries due for charge within WINDOW ----------
                   BA="$$(curl -sS --max-time 30 -H "GROCY-API-KEY: $${GROCY_API_KEY}" \
                           "$$GR/api/batteries")" || BA='[]'
-                  printf '%s' "$$BA" | jq -r '.[]? | [ (.next_estimated_charge_time // ""), ((.battery.name) // (.battery_id|tostring) // "battery") ] | @tsv' 2>/dev/null > /tmp/ba.tsv || : > /tmp/ba.tsv
-                  while IFS="$$TAB" read -r WHEN NAME; do
+                  printf '%s' "$$BA" | jq -r '.[]? | [ (.next_estimated_charge_time // ""), ((.battery.name) // (.battery_id|tostring) // "battery"), ((.battery_id|tostring) // "") ] | @tsv' 2>/dev/null > /tmp/ba.tsv || : > /tmp/ba.tsv
+                  while IFS="$$TAB" read -r WHEN NAME BID; do
                     [ -z "$$WHEN" ] && continue
                     WD="$${WHEN%% *}"
                     EPOCH="$$(date -d "$$WD" +%s 2>/dev/null || echo '')"
@@ -122,11 +118,11 @@ spec:
                     DAYS="$$(( (EPOCH - NOW) / 86400 ))"
                     if [ "$$DAYS" -le "$$WINDOW" ]; then
                       if [ "$$DAYS" -lt 0 ]; then STATE="OVERDUE"; else STATE="due"; fi
-                      printf 'battery\t%s\t%s (%s, %s days)\n' "$$NAME" "$$STATE" "$$WD" "$$DAYS" >> /tmp/due.tsv
+                      printf 'battery\t%s\t%s (%s, %s days)\t%s\n' "$$NAME" "$$STATE" "$$WD" "$$DAYS" "$$BID" >> /tmp/due.tsv
                     fi
                   done < /tmp/ba.tsv
 
-                  # ---- emit one email per concern (silent when none) ---------
+                  # ---- emit one ACTIONABLE email per concern -----------------
                   DUE="$$(awk 'NF{n++} END{print n+0}' /tmp/due.tsv 2>/dev/null)"
                   [ -n "$$DUE" ] || DUE=0
                   echo "----- vila warranty/maintenance watch ($$DUE concern(s)) -----"
@@ -139,17 +135,45 @@ spec:
                   fi
 
                   SENT=0; FAILED=0
-                  while IFS="$$TAB" read -r KIND NAME DETAIL; do
+                  while IFS="$$TAB" read -r KIND NAME DETAIL ID; do
                     [ -z "$$NAME" ] && continue
+                    printf 'DUE  %-10s | %-30s | %s\n' "$$KIND" "$$NAME" "$$DETAIL"
                     case "$$KIND" in
-                      warranty) SUBJECT="Vila: $$NAME — warranty $$DETAIL";;
-                      chore)    SUBJECT="Vila: $$NAME — maintenance $$DETAIL";;
-                      battery)  SUBJECT="Vila: battery $$NAME — $$DETAIL";;
-                      *)        SUBJECT="Vila: $$NAME — $$DETAIL";;
+                      chore)
+                        SUBJECT="Vila: $$NAME — $$DETAIL"
+                        # Procedure comes from the chore's own Grocy description
+                        # (Vila maintains it there — the single source of truth).
+                        PROC=""
+                        if [ -n "$$ID" ]; then
+                          PROC="$$(curl -sS --max-time 15 -H "GROCY-API-KEY: $${GROCY_API_KEY}" \
+                                    "$$GR/api/objects/chores/$$ID" 2>/dev/null | jq -r '.description // ""' 2>/dev/null)"
+                        fi
+                        [ -z "$$PROC" ] && PROC="_(No procedure recorded yet — ask Vila to add one to this chore in Grocy.)_"
+                        BODY="$$(printf '**Do now:** %s  (%s)\n\n**Procedure:**\n%s\n\n**When done — clear it:** open Grocy -> Chores overview, find "%s", and click *Track execution of now* (this resets the next-due date).\n[Grocy chores](%s/choresoverview)' \
+                          "$$NAME" "$$DETAIL" "$$PROC" "$$NAME" "$$GR_PUB")"
+                        ;;
+                      warranty)
+                        SUBJECT="Vila: $$NAME — warranty $$DETAIL"
+                        case "$$DETAIL" in
+                          EXPIRED*)
+                            BODY="$$(printf '**Heads-up:** the warranty on **%s** has %s.\n\n**What to do:** this item is now out of warranty — if it fails, plan for repair/replacement (no manufacturer coverage to fall back on). If you believe a longer term should apply, find the warranty certificate and update the record so this clears.\n\n**Record:** [HomeBox](%s) -> open the "%s" asset and set the real warranty date, or mark lifetime/replaced.' \
+                              "$$NAME" "$$DETAIL" "$$HB_PUB" "$$NAME")" ;;
+                          *)
+                            BODY="$$(printf '**Act soon:** the warranty on **%s** is %s.\n\n**What to do:** if this item has any fault, schedule warranty service BEFORE it lapses; note any renewal/extension options. Then update the record.\n\n**Record:** [HomeBox](%s) -> the "%s" asset.' \
+                              "$$NAME" "$$DETAIL" "$$HB_PUB" "$$NAME")" ;;
+                        esac
+                        ;;
+                      battery)
+                        SUBJECT="Vila: battery $$NAME — $$DETAIL"
+                        BODY="$$(printf '**Do now:** replace / charge the battery for **%s**  (%s).\n\n**When done — clear it:** open Grocy -> Batteries overview, find "%s", and *Track charge cycle*.\n[Grocy batteries](%s/batteriesoverview)' \
+                          "$$NAME" "$$DETAIL" "$$NAME" "$$GR_PUB")"
+                        ;;
+                      *)
+                        SUBJECT="Vila: $$NAME — $$DETAIL"
+                        BODY="$$(printf '**Item:** %s\n**Concern:** %s' "$$NAME" "$$DETAIL")"
+                        ;;
                     esac
-                    printf 'DUE  %-10s | %-28s | %s\n' "$$KIND" "$$NAME" "$$DETAIL"
-                    BODY="$$(printf '**Item:** %s\n**Concern:** %s %s\n\n_Source of truth: HomeBox (warranties/maintenance) / Grocy (chores). Log the service or renew the warranty there to clear this._' \
-                      "$$NAME" "$$KIND" "$$DETAIL")"
+
                     REQ="$$(jq -n --arg s "$$SUBJECT" --arg b "$$BODY" --arg a "vila" \
                               '{subject:$$s, body:$$b, agent:$$a}')"
                     HTTP="$$(curl -sS --max-time 30 -o /tmp/send.out -w '%{http_code}' \
@@ -167,6 +191,13 @@ spec:
                   value: /tmp
                 - name: TZ
                   value: America/New_York
+                # Public URLs for the email deep links. ${SECRET_DOMAIN} is a REAL
+                # Flux postBuild var (single $) — the public repo only shows the
+                # placeholder, never the actual domain.
+                - name: HB_PUB
+                  value: "https://homebox.${SECRET_DOMAIN}"
+                - name: GR_PUB
+                  value: "https://grocy.${SECRET_DOMAIN}"
               envFrom:
                 - secretRef:
                     name: vila-digest-secret

@@ -1,0 +1,132 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app homebox
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 30m
+  values:
+    controllers:
+      homebox:
+        pod:
+          securityContext:
+            # HomeBox is a Go binary writing its SQLite DB + uploaded
+            # attachments (receipts, warranty PDFs, nameplate photos) under
+            # /data. Run non-root (1000); fsGroup 1000 makes the Longhorn
+            # volume group-writable so the non-root process can create the DB
+            # and attachment tree. (A `-rootless` image variant also exists
+            # upstream; revisit if the default image fights the non-root UID.)
+            fsGroup: 1000
+            fsGroupChangePolicy: OnRootMismatch
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+        annotations:
+          reloader.stakater.com/auto: "true"
+        # Single replica over an RWO Longhorn volume — statefulset serializes
+        # pod replacement so the new pod never races the old one for the
+        # volume attachment during a rollout.
+        type: statefulset
+        containers:
+          app:
+            image:
+              # Renovate pins the sha256 digest on its first pass over this app.
+              repository: ghcr.io/sysadminsmedia/homebox
+              tag: v0.26.2
+            env:
+              TZ: America/New_York
+              # First-boot: registration enabled so Robert can create the
+              # initial user. Flip to "false" once that user exists (PR B or a
+              # one-line follow-up) so the instance is not open on the LAN.
+              HBOX_OPTIONS_ALLOW_REGISTRATION: "true"
+              # SQLite + storage default to /data; mounted below. No external DB.
+            resources:
+              requests:
+                cpu: 10m
+                memory: 64Mi
+              limits:
+                memory: 256Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              # Left OFF for initial bring-up: HomeBox's full set of runtime
+              # write paths (beyond /data) is unverified. Tighten to `true`
+              # (with tmpfs mounts for any observed scratch) after the
+              # suspended-first soak confirms what it writes. See
+              # helmrelease.security.md.
+              readOnlyRootFilesystem: false
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+    service:
+      app:
+        controller: homebox
+        ports:
+          http:
+            port: &port 7745
+    route:
+      app:
+        annotations:
+          glance/name: "HomeBox"
+          glance/show: "true"
+          glance/id: "Self-Hosted"
+          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/homebox.png"
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: *port
+    persistence:
+      # SQLite DB + uploaded attachments (receipts, warranty PDFs, nameplate
+      # photos) — hand-entered and irreplaceable, so Longhorn (survives cluster
+      # loss via the NFS backup target), not ceph-block. Dynamic PVC in Git
+      # (./longhorn-pvc.yaml) at 2 replicas; the Longhorn Volume CR auto-joins
+      # the `default` recurring-job group (daily snapshot + weekly + monthly
+      # backup). Can be migrated to a readable static-named volume later, as
+      # lubelogger/forgejo were.
+      data:
+        existingClaim: homebox-data-pvc
+        globalMounts:
+          - path: /data
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: homebox-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: homebox
+        # Additive — the selfhosted-ns default-deny triggers the lockdown;
+        # these rules punch holes. DNS + intra-ns are covered by the baseline
+        # network-policy component. No egress (SQLite, no external DB).
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # Internal Gateway (Envoy) → homebox :7745.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: network
+                  app.kubernetes.io/name: envoy
+            toPorts:
+              - ports:
+                  - port: "7745"
+                    protocol: TCP
+          # ai ns: the homebox-mcp bridge (Vila's kagent tier) + the vila
+          # warranty-digest local-cron, both READ the REST API on :7745.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: ai
+            toPorts:
+              - ports:
+                  - port: "7745"
+                    protocol: TCP

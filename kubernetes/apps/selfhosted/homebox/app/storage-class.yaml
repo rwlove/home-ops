@@ -1,0 +1,24 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/storageclass-storage-v1.json
+#
+# Per-app Longhorn StorageClass for homebox's durable data (SQLite + uploaded
+# attachments). Unlike the static-PV apps (lubelogger/forgejo) this provisions
+# DYNAMICALLY — the PVC in longhorn-pvc.yaml carries no volumeName, so Longhorn
+# creates a fresh volume (opaque pvc-<uuid> name) on first bind. The volume
+# auto-joins the `default` recurring-job group (daily snapshot + weekly +
+# monthly backup to the NFS target) because its Volume CR has no recurring-job
+# labels. numberOfReplicas 2 → a single node loss is not data loss. Can be
+# migrated to a readable static-named volume later (as the others were).
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: homebox-data
+provisioner: driver.longhorn.io
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+parameters:
+  numberOfReplicas: "2"
+  staleReplicaTimeout: "2880"
+  fsType: ext4
+  dataLocality: disabled
+  unmapMarkSnapChainRemoved: ignored

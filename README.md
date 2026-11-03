@@ -16,7 +16,7 @@ _Production-grade Kubernetes for a household._
 
 <br/>
 
-![apps](https://img.shields.io/badge/apps-197-blue?style=for-the-badge)
+![apps](https://img.shields.io/badge/apps-198-blue?style=for-the-badge)
 ![helmreleases](https://img.shields.io/badge/HelmReleases-203-326CE5?style=for-the-badge&logo=helm&logoColor=white)
 ![nodes](https://img.shields.io/badge/k8s_nodes-11-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white)
 ![cnpg](https://img.shields.io/badge/Postgres_clusters-25-336791?style=for-the-badge&logo=postgresql&logoColor=white)

@@ -1,0 +1,194 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/cronjob-batch-v1.json
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: local-cron-vila-warranty-digest
+  labels:
+    app.kubernetes.io/name: local-cron
+spec:
+  # vila (property/utilities steward) — weekly warranty-expiry + maintenance-due
+  # watch. Reads HomeBox assets (warrantyExpires) and Grocy chores/batteries
+  # (next-estimated) AT RUNTIME (so no private property facts live in this PUBLIC
+  # repo) and emails Rob ONE message PER concern via notify-mcp /send (agent=vila,
+  # which fronts the guardrailed relay). Silent when nothing is due/expiring.
+  # Fully deterministic: no LLM, no k8s API. Same discipline as the cooter
+  # service-due digest.
+  #
+  # SHIPPED SUSPENDED. The exact HomeBox warranty-field JSON shape and token
+  # longevity can only be confirmed against the live app, so test manually
+  #   kubectl -n ai create job --from=cronjob/local-cron-vila-warranty-digest vila-digest-test
+  # verify the output, then unsuspend in a one-line follow-up.
+  suspend: true
+  schedule: "0 8 * * 1"
+  timeZone: America/New_York
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 600
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: local-cron
+          annotations:
+            k8tz.io/inject: "false"
+        spec:
+          nodeSelector:
+            kubernetes.io/arch: amd64
+          serviceAccountName: local-cron
+          automountServiceAccountToken: false
+          restartPolicy: OnFailure
+          containers:
+            - name: digest
+              image: docker.io/alpine/k8s:1.37.1@sha256:712dc5385d1c1a3f83b747fa9e40f64d433a97f72ff42f9755ff7dd1f62846e4
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -ceu
+                # Flux postBuild envsubst runs STRICT over this manifest: every
+                # shell `$` is doubled (`$$`) so the rendered manifest carries a
+                # literal `$` for /bin/sh (and jq). Same convention as the cooter
+                # reminder digest.
+                - |
+                  HB="http://homebox.selfhosted:7745"
+                  GR="http://grocy.selfhosted:80"
+                  WINDOW=90           # days-ahead to flag an upcoming expiry/due
+                  MAX=15              # hard cap on emails per run
+                  NOW="$$(date +%s)"
+                  : > /tmp/due.tsv
+
+                  # ---- HomeBox: assets whose warranty expires within WINDOW ----
+                  # List items, then read warranty off each (list payload may omit
+                  # it, so fall back to the item detail). TYPE<TAB>LABEL<TAB>WHEN.
+                  ITEMS="$$(curl -sS --max-time 30 \
+                            -H "Authorization: Bearer $${HOMEBOX_TOKEN}" \
+                            "$$HB/api/v1/items?pageSize=500")" || {
+                    echo "FATAL: HomeBox /api/v1/items request errored"; exit 1; }
+                  IDS="$$(printf '%s' "$$ITEMS" | jq -r '(.items // .)[]?.id' 2>/dev/null || echo '')"
+                  if [ -z "$$IDS" ]; then
+                    echo "NOTE: HomeBox returned no items (empty inventory or auth?)"
+                  fi
+                  for ID in $$IDS; do
+                    D="$$(curl -sS --max-time 20 \
+                           -H "Authorization: Bearer $${HOMEBOX_TOKEN}" \
+                           "$$HB/api/v1/items/$$ID")" || continue
+                    printf '%s' "$$D" | jq -r '
+                      select((.lifetimeWarranty // false) == false)
+                      | select((.warrantyExpires // "") | test("[0-9]{4}-[0-9]{2}-[0-9]{2}"))
+                      | [ .name, (.warrantyExpires | .[0:10]) ] | @tsv' 2>/dev/null \
+                    | while IFS="$$(printf '\t')" read -r NAME WEXP; do
+                        [ -z "$$WEXP" ] && continue
+                        EPOCH="$$(date -d "$$WEXP" +%s 2>/dev/null || echo '')"
+                        [ -z "$$EPOCH" ] && continue
+                        DAYS="$$(( (EPOCH - NOW) / 86400 ))"
+                        if [ "$$DAYS" -le "$$WINDOW" ]; then
+                          if [ "$$DAYS" -lt 0 ]; then STATE="EXPIRED"; else STATE="expiring"; fi
+                          printf 'warranty\t%s\t%s (%s, %s days)\n' \
+                            "$$NAME" "$$STATE" "$$WEXP" "$$DAYS" >> /tmp/due.tsv
+                        fi
+                      done
+                  done
+
+                  # ---- Grocy: chores + batteries due within WINDOW ----------
+                  gr_due() {
+                    # $1 = endpoint, $2 = next-time jq path, $3 = label kind
+                    RESP="$$(curl -sS --max-time 30 \
+                              -H "GROCY-API-KEY: $${GROCY_API_KEY}" \
+                              "$$GR/api/$$1")" || return 0
+                    printf '%s' "$$RESP" | jq -r ".[]? | [ (.${2} // \"\"), (.${4} // \"\") ] | @tsv" 2>/dev/null \
+                    | while IFS="$$(printf '\t')" read -r WHEN NAMEID; do
+                        [ -z "$$WHEN" ] && continue
+                        WD="$${WHEN%% *}"
+                        EPOCH="$$(date -d "$$WD" +%s 2>/dev/null || echo '')"
+                        [ -z "$$EPOCH" ] && continue
+                        DAYS="$$(( (EPOCH - NOW) / 86400 ))"
+                        if [ "$$DAYS" -le "$$WINDOW" ]; then
+                          if [ "$$DAYS" -lt 0 ]; then STATE="OVERDUE"; else STATE="due"; fi
+                          printf '%s\t%s\t%s (%s, %s days)\n' \
+                            "$$3" "$$NAMEID" "$$STATE" "$$WD" "$$DAYS" >> /tmp/due.tsv
+                        fi
+                      done
+                  }
+                  # chore current-state: next_estimated_execution_time + chore_name
+                  gr_due "chores" "next_estimated_execution_time" "chore" "chore_name"
+                  # battery current-state: next_estimated_charge_time + (battery) id
+                  gr_due "batteries" "next_estimated_charge_time" "battery" "battery_id"
+
+                  # ---- emit one email per concern (silent when none) --------
+                  DUE="$$(awk 'NF{n++} END{print n+0}' /tmp/due.tsv 2>/dev/null)"
+                  [ -n "$$DUE" ] || DUE=0
+                  echo "----- vila warranty/maintenance watch ($$DUE concern(s)) -----"
+                  if [ "$$DUE" = "0" ]; then
+                    echo "ALL CLEAR — nothing expiring/due; no email sent"; exit 0
+                  fi
+                  if [ "$$DUE" -gt "$$MAX" ]; then
+                    echo "NOTE: $$DUE concerns exceed cap $$MAX — sending first $$MAX"
+                    head -n "$$MAX" /tmp/due.tsv > /tmp/due.capped && mv /tmp/due.capped /tmp/due.tsv
+                  fi
+
+                  TAB="$$(printf '\t')"
+                  SENT=0; FAILED=0
+                  while IFS="$$TAB" read -r KIND NAME DETAIL; do
+                    [ -z "$$NAME" ] && continue
+                    case "$$KIND" in
+                      warranty) SUBJECT="Vila: $$NAME — warranty $$DETAIL";;
+                      chore)    SUBJECT="Vila: $$NAME — maintenance $$DETAIL";;
+                      battery)  SUBJECT="Vila: battery $$NAME — $$DETAIL";;
+                      *)        SUBJECT="Vila: $$NAME — $$DETAIL";;
+                    esac
+                    printf 'DUE  %-10s | %-28s | %s\n' "$$KIND" "$$NAME" "$$DETAIL"
+                    BODY="$$(printf '**Item:** %s\n**Concern:** %s %s\n\n_Source of truth: HomeBox (warranties/maintenance) / Grocy (chores). Log the service or renew the warranty there to clear this._' \
+                      "$$NAME" "$$KIND" "$$DETAIL")"
+                    REQ="$$(jq -n --arg s "$$SUBJECT" --arg b "$$BODY" --arg a "vila" \
+                              '{subject:$$s, body:$$b, agent:$$a}')"
+                    HTTP="$$(curl -sS --max-time 30 -o /tmp/send.out -w '%{http_code}' \
+                              -H 'Content-Type: application/json' -d "$$REQ" \
+                              http://notify-mcp.mcp-system:8060/send)"
+                    case "$$HTTP" in
+                      2??) SENT=$$((SENT + 1));;
+                      *) echo "FATAL: notify-mcp /send HTTP $$HTTP for '$$SUBJECT'"; cat /tmp/send.out; FAILED=$$((FAILED + 1));;
+                    esac
+                  done < /tmp/due.tsv
+                  echo "----- sent $$SENT email(s); $$FAILED failed -----"
+                  [ "$$FAILED" -eq 0 ] || exit 1
+              env:
+                - name: HOME
+                  value: /tmp
+                - name: TZ
+                  value: America/New_York
+              envFrom:
+                # HomeBox + Grocy read keys — their OWN secret, mounted only into
+                # this read-only digest job (least privilege).
+                - secretRef:
+                    name: vila-digest-secret
+                    optional: false
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir:
+                medium: Memory
+                sizeLimit: 64Mi

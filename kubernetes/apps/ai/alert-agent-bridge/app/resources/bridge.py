@@ -125,11 +125,17 @@ def _pregather(alerts):
         restarts = _first(_prom('max(kube_pod_container_status_restarts_total{%s})' % sel))
         info = _prom('kube_pod_info{%s}' % sel)
         node = (info[0][0].get("node") if info else "") or a.get("node") or ""
-        # Memory limit + recent peak working-set: the numbers an OOM triage needs
-        # but can't infer. Scope to the alert's container when known, else pod-wide.
+        # Memory limit + recent peaks: the numbers an OOM triage needs but can't infer.
+        # cgroup usage_bytes is what the OOM killer actually enforces against memory.max;
+        # working_set_bytes excludes reclaimable page cache, so a page-cache-driven OOM
+        # (heavy file I/O, par2/unpack of large files) pins usage at the limit while
+        # working_set reads far below the limit. Citing working_set alone is structurally
+        # blind to that failure mode. Pull BOTH; scope to the alert's container when known,
+        # else pod-wide.
         csel = sel + (',container="%s"' % container if container else ',container!=""')
         lim = _first(_prom('max(kube_pod_container_resource_limits{%s,resource="memory"})' % csel))
-        peak = _first(_prom('max(max_over_time(container_memory_working_set_bytes{%s}[30m]))' % csel))
+        peak = _first(_prom('max(max_over_time(container_memory_usage_bytes{%s}[30m]))' % csel))
+        wss = _first(_prom('max(max_over_time(container_memory_working_set_bytes{%s}[30m]))' % csel))
         seg = "  %s/%s:" % (ns, pod)
         if container:
             seg += " container=%s" % container
@@ -141,10 +147,12 @@ def _pregather(alerts):
                 nodes.append(node)
         try:
             if peak is not None and lim is not None:
-                seg += " mem_peak=%dMi/limit=%dMi" % (
+                seg += " mem_usage_peak=%dMi/limit=%dMi" % (
                     round(float(peak) / 1048576), round(float(lim) / 1048576))
             elif peak is not None:
-                seg += " mem_peak=%dMi" % round(float(peak) / 1048576)
+                seg += " mem_usage_peak=%dMi" % round(float(peak) / 1048576)
+            if wss is not None:
+                seg += " working_set_peak=%dMi" % round(float(wss) / 1048576)
         except (TypeError, ValueError):
             pass
         lines.append(seg)
@@ -173,9 +181,12 @@ def _pregather(alerts):
         "\n\nPre-gathered evidence (Prometheus, live):\n" + "\n".join(lines) +
         "\n(A node at temp>=90°C or load1 far above its core count means the NODE may "
         "be the cause, not the pod. For an OOMKilled/memory alert the relevant comparison "
-        "is the pod's mem_peak vs its limit above — a healthy node does NOT rule out a "
-        "per-container cgroup-limit OOM. If a pod is unhealthy, pull its failing "
-        "container's logs via Loki to confirm before concluding.)"
+        "is the pod's mem_usage_peak (cgroup-enforced) vs its limit above — NOT "
+        "working_set_peak, which excludes reclaimable page cache. usage_peak at or near the "
+        "limit while working_set_peak is far below means a page-cache-driven OOM under heavy "
+        "file I/O (a headroom gap, not an RSS leak), not a contradiction. A healthy node "
+        "does NOT rule out a per-container cgroup-limit OOM. If a pod is unhealthy, pull its "
+        "failing container's logs via Loki to confirm before concluding.)"
     )
 
 
@@ -203,9 +214,12 @@ def _agent_prompt(alerts):
         "cannot answer without confirming an action, it should decline the deep-dive and "
         "report what it found read-only. For any OOMKilled or memory alert, your reply MUST "
         "name the workload (namespace/pod/container) and state its memory limit and recent "
-        "peak working-set from the pre-gathered evidence — never omit the identity or those "
-        "numbers. An OOMKill is a per-container cgroup-limit event: compare peak vs limit, "
-        "not node memory. This is a one-way enrichment note that "
+        "mem_usage_peak (cgroup-enforced) from the pre-gathered evidence — never omit the "
+        "identity or those numbers. An OOMKill is a per-container cgroup-limit event: compare "
+        "mem_usage_peak vs limit, NOT working_set and NOT node memory. If mem_usage_peak sits "
+        "at the limit while working_set_peak is far below, that is a page-cache-driven OOM "
+        "under heavy file I/O (a headroom gap, not a leak) — do not treat it as a "
+        "contradiction to explain away. This is a one-way enrichment note that "
         "rides alongside the page AlertManager already sent — nobody can reply, so never ask "
         "a question. If it's all benign/known noise, say so briefly. Keep the whole reply "
         "under 1400 characters, plain text, no markdown.\n\nFiring alerts:\n" + listing + evidence

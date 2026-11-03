@@ -75,15 +75,24 @@ spec:
           replicas: 2
           priorityClassName: "system-cluster-critical"
           imagePullPolicy: ""
+          # Requests trimmed (limits unchanged) — re-verified live 2026-11 against
+          # VPA + 14d raw Prometheus peaks, not the audit's figures. Only
+          # attacher/provisioner/resizer/plugin are live containers on this
+          # controllerPlugin today (no snapshotter/omapGenerator pod exists for
+          # rbd ctrlplugin) — omapGenerator/snapshotter left untouched since
+          # there's nothing live to right-size. Worst of max(14d raw peak, VPA
+          # upperBound) per container: attacher 37.6Mi, provisioner 81.1Mi,
+          # resizer 63.9Mi (raw peak exceeded the VPA upperBound here — sized to
+          # the raw peak, not the VPA number), plugin(csi-rbdplugin) 92.6Mi.
           resources:
             attacher:
-              requests: {cpu: 100m, memory: 128Mi}
+              requests: {cpu: 100m, memory: 64Mi}
               limits: {memory: 256Mi}
             provisioner:
-              requests: {cpu: 100m, memory: 128Mi}
+              requests: {cpu: 100m, memory: 112Mi}
               limits: {memory: 256Mi}
             resizer:
-              requests: {cpu: 100m, memory: 128Mi}
+              requests: {cpu: 100m, memory: 96Mi}
               limits: {memory: 256Mi}
             snapshotter:
               requests: {cpu: 100m, memory: 128Mi}
@@ -92,7 +101,7 @@ spec:
               requests: {cpu: 250m, memory: 512Mi}
               limits: {memory: 1Gi}
             plugin:
-              requests: {memory: 512Mi}
+              requests: {memory: 144Mi}
               limits: {memory: 1Gi}
         nodePlugin:
           priorityClassName: "system-node-critical"
@@ -109,12 +118,17 @@ spec:
               operator: Equal
               value: arm64
               effect: NoSchedule
+          # Requests trimmed (limits unchanged) — single value applied across
+          # all 9 DaemonSet nodes, sized for the hottest node. 14d raw peak:
+          # csi-rbdplugin 139.5Mi (VPA upperBound 161.6Mi, used as the basis —
+          # higher than the raw peak), driver-registrar 17.7Mi (VPA
+          # target/upperBound both 30.5Mi — the recommender's effective floor).
           resources:
             plugin:
-              requests: {cpu: 250m, memory: 512Mi}
+              requests: {cpu: 250m, memory: 224Mi}
               limits: {memory: 1Gi}
             registrar:
-              requests: {cpu: 50m, memory: 128Mi}
+              requests: {cpu: 50m, memory: 48Mi}
               limits: {memory: 256Mi}
       cephfs:
         enabled: true
@@ -131,21 +145,25 @@ spec:
           replicas: 2
           priorityClassName: "system-cluster-critical"
           imagePullPolicy: ""
+          # Requests trimmed (limits unchanged) — re-verified live 2026-11
+          # against VPA + 14d raw Prometheus peaks. Worst of max(14d raw peak,
+          # VPA upperBound) per container: attacher 62.8Mi, provisioner 49.0Mi,
+          # resizer 49.0Mi, snapshotter 35.8Mi, plugin(csi-cephfsplugin) 80.9Mi.
           resources:
             attacher:
-              requests: {cpu: 100m, memory: 128Mi}
+              requests: {cpu: 100m, memory: 88Mi}
               limits: {memory: 256Mi}
             provisioner:
-              requests: {cpu: 100m, memory: 128Mi}
+              requests: {cpu: 100m, memory: 72Mi}
               limits: {memory: 256Mi}
             resizer:
-              requests: {cpu: 100m, memory: 128Mi}
+              requests: {cpu: 100m, memory: 72Mi}
               limits: {memory: 256Mi}
             snapshotter:
-              requests: {cpu: 100m, memory: 128Mi}
+              requests: {cpu: 100m, memory: 56Mi}
               limits: {memory: 256Mi}
             plugin:
-              requests: {cpu: 250m, memory: 512Mi}
+              requests: {cpu: 250m, memory: 120Mi}
               limits: {memory: 1Gi}
         nodePlugin:
           priorityClassName: "system-node-critical"
@@ -159,12 +177,17 @@ spec:
               operator: Equal
               value: arm64
               effect: NoSchedule
+          # Requests trimmed (limits unchanged) — single value applied across
+          # all 9 DaemonSet nodes, sized for the hottest node. 14d raw peak:
+          # csi-cephfsplugin 48.3Mi (VPA upperBound 51.4Mi, used as the basis),
+          # driver-registrar 20.2Mi (VPA upperBound 30.5Mi — the recommender's
+          # effective floor, same as the rbd nodeplugin's registrar).
           resources:
             plugin:
-              requests: {cpu: 250m, memory: 512Mi}
+              requests: {cpu: 250m, memory: 96Mi}
               limits: {memory: 1Gi}
             registrar:
-              requests: {cpu: 50m, memory: 128Mi}
+              requests: {cpu: 50m, memory: 48Mi}
               limits: {memory: 256Mi}
       # Not used in this cluster — keep them off to match the current footprint
       # (the vendored RBAC only ever covered rbd + cephfs).

@@ -1,0 +1,115 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "NocoDB Data API (lloyd scope)",
+    "description": "Hand-authored OpenAPI subset of the NocoDB v2 Data + Meta API, scoped to the record read/write and table-listing operations the lloyd insurance agent needs against the policy register. tableId/baseId are passed at call time (they are generated when the base is created), so this spec does not need regenerating when the schema changes. Authentication is a static xc-token header injected by the openapi-mcp bridge (not declared here).",
+    "version": "1.0.0"
+  },
+  "servers": [
+    { "url": "http://nocodb.collab.svc.cluster.local:8080", "description": "in-cluster NocoDB (overridden at runtime by --base-url)" }
+  ],
+  "tags": [
+    { "name": "meta", "description": "Base/table metadata (id resolution)" },
+    { "name": "records", "description": "Record read/write in a table" }
+  ],
+  "paths": {
+    "/api/v2/meta/bases": {
+      "get": {
+        "operationId": "listBases",
+        "summary": "List accessible bases (to resolve the insurance register baseId)",
+        "tags": ["meta"],
+        "responses": { "200": { "description": "List of bases" } }
+      }
+    },
+    "/api/v2/meta/bases/{baseId}/tables": {
+      "get": {
+        "operationId": "listTables",
+        "summary": "List tables in a base (to resolve the Policies / Claims tableId)",
+        "tags": ["meta"],
+        "parameters": [
+          { "name": "baseId", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Base id" }
+        ],
+        "responses": { "200": { "description": "List of tables" } }
+      }
+    },
+    "/api/v2/tables/{tableId}/records": {
+      "get": {
+        "operationId": "listRecords",
+        "summary": "List records in a table (the register rows)",
+        "tags": ["records"],
+        "parameters": [
+          { "name": "tableId", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Table id" },
+          { "name": "where", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Filter expression, e.g. (line,eq,home)" },
+          { "name": "sort", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Sort, e.g. -renewal_date" },
+          { "name": "fields", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Comma-separated field list" },
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer" }, "description": "Page size" },
+          { "name": "offset", "in": "query", "required": false, "schema": { "type": "integer" }, "description": "Page offset" }
+        ],
+        "responses": { "200": { "description": "List of records" } }
+      },
+      "post": {
+        "operationId": "createRecords",
+        "summary": "Create one or more records (append a policy/claim row)",
+        "tags": ["records"],
+        "parameters": [
+          { "name": "tableId", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Table id" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "description": "A record object, or an array of record objects" } } }
+        },
+        "responses": { "200": { "description": "Created record(s)" } }
+      },
+      "patch": {
+        "operationId": "updateRecords",
+        "summary": "Update one or more records by Id (correct a register row)",
+        "tags": ["records"],
+        "parameters": [
+          { "name": "tableId", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Table id" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "description": "A record object including Id, or an array of such objects" } } }
+        },
+        "responses": { "200": { "description": "Updated record(s)" } }
+      },
+      "delete": {
+        "operationId": "deleteRecords",
+        "summary": "Delete one or more records by Id (destructive; propose-then-execute)",
+        "tags": ["records"],
+        "parameters": [
+          { "name": "tableId", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Table id" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "description": "{ \"Id\": n } or an array of such objects" } } }
+        },
+        "responses": { "200": { "description": "Deleted record(s)" } }
+      }
+    },
+    "/api/v2/tables/{tableId}/records/count": {
+      "get": {
+        "operationId": "countRecords",
+        "summary": "Count records in a table",
+        "tags": ["records"],
+        "parameters": [
+          { "name": "tableId", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Table id" },
+          { "name": "where", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Filter expression" }
+        ],
+        "responses": { "200": { "description": "Record count" } }
+      }
+    },
+    "/api/v2/tables/{tableId}/records/{recordId}": {
+      "get": {
+        "operationId": "getRecord",
+        "summary": "Read a single record by id",
+        "tags": ["records"],
+        "parameters": [
+          { "name": "tableId", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Table id" },
+          { "name": "recordId", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Record id" }
+        ],
+        "responses": { "200": { "description": "A record" } }
+      }
+    }
+  }
+}

@@ -34,6 +34,16 @@ spec:
         # inference (process hung, model failed to load, etc.).
         # BlackboxProbeFailed (chart-shipped) will also fire on this
         # probe; this alert carries ollama-specific runbook.
+        #
+        # Was `probe_success{...} == 0` with `for: 5m` against a Probe
+        # whose interval is also 5m — exactly Prometheus's default
+        # --query.lookback-delta (5m), zero margin. Scrape jitter can push
+        # a sample's age past the lookback window before the next scrape
+        # lands, dropping probe_success from the instant-query result and
+        # resetting the `for:` pending timer before it accumulates. Fixed
+        # the same way as SparkVllmDriverToolCallBroken: avg_over_time
+        # reads samples from storage directly (no instant-query staleness),
+        # with an 11m window guaranteeing >=2 real samples at this cadence.
         - alert: OllamaWedged
           annotations:
             summary: ollama (P40) synthetic embed probe failing (P40 inference unavailable)
@@ -50,8 +60,8 @@ spec:
               (4) probe payload changed / model removed — check the
                   ollama-embed Probe + ollama_embed module definition.
           expr: |-
-            probe_success{instance=~"https?://ollama\\.ai\\.svc.*/api/embed"} == 0
-          for: 5m
+            avg_over_time(probe_success{instance=~"https?://ollama\\.ai\\.svc.*/api/embed"}[11m]) == 0
+          for: 1m
           labels:
             severity: critical
         # Frigate's GenAI VLM path. Separate from the embed probe above
@@ -69,6 +79,13 @@ spec:
         # which is what keeps Frigate's descriptions at ~1.5s instead of
         # the ~38s cold-load path. So a sustained failure here means both
         # "no wedge detection" AND "descriptions have gone slow".
+        #
+        # Same lookback-delta-vs-interval fix as OllamaWedged above: was
+        # `probe_success{...} == 0` with `for: 10m` against a 5m-interval
+        # Probe at the exact default --query.lookback-delta boundary (5m),
+        # leaving zero margin for scrape jitter before the `for:` timer
+        # resets. avg_over_time([11m]) reads storage directly and keeps
+        # the original "two consecutive misses" intent via the window.
         - alert: OllamaVlmWedged
           annotations:
             summary: ollama (P40) VLM probe failing (Frigate GenAI degraded)
@@ -87,7 +104,7 @@ spec:
                   still longer than the probe interval, otherwise the
                   model ages out between probes and every call cold-loads.
           expr: |-
-            probe_success{instance=~"https?://ollama\\.ai\\.svc.*/api/generate"} == 0
-          for: 10m
+            avg_over_time(probe_success{instance=~"https?://ollama\\.ai\\.svc.*/api/generate"}[11m]) == 0
+          for: 1m
           labels:
             severity: warning

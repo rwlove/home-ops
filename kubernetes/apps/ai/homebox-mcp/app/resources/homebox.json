@@ -1,0 +1,183 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "HomeBox (vila scope)",
+    "description": "Hand-authored OpenAPI subset of the HomeBox REST API (sysadminsmedia fork), scoped to the asset (item), location, label and maintenance operations the vila property steward needs. Maintained by hand from HomeBox's /swagger reference. Authentication is a static Authorization: Bearer <token> header injected by the openapi-mcp bridge (not declared here) — the token must be a long-lived HomeBox API token; a short-lived session token from /users/login will expire and break the bridge.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    { "url": "http://homebox.selfhosted.svc.cluster.local:7745", "description": "in-cluster HomeBox (overridden at runtime by --base-url)" }
+  ],
+  "tags": [
+    { "name": "item", "description": "Assets / inventory items (incl. warranty fields)" },
+    { "name": "maintenance", "description": "Scheduled + completed maintenance entries" },
+    { "name": "location", "description": "Rooms / areas" },
+    { "name": "label", "description": "Labels" }
+  ],
+  "paths": {
+    "/api/v1/items": {
+      "get": {
+        "operationId": "getItems",
+        "summary": "List/search assets (supports q, page, pageSize, labels, locations query params)",
+        "tags": ["item"],
+        "parameters": [
+          { "name": "q", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Full-text search" },
+          { "name": "page", "in": "query", "required": false, "schema": { "type": "integer" } },
+          { "name": "pageSize", "in": "query", "required": false, "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Paginated items" } }
+      },
+      "post": {
+        "operationId": "createItem",
+        "summary": "Create an asset",
+        "tags": ["item"],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ItemCreate" } } } },
+        "responses": { "201": { "description": "Item created" } }
+      }
+    },
+    "/api/v1/items/{id}": {
+      "get": {
+        "operationId": "getItem",
+        "summary": "Get one asset (full detail incl. warranty + purchase)",
+        "tags": ["item"],
+        "parameters": [ { "$ref": "#/components/parameters/itemId" } ],
+        "responses": { "200": { "description": "Item" } }
+      },
+      "put": {
+        "operationId": "updateItem",
+        "summary": "Update an asset (set serial/model, purchase, warrantyExpires, lifetimeWarranty, warrantyDetails)",
+        "tags": ["item"],
+        "parameters": [ { "$ref": "#/components/parameters/itemId" } ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ItemUpdate" } } } },
+        "responses": { "200": { "description": "Item updated" } }
+      },
+      "delete": {
+        "operationId": "deleteItem",
+        "summary": "Delete an asset (destructive)",
+        "tags": ["item"],
+        "parameters": [ { "$ref": "#/components/parameters/itemId" } ],
+        "responses": { "204": { "description": "Item deleted" } }
+      }
+    },
+    "/api/v1/items/{id}/maintenance": {
+      "get": {
+        "operationId": "getItemMaintenance",
+        "summary": "List maintenance entries for an asset (status filter: scheduled|completed|both)",
+        "tags": ["maintenance"],
+        "parameters": [
+          { "$ref": "#/components/parameters/itemId" },
+          { "name": "status", "in": "query", "required": false, "schema": { "type": "string", "enum": ["scheduled", "completed", "both"] } }
+        ],
+        "responses": { "200": { "description": "Maintenance entries" } }
+      },
+      "post": {
+        "operationId": "createItemMaintenance",
+        "summary": "Create a maintenance entry (scheduled when scheduledDate set; completed when completedDate set)",
+        "tags": ["maintenance"],
+        "parameters": [ { "$ref": "#/components/parameters/itemId" } ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MaintenanceEntry" } } } },
+        "responses": { "201": { "description": "Maintenance entry created" } }
+      }
+    },
+    "/api/v1/locations": {
+      "get": {
+        "operationId": "getLocations",
+        "summary": "List locations (rooms / areas)",
+        "tags": ["location"],
+        "responses": { "200": { "description": "Locations" } }
+      },
+      "post": {
+        "operationId": "createLocation",
+        "summary": "Create a location",
+        "tags": ["location"],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NamedCreate" } } } },
+        "responses": { "201": { "description": "Location created" } }
+      }
+    },
+    "/api/v1/labels": {
+      "get": {
+        "operationId": "getLabels",
+        "summary": "List labels",
+        "tags": ["label"],
+        "responses": { "200": { "description": "Labels" } }
+      },
+      "post": {
+        "operationId": "createLabel",
+        "summary": "Create a label",
+        "tags": ["label"],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NamedCreate" } } } },
+        "responses": { "201": { "description": "Label created" } }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "itemId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string" },
+        "description": "Item UUID"
+      }
+    },
+    "schemas": {
+      "ItemCreate": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Minimum to create an asset. locationId is required by HomeBox; labelIds optional.",
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "locationId": { "type": "string", "description": "Location UUID" },
+          "labelIds": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["name", "locationId"]
+      },
+      "ItemUpdate": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Full asset update. Warranty and purchase fields are the ones vila cares most about. Dates are RFC3339 (YYYY-MM-DD accepted).",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "serialNumber": { "type": "string" },
+          "modelNumber": { "type": "string" },
+          "manufacturer": { "type": "string" },
+          "locationId": { "type": "string" },
+          "labelIds": { "type": "array", "items": { "type": "string" } },
+          "purchaseFrom": { "type": "string" },
+          "purchasePrice": { "type": "number" },
+          "purchaseTime": { "type": "string", "description": "YYYY-MM-DD" },
+          "warrantyExpires": { "type": "string", "description": "YYYY-MM-DD — the date the vila digest watches" },
+          "warrantyDetails": { "type": "string" },
+          "lifetimeWarranty": { "type": "boolean" },
+          "notes": { "type": "string" }
+        },
+        "required": ["id", "name", "locationId"]
+      },
+      "MaintenanceEntry": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "A maintenance entry. Set scheduledDate for an upcoming task; set completedDate (and optionally cost) when done.",
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "scheduledDate": { "type": "string", "description": "YYYY-MM-DD" },
+          "completedDate": { "type": "string", "description": "YYYY-MM-DD" },
+          "cost": { "type": "number" }
+        },
+        "required": ["name"]
+      },
+      "NamedCreate": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" }
+        },
+        "required": ["name"]
+      }
+    }
+  }
+}

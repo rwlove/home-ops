@@ -1,0 +1,139 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Grocy (vila scope)",
+    "description": "Hand-authored OpenAPI subset of the Grocy REST API, scoped to the non-food modules the vila property steward uses: chores (recurring maintenance), batteries, equipment, and consumable stock. Food/pantry is out of scope (Gordon/KitchenOwl owns it). Maintained by hand from Grocy's /api/openapi/specification. Authentication is a static GROCY-API-KEY header injected by the openapi-mcp bridge (not declared here).",
+    "version": "1.0.0"
+  },
+  "servers": [
+    { "url": "http://grocy.selfhosted.svc.cluster.local:80", "description": "in-cluster Grocy (overridden at runtime by --base-url)" }
+  ],
+  "tags": [
+    { "name": "chore", "description": "Recurring maintenance chores" },
+    { "name": "battery", "description": "Batteries (smoke/CO detectors, remotes)" },
+    { "name": "stock", "description": "Consumable stock" },
+    { "name": "object", "description": "Generic entity CRUD (equipment, products, userfields)" }
+  ],
+  "paths": {
+    "/api/chores": {
+      "get": {
+        "operationId": "getChoresCurrent",
+        "summary": "Current state of all chores incl. next estimated execution date (what the digest reads)",
+        "tags": ["chore"],
+        "responses": { "200": { "description": "Array of chore current-state objects" } }
+      }
+    },
+    "/api/chores/{choreId}": {
+      "get": {
+        "operationId": "getChore",
+        "summary": "Details + next execution for one chore",
+        "tags": ["chore"],
+        "parameters": [ { "$ref": "#/components/parameters/choreId" } ],
+        "responses": { "200": { "description": "Chore detail" } }
+      }
+    },
+    "/api/chores/{choreId}/execute": {
+      "post": {
+        "operationId": "executeChore",
+        "summary": "Track execution of a chore (marks it done, advances next-due)",
+        "tags": ["chore"],
+        "parameters": [ { "$ref": "#/components/parameters/choreId" } ],
+        "requestBody": { "required": false, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ChoreExecution" } } } },
+        "responses": { "200": { "description": "Execution tracked" } }
+      }
+    },
+    "/api/batteries": {
+      "get": {
+        "operationId": "getBatteriesCurrent",
+        "summary": "Current state of all batteries incl. next estimated charge date",
+        "tags": ["battery"],
+        "responses": { "200": { "description": "Array of battery current-state objects" } }
+      }
+    },
+    "/api/batteries/{batteryId}/charge-cycles": {
+      "post": {
+        "operationId": "chargeBattery",
+        "summary": "Track a charge cycle for a battery (advances next-charge)",
+        "tags": ["battery"],
+        "parameters": [ { "$ref": "#/components/parameters/batteryId" } ],
+        "requestBody": { "required": false, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ChargeCycle" } } } },
+        "responses": { "200": { "description": "Charge tracked" } }
+      }
+    },
+    "/api/stock": {
+      "get": {
+        "operationId": "getStock",
+        "summary": "Current consumable stock (quantities on hand)",
+        "tags": ["stock"],
+        "responses": { "200": { "description": "Array of stock entries" } }
+      }
+    },
+    "/api/objects/{entity}": {
+      "get": {
+        "operationId": "listObjects",
+        "summary": "List rows of an entity (e.g. chores, batteries, equipment, products)",
+        "tags": ["object"],
+        "parameters": [ { "$ref": "#/components/parameters/entity" } ],
+        "responses": { "200": { "description": "Array of rows" } }
+      },
+      "post": {
+        "operationId": "createObject",
+        "summary": "Create a row of an entity (e.g. a new chore or equipment record)",
+        "tags": ["object"],
+        "parameters": [ { "$ref": "#/components/parameters/entity" } ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
+        "responses": { "200": { "description": "Row created (returns created object id)" } }
+      }
+    },
+    "/api/objects/{entity}/{objectId}": {
+      "get": {
+        "operationId": "getObject",
+        "summary": "Get one row of an entity",
+        "tags": ["object"],
+        "parameters": [ { "$ref": "#/components/parameters/entity" }, { "$ref": "#/components/parameters/objectId" } ],
+        "responses": { "200": { "description": "Row" } }
+      },
+      "put": {
+        "operationId": "updateObject",
+        "summary": "Update one row of an entity",
+        "tags": ["object"],
+        "parameters": [ { "$ref": "#/components/parameters/entity" }, { "$ref": "#/components/parameters/objectId" } ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
+        "responses": { "204": { "description": "Row updated" } }
+      },
+      "delete": {
+        "operationId": "deleteObject",
+        "summary": "Delete one row of an entity (destructive)",
+        "tags": ["object"],
+        "parameters": [ { "$ref": "#/components/parameters/entity" }, { "$ref": "#/components/parameters/objectId" } ],
+        "responses": { "204": { "description": "Row deleted" } }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "choreId": { "name": "choreId", "in": "path", "required": true, "schema": { "type": "integer" }, "description": "Chore id" },
+      "batteryId": { "name": "batteryId", "in": "path", "required": true, "schema": { "type": "integer" }, "description": "Battery id" },
+      "entity": { "name": "entity", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Grocy entity name (e.g. chores, batteries, equipment, products)" },
+      "objectId": { "name": "objectId", "in": "path", "required": true, "schema": { "type": "integer" }, "description": "Row id" }
+    },
+    "schemas": {
+      "ChoreExecution": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Optional execution detail. tracked_time defaults to now; omit to just mark done.",
+        "properties": {
+          "tracked_time": { "type": "string", "description": "YYYY-MM-DD HH:MM:SS (optional)" },
+          "done_by": { "type": "integer", "description": "User id (optional)" }
+        }
+      },
+      "ChargeCycle": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "tracked_time": { "type": "string", "description": "YYYY-MM-DD HH:MM:SS (optional)" }
+        }
+      }
+    }
+  }
+}

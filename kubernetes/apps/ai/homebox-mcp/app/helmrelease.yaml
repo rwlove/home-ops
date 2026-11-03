@@ -1,0 +1,153 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app homebox-mcp
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  values:
+    defaultPodOptions:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+    controllers:
+      homebox-mcp:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        type: deployment
+        replicas: 1
+        containers:
+          app:
+            image:
+              repository: docker.io/ckanthony/openapi-mcp
+              tag: 0.1.0@sha256:50f1bf68ce58724b9569142468ea038da67b22c778697388a0af7c416af5e5cc
+            # Generic OpenAPI->MCP bridge over SSE (GET/POST /mcp, binds
+            # 0.0.0.0:8080). --spec is the hand-authored HomeBox subset baked in
+            # via the configMap below; --base-url overrides the spec's server to
+            # the in-cluster service. The Authorization: Bearer header is
+            # injected into every upstream request via REQUEST_HEADERS (from the
+            # secret). Bound by the `vila` agent.
+            args:
+              - --spec
+              - /spec/homebox.json
+              - --base-url
+              - http://homebox.selfhosted.svc.cluster.local:7745
+              - --name
+              - HomeBox
+            env:
+              TZ: America/New_York
+            # REQUEST_HEADERS=Authorization:Bearer <token> from 1P via the
+            # ExternalSecret. NOTE: HomeBox's /users/login token is
+            # session-scoped and will expire; this `token` field MUST be a
+            # long-lived HomeBox API token. Confirm HomeBox exposes one when
+            # seeding the 1P item; if it only issues session tokens, this bridge
+            # needs a login-refresh sidecar instead (the laptop vila persona,
+            # which logs in per-session via curl, is unaffected).
+            envFrom:
+              - secretRef:
+                  name: homebox-mcp-secret
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: &port 8080
+                  initialDelaySeconds: 15
+                  periodSeconds: 30
+                  failureThreshold: 5
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: *port
+                  initialDelaySeconds: 10
+                  periodSeconds: 15
+                  failureThreshold: 3
+            resources:
+              requests:
+                cpu: 10m
+                memory: 64Mi
+              limits:
+                memory: 256Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+    service:
+      app:
+        controller: homebox-mcp
+        ports:
+          http:
+            port: *port
+    persistence:
+      # Hand-authored OpenAPI spec (configMapGenerator in kustomization.yaml).
+      spec:
+        type: configMap
+        name: homebox-mcp-spec
+        advancedMounts:
+          homebox-mcp:
+            app:
+              - path: /spec/homebox.json
+                subPath: homebox.json
+                readOnly: true
+      # godotenv probes <specdir>/.env on start; give it a writable tmp and keep
+      # the root filesystem read-only.
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          homebox-mcp:
+            app:
+              - path: /tmp
+    externalSecrets:
+      homebox-mcp:
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: onepassword-connect
+        target:
+          name: homebox-mcp-secret
+          template:
+            data:
+              REQUEST_HEADERS: "Authorization:Bearer {{ .token }}"
+        dataFrom:
+          - extract:
+              key: homebox
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: homebox-mcp-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: homebox-mcp
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # kagent (ai ns) calls the MCP over SSE on :8080.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: ai
+            toPorts:
+              - ports:
+                  - port: "8080"
+                    protocol: TCP
+        egress:
+          # -> HomeBox in the selfhosted ns (spec fetch + tool calls), :7745.
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: selfhosted
+                  app.kubernetes.io/name: homebox
+            toPorts:
+              - ports:
+                  - port: "7745"
+                    protocol: TCP

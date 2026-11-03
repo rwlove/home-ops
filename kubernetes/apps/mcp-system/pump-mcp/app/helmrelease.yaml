@@ -1,0 +1,121 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: pump-mcp
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  values:
+    defaultPodOptions:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+    controllers:
+      pump-mcp:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        pod:
+          annotations:
+            # Join the mcp-system Istio mesh (same as every federated backend)
+            # so the broker reaches it over the gateway's mcps listener.
+            sidecar.istio.io/inject: "true"
+        containers:
+          app:
+            image:
+              repository: docker.io/crystaldba/postgres-mcp
+              tag: 0.3.0@sha256:dbbd346860d29f1543e991f30f3284bf4ab5f096d049ecc3426528f20b1b6e6b
+            # SSE-upstream probe. postgres-mcp supports ONLY stdio + SSE (no
+            # streamable-HTTP), while every other gateway backend is
+            # streamable-HTTP on /mcp. Federating this tests whether the
+            # Kuadrant broker can consume an SSE upstream. Read-only: server
+            # restricted mode AND the health_ro DB role (SELECT only
+            # api.v_weight). SSE binds 0.0.0.0:8000 (/sse + /messages).
+            args:
+              - --access-mode=restricted
+              - --transport=sse
+            env:
+              TZ: America/New_York
+            envFrom:
+              - secretRef:
+                  name: pump-mcp-secret
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: &port 8000
+                  initialDelaySeconds: 20
+                  periodSeconds: 30
+                  failureThreshold: 5
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: *port
+                  initialDelaySeconds: 10
+                  periodSeconds: 15
+                  failureThreshold: 3
+            resources:
+              requests:
+                cpu: 15m
+                memory: 128Mi
+              limits:
+                memory: 512Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              # readOnlyRootFilesystem OFF for bring-up: the postgres-mcp Python
+              # image's cache/write paths are unverified (same caution as the
+              # ai/pump-mcp + ghostfolio-mcp copies). /tmp is an emptyDir below;
+              # tighten to true after soak.
+              readOnlyRootFilesystem: false
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+    service:
+      app:
+        controller: pump-mcp
+        ports:
+          http:
+            port: *port
+    route:
+      app:
+        hostnames:
+          - "pump-mcp.mcp.local"
+        parentRefs:
+          - name: mcp-gateway
+            namespace: mcp-system
+            sectionName: mcps
+        rules:
+          - matches:
+              # SSE exposes /sse (GET event stream) + /messages (POST); the
+              # hostname disambiguates, so a single prefix routes both.
+              - path:
+                  type: PathPrefix
+                  value: /
+            filters:
+              # Strip inbound Authorization before forwarding so the backend
+              # uses its own env cred (health_ro), matching every other
+              # federated backend (see paperless-mcp).
+              - type: RequestHeaderModifier
+                requestHeaderModifier:
+                  remove:
+                    - Authorization
+            backendRefs:
+              - identifier: app
+                port: *port
+    persistence:
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          pump-mcp:
+            app:
+              - path: /tmp

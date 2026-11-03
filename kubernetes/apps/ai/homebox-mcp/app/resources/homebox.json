@@ -2,179 +2,180 @@
   "openapi": "3.0.3",
   "info": {
     "title": "HomeBox (vila scope)",
-    "description": "Hand-authored OpenAPI subset of the HomeBox REST API (sysadminsmedia fork), scoped to the asset (item), location, label and maintenance operations the vila property steward needs. Maintained by hand from HomeBox's /swagger reference. Authentication is a static Authorization: Bearer <token> header injected by the openapi-mcp bridge (not declared here) — the token must be a long-lived HomeBox API token; a short-lived session token from /users/login will expire and break the bridge.",
-    "version": "1.0.0"
+    "description": "Hand-authored OpenAPI subset of the HomeBox REST API (sysadminsmedia fork v0.26), scoped to the asset, location and maintenance operations the vila property steward needs. IMPORTANT: this fork uses a UNIFIED ENTITY model — there is no /items or /locations. Everything is an `entity` under /api/v1/entities; a Location is just an entity-type with isLocation=true (POST /api/v1/entity-types), and an entity is placed under a location via parentId / categorized via entityTypeId. Verified live against /swagger/doc.json. Authentication is a static Authorization: Bearer <token> header injected by the openapi-mcp bridge (not declared here) — a long-lived HomeBox API token.",
+    "version": "2.0.0"
   },
   "servers": [
     { "url": "http://homebox.selfhosted.svc.cluster.local:7745", "description": "in-cluster HomeBox (overridden at runtime by --base-url)" }
   ],
   "tags": [
-    { "name": "item", "description": "Assets / inventory items (incl. warranty fields)" },
-    { "name": "maintenance", "description": "Scheduled + completed maintenance entries" },
-    { "name": "location", "description": "Rooms / areas" },
-    { "name": "label", "description": "Labels" }
+    { "name": "entity", "description": "Assets / inventory entities (incl. warranty + purchase fields)" },
+    { "name": "entity-type", "description": "Entity types; a type with isLocation=true is a Location" },
+    { "name": "maintenance", "description": "Scheduled + completed maintenance entries on an entity" },
+    { "name": "attachment", "description": "Files attached to an entity (manuals, warranty PDFs, photos)" }
   ],
   "paths": {
-    "/api/v1/items": {
+    "/api/v1/entities": {
       "get": {
-        "operationId": "getItems",
-        "summary": "List/search assets (supports q, page, pageSize, labels, locations query params)",
-        "tags": ["item"],
+        "operationId": "getEntities",
+        "summary": "List/search entities (assets + locations). Query: q, page, pageSize. Summary rows; GET one entity for warranty/purchase detail.",
+        "tags": ["entity"],
         "parameters": [
           { "name": "q", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Full-text search" },
           { "name": "page", "in": "query", "required": false, "schema": { "type": "integer" } },
           { "name": "pageSize", "in": "query", "required": false, "schema": { "type": "integer" } }
         ],
-        "responses": { "200": { "description": "Paginated items" } }
+        "responses": { "200": { "description": "Paginated entities ({ items: [...], total, ... })" } }
       },
       "post": {
-        "operationId": "createItem",
-        "summary": "Create an asset",
-        "tags": ["item"],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ItemCreate" } } } },
-        "responses": { "201": { "description": "Item created" } }
+        "operationId": "createEntity",
+        "summary": "Create an asset entity (minimal). Set entityTypeId to categorize and parentId to place it under a Location entity; PUT afterwards to set the rich fields.",
+        "tags": ["entity"],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EntityCreate" } } } },
+        "responses": { "201": { "description": "Entity created (returns its id)" } }
       }
     },
-    "/api/v1/items/{id}": {
+    "/api/v1/entities/{id}": {
       "get": {
-        "operationId": "getItem",
-        "summary": "Get one asset (full detail incl. warranty + purchase)",
-        "tags": ["item"],
-        "parameters": [ { "$ref": "#/components/parameters/itemId" } ],
-        "responses": { "200": { "description": "Item" } }
+        "operationId": "getEntity",
+        "summary": "Get one entity (full detail incl. warrantyExpires, lifetimeWarranty, warrantyDetails, purchase*, serial/model/manufacturer)",
+        "tags": ["entity"],
+        "parameters": [ { "$ref": "#/components/parameters/entityId" } ],
+        "responses": { "200": { "description": "Entity" } }
       },
       "put": {
-        "operationId": "updateItem",
-        "summary": "Update an asset (set serial/model, purchase, warrantyExpires, lifetimeWarranty, warrantyDetails)",
-        "tags": ["item"],
-        "parameters": [ { "$ref": "#/components/parameters/itemId" } ],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ItemUpdate" } } } },
-        "responses": { "200": { "description": "Item updated" } }
+        "operationId": "updateEntity",
+        "summary": "Update an entity (set serialNumber/modelNumber/manufacturer, purchase*, warrantyExpires, lifetimeWarranty, warrantyDetails, notes)",
+        "tags": ["entity"],
+        "parameters": [ { "$ref": "#/components/parameters/entityId" } ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EntityUpdate" } } } },
+        "responses": { "200": { "description": "Entity updated" } }
       },
       "delete": {
-        "operationId": "deleteItem",
-        "summary": "Delete an asset (destructive)",
-        "tags": ["item"],
-        "parameters": [ { "$ref": "#/components/parameters/itemId" } ],
-        "responses": { "204": { "description": "Item deleted" } }
+        "operationId": "deleteEntity",
+        "summary": "Delete an entity (destructive)",
+        "tags": ["entity"],
+        "parameters": [ { "$ref": "#/components/parameters/entityId" } ],
+        "responses": { "204": { "description": "Entity deleted" } }
       }
     },
-    "/api/v1/items/{id}/maintenance": {
+    "/api/v1/entities/{id}/maintenance": {
       "get": {
-        "operationId": "getItemMaintenance",
-        "summary": "List maintenance entries for an asset (status filter: scheduled|completed|both)",
+        "operationId": "getEntityMaintenance",
+        "summary": "List maintenance entries for an entity (status filter: scheduled|completed|both)",
         "tags": ["maintenance"],
         "parameters": [
-          { "$ref": "#/components/parameters/itemId" },
+          { "$ref": "#/components/parameters/entityId" },
           { "name": "status", "in": "query", "required": false, "schema": { "type": "string", "enum": ["scheduled", "completed", "both"] } }
         ],
         "responses": { "200": { "description": "Maintenance entries" } }
       },
       "post": {
-        "operationId": "createItemMaintenance",
+        "operationId": "createEntityMaintenance",
         "summary": "Create a maintenance entry (scheduled when scheduledDate set; completed when completedDate set)",
         "tags": ["maintenance"],
-        "parameters": [ { "$ref": "#/components/parameters/itemId" } ],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MaintenanceEntry" } } } },
+        "parameters": [ { "$ref": "#/components/parameters/entityId" } ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MaintenanceEntryCreate" } } } },
         "responses": { "201": { "description": "Maintenance entry created" } }
       }
     },
-    "/api/v1/locations": {
-      "get": {
-        "operationId": "getLocations",
-        "summary": "List locations (rooms / areas)",
-        "tags": ["location"],
-        "responses": { "200": { "description": "Locations" } }
-      },
+    "/api/v1/entities/{id}/attachments": {
       "post": {
-        "operationId": "createLocation",
-        "summary": "Create a location",
-        "tags": ["location"],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NamedCreate" } } } },
-        "responses": { "201": { "description": "Location created" } }
+        "operationId": "createEntityAttachment",
+        "summary": "Attach a file to an entity (multipart: file, type, name) — e.g. a Paperless warranty PDF or a nameplate photo",
+        "tags": ["attachment"],
+        "parameters": [ { "$ref": "#/components/parameters/entityId" } ],
+        "requestBody": { "required": true, "content": { "multipart/form-data": { "schema": { "type": "object", "additionalProperties": true, "properties": { "file": { "type": "string", "format": "binary" }, "type": { "type": "string" }, "name": { "type": "string" } } } } } },
+        "responses": { "201": { "description": "Attachment created" } }
       }
     },
-    "/api/v1/labels": {
+    "/api/v1/entity-types": {
       "get": {
-        "operationId": "getLabels",
-        "summary": "List labels",
-        "tags": ["label"],
-        "responses": { "200": { "description": "Labels" } }
+        "operationId": "getEntityTypes",
+        "summary": "List entity types (those with isLocation=true are Locations)",
+        "tags": ["entity-type"],
+        "responses": { "200": { "description": "Entity types" } }
       },
       "post": {
-        "operationId": "createLabel",
-        "summary": "Create a label",
-        "tags": ["label"],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NamedCreate" } } } },
-        "responses": { "201": { "description": "Label created" } }
+        "operationId": "createEntityType",
+        "summary": "Create an entity type; set isLocation=true to create a Location",
+        "tags": ["entity-type"],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EntityTypeCreate" } } } },
+        "responses": { "201": { "description": "Entity type created" } }
       }
     }
   },
   "components": {
     "parameters": {
-      "itemId": {
+      "entityId": {
         "name": "id",
         "in": "path",
         "required": true,
         "schema": { "type": "string" },
-        "description": "Item UUID"
+        "description": "Entity UUID"
       }
     },
     "schemas": {
-      "ItemCreate": {
+      "EntityCreate": {
         "type": "object",
         "additionalProperties": true,
-        "description": "Minimum to create an asset. locationId is required by HomeBox; labelIds optional.",
+        "description": "Minimum to create an entity (asset or location). Only name is required. entityTypeId categorizes it; parentId places it under a Location entity.",
         "properties": {
           "name": { "type": "string" },
           "description": { "type": "string" },
-          "locationId": { "type": "string", "description": "Location UUID" },
-          "labelIds": { "type": "array", "items": { "type": "string" } }
+          "entityTypeId": { "type": "string", "description": "Entity-type UUID (e.g. a 'Home System' type)" },
+          "parentId": { "type": "string", "description": "Parent entity UUID (a Location entity)" },
+          "quantity": { "type": "integer" },
+          "tagIds": { "type": "array", "items": { "type": "string" } }
         },
-        "required": ["name", "locationId"]
+        "required": ["name"]
       },
-      "ItemUpdate": {
+      "EntityUpdate": {
         "type": "object",
         "additionalProperties": true,
-        "description": "Full asset update. Warranty and purchase fields are the ones vila cares most about. Dates are RFC3339 (YYYY-MM-DD accepted).",
+        "description": "Full entity update. Warranty + purchase fields are what vila cares most about. Dates are YYYY-MM-DD.",
         "properties": {
           "id": { "type": "string" },
           "name": { "type": "string" },
           "description": { "type": "string" },
+          "entityTypeId": { "type": "string" },
+          "parentId": { "type": "string" },
           "serialNumber": { "type": "string" },
           "modelNumber": { "type": "string" },
           "manufacturer": { "type": "string" },
-          "locationId": { "type": "string" },
-          "labelIds": { "type": "array", "items": { "type": "string" } },
           "purchaseFrom": { "type": "string" },
           "purchasePrice": { "type": "number" },
-          "purchaseTime": { "type": "string", "description": "YYYY-MM-DD" },
+          "purchaseDate": { "type": "string", "description": "YYYY-MM-DD" },
           "warrantyExpires": { "type": "string", "description": "YYYY-MM-DD — the date the vila digest watches" },
           "warrantyDetails": { "type": "string" },
           "lifetimeWarranty": { "type": "boolean" },
-          "notes": { "type": "string" }
+          "notes": { "type": "string" },
+          "quantity": { "type": "integer" },
+          "tagIds": { "type": "array", "items": { "type": "string" } }
         },
-        "required": ["id", "name", "locationId"]
+        "required": ["name"]
       },
-      "MaintenanceEntry": {
+      "EntityTypeCreate": {
         "type": "object",
         "additionalProperties": true,
-        "description": "A maintenance entry. Set scheduledDate for an upcoming task; set completedDate (and optionally cost) when done.",
+        "description": "Create an entity type. isLocation=true makes it a Location.",
+        "properties": {
+          "name": { "type": "string" },
+          "isLocation": { "type": "boolean" },
+          "icon": { "type": "string" }
+        },
+        "required": ["name"]
+      },
+      "MaintenanceEntryCreate": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "A maintenance entry on an entity. Set scheduledDate for an upcoming task; set completedDate (and optionally cost) when done.",
         "properties": {
           "name": { "type": "string" },
           "description": { "type": "string" },
           "scheduledDate": { "type": "string", "description": "YYYY-MM-DD" },
           "completedDate": { "type": "string", "description": "YYYY-MM-DD" },
           "cost": { "type": "number" }
-        },
-        "required": ["name"]
-      },
-      "NamedCreate": {
-        "type": "object",
-        "additionalProperties": true,
-        "properties": {
-          "name": { "type": "string" },
-          "description": { "type": "string" }
         },
         "required": ["name"]
       }

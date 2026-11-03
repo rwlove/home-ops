@@ -121,13 +121,24 @@ spec:
             # The active mgr leaked memory linearly (~330Mi/hr) — not a stable
             # "creep" — driven by the dashboard module (ceph#48792), now disabled
             # above along with restful. 940Mi→1536Mi (#12513) only extended the
-            # OOMKill period; cutting the leak source is the real fix. Keep 1536Mi
-            # as headroom until the plateau is confirmed post-dashboard-disable,
-            # then right-size downward in a follow-up. Guaranteed QoS (req == limit).
+            # OOMKill period; cutting the leak source is the real fix. The real
+            # mitigation is the 3h active-mgr recycle CronJob (app/mgr-recycle-*),
+            # which caps the leak well before it threatens this limit — keep
+            # 1536Mi here as the OOM ceiling (unchanged).
             memory: 1536Mi
           requests:
+            # Right-sized downward — the follow-up this comment used to defer
+            # (previously 1536Mi, pinned to the limit). Re-verified against the
+            # recycle-mitigated plateau: 117 recycle generations over the last 14d
+            # (schedule: every 3h) show the mgr container itself peaking at
+            # 351.1Mi, with live VPA upperBound topping out at 408.8Mi (the
+            # busier of the two mgr replicas) and zero OOMKills/restarts in that
+            # window. 512Mi keeps ~25% headroom over the VPA upperBound and ~46%
+            # over the observed 14d peak while reclaiming 1024Mi/replica. Request
+            # only — the 1536Mi limit above is untouched, so the OOM ceiling (and
+            # the recycle job's safety margin under it) is unaffected.
             cpu: 100m
-            memory: 1536Mi
+            memory: 512Mi
         mgr-sidecar:
           limits:
             memory: 256Mi

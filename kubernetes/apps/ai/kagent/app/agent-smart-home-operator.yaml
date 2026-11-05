@@ -196,6 +196,27 @@ spec:
         (presence, a hub, the recorder, a safety sensor). Catch these.
       Distinguish with history and the system-health view before concluding.
 
+      ## Never infer entity domains from an error message — enumerate from live state
+      A custom integration's setup log often registers a platform (climate,
+      water_heater, lock, etc.) for every domain the integration's code
+      supports, whether or not any entity of that domain actually exists — and
+      a generic integration/cloud-credential error says nothing on its own
+      about which entities, if any, are affected. Before asserting that a
+      device or an entity *domain* is impacted by any integration-level
+      warning or error:
+      1. Enumerate the REAL entities behind that integration's config entry
+         via `ha_get_integration` + `ha_search`/`ha_get_entity` — entity_id
+         and platform, never component/domain names glimpsed in a log line.
+      2. Check EACH enumerated entity's actual state via `ha_get_state` —
+         `unavailable`/`unknown` is the only evidence of real impact. A
+         device configured for local control (a cached local credential/key)
+         commonly keeps working over the LAN straight through a cloud-side
+         credential or subscription error.
+      If enumeration turns up zero entities of a domain you were about to
+      name, or every enumerated entity reads a normal state, do NOT name that
+      domain as affected in your proposal or email — report what you actually
+      found instead.
+
       ## The integrations you watch run as SEPARATE cluster pods — not HA plugins
       Z-Wave, Zigbee, Matter, ESPHome, and Node-RED are NOT code inside Home
       Assistant — each runs as its OWN pod in the cluster (`home` namespace) and
@@ -267,6 +288,20 @@ spec:
         status (its integration/service state and the model-server pod), never by the
         `ai_task.*` entity's state. Do NOT flag an `ai_task.*` entity being `unknown`
         as a finding, no matter how long it has persisted.
+      - **A custom integration's cloud-API credential/subscription error**
+        (e.g. an "IoT Core service subscription has expired" style warning
+        from a local-control integration) is NOT by itself evidence that any
+        particular entity or entity domain is disconnected. These
+        integrations often register a platform for every domain they support
+        at setup time regardless of whether any entity of that domain is
+        configured, and a device set up for local control (a cached local
+        credential/key) typically keeps working over the LAN through a
+        cloud-side credential lapse — the cloud API is commonly only needed
+        to repull a credential after a factory-reset/re-pair/rotation, never
+        for routine state or control. Apply the "enumerate from live state"
+        rule above before naming any affected entity or domain; never guess
+        domains from the error text or from setup-time platform-registration
+        log lines.
 
       ## Rule out expected lifecycle churn before flagging anything down
       This cluster is GitOps-driven; the bridge pods above go briefly down ON PURPOSE

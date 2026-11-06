@@ -81,6 +81,45 @@ stale reference in the annotation, before opening a removal PR.
   the PR — a green run is the confirmation, a red run means the
   workaround still earns its keep. Don't `--admin`-merge past it.
 
+## Container-fork retirement
+
+Some workarounds are a **carry-patch fork image** we build in the
+`containers` repo (`ghcr.io/rwlove/<name>`) to patch an upstream bug.
+The `# workaround:` annotation lives in the home-ops HelmRelease, but
+the fork *source* lives in a different repo — so it has its own
+retirement path. First classify the `ghcr.io/rwlove/*` image the
+HelmRelease points at; only one of three kinds retires:
+
+- **First-party own-code** (Rob's apps — pump*, aquapured, the media
+  tools, the first-party MCP servers). Not a fork. Never retires.
+- **Perpetual packaging wrapper** — exists because upstream ships **no
+  pullable image** (private/none), or we add a transport it lacks
+  (e.g. comfyui-mcp, netbox-mcp, time-mcp, esphome-mcp). An upstream
+  *bug-fix* does not remove the need — keep building. (A wrapper may
+  still carry an internal patch — then retire just the patch, not the
+  image.)
+- **Bug-fix fork** — exists only to patch an upstream defect. The only
+  retirement candidate.
+
+Retire a bug-fix fork only when upstream **merges the fix AND ships a
+release** containing it — same "closed ≠ shipped" rule as above.
+"Merged to main, unreleased" is not retireable; don't re-cut the fork
+off main to get it sooner — wait for the tag. When it ships, in one PR:
+
+1. Confirm upstream **publishes a pullable image** at the fixed tag. If
+   it doesn't, the fork drops to a packaging wrapper (rebuild clean off
+   the release, drop the patch) — it does not fully retire.
+2. Repoint the HelmRelease `image` from `ghcr.io/rwlove/<name>` to the
+   upstream image; remove the `# workaround:` annotation.
+3. `Closes #N` the tracking issue.
+4. **Archive the `containers` subproject** and stop its Renovate
+   auto-release so a dead fork doesn't keep rebuilding.
+
+If a fork's internal patch has **no** `# workaround:` annotation and no
+tracking issue (an invisible workaround — e.g. the esphome-mcp
+None-guard patch), file the tracking issue first; an un-annotated patch
+is outside this skill's scan and will silently never retire.
+
 ## What this is NOT
 
 - Not a general bug-watcher — only tracks code we've explicitly

@@ -281,6 +281,28 @@ spec:
       finding is "my Prometheus returned nothing" is almost always this mistake, not an
       outage: treat it as a tooling bug to correct silently, not a problem to email.
 
+      ## A failed tool call is YOUR blind spot too — never abort the whole run on one
+      The Prometheus discipline above applies to EVERY tool, especially the
+      Kubernetes/CRD reads (`k8s_get_resources`). A get that errors is almost never proof
+      of "missing RBAC" or "the operator isn't running" — your tool identity reads the
+      cluster at admin scope, so a single failure far more often means a wrong or RETIRED
+      resource-kind name, or a transient. Before you EVER cite RBAC or a dead operator as
+      the cause:
+      1. **Don't guess CRD kinds — enumerate them.** Call
+         `k8s_get_available_api_resources` and use the kind names it actually serves. CRD
+         APIs get renamed and retired across versions — an older BGP peering kind replaced
+         by a newer peering/advertisement model is the classic trap — and querying a kind
+         that no longer exists errors in a way that *looks* like an outage but is a stale
+         name on your side. Discover the real served kinds first, then get those.
+      2. **One failed source NEVER aborts the run.** A tool call that fails is a single
+         finding to note and route around — continue with every OTHER source (Prometheus,
+         Omada, NetBox, memory, the repo); they are independent. NEVER collapse an early
+         failure into a global "no telemetry / no usable data / run aborted" verdict:
+         declaring every source dead because the first one errored is itself a false page.
+         Only after you have actually called and failed EVERY independent source may you
+         report a broad outage — and even then name each source and its exact error, never
+         a blanket "nothing is reachable."
+
       ## Rule out expected lifecycle churn before flagging anything down
       This cluster is GitOps-driven; things go briefly down ON PURPOSE. Before you
       report a pod / service / target as down or missing, rule out EXPECTED churn: an

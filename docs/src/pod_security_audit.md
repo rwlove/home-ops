@@ -7,9 +7,10 @@ measured-clean middle tier) **SHIPPED (#15671)**; Phase 3 — the fleet-wide sec
 sweep (#15674/#15673/#15702) and `enforce: restricted` on auth + external-secrets
 (#15701/#15703) — **SHIPPED (2026-11-08)**. mcp-system and selfhosted remain at
 baseline by design (upstream-chart broker / grocy s6 cannot run non-root). Phase 2's
-`actions-runner-system` caveat (flagged below) fired same-day — see **Phase 2
-follow-up** — proposed fix is the `actions-runner-privileged` namespace carve-out
-(PR pending, not yet merged).
+`actions-runner-system` caveat (flagged below) fired same-day — the
+`actions-runner-privileged` namespace carve-out (#15712) **SHIPPED (2026-11-08)** —
+see **Phase 2 follow-up**. That carve-out had its own CNP gap (the cross-namespace
+listener pod left uncovered by default-deny); the fix is proposed, PR pending.
 Owner: home-ops
 Last updated: 2026-11-08
 
@@ -21,7 +22,7 @@ Last updated: 2026-11-08
   nothing; blocks an accidental blanket-restricted from silently rejecting these) —
   `ai`, `collab`, `home`, `network`, `media`, `storage`, `downloads`, `observability`,
   `longhorn-system`, `rook-ceph`, `kube-system`. `vpn` was already enforce-privileged.
-  `actions-runner-privileged` is proposed to join this tier (see **Phase 2
+  `actions-runner-privileged` joined this tier via #15712 (see **Phase 2
   follow-up**) — unlike the others here, it is a single-purpose carve-out (one
   privileged workload, nothing else resident), so `audit`/`warn` are pinned to
   `privileged` too rather than held at a tighter target, matching `vpn`'s pattern.
@@ -44,7 +45,7 @@ and `istio-system` — all verified baseline-clean live, zero rejections on reco
 (`actions-runner-system` caveat: a future CI workflow requesting a privileged/dind
 runner pod will now be rejected — intended, no privileged CI.)
 
-### Phase 2 follow-up — `actions-runner-privileged` carve-out (proposed, PR pending)
+### Phase 2 follow-up — `actions-runner-privileged` carve-out (SHIPPED — #15712, 2026-11-08)
 
 The Phase 2 caveat above fired the same day it shipped: `arc-runner-set-containers`
 (the dind image-builder runner set for the private `rwlove/containers` repo) is
@@ -66,6 +67,23 @@ removal for the mechanics; the ARC controller itself is not duplicated — one
 controller manages `AutoscalingRunnerSet`s across namespaces via the chart's
 `controllerServiceAccount` cross-namespace reference, which is the chart's documented
 mechanism for exactly this case.
+
+**CNP gap found post-merge (fix proposed, PR pending):** that cross-namespace
+mechanism has a consequence #15712 missed — for a runner set whose
+`controllerServiceAccount` points at a controller in a different namespace, the
+chart creates the **AutoscalingListener pod in the controller's namespace**
+(`actions-runner-system`), not the runner set's own namespace
+(`actions-runner-privileged`). #15712 moved `arc-runner-set-containers-allow`
+(the egress-allow CNP for that pod label) to `actions-runner-privileged` along
+with the `EphemeralRunner` pods, leaving the listener — still carrying the same
+`app.kubernetes.io/name: arc-runner-set-containers` label, but now running in
+`actions-runner-system` — caught by that namespace's `default-deny`. Its POST
+to `api.github.com/app/installations/.../access_tokens` timed out on every
+retry and it never scaled up a runner, so `rwlove/containers` CI stayed
+`QUEUED` even after #15712 merged. Fix: a second allow-CNP,
+`arc-runner-set-containers-listener-allow`, scoped to `actions-runner-system`
+(see `kubernetes/apps/actions-runner-system/actions-runner-controller/runners/cnp-containers-listener.yaml`),
+mirroring `arc-runner-set-home-ops-allow`'s egress shape.
 
 ### Phase 3 (SHIPPED — 2026-11-08)
 
@@ -355,7 +373,7 @@ labeled too (previously out of scope); `cilium-secrets` (never schedules pods) a
 
 | Namespace | Target level | Rationale |
 |---|---|---|
-| `actions-runner-privileged` | `privileged` | Single-purpose carve-out from `actions-runner-system` (proposed, PR pending — Phase 2 follow-up above); sole resident is the dind image-builder runner set, inherently privileged |
+| `actions-runner-privileged` | `privileged` | Single-purpose carve-out from `actions-runner-system` (#15712 — Phase 2 follow-up above); sole resident is the dind image-builder runner set, inherently privileged |
 | `actions-runner-system` | `baseline` | ARC runners spawn user-defined workloads |
 | `ai` | `restricted` | App-template HRs; partially hardened |
 | `auth` | `restricted` | Authelia + LLDAP already meet baseline |

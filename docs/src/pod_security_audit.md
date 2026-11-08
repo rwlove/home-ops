@@ -3,15 +3,17 @@
 Status: **PSS Phase 0 + Phase 1 SHIPPED (#15666, 2026-11-08).** `warn` now set at
 each namespace's target level across all 23 labeled namespaces; `enforce` rolled
 out where live measurement showed zero rejections. Phase 2 (baseline-enforce on the
-measured-clean middle tier) **SHIPPED (#15671, 2026-11-08)**; Phase 3 (seccomp sweep
-→ restricted) is **IN PROGRESS**.
+measured-clean middle tier) **SHIPPED (#15671)**; Phase 3 — the fleet-wide seccomp
+sweep (#15674/#15673/#15702) and `enforce: restricted` on auth + external-secrets
+(#15701/#15703) — **SHIPPED (2026-11-08)**. mcp-system and selfhosted remain at
+baseline by design (upstream-chart broker / grocy s6 cannot run non-root).
 Owner: home-ops
 Last updated: 2026-11-08
 
 ## Rollout status (post-#15666)
 
-- **`enforce: restricted`** — `cert-manager`, `renovate`, `tools` (all running pods
-  plus renovate's Job workers verified restricted-clean).
+- **`enforce: restricted`** — `cert-manager`, `renovate`, `tools`, `auth`,
+  `external-secrets` (all verified restricted-clean live, every container incl. inits).
 - **`enforce: privileged`** (pinned to document intent — admits every pod, rejects
   nothing; blocks an accidental blanket-restricted from silently rejecting these) —
   `ai`, `collab`, `home`, `network`, `media`, `storage`, `downloads`, `observability`,
@@ -20,11 +22,12 @@ Last updated: 2026-11-08
   controller pod could not be fixed through GitOps (the controller that reconciles the
   fix is the one that would be down), so this namespace is a deliberate SPOF carve-out
   and stays at warn/audit permanently.
-- **`enforce: baseline` (Phase 2, #15671)** — `auth`, `external-secrets`, `mcp-system`,
-  `selfhosted`, `databases`, `actions-runner-system`, and `istio-system`. Each measured
-  baseline-clean live. `istio-system` was unblocked by confirming **no `istio-cni`
-  DaemonSet exists** in the cluster (verified 2026-11-08), so there is no privileged
-  installer to tolerate.
+- **`enforce: baseline`** — `mcp-system`, `selfhosted`, `databases`,
+  `actions-runner-system`, `istio-system`. (`auth`/`external-secrets` moved to
+  restricted in Phase 3, #15703.) `mcp-system` (operator-created broker + Istio Envoy
+  pod) and `selfhosted` (grocy LinuxServer s6 image) cannot run non-root, so they are
+  terminal at baseline. `istio-system` was unblocked by confirming **no `istio-cni`
+  DaemonSet exists** in the cluster (verified 2026-11-08).
 
 ### Phase 2 (SHIPPED — #15671, 2026-11-08)
 
@@ -34,21 +37,23 @@ and `istio-system` — all verified baseline-clean live, zero rejections on reco
 (`actions-runner-system` caveat: a future CI workflow requesting a privileged/dind
 runner pod will now be rejected — intended, no privileged CI.)
 
-### Phase 3 (IN PROGRESS)
+### Phase 3 (SHIPPED — 2026-11-08)
 
-Remediation-gated tightening, cheapest lever first:
-
-1. **seccomp sweep (in progress)** — adding `seccompProfile: RuntimeDefault` at the pod
-   level to the app-template workloads that fail `restricted` on seccomp (and run
-   non-root), split into a non-household batch (merge-now) and a timed household batch.
-   This is the prerequisite for every `restricted` flip.
-2. **baseline-clean → restricted** — after the full container-level block lands per
-   chart, flip `auth`, `external-secrets`, `mcp-system`, `selfhosted` to
-   `enforce: restricted`. (`databases` / `actions-runner-system` stay baseline by design.)
-3. **privileged → baseline** for the one-workload-pinned namespaces — remediate the
-   single cap-adding / UID-0 workload, then flip; if the app genuinely needs the
-   elevation, the namespace stays privileged (accept + document).
-4. **`ai` / `collab` → restricted** — only after (2)+(3) and the seccomp sweep.
+1. **seccomp sweep** — `seccompProfile: RuntimeDefault` added fleet-wide to the
+   app-template workloads (#15674 non-household, #15673 household). Two issues, both
+   caught and corrected: one authelia crashloop — a bare `controllers.<app>.pod.securityContext`
+   dropped the inherited `fsGroup`/`runAsUser` — reverted (#15699) and re-done correctly
+   inside `defaultPodOptions` (#15701); and a *silent* non-root regression on 8 mcp-system
+   servers + mqtt-exporter (same bare-block mechanism, no crash), restored (#15702).
+   immich (non-app-template, runs as root) is seccomp-only and held for an off-peak
+   merge (#15707).
+2. **`auth` + `external-secrets` → `enforce: restricted`** (#15703) — after the
+   remediation in #15701 (authelia re-harden, ESO non-root) made every container
+   restricted-clean. `databases` / `actions-runner-system` stay baseline by design;
+   `mcp-system` / `selfhosted` cannot reach restricted (upstream broker / grocy s6).
+3. **Not pursued** — `privileged → baseline` on the one-workload-pinned namespaces and
+   `ai` / `collab` → restricted would each require remediating a cap-adding / UID-0
+   workload; deferred as net-new hardening rather than done in this pass.
 
 `home`, `network`, `downloads`, `observability`, `storage`, `kube-system`,
 `longhorn-system`, `rook-ceph`, `vpn` are **terminal at privileged** — architectural

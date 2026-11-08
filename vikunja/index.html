@@ -595,6 +595,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Auth model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#authelia-side-client-registration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Authelia-side client registration
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2304,6 +2321,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Auth model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#authelia-side-client-registration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Authelia-side client registration
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2418,6 +2452,24 @@ reflected from <code>databases</code> into <code>collab</code>.</p>
 </ul>
 <p>The OIDC redirect URI Authelia must allow is derived from the public URL plus the
 provider key: <code>https://vikunja.${SECRET_DOMAIN}/auth/openid/authelia</code>.</p>
+<h3 id="authelia-side-client-registration">Authelia-side client registration<a class="headerlink" href="#authelia-side-client-registration" title="Permanent link">&para;</a></h3>
+<p>Unlike most of this app's config, the Authelia OIDC <strong>client</strong> registration for
+<code>vikunja</code> (<code>client_id</code>, redirect URI, scopes, and the argon2id hash of
+<code>OIDC_CLIENT_SECRET</code>) is <strong>not</strong> a Git-managed resource. It lives entirely in the
+<code>authelia</code> 1Password item's <code>OIDC_CLIENTS_YAML</code> field, which
+<code>kubernetes/apps/auth/authelia/app/externalsecret.yaml</code> renders verbatim to
+<code>/secrets/clients.yml</code> and Authelia merges via <code>--config</code>. See that file's comments
+for why (keeps every client's secret hash out of git by design, not by oversight)
+and <code>kubernetes/apps/auth/authelia/app/configmap.yaml</code>'s <code>access_control</code> comment
+for why native-OIDC clients like this one aren't governed by that block — they
+carry their own <code>authorization_policy</code> (<code>admin_only</code>, gating to Robert's
+<code>lldap_admin</code> group, mirroring <code>netbox</code> and other admin-tier native-OIDC clients
+in the same 1Password field).</p>
+<p>Changing or rotating this client is a 1Password-item edit, not a PR — there is
+nothing under <code>kubernetes/apps/auth/authelia/</code> to update for a client add/change
+alone. Bump the <code>force-sync</code> annotation timestamp on the <code>authelia</code> ExternalSecret
+in the same operation so ESO refetches immediately instead of waiting out its 1h
+<code>refreshInterval</code>.</p>
 <h2 id="spof-note">SPOF note<a class="headerlink" href="#spof-note" title="Permanent link">&para;</a></h2>
 <p>Vikunja + its CNPG cluster become a dependency for the fleet's task read/write path.
 Mitigations in place: CNPG 3-instance with weekly Barman backup, Longhorn files PVC

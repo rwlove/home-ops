@@ -1,27 +1,10 @@
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/persistentvolumeclaim-v1.json
-#
-# Dynamic Longhorn PVC (no volumeName) — Longhorn provisions a fresh volume via
-# the vikunja-data StorageClass on first bind. See storage-class.yaml for the
-# durability rationale (2 replicas, auto `default` recurring-job group).
-#
-# Originally shipped (PR #15661) as a STATIC bind (volumeName: vikunja-data-pv,
-# volumeHandle: vikunja-data-xfs) copying the jellyfin-migration pattern. That
-# pattern requires a pre-existing Longhorn `Volume` CR under
-# kubernetes/apps/longhorn-system/longhorn/volumes/ (see that dir's
-# kustomization comment: the CSI driver does not auto-create the backend
-# Volume object for a static PV) — greenfield Vikunja had neither the backing
-# volume nor that CR, so AttachVolume failed `NotFound` and vikunja-0 stuck
-# Init:0/1. Switched to dynamic provisioning (mirrors grocy-config /
-# homebox-data): no pre-existing volume needed, Longhorn creates and attaches
-# one itself.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   namespace: collab
   name: vikunja-data-pvc
-  labels:
-    type: longhorn
 spec:
   accessModes:
     - ReadWriteOnce
@@ -29,4 +12,31 @@ spec:
   resources:
     requests:
       storage: 5Gi
-  storageClassName: vikunja-data
+  volumeName: vikunja-data-pv
+  storageClassName: vikunja-data-storage-class
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: vikunja-data-pv
+  labels:
+    type: longhorn
+    recurring-job-group.longhorn.io/weekly-backup: enabled
+    recurring-job-group.longhorn.io/daily-snapshot: enabled
+    recurring-job-group.longhorn.io/weekly-filesystem-trim: enabled
+spec:
+  capacity:
+    storage: 5Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: vikunja-data-storage-class
+  csi:
+    driver: driver.longhorn.io
+    fsType: xfs
+    volumeAttributes:
+      numberOfReplicas: "2"
+      staleReplicaTimeout: "2880"
+    volumeHandle: vikunja-data-xfs

@@ -22,6 +22,15 @@ spec:
         runAsGroup: 1000
         runAsNonRoot: true
         runAsUser: 1000
+        # Re-adds the seccomp reverted in #15699. That revert failed because
+        # #15674 placed a bare controllers.authelia.pod.securityContext block
+        # (seccomp-only) which REPLACES this defaultPodOptions block, dropping
+        # fsGroup/runAsUser and crashlooping the chown/setgroups. Setting
+        # seccompProfile HERE keeps every identity field intact and still
+        # inherits to app, init-db, and the injected k8tz init container —
+        # the documented correct path. (PSS-restricted prereq for auth ns.)
+        seccompProfile:
+          type: RuntimeDefault
       # HA: keep the two replicas on separate nodes so a single node
       # loss (or a stale-endpoint pod) can't take down all extAuth at
       # once — see the 2026-09-27 outage.
@@ -53,6 +62,11 @@ spec:
             envFrom: &envFrom
               - secretRef:
                   name: authelia-secret
+            # Container-level fields PSS-restricted requires but that cannot
+            # inherit from the pod (seccomp does inherit from defaultPodOptions).
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities: {drop: ["ALL"]}
         containers:
           app:
             image:

@@ -1,0 +1,47 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: arc-runner-set-containers-listener-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: arc-runner-set-containers
+  # Gap found post-#15712: that PR moved arc-runner-set-containers' EphemeralRunner
+  # pods (and their egress-allow CNP) to actions-runner-privileged, but the
+  # AutoscalingListener pod for a cross-namespace runner set (one whose
+  # controllerServiceAccount points at a controller in a DIFFERENT namespace,
+  # see containers.yaml in actions-runner-privileged) is created by the
+  # controller in the CONTROLLER's namespace — actions-runner-system — not the
+  # runner set's own namespace. That listener pod still carries the chart's
+  # `app.kubernetes.io/name: arc-runner-set-containers` label, so with no
+  # allow-CNP left for that label in this namespace it was caught by
+  # actions-runner-system's default-deny: its POST to
+  # api.github.com/app/installations/.../access_tokens timed out on every
+  # retry and it never scaled up a runner — rwlove/containers CI stayed
+  # QUEUED even after #15712 merged.
+  #
+  # Mirrors arc-runner-set-home-ops-allow's structure/selector (the working
+  # reference for a listener in this namespace) rather than the narrower
+  # world:443-only shape used by actions-runner-controller-allow, so this
+  # doesn't reopen the same failure mode if the Actions listener protocol
+  # needs a GitHub host beyond api.github.com (e.g. the pipelines/actions
+  # service). Broader than this pod strictly needs — it only talks to
+  # GitHub's API/services, never fetches arbitrary workflow dependencies —
+  # but matching the proven-working pattern is the lower-risk fix after one
+  # outage already from an under-scoped egress hole. Worth revisiting when
+  # actions-runner-controller-allow's narrower api.github.com-only shape is
+  # confirmed sufficient for a listener too.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    - toFQDNs:
+        - matchPattern: "*"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "80"
+              protocol: TCP

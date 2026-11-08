@@ -1749,10 +1749,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#phase-3-in-progress" class="md-nav__link">
+  <a href="#phase-3-shipped--2026-11-08" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Phase 3 (IN PROGRESS)
+        Phase 3 (SHIPPED — 2026-11-08)
       
     </span>
   </a>
@@ -2547,10 +2547,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#phase-3-in-progress" class="md-nav__link">
+  <a href="#phase-3-shipped--2026-11-08" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Phase 3 (IN PROGRESS)
+        Phase 3 (SHIPPED — 2026-11-08)
       
     </span>
   </a>
@@ -2857,14 +2857,16 @@
 <p>Status: <strong>PSS Phase 0 + Phase 1 SHIPPED (#15666, 2026-11-08).</strong> <code>warn</code> now set at
 each namespace's target level across all 23 labeled namespaces; <code>enforce</code> rolled
 out where live measurement showed zero rejections. Phase 2 (baseline-enforce on the
-measured-clean middle tier) <strong>SHIPPED (#15671, 2026-11-08)</strong>; Phase 3 (seccomp sweep
-→ restricted) is <strong>IN PROGRESS</strong>.
+measured-clean middle tier) <strong>SHIPPED (#15671)</strong>; Phase 3 — the fleet-wide seccomp
+sweep (#15674/#15673/#15702) and <code>enforce: restricted</code> on auth + external-secrets
+(#15701/#15703) — <strong>SHIPPED (2026-11-08)</strong>. mcp-system and selfhosted remain at
+baseline by design (upstream-chart broker / grocy s6 cannot run non-root).
 Owner: home-ops
 Last updated: 2026-11-08</p>
 <h2 id="rollout-status-post-15666">Rollout status (post-#15666)<a class="headerlink" href="#rollout-status-post-15666" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong><code>enforce: restricted</code></strong> — <code>cert-manager</code>, <code>renovate</code>, <code>tools</code> (all running pods
-  plus renovate's Job workers verified restricted-clean).</li>
+<li><strong><code>enforce: restricted</code></strong> — <code>cert-manager</code>, <code>renovate</code>, <code>tools</code>, <code>auth</code>,
+  <code>external-secrets</code> (all verified restricted-clean live, every container incl. inits).</li>
 <li><strong><code>enforce: privileged</code></strong> (pinned to document intent — admits every pod, rejects
   nothing; blocks an accidental blanket-restricted from silently rejecting these) —
   <code>ai</code>, <code>collab</code>, <code>home</code>, <code>network</code>, <code>media</code>, <code>storage</code>, <code>downloads</code>, <code>observability</code>,
@@ -2873,11 +2875,12 @@ Last updated: 2026-11-08</p>
   controller pod could not be fixed through GitOps (the controller that reconciles the
   fix is the one that would be down), so this namespace is a deliberate SPOF carve-out
   and stays at warn/audit permanently.</li>
-<li><strong><code>enforce: baseline</code> (Phase 2, #15671)</strong> — <code>auth</code>, <code>external-secrets</code>, <code>mcp-system</code>,
-  <code>selfhosted</code>, <code>databases</code>, <code>actions-runner-system</code>, and <code>istio-system</code>. Each measured
-  baseline-clean live. <code>istio-system</code> was unblocked by confirming <strong>no <code>istio-cni</code>
-  DaemonSet exists</strong> in the cluster (verified 2026-11-08), so there is no privileged
-  installer to tolerate.</li>
+<li><strong><code>enforce: baseline</code></strong> — <code>mcp-system</code>, <code>selfhosted</code>, <code>databases</code>,
+  <code>actions-runner-system</code>, <code>istio-system</code>. (<code>auth</code>/<code>external-secrets</code> moved to
+  restricted in Phase 3, #15703.) <code>mcp-system</code> (operator-created broker + Istio Envoy
+  pod) and <code>selfhosted</code> (grocy LinuxServer s6 image) cannot run non-root, so they are
+  terminal at baseline. <code>istio-system</code> was unblocked by confirming <strong>no <code>istio-cni</code>
+  DaemonSet exists</strong> in the cluster (verified 2026-11-08).</li>
 </ul>
 <h3 id="phase-2-shipped--15671-2026-11-08">Phase 2 (SHIPPED — #15671, 2026-11-08)<a class="headerlink" href="#phase-2-shipped--15671-2026-11-08" title="Permanent link">&para;</a></h3>
 <p><code>enforce: baseline</code> applied to the measured-clean middle tier — <code>auth</code>,
@@ -2885,20 +2888,23 @@ Last updated: 2026-11-08</p>
 and <code>istio-system</code> — all verified baseline-clean live, zero rejections on reconcile.
 (<code>actions-runner-system</code> caveat: a future CI workflow requesting a privileged/dind
 runner pod will now be rejected — intended, no privileged CI.)</p>
-<h3 id="phase-3-in-progress">Phase 3 (IN PROGRESS)<a class="headerlink" href="#phase-3-in-progress" title="Permanent link">&para;</a></h3>
-<p>Remediation-gated tightening, cheapest lever first:</p>
+<h3 id="phase-3-shipped--2026-11-08">Phase 3 (SHIPPED — 2026-11-08)<a class="headerlink" href="#phase-3-shipped--2026-11-08" title="Permanent link">&para;</a></h3>
 <ol>
-<li><strong>seccomp sweep (in progress)</strong> — adding <code>seccompProfile: RuntimeDefault</code> at the pod
-   level to the app-template workloads that fail <code>restricted</code> on seccomp (and run
-   non-root), split into a non-household batch (merge-now) and a timed household batch.
-   This is the prerequisite for every <code>restricted</code> flip.</li>
-<li><strong>baseline-clean → restricted</strong> — after the full container-level block lands per
-   chart, flip <code>auth</code>, <code>external-secrets</code>, <code>mcp-system</code>, <code>selfhosted</code> to
-   <code>enforce: restricted</code>. (<code>databases</code> / <code>actions-runner-system</code> stay baseline by design.)</li>
-<li><strong>privileged → baseline</strong> for the one-workload-pinned namespaces — remediate the
-   single cap-adding / UID-0 workload, then flip; if the app genuinely needs the
-   elevation, the namespace stays privileged (accept + document).</li>
-<li><strong><code>ai</code> / <code>collab</code> → restricted</strong> — only after (2)+(3) and the seccomp sweep.</li>
+<li><strong>seccomp sweep</strong> — <code>seccompProfile: RuntimeDefault</code> added fleet-wide to the
+   app-template workloads (#15674 non-household, #15673 household). Two issues, both
+   caught and corrected: one authelia crashloop — a bare <code>controllers.&lt;app&gt;.pod.securityContext</code>
+   dropped the inherited <code>fsGroup</code>/<code>runAsUser</code> — reverted (#15699) and re-done correctly
+   inside <code>defaultPodOptions</code> (#15701); and a <em>silent</em> non-root regression on 8 mcp-system
+   servers + mqtt-exporter (same bare-block mechanism, no crash), restored (#15702).
+   immich (non-app-template, runs as root) is seccomp-only and held for an off-peak
+   merge (#15707).</li>
+<li><strong><code>auth</code> + <code>external-secrets</code> → <code>enforce: restricted</code></strong> (#15703) — after the
+   remediation in #15701 (authelia re-harden, ESO non-root) made every container
+   restricted-clean. <code>databases</code> / <code>actions-runner-system</code> stay baseline by design;
+   <code>mcp-system</code> / <code>selfhosted</code> cannot reach restricted (upstream broker / grocy s6).</li>
+<li><strong>Not pursued</strong> — <code>privileged → baseline</code> on the one-workload-pinned namespaces and
+   <code>ai</code> / <code>collab</code> → restricted would each require remediating a cap-adding / UID-0
+   workload; deferred as net-new hardening rather than done in this pass.</li>
 </ol>
 <p><code>home</code>, <code>network</code>, <code>downloads</code>, <code>observability</code>, <code>storage</code>, <code>kube-system</code>,
 <code>longhorn-system</code>, <code>rook-ceph</code>, <code>vpn</code> are <strong>terminal at privileged</strong> — architectural

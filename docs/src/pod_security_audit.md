@@ -6,7 +6,10 @@ out where live measurement showed zero rejections. Phase 2 (baseline-enforce on 
 measured-clean middle tier) **SHIPPED (#15671)**; Phase 3 — the fleet-wide seccomp
 sweep (#15674/#15673/#15702) and `enforce: restricted` on auth + external-secrets
 (#15701/#15703) — **SHIPPED (2026-11-08)**. mcp-system and selfhosted remain at
-baseline by design (upstream-chart broker / grocy s6 cannot run non-root).
+baseline by design (upstream-chart broker / grocy s6 cannot run non-root). Phase 2's
+`actions-runner-system` caveat (flagged below) fired same-day — see **Phase 2
+follow-up** — proposed fix is the `actions-runner-privileged` namespace carve-out
+(PR pending, not yet merged).
 Owner: home-ops
 Last updated: 2026-11-08
 
@@ -18,6 +21,10 @@ Last updated: 2026-11-08
   nothing; blocks an accidental blanket-restricted from silently rejecting these) —
   `ai`, `collab`, `home`, `network`, `media`, `storage`, `downloads`, `observability`,
   `longhorn-system`, `rook-ceph`, `kube-system`. `vpn` was already enforce-privileged.
+  `actions-runner-privileged` is proposed to join this tier (see **Phase 2
+  follow-up**) — unlike the others here, it is a single-purpose carve-out (one
+  privileged workload, nothing else resident), so `audit`/`warn` are pinned to
+  `privileged` too rather than held at a tighter target, matching `vpn`'s pattern.
 - **`warn` + `audit` only (never `enforce`)** — `flux-system`. A rejected Flux
   controller pod could not be fixed through GitOps (the controller that reconciles the
   fix is the one that would be down), so this namespace is a deliberate SPOF carve-out
@@ -36,6 +43,29 @@ Last updated: 2026-11-08
 and `istio-system` — all verified baseline-clean live, zero rejections on reconcile.
 (`actions-runner-system` caveat: a future CI workflow requesting a privileged/dind
 runner pod will now be rejected — intended, no privileged CI.)
+
+### Phase 2 follow-up — `actions-runner-privileged` carve-out (proposed, PR pending)
+
+The Phase 2 caveat above fired the same day it shipped: `arc-runner-set-containers`
+(the dind image-builder runner set for the private `rwlove/containers` repo) is
+exactly the "future CI workflow requesting a privileged/dind runner pod" case, and
+every `rwlove/containers` CI run queued forever once `actions-runner-system` moved
+to `enforce: baseline` — `EphemeralRunner` pods were rejected with `violates
+PodSecurity "baseline:latest": privileged (container "dind" must not set
+securityContext.privileged=true)`.
+
+Rather than reverting `actions-runner-system` to `privileged` (which would undo the
+Phase 2 hardening for every other resident of that namespace, including the
+controller and the `arc-runner-set-home-ops` kubernetes-mode runner set, neither of
+which need it), the dind-requiring runner set moves to its own namespace:
+`actions-runner-privileged`, `enforce: privileged`. `actions-runner-system` stays at
+`enforce: baseline` — this is a reduction in that namespace's blast radius, not a
+regression. See `kubernetes/apps/actions-runner-privileged/` and
+`kubernetes/apps/actions-runner-system/actions-runner-controller/runners/containers.yaml`'s
+removal for the mechanics; the ARC controller itself is not duplicated — one
+controller manages `AutoscalingRunnerSet`s across namespaces via the chart's
+`controllerServiceAccount` cross-namespace reference, which is the chart's documented
+mechanism for exactly this case.
 
 ### Phase 3 (SHIPPED — 2026-11-08)
 
@@ -325,6 +355,7 @@ labeled too (previously out of scope); `cilium-secrets` (never schedules pods) a
 
 | Namespace | Target level | Rationale |
 |---|---|---|
+| `actions-runner-privileged` | `privileged` | Single-purpose carve-out from `actions-runner-system` (proposed, PR pending — Phase 2 follow-up above); sole resident is the dind image-builder runner set, inherently privileged |
 | `actions-runner-system` | `baseline` | ARC runners spawn user-defined workloads |
 | `ai` | `restricted` | App-template HRs; partially hardened |
 | `auth` | `restricted` | Authelia + LLDAP already meet baseline |

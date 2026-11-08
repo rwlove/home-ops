@@ -47,10 +47,14 @@ spec:
     # workflows run `docker buildx` / build-push-action, which need a
     # real Docker daemon. (The home-ops set uses kubernetes mode because
     # its flux-local jobs only need `container:` job pods, not a daemon.)
-    # Privilege is inherent to dind image builds; the pod is scoped to
-    # building this repo's own Dockerfiles, isolated by namespace +
-    # CNP, and scheduled only on amd64 workers (never the Spark
-    # inference node).
+    # Privilege is inherent to dind image builds — this is WHY this runner
+    # set lives in its own actions-runner-privileged namespace
+    # (enforce: privileged) rather than actions-runner-system
+    # (enforce: baseline since PSS Phase 2, #15671, which started
+    # rejecting this exact pod — see docs/src/pod_security_audit.md). The
+    # pod is still scoped to building this repo's own Dockerfiles,
+    # isolated by namespace + CNP, and scheduled only on amd64 workers
+    # (never the Spark inference node).
     #
     # The dind sidecar is templated explicitly rather than via
     # `containerMode.type: dind`. The chart's auto-injected dind sidecar
@@ -64,6 +68,12 @@ spec:
     # here reproduces what `containerMode: dind` rendered; only the
     # var-lib-docker volume + its mount are new.
 
+    # Points at the controller's ServiceAccount in actions-runner-system
+    # (the controller itself is NOT duplicated into this namespace — one
+    # controller manages AutoscalingRunnerSets across namespaces). This is
+    # the chart's documented mechanism for exactly this: install a runner
+    # scale set into a namespace other than the controller's, by telling
+    # the chart which SA to grant the cross-namespace Role/RoleBinding to.
     controllerServiceAccount:
       name: actions-runner-controller
       namespace: actions-runner-system

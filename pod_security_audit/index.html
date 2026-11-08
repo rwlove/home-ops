@@ -1749,6 +1749,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#phase-2-follow-up--actions-runner-privileged-carve-out-proposed-pr-pending" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2 follow-up — actions-runner-privileged carve-out (proposed, PR pending)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#phase-3-shipped--2026-11-08" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2547,6 +2558,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#phase-2-follow-up--actions-runner-privileged-carve-out-proposed-pr-pending" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2 follow-up — actions-runner-privileged carve-out (proposed, PR pending)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#phase-3-shipped--2026-11-08" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2860,7 +2882,10 @@ out where live measurement showed zero rejections. Phase 2 (baseline-enforce on 
 measured-clean middle tier) <strong>SHIPPED (#15671)</strong>; Phase 3 — the fleet-wide seccomp
 sweep (#15674/#15673/#15702) and <code>enforce: restricted</code> on auth + external-secrets
 (#15701/#15703) — <strong>SHIPPED (2026-11-08)</strong>. mcp-system and selfhosted remain at
-baseline by design (upstream-chart broker / grocy s6 cannot run non-root).
+baseline by design (upstream-chart broker / grocy s6 cannot run non-root). Phase 2's
+<code>actions-runner-system</code> caveat (flagged below) fired same-day — see <strong>Phase 2
+follow-up</strong> — proposed fix is the <code>actions-runner-privileged</code> namespace carve-out
+(PR pending, not yet merged).
 Owner: home-ops
 Last updated: 2026-11-08</p>
 <h2 id="rollout-status-post-15666">Rollout status (post-#15666)<a class="headerlink" href="#rollout-status-post-15666" title="Permanent link">&para;</a></h2>
@@ -2870,7 +2895,11 @@ Last updated: 2026-11-08</p>
 <li><strong><code>enforce: privileged</code></strong> (pinned to document intent — admits every pod, rejects
   nothing; blocks an accidental blanket-restricted from silently rejecting these) —
   <code>ai</code>, <code>collab</code>, <code>home</code>, <code>network</code>, <code>media</code>, <code>storage</code>, <code>downloads</code>, <code>observability</code>,
-  <code>longhorn-system</code>, <code>rook-ceph</code>, <code>kube-system</code>. <code>vpn</code> was already enforce-privileged.</li>
+  <code>longhorn-system</code>, <code>rook-ceph</code>, <code>kube-system</code>. <code>vpn</code> was already enforce-privileged.
+  <code>actions-runner-privileged</code> is proposed to join this tier (see <strong>Phase 2
+  follow-up</strong>) — unlike the others here, it is a single-purpose carve-out (one
+  privileged workload, nothing else resident), so <code>audit</code>/<code>warn</code> are pinned to
+  <code>privileged</code> too rather than held at a tighter target, matching <code>vpn</code>'s pattern.</li>
 <li><strong><code>warn</code> + <code>audit</code> only (never <code>enforce</code>)</strong> — <code>flux-system</code>. A rejected Flux
   controller pod could not be fixed through GitOps (the controller that reconciles the
   fix is the one that would be down), so this namespace is a deliberate SPOF carve-out
@@ -2888,6 +2917,26 @@ Last updated: 2026-11-08</p>
 and <code>istio-system</code> — all verified baseline-clean live, zero rejections on reconcile.
 (<code>actions-runner-system</code> caveat: a future CI workflow requesting a privileged/dind
 runner pod will now be rejected — intended, no privileged CI.)</p>
+<h3 id="phase-2-follow-up--actions-runner-privileged-carve-out-proposed-pr-pending">Phase 2 follow-up — <code>actions-runner-privileged</code> carve-out (proposed, PR pending)<a class="headerlink" href="#phase-2-follow-up--actions-runner-privileged-carve-out-proposed-pr-pending" title="Permanent link">&para;</a></h3>
+<p>The Phase 2 caveat above fired the same day it shipped: <code>arc-runner-set-containers</code>
+(the dind image-builder runner set for the private <code>rwlove/containers</code> repo) is
+exactly the "future CI workflow requesting a privileged/dind runner pod" case, and
+every <code>rwlove/containers</code> CI run queued forever once <code>actions-runner-system</code> moved
+to <code>enforce: baseline</code> — <code>EphemeralRunner</code> pods were rejected with <code>violates
+PodSecurity "baseline:latest": privileged (container "dind" must not set
+securityContext.privileged=true)</code>.</p>
+<p>Rather than reverting <code>actions-runner-system</code> to <code>privileged</code> (which would undo the
+Phase 2 hardening for every other resident of that namespace, including the
+controller and the <code>arc-runner-set-home-ops</code> kubernetes-mode runner set, neither of
+which need it), the dind-requiring runner set moves to its own namespace:
+<code>actions-runner-privileged</code>, <code>enforce: privileged</code>. <code>actions-runner-system</code> stays at
+<code>enforce: baseline</code> — this is a reduction in that namespace's blast radius, not a
+regression. See <code>kubernetes/apps/actions-runner-privileged/</code> and
+<code>kubernetes/apps/actions-runner-system/actions-runner-controller/runners/containers.yaml</code>'s
+removal for the mechanics; the ARC controller itself is not duplicated — one
+controller manages <code>AutoscalingRunnerSet</code>s across namespaces via the chart's
+<code>controllerServiceAccount</code> cross-namespace reference, which is the chart's documented
+mechanism for exactly this case.</p>
 <h3 id="phase-3-shipped--2026-11-08">Phase 3 (SHIPPED — 2026-11-08)<a class="headerlink" href="#phase-3-shipped--2026-11-08" title="Permanent link">&para;</a></h3>
 <ol>
 <li><strong>seccomp sweep</strong> — <code>seccompProfile: RuntimeDefault</code> added fleet-wide to the
@@ -3241,6 +3290,11 @@ labeled too (previously out of scope); <code>cilium-secrets</code> (never schedu
 </tr>
 </thead>
 <tbody>
+<tr>
+<td><code>actions-runner-privileged</code></td>
+<td><code>privileged</code></td>
+<td>Single-purpose carve-out from <code>actions-runner-system</code> (proposed, PR pending — Phase 2 follow-up above); sole resident is the dind image-builder runner set, inherently privileged</td>
+</tr>
 <tr>
 <td><code>actions-runner-system</code></td>
 <td><code>baseline</code></td>

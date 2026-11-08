@@ -46,18 +46,41 @@ spec:
     requests:
       cpu: 100m
       memory: 128Mi
-  # Webhook-driven; cron set to once a year so scheduled runs are effectively a no-op.
+  # Primarily webhook-driven (instant, on a PUMP GitHub Release), with a daily
+  # tick as a floor — NOT yearly. History of why:
   #
-  # NOTE on bootstrap: the operator only honors webhook-triggered schedule
-  # calls for projects that a previous discovery run has registered. With
-  # an effectively-yearly schedule, a brand-new job has no discovery history
-  # and webhook calls return 500 ("failed to run renovate for project").
+  # The operator only honors a webhook-triggered /schedule call for a project
+  # that job's OWN discovery run has already registered (RenovateProject CRs,
+  # scoped per-job since the v6.1.0 chart's RenovateJob→RenovateProject CRD
+  # split — home-ops#13951 bumped the chart). Discovery runs on the job's
+  # `schedule`; there is no separate discovery-only interval in the CRD. A
+  # yearly `schedule` therefore means this job's own discovery (and so its
+  # webhook eligibility) effectively never re-runs.
   #
-  # First-time bootstrap: temporarily bump the schedule with kubectl patch
-  # (e.g. */1 * * * *), wait for one rwlove-pump-discovery-* pod to complete,
-  # then revert (Flux will reconcile back to the yearly schedule on its
-  # next pass anyway).
-  schedule: 0 0 1 1 *
+  # That's exactly what happened: the v6.1.0 upgrade (2026-09-01) reset every
+  # job's discovered-project state, and this job's yearly schedule meant it
+  # never regained its own registration — so every subsequent webhook POST to
+  # /webhook/v1/schedule?job=rwlove-pump failed job-resolution ("no matching
+  # job owns this project"). Chart v6.1.0 also shipped GHSA-r33m-9688-gqmr,
+  # which collapses that *and* a real credential failure into the same
+  # generic `401 {"error":"unauthorized"}` (previously 404 for the former) to
+  # stop an unauthenticated caller from using the status code to enumerate
+  # managed projects/namespaces/job names. The merged 401 is indistinguishable
+  # from this job's `webhook.authentication.enabled: false` actually being
+  # bypassed — it looked like an auth break; it was a stale-discovery-state
+  # break surfaced through a security-hardening status-code change.
+  #
+  # (The hourly rwlove-home-ops job — unrestricted discoveryFilters, project
+  # `rwlove/home-ops` registered and kept fresh every run — picked up the
+  # slack the whole time: every PUMP release still got auto-deployed, just
+  # ≤1h late via that broader job instead of instantly via this scoped one.
+  # No deploys were actually lost.)
+  #
+  # Fix: give this job a real recurring cadence so its own discovery can
+  # never go stale for longer than a day, independent of whether the webhook
+  # path is healthy. RENOVATE_INCLUDE_PATHS above keeps a daily run cheap and
+  # scoped to only the three PUMP HelmReleases.
+  schedule: 45 6 * * *
   secretRef: github-auth-token-secret
   webhook:
     enabled: true

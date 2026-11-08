@@ -1,8 +1,59 @@
 # Pod Security Baseline Audit
 
-Status: **PSA audit labels applied per-namespace (audit-mode only, no warn/enforce).** Group A remediation in flight (PRs #11600/#11604/#11606/#11607/#11608/#11609/#11611/#11612). Enforcement ramp is per-namespace and gated on log observation.
+Status: **PSS Phase 0 + Phase 1 SHIPPED (#15666, 2026-11-08).** `warn` now set at
+each namespace's target level across all 23 labeled namespaces; `enforce` rolled
+out where live measurement showed zero rejections. Phase 2 (baseline-enforce on the
+measured-clean middle tier) **SHIPPED (#15671, 2026-11-08)**; Phase 3 (seccomp sweep
+→ restricted) is **IN PROGRESS**.
 Owner: home-ops
-Last updated: 2026-05-18
+Last updated: 2026-11-08
+
+## Rollout status (post-#15666)
+
+- **`enforce: restricted`** — `cert-manager`, `renovate`, `tools` (all running pods
+  plus renovate's Job workers verified restricted-clean).
+- **`enforce: privileged`** (pinned to document intent — admits every pod, rejects
+  nothing; blocks an accidental blanket-restricted from silently rejecting these) —
+  `ai`, `collab`, `home`, `network`, `media`, `storage`, `downloads`, `observability`,
+  `longhorn-system`, `rook-ceph`, `kube-system`. `vpn` was already enforce-privileged.
+- **`warn` + `audit` only (never `enforce`)** — `flux-system`. A rejected Flux
+  controller pod could not be fixed through GitOps (the controller that reconciles the
+  fix is the one that would be down), so this namespace is a deliberate SPOF carve-out
+  and stays at warn/audit permanently.
+- **`enforce: baseline` (Phase 2, #15671)** — `auth`, `external-secrets`, `mcp-system`,
+  `selfhosted`, `databases`, `actions-runner-system`, and `istio-system`. Each measured
+  baseline-clean live. `istio-system` was unblocked by confirming **no `istio-cni`
+  DaemonSet exists** in the cluster (verified 2026-11-08), so there is no privileged
+  installer to tolerate.
+
+### Phase 2 (SHIPPED — #15671, 2026-11-08)
+
+`enforce: baseline` applied to the measured-clean middle tier — `auth`,
+`external-secrets`, `mcp-system`, `selfhosted`, `databases`, `actions-runner-system`,
+and `istio-system` — all verified baseline-clean live, zero rejections on reconcile.
+(`actions-runner-system` caveat: a future CI workflow requesting a privileged/dind
+runner pod will now be rejected — intended, no privileged CI.)
+
+### Phase 3 (IN PROGRESS)
+
+Remediation-gated tightening, cheapest lever first:
+
+1. **seccomp sweep (in progress)** — adding `seccompProfile: RuntimeDefault` at the pod
+   level to the app-template workloads that fail `restricted` on seccomp (and run
+   non-root), split into a non-household batch (merge-now) and a timed household batch.
+   This is the prerequisite for every `restricted` flip.
+2. **baseline-clean → restricted** — after the full container-level block lands per
+   chart, flip `auth`, `external-secrets`, `mcp-system`, `selfhosted` to
+   `enforce: restricted`. (`databases` / `actions-runner-system` stay baseline by design.)
+3. **privileged → baseline** for the one-workload-pinned namespaces — remediate the
+   single cap-adding / UID-0 workload, then flip; if the app genuinely needs the
+   elevation, the namespace stays privileged (accept + document).
+4. **`ai` / `collab` → restricted** — only after (2)+(3) and the seccomp sweep.
+
+`home`, `network`, `downloads`, `observability`, `storage`, `kube-system`,
+`longhorn-system`, `rook-ceph`, `vpn` are **terminal at privileged** — architectural
+(USB passthrough, pod-gateway, CSI, hostPID/hostPath); PSS cannot carve out their
+privileged pods without a per-pod exception model (Kyverno, out of scope).
 
 Audits running pods against the baseline defined in
 [`.agents/instructions/helmrelease.security.md`](https://github.com/rwlove/home-ops/blob/main/.agents/instructions/helmrelease.security.md).
@@ -255,16 +306,19 @@ size. Decision: ship PSA labels, revisit Kyverno only if we hit a
 policy expressiveness limit (e.g. per-workload exception inside an
 otherwise-restricted namespace).
 
-### Per-namespace audit level
+### Per-namespace target level
 
-Applied as `pod-security.kubernetes.io/audit: <level>` +
-`pod-security.kubernetes.io/audit-version: latest`. No `warn` or
-`enforce` yet — audit-only logs violations into the apiserver's pod
-log without admitting/rejecting. Out-of-scope namespaces (`kube-system`,
-`flux-system`, `cilium-secrets`, `kuadrant` (empty/dormant)) carry no
-PSA labels — same boundary as the netpol rollout.
+The table below is the **target** (`audit` + `warn`) level per namespace — the level
+the apply-time warning stream keeps surfacing against, so the remaining gap to
+`restricted`/`baseline` stays visible. As of #15666 (2026-11-08) every labeled
+namespace carries `warn` at this target; the `enforce` level that actually *rejects*
+is set separately and is at or below this target (see **Rollout status** near the top of
+this doc — several namespaces enforce `privileged` today because one architectural pod
+pins them, even though their target is tighter). `kube-system` and `flux-system` are now
+labeled too (previously out of scope); `cilium-secrets` (never schedules pods) and
+`kuadrant` (dormant) remain unlabeled.
 
-| Namespace | Audit level | Rationale |
+| Namespace | Target level | Rationale |
 |---|---|---|
 | `actions-runner-system` | `baseline` | ARC runners spawn user-defined workloads |
 | `ai` | `restricted` | App-template HRs; partially hardened |

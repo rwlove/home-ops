@@ -10,11 +10,28 @@ resources:
 serviceMonitor:
   enabled: true
   interval: 1m
+# PSS-restricted prereq (external-secrets ns): the chart's container
+# securityContext already runs non-root (runAsUser 1000, drop ALL, seccomp),
+# but its podSecurityContext ships identity-less (only `enabled: true`), so the
+# k8tz-injected init container has no pod-level runAsNonRoot to inherit and
+# fails restricted. Stamp a non-root pod identity on each component so the init
+# container inherits it. Matches the already-live container UID — additive, no
+# behaviour change for the main containers.
+podSecurityContext:
+  enabled: true
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
 webhook:
   replicaCount: 2
   podDisruptionBudget:
     enabled: true
     minAvailable: 1
+  podSecurityContext:
+    enabled: true
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
   resources:
     requests:
       cpu: 25m
@@ -25,6 +42,11 @@ webhook:
     enabled: true
     interval: 1m
 certController:
+  podSecurityContext:
+    enabled: true
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
   resources:
     requests:
       cpu: 25m

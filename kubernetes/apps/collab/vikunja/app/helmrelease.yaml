@@ -1,0 +1,190 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: vikunja
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+
+  interval: 30m
+  values:
+    controllers:
+      vikunja:
+        pod:
+          # Image USER is 1000 (verified from the image config), matches
+          # the baseline. fsGroup lets the non-root process write the
+          # Longhorn files PVC mounted at /files.
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            fsGroupChangePolicy: OnRootMismatch
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        type: statefulset
+
+        containers:
+          app:
+            image:
+              repository: ghcr.io/go-vikunja/vikunja
+              tag: 2.8.0@sha256:35d937baf3b5d5803bed6b9e11d007448b7b536df9e4346dc35551e1072636c3
+            env:
+              TZ: America/New_York
+              # Vikunja serves the frontend + API from one binary (port 3456).
+              VIKUNJA_SERVICE_PUBLICURL: https://vikunja.${SECRET_DOMAIN}/
+              # Uploaded files/avatars/attachments → the Longhorn PVC
+              # (default ./files is on the read-only rootfs).
+              VIKUNJA_FILES_BASEPATH: /files
+              # Database — discrete VIKUNJA_DATABASE_* vars. User/password
+              # come from CNPG's generated postgres-vikunja-app Secret,
+              # reflected into collab (see config/vikunja/cluster.yaml).
+              VIKUNJA_DATABASE_TYPE: postgres
+              VIKUNJA_DATABASE_HOST: postgres-vikunja-rw.databases.svc.cluster.local:5432
+              VIKUNJA_DATABASE_DATABASE: vikunja
+              VIKUNJA_DATABASE_SSLMODE: disable
+              VIKUNJA_DATABASE_USER:
+                valueFrom:
+                  secretKeyRef:
+                    name: postgres-vikunja-app
+                    key: username
+              VIKUNJA_DATABASE_PASSWORD:
+                valueFrom:
+                  secretKeyRef:
+                    name: postgres-vikunja-app
+                    key: password
+              # Keep local + API-token auth on so the fleet API token works
+              # through the gateway (there is no extAuth in front of this).
+              VIKUNJA_AUTH_LOCAL_ENABLED: "true"
+              # OpenID Connect against Authelia. The provider key (authelia)
+              # is appended to PUBLICURL to form the redirect URI Robert
+              # must register in Authelia:
+              #   https://vikunja.${SECRET_DOMAIN}/auth/openid/authelia
+              VIKUNJA_AUTH_OPENID_ENABLED: "true"
+              VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHELIA_NAME: Authelia
+              VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHELIA_AUTHURL: https://auth.${SECRET_DOMAIN}
+              VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHELIA_CLIENTID: vikunja
+              VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHELIA_SCOPE: openid profile email
+              # VIKUNJA_SERVICE_SECRET (JWT signing) +
+              # VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHELIA_CLIENTSECRET come
+              # from the ExternalSecret below.
+            envFrom:
+              - secretRef:
+                  name: vikunja-secret
+
+            resources:
+              requests:
+                cpu: 25m
+                memory: 128Mi
+              limits:
+                memory: 512Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+
+    service:
+      app:
+        controller: vikunja
+        ports:
+          http:
+            port: &httpPort 3456
+
+    route:
+      app:
+        annotations:
+          glance/name: "Vikunja"
+          glance/show: "true"
+          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/vikunja.png"
+          glance/id: "Collaboration"
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: *httpPort
+    persistence:
+      data:
+        existingClaim: vikunja-data-pvc
+        globalMounts:
+          - path: /files
+      tmpfs:
+        type: emptyDir
+        globalMounts:
+          - path: /tmp
+    externalSecrets:
+      vikunja:
+        refreshInterval: 1h
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: onepassword-connect
+        target:
+          name: vikunja-secret
+          template:
+            data:
+              VIKUNJA_SERVICE_SECRET: "{{ .JWT_SECRET }}"
+              VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHELIA_CLIENTSECRET: "{{ .OIDC_CLIENT_SECRET }}"
+        dataFrom:
+          - extract:
+              key: vikunja
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: vikunja-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: vikunja
+        # Additive — default-deny is what triggers the lockdown; these rules
+        # punch holes through it.
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # HTTPRoute on internal gateway → vikunja:3456. No extAuth in
+          # front — agents authenticate with a Vikunja API token, which a
+          # forward-auth gate would block.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: network
+                  app.kubernetes.io/name: envoy
+            toPorts:
+              - ports:
+                  - port: "3456"
+                    protocol: TCP
+        egress:
+          # CNPG cluster postgres-vikunja in databases ns.
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: databases
+                  cnpg.io/cluster: postgres-vikunja
+            toPorts:
+              - ports:
+                  - port: "5432"
+                    protocol: TCP
+          # OIDC discovery + token exchange against Authelia at
+          # auth.${SECRET_DOMAIN}. Vikunja is configured with the external
+          # issuer URL, so every OIDC request hits split-horizon DNS which
+          # returns the envoy LB IP; Cilium socket-lb rewrites the connect()
+          # to the envoy pod IP + targetPort 10443 BEFORE policy evaluation
+          # (project_cilium_l4_port_targetport.md), so the policy allows the
+          # envoy pod on its container port, not world:443. Mirrors kitchenowl.
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: network
+                  app.kubernetes.io/name: envoy
+            toPorts:
+              - ports:
+                  - port: "10443"
+                    protocol: TCP

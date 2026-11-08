@@ -50,6 +50,27 @@ reflected from `databases` into `collab`.
 The OIDC redirect URI Authelia must allow is derived from the public URL plus the
 provider key: `https://vikunja.${SECRET_DOMAIN}/auth/openid/authelia`.
 
+### Authelia-side client registration
+
+Unlike most of this app's config, the Authelia OIDC **client** registration for
+`vikunja` (`client_id`, redirect URI, scopes, and the argon2id hash of
+`OIDC_CLIENT_SECRET`) is **not** a Git-managed resource. It lives entirely in the
+`authelia` 1Password item's `OIDC_CLIENTS_YAML` field, which
+`kubernetes/apps/auth/authelia/app/externalsecret.yaml` renders verbatim to
+`/secrets/clients.yml` and Authelia merges via `--config`. See that file's comments
+for why (keeps every client's secret hash out of git by design, not by oversight)
+and `kubernetes/apps/auth/authelia/app/configmap.yaml`'s `access_control` comment
+for why native-OIDC clients like this one aren't governed by that block — they
+carry their own `authorization_policy` (`admin_only`, gating to Robert's
+`lldap_admin` group, mirroring `netbox` and other admin-tier native-OIDC clients
+in the same 1Password field).
+
+Changing or rotating this client is a 1Password-item edit, not a PR — there is
+nothing under `kubernetes/apps/auth/authelia/` to update for a client add/change
+alone. Bump the `force-sync` annotation timestamp on the `authelia` ExternalSecret
+in the same operation so ESO refetches immediately instead of waiting out its 1h
+`refreshInterval`.
+
 ## SPOF note
 
 Vikunja + its CNPG cluster become a dependency for the fleet's task read/write path.

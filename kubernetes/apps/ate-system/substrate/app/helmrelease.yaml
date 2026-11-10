@@ -1,0 +1,75 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: substrate
+  namespace: ate-system
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: substrate
+  interval: 1h
+  dependsOn:
+    - name: substrate-podcert
+      namespace: podcertificate-controller-system
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  # TODO(verify): value KEY names/shape against charts/substrate/values.yaml
+  # @ v1.0.0 before merge. Values below are transcribed from the deploy brief,
+  # NOT yet diffed against the chart schema (esp. objectStorePlugin.extraEnv
+  # list shape and postgres.*SecretRef key names).
+  values:
+    # atelet + rustfs ship as subcharts of `substrate`; we disable them here
+    # and run atelet from its own HelmRelease (spark-pinned) and object store
+    # from Garage instead of the bundled rustfs.
+    atelet:
+      enabled: false
+    rustfs:
+      enabled: false
+    createNamespace: false
+    postgres:
+      ownerConnectionStringSecretRef:
+        name: substrate-postgres-owner
+        key: ownerConnectionString
+      readWriteConnectionStringSecretRef:
+        name: substrate-postgres-readwrite
+        key: readWriteConnectionString
+      ownerRole: substrate_owner
+      readWriteRole: substrate_readwrite
+      schema: substrate
+      clientCertificates:
+        enabled: false
+    ateApi:
+      # TODO(verify): brief says a gs:// URL, but this cluster's object store
+      # is Garage (S3). Confirm whether snapshotLocation must be an s3:// path
+      # against Garage, or whether ate-api treats this as an opaque bucket URI.
+      snapshotLocation: "gs://ate-snapshots/"
+      authorization:
+        bootstrapOwners:
+          - "system:serviceaccount:ai:kagent-controller"
+    atenetRouter:
+      ingressAllowedSPIFFEIDs:
+        - "spiffe://cluster.local/ns/ai/sa/kagent-controller"
+    objectStorePlugin:
+      extraEnv:
+        - name: AWS_REGION
+          value: garage
+        - name: AWS_ENDPOINT_URL
+          value: http://garage.storage.svc.cluster.local:3900
+        - name: AWS_S3_USE_PATH_STYLE
+          value: "true"
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: garage-substrate-creds
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: garage-substrate-creds
+              key: AWS_SECRET_ACCESS_KEY

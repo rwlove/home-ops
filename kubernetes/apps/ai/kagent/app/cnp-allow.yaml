@@ -26,6 +26,22 @@ spec:
               protocol: TCP
             - port: "8083"
               protocol: TCP
+    # kagent 1.0 actor bootstrap: a sandboxed Actor fetches/materializes its agent
+    # config from the controller's :8083 bootstrap endpoint (per each actor's
+    # golden_egress_policy, which allows kagent-controller.ai:8083 with a bootstrap
+    # JWT). That egress is SNAT'd through the Substrate egress gateway
+    # (ate-system/atenet-egress), so the controller sees the connection from there.
+    # Without this the bootstrap times out ("bootstrap initialization deadline"),
+    # the agent never binds :8081, the wakeup probe fails and the golden actor
+    # crashes. ate-system pods carry `app: <name>`.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ate-system
+            app: atenet-egress
+      toPorts:
+        - ports:
+            - port: "8083"
+              protocol: TCP
   egress:
     # OTel tracing → the cluster OTLP collector (observability), gRPC :4317.
     # The controller carries OTEL_TRACING_ENABLED; apiserver/DNS/intra-ns egress

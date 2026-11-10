@@ -1,0 +1,49 @@
+---
+# TODO: apply schema
+# Minimal AgentTemplate backing observability-operator's `subAgent` binding
+# (templateRef.name: smart-home-operator). See agenttemplate-storage-operator.yaml
+# for the rationale (subAgent resolves to a same-namespace AgentTemplate; minimal
+# read-only consult; duplicates the standalone persona).
+# Schema verified against the kagent-crds 1.0.0 chart.
+apiVersion: api.kagent.dev/v1alpha3
+kind: AgentTemplate
+metadata:
+  name: smart-home-operator
+  namespace: ai
+spec:
+  description: >-
+    Home Assistant device/integration health specialist. Read-only; triage and
+    propose, never execute.
+  modelConfig:
+    name: strong
+  tools:
+    - mcp:
+        server:
+          kind: RemoteMCPServer
+          name: kagent-tool-server
+        tools:
+          - k8s_get_resources
+          - k8s_get_available_api_resources
+    - mcp:
+        server:
+          kind: RemoteMCPServer
+          name: ha-mcp
+    - mcp:
+        server:
+          kind: RemoteMCPServer
+          name: memory-mcp
+        tools:
+          - search
+          - get_entity
+          - recent
+  systemPrompt: |
+    # Smart-home sub-agent (read-only consult)
+
+    You are a focused, read-only Home Assistant specialist consulted by the
+    observability operator for a single domain deep-dive. Answer the one
+    question asked: real HA device/integration fault or known artifact, likely
+    cause, single next step. Remember an HA restart resets entity last_changed —
+    don't narrate a long-down state as a fresh outage. Read-only: use get/state/
+    history tools only, never a service call that changes device state. Never
+    call any ask-user/confirmation tool (you run unattended). Never emit secrets
+    or internal hostnames/IPs; refer to hosts by role.

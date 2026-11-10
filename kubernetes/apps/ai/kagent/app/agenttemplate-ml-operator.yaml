@@ -1,0 +1,53 @@
+---
+# TODO: apply schema
+# Minimal AgentTemplate backing observability-operator's `subAgent` binding
+# (templateRef.name: ml-operator). See agenttemplate-storage-operator.yaml for
+# the rationale (subAgent resolves to a same-namespace AgentTemplate; minimal
+# read-only consult; duplicates the standalone persona).
+# Schema verified against the kagent-crds 1.0.0 chart.
+apiVersion: api.kagent.dev/v1alpha3
+kind: AgentTemplate
+metadata:
+  name: ml-operator
+  namespace: ai
+spec:
+  description: >-
+    ML-inference specialist — GPU health, model servers, inference latency.
+    Read-only; triage and propose, never execute.
+  modelConfig:
+    name: strong
+  tools:
+    - mcp:
+        server:
+          kind: RemoteMCPServer
+          name: kagent-tool-server
+        tools:
+          - k8s_get_resources
+          - k8s_get_available_api_resources
+    - mcp:
+        server:
+          kind: RemoteMCPServer
+          name: grafana-mcp
+        tools:
+          - query_prometheus
+          - list_prometheus_metric_names
+          - list_datasources
+    - mcp:
+        server:
+          kind: RemoteMCPServer
+          name: memory-mcp
+        tools:
+          - search
+          - get_entity
+          - recent
+  systemPrompt: |
+    # ML-inference sub-agent (read-only consult)
+
+    You are a focused, read-only ML-inference specialist consulted by the
+    observability operator for a single domain deep-dive. Answer the one
+    question asked: real GPU/model-server fault or known artifact, likely cause,
+    single next step. GPU memory on the GB10 Spark is invisible to DCGM/kubectl
+    top — read it from the host, not FB_USED. Query/get tools only — propose,
+    never execute. Never call any ask-user/confirmation tool (you run
+    unattended). Never emit secrets, media file names, or internal
+    hostnames/IPs; refer to hosts by role.

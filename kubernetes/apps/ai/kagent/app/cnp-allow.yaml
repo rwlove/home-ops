@@ -383,6 +383,41 @@ spec:
         - ports:
             - port: "8095"
               protocol: TCP
+    # kagent 1.0 external CNPG (databases) — the controller runs DB migrations at
+    # startup + persists agent/session/eval state in the postgres-kagent-substrate
+    # cluster (db `ate`, kagent schema). 0.10.6 used a bundled in-ns Postgres so no
+    # cross-ns egress existed; 1.0 moved to external CNPG. WITHOUT this the
+    # controller's migration dial times out ("context deadline exceeded") and it
+    # crashloops before binding :8083. Ingress half is the shared
+    # databases/postgres-instances-allow (fromEntities: cluster -> :5432).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            cnpg.io/cluster: postgres-kagent-substrate
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    # kagent 1.0 Agent Substrate (ate-system) — the controller is a Substrate
+    # client: it provisions sandboxed Actors/WorkerPools via the ate-api-server
+    # (api:443), authenticates via the idp (idp:443), and routes sandbox traffic
+    # through atenet-router (:443). Substrate pods carry `app: <name>` (not the
+    # app.kubernetes.io/name scheme). ate-system has no default-deny, so only this
+    # ai-side egress is required.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ate-system
+            app: ate-api-server
+        - matchLabels:
+            io.kubernetes.pod.namespace: ate-system
+            app: ate-idp-server
+        - matchLabels:
+            io.kubernetes.pod.namespace: ate-system
+            app: atenet-router
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
 #

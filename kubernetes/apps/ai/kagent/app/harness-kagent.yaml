@@ -1,0 +1,42 @@
+---
+# TODO: apply schema
+# The managed-kagent Harness every Agent in this app references via
+# spec.harnessRef.name: kagent. kagent 1.0 moved the per-agent runtime knobs
+# (compaction, substrate placement) off the Agent CRs and onto the Harness.
+#
+# Schema verified against the live-cluster-bound kagent-crds 1.0.0 chart
+# (harnesses.api.kagent.dev/v1alpha3, served+storage). NOTE: the api.kagent.dev
+# CRDs are NOT yet installed on the cluster (kagent-crds is still pinned 0.10.6
+# until the OCIRepository bump in this PR), so this was verified against the
+# chart, not `kubectl explain`.
+#
+# spec.substrate is REQUIRED (workerPoolRef.name must be non-empty;
+# snapshotPolicy.location must be whitespace-free). Exactly one adapter of
+# [kagent codex claude byo] must be set — spec.kagent selects the managed one.
+#
+# NOT SET: spec.workload — the CRD's workload object carries only
+# {image,command,args} (image must be sha256-pinned) to override the runtime
+# IMAGE; it has NO resources field. Per-agent runtime sizing lives in chart
+# values (config.runtimeDefaults / config.sandboxes), not here.
+apiVersion: api.kagent.dev/v1alpha3
+kind: Harness
+metadata:
+  name: kagent
+  namespace: ai
+spec:
+  kagent:
+    # Compaction settings dropped from the individual Agent CRs in the 1.0
+    # rewrite — they are a Harness-level concern now.
+    compaction:
+      tokenThreshold: 120000
+      eventRetentionSize: 50
+      compactionInterval: 100000
+      overlapSize: 2
+      summarizer:
+        modelConfigRef:
+          name: strong
+  substrate:
+    workerPoolRef:
+      name: kagent-default
+    snapshotPolicy:
+      location: "gs://ate-snapshots/"

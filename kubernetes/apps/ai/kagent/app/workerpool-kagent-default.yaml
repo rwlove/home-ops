@@ -32,10 +32,17 @@ spec:
         operator: Equal
         value: arm64
         effect: NoSchedule
+    # The worker pod's resource LIMIT is the Substrate's per-worker actor
+    # capacity: each golden/session actor is 1 CPU / 1Gi (chart runtimeDefaults),
+    # so a 2-CPU worker fit only ~2 actors and the 17-agent golden-snapshot burst
+    # failed "AssignWorker: no worker has room for the actor". Sized to hold the
+    # full burst with headroom — Spark has 20 CPU / 127Gi, only ~4 CPU / 26Gi
+    # requested elsewhere. Requests stay modest (scheduling); the high limit is
+    # the burst capacity (gVisor actors run inside this one pod).
     resources:
       requests:
-        cpu: 500m
-        memory: 512Mi
-      limits:
         cpu: "2"
-        memory: 2Gi
+        memory: 4Gi
+      limits:
+        cpu: "16"
+        memory: 24Gi

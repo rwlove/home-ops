@@ -1,0 +1,31 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/kustomization-kustomize-v1.json
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: &app substrate
+  # Explicit: the group kustomization sets no `namespace:` (two Namespace
+  # objects), so pin this Flux Kustomization to flux-system where the others live.
+  namespace: flux-system
+spec:
+  commonMetadata:
+    labels:
+      app.kubernetes.io/name: *app
+  # NO targetNamespace: this app's resources deliberately span two
+  # namespaces (ate-system + podcertificate-controller-system), plus the
+  # kagent-postgres connection secrets land in `ai`. Every resource in
+  # ./app therefore carries its own explicit metadata.namespace.
+  path: ./kubernetes/apps/ate-system/substrate/app
+  interval: 1h
+  timeout: 15m
+  prune: true
+  wait: true
+  dependsOn:
+    - name: onepassword-connect
+      namespace: external-secrets
+    # The Postgres control-plane DB (schemas kagent + substrate). Lives in
+    # the cnpg app group; this stack cannot come up without it.
+  healthCheckExprs:
+    - apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      current: status.conditions.filter(e, e.type == 'Ready').all(e, e.status == 'True')

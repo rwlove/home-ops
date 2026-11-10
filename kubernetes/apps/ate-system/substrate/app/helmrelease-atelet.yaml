@@ -1,0 +1,51 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: substrate-atelet
+  namespace: ate-system
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: substrate-atelet
+  interval: 1h
+  dependsOn:
+    - name: substrate
+      namespace: ate-system
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  # The atelet DaemonSet has NO nodeSelector chart value, so we pin it to the
+  # Spark node with a Flux post-render kustomize patch (strategic-merge on
+  # DaemonSet/atelet). Keeps the sandbox/gVisor worker fleet off the general
+  # CRI-O workers and on the one containerd GPU host.
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: DaemonSet
+              name: atelet
+            patch: |-
+              apiVersion: apps/v1
+              kind: DaemonSet
+              metadata:
+                name: atelet
+              spec:
+                template:
+                  spec:
+                    nodeSelector:
+                      kubernetes.io/hostname: spark.thesteamedcrab.com
+  # TODO(verify): value KEY names/shape against charts/substrate-atelet/
+  # values.yaml @ v1.0.0 before merge (esp. objectStore.* field names).
+  values:
+    substrateReleaseName: substrate
+    objectStore:
+      backend: s3
+      endpoint: http://garage.storage.svc.cluster.local:3900
+      region: garage
+      pathStyle: true
+      credentialsSecret: garage-substrate-creds

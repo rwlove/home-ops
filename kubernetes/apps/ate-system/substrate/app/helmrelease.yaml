@@ -78,6 +78,9 @@ spec:
   # ambient for the non-root process and the bind fails (cloud nodes default
   # ip_unprivileged_port_start=0 and sidestep this). Flip it on just this
   # container (ate-system is PSS privileged).
+  # ate-api-server binds :443 as non-root. Added caps aren't ambient on CRI-O,
+  # so grant the pod the safe sysctl that lets non-root bind low ports (what
+  # cloud nodes default to). Scoped to this Deployment's pods only.
   postRenderers:
     - kustomize:
         patches:
@@ -92,10 +95,7 @@ spec:
               spec:
                 template:
                   spec:
-                    containers:
-                      - name: ate-api-server
-                        securityContext:
-                          allowPrivilegeEscalation: true
-                          capabilities:
-                            add:
-                              - NET_BIND_SERVICE
+                    securityContext:
+                      sysctls:
+                        - name: net.ipv4.ip_unprivileged_port_start
+                          value: "0"

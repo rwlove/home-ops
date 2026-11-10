@@ -40,8 +40,8 @@ Whenever requested to fix or correct schemas, follow these instructions:
 | `source.toolkit.fluxcd.io/v1` | `OCIRepository` | `https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/ocirepository-source-v1.json` |
 | `source.toolkit.fluxcd.io/v1` | `HelmRepository` | `https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrepository-source-v1.json` |
 | `source.toolkit.fluxcd.io/v1` | `GitRepository` | `https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/gitrepository-source-v1.json` |
-| `notification.toolkit.fluxcd.io/v1beta3` | `Alert` | `https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/alert-notification-v1beta3.json` |
-| `notification.toolkit.fluxcd.io/v1beta3` | `Provider` | `https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/provider-notification-v1beta3.json` |
+| `notification.toolkit.fluxcd.io/v1` | `Alert` | `https://k8s-schemas.home-operations.com/notification.toolkit.fluxcd.io/alert_v1.json` |
+| `notification.toolkit.fluxcd.io/v1` | `Provider` | `https://k8s-schemas.home-operations.com/notification.toolkit.fluxcd.io/provider_v1.json` |
 | `notification.toolkit.fluxcd.io/v1` | `Receiver` | `https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/receiver-notification-v1.json` |
 
 ### Kustomize

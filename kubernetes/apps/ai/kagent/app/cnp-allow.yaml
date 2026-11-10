@@ -399,11 +399,13 @@ spec:
             - port: "5432"
               protocol: TCP
     # kagent 1.0 Agent Substrate (ate-system) — the controller is a Substrate
-    # client: it provisions sandboxed Actors/WorkerPools via the ate-api-server
-    # (api:443), authenticates via the idp (idp:443), and routes sandbox traffic
-    # through atenet-router (:443). Substrate pods carry `app: <name>` (not the
-    # app.kubernetes.io/name scheme). ate-system has no default-deny, so only this
-    # ai-side egress is required.
+    # client: it provisions sandboxed Actors/WorkerPools via the ate-api-server,
+    # authenticates/discovers OIDC via the idp, and routes sandbox traffic through
+    # atenet-router. Substrate pods carry `app: <name>` (not app.kubernetes.io/name),
+    # and ate-system has no default-deny, so only this ai-side egress is required.
+    # PORTS ARE POD PORTS (Cilium L4 egress enforces on the backend pod port, not
+    # the Service port): ate-api-server listens on :443, but idp and atenet-router
+    # both listen on :8443 (their Services map 443->8443). Allow both.
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: ate-system
@@ -417,6 +419,8 @@ spec:
       toPorts:
         - ports:
             - port: "443"
+              protocol: TCP
+            - port: "8443"
               protocol: TCP
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json

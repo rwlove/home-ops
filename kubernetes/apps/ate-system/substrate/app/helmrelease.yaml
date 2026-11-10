@@ -50,8 +50,15 @@ spec:
       # against Garage, or whether ate-api treats this as an opaque bucket URI.
       snapshotLocation: "gs://ate-snapshots/"
       authorization:
+        # The kagent controller authenticates to ate-api via its pod certificate
+        # (mTLS, substrateClientCertificate), so its authz principal is its SPIFFE
+        # ID — NOT the system:serviceaccount form (that is only the principal for
+        # ServiceAccount-token auth). With the SA form here the controller's real
+        # (SPIFFE) principal was not a bootstrap owner -> "permission denied:
+        # ... lacks can_get on actor_template". Bootstrap owners hold owner on the
+        # global scope and are evaluated at ate-api startup.
         bootstrapOwners:
-          - "system:serviceaccount:ai:kagent-controller"
+          - "spiffe://cluster.local/ns/ai/sa/kagent-controller"
     atenetRouter:
       ingressAllowedSPIFFEIDs:
         - "spiffe://cluster.local/ns/ai/sa/kagent-controller"

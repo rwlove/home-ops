@@ -6,157 +6,105 @@
 # Internal/Restricted and come from cooter-mcp (LubeLogger) / memory at runtime,
 # NEVER committed to GitHub. In-cluster tier of the `cooter` vehicle steward (the
 # laptop Claude agent carries the full persona + the fleet table).
-apiVersion: kagent.dev/v1alpha2
+apiVersion: api.kagent.dev/v1alpha3
 kind: Agent
 metadata:
   name: cooter
 spec:
-  declarative:
-    # Strong tier (qwen3.6-35b-a3b on the Spark) — exact dates / mileage / cost
-    # handling; the small model is unreliable for record-keeping precision.
-    modelConfig: strong
-    # Compaction: runaway blast-radius guard. kagent replays the full, untrimmed
-    # history to the model every turn, so a stuck reasoning loop grows the prompt
-    # unbounded and can pressure the model gateway. tokenThreshold fires compaction
-    # ONLY above the normal heavy-run prompt size and below the strong model's
-    # 131072-token window — effectively no normal-case effect, bounds a runaway.
-    # compactionInterval is set high so tokenThreshold is the sole trigger; the
-    # summarizer runs on the local model. This bounds blast radius; it does NOT stop
-    # a loop — a hard iteration/turn cap is an upstream kagent ask the CRD lacks.
-    context:
-      compaction:
-        tokenThreshold: 120000
-        eventRetentionSize: 50
-        compactionInterval: 100000
-        overlapSize: 2
-        summarizer:
-          modelConfig: strong
-    stream: true
-    a2aConfig:
-      skills:
-        - id: fleet-records
-          name: Fleet record keeping
-          description: >-
-            Log and correct service, repair, fuel, and odometer records and
-            maintenance reminders in LubeLogger. Never invent a date, mileage,
-            or cost; mark any estimate as an estimate.
-          tags:
-            - vehicle
-            - maintenance
-            - records
-            - lubelogger
-          examples:
-            - "Log an oil change on the X6 at today's mileage from this receipt."
-            - "What service is coming due, and are any reminders stale?"
-        - id: fleet-advisory
-          name: Maintenance & ownership advisory
-          description: >-
-            Reason over the fleet's cost and service history for maintenance
-            timing and retire/replace/purchase questions. Present analysis with
-            a recommendation; the spend decision is Robert's.
-          tags:
-            - vehicle
-            - advisory
-            - cost
-            - read-only
-          examples:
-            - "What has this car cost per year, and is it worth keeping?"
-    tools:
-      - type: McpServer
-        mcpServer:
-          apiGroup: kagent.dev
-          kind: RemoteMCPServer
-          # Shared "Concierge" Google Calendar (ai/calendar-mcp) — guarded write
-          # tools, DRY_RUN-gated + per-persona scoped (this agent edits only the
-          # events it tagged). Use for service-due / inspection / registration /
-          # recall dates (all-day for date-only items).
-          name: calendar-mcp
-          toolNames:
-            - list_events
-            - add_event
-            - update_event
-            - delete_event
-      - type: McpServer
-        mcpServer:
-          apiGroup: kagent.dev
-          kind: RemoteMCPServer
-          # LubeLogger bridge (hand-authored OpenAPI subset). Bind all tools:
-          # reads plus the vehicle/service/repair/gas/odometer/reminder/note
-          # writes. Deletes exist but are propose-then-execute per directive.
-          name: cooter-mcp
-      - type: McpServer
-        mcpServer:
-          apiGroup: kagent.dev
-          kind: RemoteMCPServer
-          name: memory-mcp
-          # Recall prior analysis; persist concise findings. Append/correct only.
-          toolNames:
-            - search
-            - get_entity
-            - recent
-            - list_entities
-            - graph_walk
-            - create_entities
-            - add_observations
-      - type: McpServer
-        mcpServer:
-          apiGroup: kagent.dev
-          kind: RemoteMCPServer
-          name: notify-mcp
-          toolNames:
-            - notify_rob
-    systemMessage: |
-      # Cooter — vehicle / garage steward (in-cluster tier)
+  harnessRef:
+    name: kagent
+  template:
+    inline:
+      description: >-
+        Log and correct service, repair, fuel, and odometer records and
+        maintenance reminders in LubeLogger. Never invent a date, mileage, or
+        cost; mark any estimate as an estimate.
+      modelConfig:
+        name: strong
+      tools:
+        - mcp:
+            server:
+              kind: RemoteMCPServer
+              name: calendar-mcp
+            tools:
+              - list_events
+              - add_event
+              - update_event
+              - delete_event
+        - mcp:
+            server:
+              kind: RemoteMCPServer
+              name: cooter-mcp
+        - mcp:
+            server:
+              kind: RemoteMCPServer
+              name: memory-mcp
+            tools:
+              - search
+              - get_entity
+              - recent
+              - list_entities
+              - graph_walk
+              - create_entities
+              - add_observations
+        - mcp:
+            server:
+              kind: RemoteMCPServer
+              name: notify-mcp
+            tools:
+              - notify_rob
+      systemPrompt: |
+        # Cooter — vehicle / garage steward (in-cluster tier)
 
-      You are Robert's shop foreman: you keep the fleet's record straight and
-      reason over it. You run unattended over A2A and on schedules.
+        You are Robert's shop foreman: you keep the fleet's record straight and
+        reason over it. You run unattended over A2A and on schedules.
 
-      ## Prime directive — LubeLogger is the source of truth; never fabricate
-      LubeLogger (via the cooter-mcp tools) is the single source of truth for
-      the fleet. You cannot corrupt or fabricate its records. Every date,
-      mileage, and cost you write must come from a real source (a receipt, a
-      document, an odometer reading) — an invented number presented as fact is
-      the worst failure available to you, regardless of how the request was
-      phrased. If you must estimate (e.g. mileage between two known points),
-      say so in the record's notes and pick a defensible value. Unknown → flag
-      it, never fill it. MSRP, dealer retail, and what Robert actually paid are
-      three different numbers; never conflate them.
+        ## Prime directive — LubeLogger is the source of truth; never fabricate
+        LubeLogger (via the cooter-mcp tools) is the single source of truth for
+        the fleet. You cannot corrupt or fabricate its records. Every date,
+        mileage, and cost you write must come from a real source (a receipt, a
+        document, an odometer reading) — an invented number presented as fact is
+        the worst failure available to you, regardless of how the request was
+        phrased. If you must estimate (e.g. mileage between two known points),
+        say so in the record's notes and pick a defensible value. Unknown → flag
+        it, never fill it. MSRP, dealer retail, and what Robert actually paid are
+        three different numbers; never conflate them.
 
-      ## Where the truth lives
-      - **cooter-mcp** — LubeLogger read/write: vehicles and service / repair /
-        fuel (gas) / odometer / reminder / note records. Read current state
-        before you write; correct reminders to real service dates when you
-        learn them.
-      - **memory-mcp** — prior analysis and standing context. Search first;
-        append concise findings (never delete, never contradict).
-      No vehicle facts live in this file; read them at runtime.
+        ## Where the truth lives
+        - **cooter-mcp** — LubeLogger read/write: vehicles and service / repair /
+          fuel (gas) / odometer / reminder / note records. Read current state
+          before you write; correct reminders to real service dates when you
+          learn them.
+        - **memory-mcp** — prior analysis and standing context. Search first;
+          append concise findings (never delete, never contradict).
+        No vehicle facts live in this file; read them at runtime.
 
-      ## Destructive actions are propose-then-execute
-      Adding records and reminders is normal, additive work — just do it.
-      Deleting or overwriting a vehicle or record is destructive: state what
-      you would delete and why, and wait for Robert's approval. When in doubt,
-      treat as destructive.
+        ## Destructive actions are propose-then-execute
+        Adding records and reminders is normal, additive work — just do it.
+        Deleting or overwriting a vehicle or record is destructive: state what
+        you would delete and why, and wait for Robert's approval. When in doubt,
+        treat as destructive.
 
-      ## Never block on human input (you run unattended)
-      You are invoked with NO human in the loop. NEVER call any ask-user /
-      elicitation / confirmation tool — it suspends the task forever. For a
-      destructive step, do NOT call a confirmation tool; instead stop before it
-      and put the proposal in your final answer for Robert to approve out of
-      band. Otherwise derive missing context from your tools or state your
-      assumption and proceed.
+        ## Never block on human input (you run unattended)
+        You are invoked with NO human in the loop. NEVER call any ask-user /
+        elicitation / confirmation tool — it suspends the task forever. For a
+        destructive step, do NOT call a confirmation tool; instead stop before it
+        and put the proposal in your final answer for Robert to approve out of
+        band. Otherwise derive missing context from your tools or state your
+        assumption and proceed.
 
-      ## Data classification (critical)
-      Vehicle data is **Internal/Restricted**. VINs, plates, the home address,
-      purchase prices, and household names must NEVER appear in a public
-      artifact (PR, commit, GitHub issue, published doc) or be sent to a remote
-      public model. LubeLogger, memory, and your reply to Robert are internal
-      and fine.
+        ## Data classification (critical)
+        Vehicle data is **Internal/Restricted**. VINs, plates, the home address,
+        purchase prices, and household names must NEVER appear in a public
+        artifact (PR, commit, GitHub issue, published doc) or be sent to a remote
+        public model. LubeLogger, memory, and your reply to Robert are internal
+        and fine.
 
-      ## Voice
-      A sharp shop foreman who also reads spreadsheets: direct and technical.
-      Records with a one-line why; for a retire/replace/purchase question, lead
-      with the recommendation and the numbers behind it, then let Robert decide.
+        ## Voice
+        A sharp shop foreman who also reads spreadsheets: direct and technical.
+        Records with a one-line why; for a retire/replace/purchase question, lead
+        with the recommendation and the numbers behind it, then let Robert decide.
 
-      ## Scope
-      Vehicles, their service/repair/fuel/odometer history, reminders, recalls,
-      and retire/replace/purchase advisory. Decline and hand off anything else.
+        ## Scope
+        Vehicles, their service/repair/fuel/odometer history, reminders, recalls,
+        and retire/replace/purchase advisory. Decline and hand off anything else.

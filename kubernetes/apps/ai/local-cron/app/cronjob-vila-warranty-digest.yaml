@@ -56,13 +56,23 @@ spec:
                 - |
                   HB="http://homebox.selfhosted:7745"
                   GR="http://grocy.selfhosted:80"
-                  WINDOW=90           # days-ahead to flag an upcoming expiry/due
+                  # Weekly cron (Mon 08:00 ET). Warranty reminders fire in two
+                  # ~1-week-wide bands sized to the weekly cadence so each is
+                  # caught by exactly one run: ~90 days out, and ~7 days out.
+                  # Already-expired warranties (DAYS<0) are never emailed --
+                  # Robert doesn't want an ongoing "it's expired" nag, just the
+                  # two pre-expiry heads-ups.
+                  WARN_FAR_LO=84      # 90-day heads-up band, low bound
+                  WARN_FAR_HI=90      # 90-day heads-up band, high bound
+                  WARN_NEAR_LO=0      # 7-day heads-up band, low bound
+                  WARN_NEAR_HI=7      # 7-day heads-up band, high bound
+                  CHORE_WINDOW=6      # chores/batteries: "Do now" only within this week's run (incl. overdue)
                   MAX=15              # hard cap on emails per run
                   NOW="$$(date +%s)"
                   TAB="$$(printf '\t')"
                   : > /tmp/due.tsv     # rows: KIND<TAB>NAME<TAB>DETAIL<TAB>ID
 
-                  # ---- HomeBox: entities whose warranty expires within WINDOW --
+                  # ---- HomeBox: entities whose warranty is ~90d or ~7d out ----
                   ENTS="$$(curl -sS --max-time 30 \
                             -H "Authorization: Bearer $${HOMEBOX_TOKEN}" \
                             "$$HB/api/v1/entities?pageSize=500")" || {
@@ -82,15 +92,17 @@ spec:
                         EPOCH="$$(date -d "$$WEXP" +%s 2>/dev/null || echo '')"
                         [ -z "$$EPOCH" ] && continue
                         DAYS="$$(( (EPOCH - NOW) / 86400 ))"
-                        if [ "$$DAYS" -le "$$WINDOW" ]; then
-                          if [ "$$DAYS" -lt 0 ]; then STATE="EXPIRED"; else STATE="expiring"; fi
-                          printf 'warranty\t%s\t%s (%s, %s days)\t%s\n' \
-                            "$$NAME" "$$STATE" "$$WEXP" "$$DAYS" "$$ID" >> /tmp/due.tsv
+                        if { [ "$$DAYS" -ge "$$WARN_FAR_LO" ] && [ "$$DAYS" -le "$$WARN_FAR_HI" ]; } \
+                           || { [ "$$DAYS" -ge "$$WARN_NEAR_LO" ] && [ "$$DAYS" -le "$$WARN_NEAR_HI" ]; }; then
+                          printf 'warranty\t%s\texpiring (%s, %s days)\t%s\n' \
+                            "$$NAME" "$$WEXP" "$$DAYS" "$$ID" >> /tmp/due.tsv
                         fi
+                        # Outside both bands (including DAYS<0, already-expired)
+                        # is intentionally silent -- no EXPIRED nag.
                       done
                   done
 
-                  # ---- Grocy chores due within WINDOW (keep chore_id) ---------
+                  # ---- Grocy chores due within CHORE_WINDOW (keep chore_id) ---
                   CH="$$(curl -sS --max-time 30 -H "GROCY-API-KEY: $${GROCY_API_KEY}" \
                           "$$GR/api/chores")" || CH='[]'
                   printf '%s' "$$CH" | jq -r '.[]? | [ (.next_estimated_execution_time // ""), (.chore_name // ""), ((.chore_id|tostring) // "") ] | @tsv' 2>/dev/null > /tmp/gr.tsv || : > /tmp/gr.tsv
@@ -100,13 +112,13 @@ spec:
                     EPOCH="$$(date -d "$$WD" +%s 2>/dev/null || echo '')"
                     [ -z "$$EPOCH" ] && continue
                     DAYS="$$(( (EPOCH - NOW) / 86400 ))"
-                    if [ "$$DAYS" -le "$$WINDOW" ]; then
+                    if [ "$$DAYS" -le "$$CHORE_WINDOW" ]; then
                       if [ "$$DAYS" -lt 0 ]; then STATE="OVERDUE"; else STATE="due"; fi
                       printf 'chore\t%s\t%s (%s, %s days)\t%s\n' "$$NAME" "$$STATE" "$$WD" "$$DAYS" "$$CID" >> /tmp/due.tsv
                     fi
                   done < /tmp/gr.tsv
 
-                  # ---- Grocy batteries due for charge within WINDOW ----------
+                  # ---- Grocy batteries due for charge within CHORE_WINDOW ----
                   BA="$$(curl -sS --max-time 30 -H "GROCY-API-KEY: $${GROCY_API_KEY}" \
                           "$$GR/api/batteries")" || BA='[]'
                   printf '%s' "$$BA" | jq -r '.[]? | [ (.next_estimated_charge_time // ""), ((.battery.name) // (.battery_id|tostring) // "battery"), ((.battery_id|tostring) // "") ] | @tsv' 2>/dev/null > /tmp/ba.tsv || : > /tmp/ba.tsv
@@ -116,7 +128,7 @@ spec:
                     EPOCH="$$(date -d "$$WD" +%s 2>/dev/null || echo '')"
                     [ -z "$$EPOCH" ] && continue
                     DAYS="$$(( (EPOCH - NOW) / 86400 ))"
-                    if [ "$$DAYS" -le "$$WINDOW" ]; then
+                    if [ "$$DAYS" -le "$$CHORE_WINDOW" ]; then
                       if [ "$$DAYS" -lt 0 ]; then STATE="OVERDUE"; else STATE="due"; fi
                       printf 'battery\t%s\t%s (%s, %s days)\t%s\n' "$$NAME" "$$STATE" "$$WD" "$$DAYS" "$$BID" >> /tmp/due.tsv
                     fi
@@ -153,15 +165,13 @@ spec:
                           "$$NAME" "$$DETAIL" "$$PROC" "$$NAME" "$$GR_PUB")"
                         ;;
                       warranty)
+                        # DETAIL is always "expiring (...)" now -- already-
+                        # expired warranties never reach this branch (see the
+                        # WARN_FAR_*/WARN_NEAR_* bands above), so there is no
+                        # EXPIRED-vs-expiring split to make here any more.
                         SUBJECT="Vila: $$NAME — warranty $$DETAIL"
-                        case "$$DETAIL" in
-                          EXPIRED*)
-                            BODY="$$(printf '**Heads-up:** the warranty on **%s** has %s.\n\n**What to do:** this item is now out of warranty — if it fails, plan for repair/replacement (no manufacturer coverage to fall back on). If you believe a longer term should apply, find the warranty certificate and update the record so this clears.\n\n**Record:** [HomeBox](%s) -> open the "%s" asset and set the real warranty date, or mark lifetime/replaced.' \
-                              "$$NAME" "$$DETAIL" "$$HB_PUB" "$$NAME")" ;;
-                          *)
-                            BODY="$$(printf '**Act soon:** the warranty on **%s** is %s.\n\n**What to do:** if this item has any fault, schedule warranty service BEFORE it lapses; note any renewal/extension options. Then update the record.\n\n**Record:** [HomeBox](%s) -> the "%s" asset.' \
-                              "$$NAME" "$$DETAIL" "$$HB_PUB" "$$NAME")" ;;
-                        esac
+                        BODY="$$(printf '**Act soon:** the warranty on **%s** is %s.\n\n**What to do:** if this item has any fault, schedule warranty service BEFORE it lapses; note any renewal/extension options. Then update the record.\n\n**Record:** [HomeBox](%s) -> the "%s" asset.' \
+                          "$$NAME" "$$DETAIL" "$$HB_PUB" "$$NAME")"
                         ;;
                       battery)
                         SUBJECT="Vila: battery $$NAME — $$DETAIL"

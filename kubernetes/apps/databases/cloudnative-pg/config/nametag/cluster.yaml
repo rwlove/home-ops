@@ -7,7 +7,14 @@ metadata:
 spec:
   instances: 3
 
-  imageName: ghcr.io/cloudnative-pg/postgresql:16.11
+  # Declarative offline in-place major upgrade 16 -> 17 (fleet standard).
+  # Both tags are debian:bullseye-slim (CNPG requires same OS distro across a
+  # major upgrade); 17.7 >= 17.6 avoids the 17.0-17.5 max_slot_wal_keep_size
+  # pg_upgrade bug. The operator stops the cluster, runs pg_upgrade --link into
+  # a new PGDATA, then re-clones replicas from the upgraded primary (full
+  # outage during the job). Rollback: revert this tag to 16.11 and the operator
+  # discards the failed job and restarts on 16 (no data is modified on failure).
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.7
 
   primaryUpdateStrategy: unsupervised
 
@@ -46,12 +53,21 @@ spec:
   plugins:
     - name: barman-cloud.cloudnative-pg.io
       isWALArchiver: true
-      parameters: &params
+      parameters:
         barmanObjectName: garage-nametag
-        serverName: postgres-nametag-backup
+        # Bumped from postgres-nametag-backup for the 16->17 major upgrade: a
+        # major upgrade resets the PG timeline, so post-upgrade WAL/backups must
+        # land under a fresh serverName or the new timeline-1 segments collide
+        # with the pre-upgrade archive (CNPG major-upgrade docs). The old
+        # archive stays intact at postgres-nametag-backup as the pre-upgrade
+        # restore point; `source` below still points at it. A fresh base backup
+        # must be taken into this new path immediately after the upgrade.
+        serverName: postgres-nametag-backup-v17
 
   externalClusters:
     - name: source
       plugin:
         name: barman-cloud.cloudnative-pg.io
-        parameters: *params
+        parameters:
+          barmanObjectName: garage-nametag
+          serverName: postgres-nametag-backup

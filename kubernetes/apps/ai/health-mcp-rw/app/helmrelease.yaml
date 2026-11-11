@@ -141,6 +141,21 @@ spec:
               - ports:
                   - port: "8080"
                     protocol: TCP
+          # mcp-gateway federation: the Kuadrant broker (mcp-gateway app pod,
+          # mcp-system) dials this backend directly over Service DNS to serve the
+          # federated health_rw_ tool. This L4 rule is only the federation conduit —
+          # the write-authz boundary (ONLY Crusher) is enforced above it: health_rw_
+          # is scoped to crusher's tool list in the kagent MCPVirtualServer, behind
+          # the gateway's Authelia bearer. ai is default-deny, so without this the
+          # broker->backend SYN is dropped. Verified via Hubble (broker APP pod connects).
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: mcp-system
+                  app.kubernetes.io/name: mcp-gateway
+            toPorts:
+              - ports:
+                  - port: "8080"
+                    protocol: TCP
         egress:
           # → PUMP CNPG read replica (weight source).
           - toEndpoints:

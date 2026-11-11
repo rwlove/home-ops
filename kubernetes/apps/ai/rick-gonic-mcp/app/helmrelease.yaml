@@ -164,6 +164,19 @@ spec:
               - ports:
                   - port: "8099"
                     protocol: TCP
+          # mcp-gateway federation: the Kuadrant broker (mcp-gateway app pod,
+          # mcp-system) dials this backend directly over Service DNS to serve the
+          # federated gonic_ tools. ai is default-deny, so without this the broker->
+          # backend SYN is dropped (context deadline → broker removes the tools).
+          # Verified via Hubble: the broker APP pod connects, not the istio Envoy.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: mcp-system
+                  app.kubernetes.io/name: mcp-gateway
+            toPorts:
+              - ports:
+                  - port: "8099"
+                    protocol: TCP
         egress:
           # -> gonic's Subsonic API in the media ns. Service is :80, targetPort
           # (pod/endpoint port) is 4747 — Cilium evaluates egress against the

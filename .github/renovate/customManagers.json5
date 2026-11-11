@@ -13,6 +13,27 @@
       datasourceTemplate: "docker",
     },
     {
+      // CNPG pins its Postgres engine image in the non-standard `imageName:`
+      // field. The built-in kubernetes manager only matches `image:`, and no
+      // manager above matches `imageName:`, so Renovate detected ZERO of the
+      // ~25 CNPG clusters — the engine froze at 17.7 for months and only ever
+      // moved by hand (dfe1a157ac). #13792's versioning fix was inert because
+      // nothing fed it a dependency to version. This manager is the missing
+      // detection half. Scoped to the cloudnative-pg/postgresql repo only, so
+      // the vectorchord clusters (immich/khoj/langgraph-memory) keep their
+      // deliberate 14.x digest pin untracked. Grouping + manual-merge gating
+      // live in packageRules.json5 (fleet-wide blast radius).
+      customType: "regex",
+      description: "Process CNPG cluster engine imageName",
+      managerFilePatterns: [
+        "/^kubernetes/apps/databases/cloudnative-pg/config/.+/cluster\\.yaml$/",
+      ],
+      matchStrings: [
+        "imageName:\\s+(?<depName>ghcr\\.io/cloudnative-pg/postgresql):(?<currentValue>\\S+)",
+      ],
+      datasourceTemplate: "docker",
+    },
+    {
       // Handles the inline annotation form:
       //   # renovate: datasource=github-releases depName=owner/repo
       //   someKey: v1.2.3

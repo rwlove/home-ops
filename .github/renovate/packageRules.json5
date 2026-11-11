@@ -33,9 +33,19 @@
       "matchPackageNames": ["ghcr.io/cloudnative-pg/postgresql"],
       // The compatibility suffix must be OPTIONAL: every cluster pins a bare
       // `major.minor` tag (e.g. 17.7), but the old regex required a `-suffix`
-      // and so matched nothing — Renovate silently opened zero bump PRs while
-      // the engine under all CNPG clusters drifted patch releases behind.
-      "versioning": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)(-(?<compatibility>.+))?$"
+      // and so matched nothing. (Detection of the `imageName:` field itself
+      // lives in customManagers.json5 — without that, this versioning rule is
+      // inert; the two must stay paired.)
+      "versioning": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)(-(?<compatibility>.+))?$",
+      // Group all ~25 clusters into ONE PR and require manual review. A single
+      // minor bump here fans out to ~25 rolling restarts + primary switchovers
+      // (incl. authelia, the cluster-wide SSO SPOF). Auto-merging and trickling
+      // those unattended is the exact concurrent-reconcile storm that took
+      // authelia down on 2026-08-16, so this is cluster-wide blast-radius infra
+      // like the CNI/ingress/storage rule above: Rob merges the single grouped
+      // PR deliberately, in a chosen low-traffic window.
+      "groupName": "cnpg-postgresql",
+      "automerge": false
     },
     {
       description: 'Loose versioning for non-semver packages',

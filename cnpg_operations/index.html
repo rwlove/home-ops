@@ -1396,6 +1396,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#onboarding-a-new-cluster--seed-the-first-backup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Onboarding a new cluster — seed the first backup
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#scaling-instances" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2599,6 +2610,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#onboarding-a-new-cluster--seed-the-first-backup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Onboarding a new cluster — seed the first backup
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#scaling-instances" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2723,10 +2745,9 @@ cluster gets it for free; don't hand-roll a bespoke
 ObjectStore/ScheduledBackup pair unless you have a real reason to
 deviate from the fleet.</p>
 <p>Almost every cluster runs 3 instances (1 primary + 2 async standbys)
-on PostgreSQL 17.7. Two exceptions to know about before you assume
-uniformity: <code>postgres-nametag</code> is still on PG16.11, and
-<code>postgres-pump</code> is on 17.5 — always check the live <code>imageName</code> before
-planning a coordinated bump. Three clusters (<code>postgres-immich</code>,
+on PostgreSQL 17.7. One exception to know about before you assume
+uniformity: <code>postgres-pump</code> is on 17.5 — always check the live
+<code>imageName</code> before planning a coordinated bump. Three clusters (<code>postgres-immich</code>,
 <code>postgres-khoj</code>, <code>postgres-langgraph-memory</code>) run the
 <code>cloudnative-vectorchord</code> image instead of stock
 <code>cloudnative-pg/postgresql</code> — they need pgvector/vectorchord
@@ -2968,17 +2989,47 @@ short primary-switchover blip per bump, not a hard outage.</p>
 </span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="c1"># Confirm the new version landed on every instance</span>
 </span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>kubectl<span class="w"> </span>cnpg<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>status<span class="w"> </span>postgres-&lt;app&gt;<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span><span class="s1">'PostgreSQL Image'</span>
 </span></code></pre></div>
-<p>Remember the two version outliers noted above (<code>nametag</code> on PG16,
-<code>pump</code> on 17.5) before assuming a fleet-wide bump PR covers every
-cluster — check each <code>cluster.yaml</code>'s current <code>imageName</code>, don't copy
-a version string across all 21 blind.</p>
-<p><strong>Major-version bumps</strong> (e.g. 16→17) are not a simple <code>imageName</code> edit
-— CNPG doesn't in-place major-upgrade PGData. That's an <code>online
-upgrade</code>/<code>pg_upgrade</code> project of its own; don't attempt one by editing
-<code>imageName</code> and hoping.</p>
+<p>Remember the version outlier noted above (<code>pump</code> on 17.5) before
+assuming a fleet-wide bump PR covers every cluster — check each
+<code>cluster.yaml</code>'s current <code>imageName</code>, don't copy a version string
+across all clusters blind.</p>
+<p><strong>Major-version bumps</strong> (e.g. 16→17) <em>are</em> supported as a declarative
+in-place upgrade on this operator (CNPG ≥1.26; fleet is on 1.30): bump
+<code>imageName</code> to the new major and the operator runs an <strong>offline</strong>
+<code>pg_upgrade</code> — it stops the whole cluster, upgrades PGDATA with
+<code>pg_upgrade --link</code>, then re-clones the standbys from the upgraded
+primary. That's a full outage for the duration, not just a switchover
+blip, so treat it as a planned maintenance op. Preconditions: both
+images share the same OS distribution (e.g. bullseye→bullseye); if
+coming from PG16, target ≥17.6 (17.0–17.5 have a <code>pg_upgrade</code> /
+<code>max_slot_wal_keep_size</code> bug); and any extensions must exist in the
+target image. In the same change, bump the Barman <code>serverName</code> so the
+reset post-upgrade timeline can't collide with the pre-upgrade archive,
+then seed a fresh base backup immediately after (pre-upgrade backups
+can't do cross-major PITR) and run <code>ANALYZE</code>. Rollback: revert
+<code>imageName</code>; the operator discards the failed job and restarts on the
+old major — no data is modified on failure. <code>postgres-nametag</code> was
+taken 16→17.7 this way.</p>
+<h3 id="onboarding-a-new-cluster--seed-the-first-backup">Onboarding a new cluster — seed the first backup<a class="headerlink" href="#onboarding-a-new-cluster--seed-the-first-backup" title="Permanent link">&para;</a></h3>
+<p>The shared <code>cnpg-app-database</code> component does <strong>not</strong> set <code>immediate:
+true</code> on the <code>ScheduledBackup</code> (it used to; the immediate backup raced
+the <code>ExternalSecret</code> sync and failed on first run every time). So a new
+cluster has no base backup until its first <code>@weekly</code> slot — seed one by
+hand once the cluster reports Ready, so it's protected immediately and
+the attempt actually succeeds (the secret exists by then):</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>kubectl<span class="w"> </span>cnpg<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>backup<span class="w"> </span>postgres-&lt;app&gt;<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span>--backup-name<span class="w"> </span>&lt;app&gt;-seed<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">  </span>--method<span class="w"> </span>plugin<span class="w"> </span>--plugin-name<span class="w"> </span>barman-cloud.cloudnative-pg.io
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>
+</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="c1"># Confirm it completed</span>
+</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>get<span class="w"> </span>backups.postgresql.cnpg.io<span class="w"> </span>&lt;app&gt;-seed<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-12-7"><a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="w">  </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{.status.phase}{"\n"}'</span>
+</span></code></pre></div>
+<p><code>BackupStale</code> (no successful backup in 8 days) is the backstop if this
+is forgotten; <code>BackupFailed</code> catches a genuinely failing backup.</p>
 <h3 id="scaling-instances">Scaling instances<a class="headerlink" href="#scaling-instances" title="Permanent link">&para;</a></h3>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="nt">spec</span><span class="p">:</span>
-</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span><span class="nt">instances</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span><span class="w">   </span><span class="c1"># bump or drop this in the cluster.yaml</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="nt">spec</span><span class="p">:</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span><span class="nt">instances</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span><span class="w">   </span><span class="c1"># bump or drop this in the cluster.yaml</span>
 </span></code></pre></div>
 <p>Scaling up adds a new standby that clones from the current primary and
 joins streaming replication — no primary disruption. Scaling down
@@ -2992,20 +3043,20 @@ a plan for the gap.</p>
 <h3 id="connecting-to-a-cluster">Connecting to a cluster<a class="headerlink" href="#connecting-to-a-cluster" title="Permanent link">&para;</a></h3>
 <p>No pgbouncer/Pooler layer exists in this fleet — connect directly to
 the CNPG-managed <code>Service</code>:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>postgres-&lt;app&gt;-rw.databases.svc.cluster.local:5432   # read-write, always the primary
-</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>postgres-&lt;app&gt;-ro.databases.svc.cluster.local:5432   # read-only, load-balanced across standbys
-</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>postgres-&lt;app&gt;-r.databases.svc.cluster.local:5432    # any instance, primary or standby
+<div class="language-text highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>postgres-&lt;app&gt;-rw.databases.svc.cluster.local:5432   # read-write, always the primary
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>postgres-&lt;app&gt;-ro.databases.svc.cluster.local:5432   # read-only, load-balanced across standbys
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>postgres-&lt;app&gt;-r.databases.svc.cluster.local:5432    # any instance, primary or standby
 </span></code></pre></div>
 <p>Interactive access from the plugin (uses the superuser secret
 automatically):</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>kubectl<span class="w"> </span>cnpg<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>psql<span class="w"> </span>postgres-&lt;app&gt;
-</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>kubectl<span class="w"> </span>cnpg<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>psql<span class="w"> </span>postgres-&lt;app&gt;<span class="w"> </span>--<span class="w"> </span>-c<span class="w"> </span><span class="s1">'\l'</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>kubectl<span class="w"> </span>cnpg<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>psql<span class="w"> </span>postgres-&lt;app&gt;
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>kubectl<span class="w"> </span>cnpg<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>psql<span class="w"> </span>postgres-&lt;app&gt;<span class="w"> </span>--<span class="w"> </span>-c<span class="w"> </span><span class="s1">'\l'</span>
 </span></code></pre></div>
 <h3 id="common-stuck-cluster-situations">Common stuck-cluster situations<a class="headerlink" href="#common-stuck-cluster-situations" title="Permanent link">&para;</a></h3>
 <p><strong>Cluster stuck mid-rollout / a pod won't come Ready.</strong> Check the
 instance manager logs on the stuck pod first, then the operator:</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>logs<span class="w"> </span>postgres-&lt;app&gt;-&lt;N&gt;<span class="w"> </span>-c<span class="w"> </span>postgres<span class="w"> </span>--tail<span class="o">=</span><span class="m">200</span>
-</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>cnpg-system<span class="w"> </span>logs<span class="w"> </span>deploy/cloudnative-pg<span class="w"> </span>--tail<span class="o">=</span><span class="m">200</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>logs<span class="w"> </span>postgres-&lt;app&gt;-&lt;N&gt;<span class="w"> </span>-c<span class="w"> </span>postgres<span class="w"> </span>--tail<span class="o">=</span><span class="m">200</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>cnpg-system<span class="w"> </span>logs<span class="w"> </span>deploy/cloudnative-pg<span class="w"> </span>--tail<span class="o">=</span><span class="m">200</span>
 </span></code></pre></div>
 <p><strong>A replica won't join / stays "Standby (sync)" forever without
 catching up.</strong> Usually means the new/recovering replica can't pull
@@ -3021,15 +3072,15 @@ sits at <code>Status: OK</code> but never reaches <code>streaming</code> in the 
 table, that instance is very likely still on the pre-failover timeline
 and can't reconcile. The fix is to let CNPG re-clone it, not to debug
 Postgres internals by hand:</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="c1"># Confirm which instance is the odd one out first — do not guess</span>
-</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>kubectl<span class="w"> </span>cnpg<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>status<span class="w"> </span>postgres-&lt;app&gt;<span class="w"> </span>-v
-</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>
-</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="c1"># Delete the stuck instance's pod AND its PVCs to force a fresh clone</span>
-</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="c1"># from the current primary. This is destructive to that replica's</span>
-</span><span id="__span-16-6"><a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a><span class="c1"># local data (not the cluster's data — the primary is untouched) —</span>
-</span><span id="__span-16-7"><a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a><span class="c1"># propose before running against anything with only 2 instances left.</span>
-</span><span id="__span-16-8"><a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>delete<span class="w"> </span>pod<span class="w"> </span>postgres-&lt;app&gt;-&lt;N&gt;
-</span><span id="__span-16-9"><a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>delete<span class="w"> </span>pvc<span class="w"> </span>postgres-&lt;app&gt;-&lt;N&gt;,postgres-&lt;app&gt;-&lt;N&gt;-wal
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="c1"># Confirm which instance is the odd one out first — do not guess</span>
+</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>kubectl<span class="w"> </span>cnpg<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>status<span class="w"> </span>postgres-&lt;app&gt;<span class="w"> </span>-v
+</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>
+</span><span id="__span-17-4"><a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="c1"># Delete the stuck instance's pod AND its PVCs to force a fresh clone</span>
+</span><span id="__span-17-5"><a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a><span class="c1"># from the current primary. This is destructive to that replica's</span>
+</span><span id="__span-17-6"><a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a><span class="c1"># local data (not the cluster's data — the primary is untouched) —</span>
+</span><span id="__span-17-7"><a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a><span class="c1"># propose before running against anything with only 2 instances left.</span>
+</span><span id="__span-17-8"><a id="__codelineno-17-8" name="__codelineno-17-8" href="#__codelineno-17-8"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>delete<span class="w"> </span>pod<span class="w"> </span>postgres-&lt;app&gt;-&lt;N&gt;
+</span><span id="__span-17-9"><a id="__codelineno-17-9" name="__codelineno-17-9" href="#__codelineno-17-9"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>delete<span class="w"> </span>pvc<span class="w"> </span>postgres-&lt;app&gt;-&lt;N&gt;,postgres-&lt;app&gt;-&lt;N&gt;-wal
 </span></code></pre></div>
 <p>CNPG's <code>StatefulSet</code>-like controller notices the missing instance and
 re-provisions it from a fresh <code>pg_basebackup</code> against the primary.
@@ -3050,8 +3101,8 @@ above.</p>
 <li>WAL-archive staleness by clock time is a false signal on an idle
   database — watch the <code>.ready</code>-segment backlog count, not time-since-
   last-archive.</li>
-<li><code>nametag</code> (PG16) and <code>pump</code> (17.5) are the two clusters off the
-  fleet-standard 17.7 image — verify before a coordinated bump.</li>
+<li><code>pump</code> (17.5) is the one cluster off the fleet-standard 17.7 image
+  — verify before a coordinated bump.</li>
 <li>No <code>Pooler</code> exists anywhere in this fleet; apps connect straight to
   the <code>-rw</code>/<code>-ro</code>/<code>-r</code> services.</li>
 <li><code>bootstrap.recovery</code> only fires on first cluster creation — it is

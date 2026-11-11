@@ -43,10 +43,9 @@ ObjectStore/ScheduledBackup pair unless you have a real reason to
 deviate from the fleet.
 
 Almost every cluster runs 3 instances (1 primary + 2 async standbys)
-on PostgreSQL 17.7. Two exceptions to know about before you assume
-uniformity: `postgres-nametag` is still on PG16.11, and
-`postgres-pump` is on 17.5 — always check the live `imageName` before
-planning a coordinated bump. Three clusters (`postgres-immich`,
+on PostgreSQL 17.7. One exception to know about before you assume
+uniformity: `postgres-pump` is on 17.5 — always check the live
+`imageName` before planning a coordinated bump. Three clusters (`postgres-immich`,
 `postgres-khoj`, `postgres-langgraph-memory`) run the
 `cloudnative-vectorchord` image instead of stock
 `cloudnative-pg/postgresql` — they need pgvector/vectorchord
@@ -326,15 +325,50 @@ kubectl -n databases get pods -l cnpg.io/cluster=postgres-<app> -w
 kubectl cnpg -n databases status postgres-<app> | grep 'PostgreSQL Image'
 ```
 
-Remember the two version outliers noted above (`nametag` on PG16,
-`pump` on 17.5) before assuming a fleet-wide bump PR covers every
-cluster — check each `cluster.yaml`'s current `imageName`, don't copy
-a version string across all 21 blind.
+Remember the version outlier noted above (`pump` on 17.5) before
+assuming a fleet-wide bump PR covers every cluster — check each
+`cluster.yaml`'s current `imageName`, don't copy a version string
+across all clusters blind.
 
-**Major-version bumps** (e.g. 16→17) are not a simple `imageName` edit
-— CNPG doesn't in-place major-upgrade PGData. That's an `online
-upgrade`/`pg_upgrade` project of its own; don't attempt one by editing
-`imageName` and hoping.
+**Major-version bumps** (e.g. 16→17) *are* supported as a declarative
+in-place upgrade on this operator (CNPG ≥1.26; fleet is on 1.30): bump
+`imageName` to the new major and the operator runs an **offline**
+`pg_upgrade` — it stops the whole cluster, upgrades PGDATA with
+`pg_upgrade --link`, then re-clones the standbys from the upgraded
+primary. That's a full outage for the duration, not just a switchover
+blip, so treat it as a planned maintenance op. Preconditions: both
+images share the same OS distribution (e.g. bullseye→bullseye); if
+coming from PG16, target ≥17.6 (17.0–17.5 have a `pg_upgrade` /
+`max_slot_wal_keep_size` bug); and any extensions must exist in the
+target image. In the same change, bump the Barman `serverName` so the
+reset post-upgrade timeline can't collide with the pre-upgrade archive,
+then seed a fresh base backup immediately after (pre-upgrade backups
+can't do cross-major PITR) and run `ANALYZE`. Rollback: revert
+`imageName`; the operator discards the failed job and restarts on the
+old major — no data is modified on failure. `postgres-nametag` was
+taken 16→17.7 this way.
+
+### Onboarding a new cluster — seed the first backup
+
+The shared `cnpg-app-database` component does **not** set `immediate:
+true` on the `ScheduledBackup` (it used to; the immediate backup raced
+the `ExternalSecret` sync and failed on first run every time). So a new
+cluster has no base backup until its first `@weekly` slot — seed one by
+hand once the cluster reports Ready, so it's protected immediately and
+the attempt actually succeeds (the secret exists by then):
+
+```sh
+kubectl cnpg -n databases backup postgres-<app> \
+  --backup-name <app>-seed \
+  --method plugin --plugin-name barman-cloud.cloudnative-pg.io
+
+# Confirm it completed
+kubectl -n databases get backups.postgresql.cnpg.io <app>-seed \
+  -o jsonpath='{.status.phase}{"\n"}'
+```
+
+`BackupStale` (no successful backup in 8 days) is the backstop if this
+is forgotten; `BackupFailed` catches a genuinely failing backup.
 
 ### Scaling instances
 
@@ -430,8 +464,8 @@ above.
 - WAL-archive staleness by clock time is a false signal on an idle
   database — watch the `.ready`-segment backlog count, not time-since-
   last-archive.
-- `nametag` (PG16) and `pump` (17.5) are the two clusters off the
-  fleet-standard 17.7 image — verify before a coordinated bump.
+- `pump` (17.5) is the one cluster off the fleet-standard 17.7 image
+  — verify before a coordinated bump.
 - No `Pooler` exists anywhere in this fleet; apps connect straight to
   the `-rw`/`-ro`/`-r` services.
 - `bootstrap.recovery` only fires on first cluster creation — it is

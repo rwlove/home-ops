@@ -6,7 +6,13 @@ metadata:
   name: postgres-${APP}-backup
 spec:
   schedule: "@weekly"
-  immediate: true
+  # No `immediate: true`. On a brand-new cluster the immediate backup fires
+  # before the ExternalSecret has synced `${APP}-secret` from 1Password, so it
+  # always failed on first run (leaving a spurious failed Backup CR + a
+  # transient BackupFailed alert) and seeded nothing anyway. Instead, seed the
+  # first base backup by hand at onboarding once the cluster is Ready — see
+  # docs/src/cnpg_operations.md "Onboarding a new cluster". BackupStale (8d) and
+  # BackupFailed remain the detection backstops if a seed is forgotten.
   backupOwnerReference: self
   method: plugin
   pluginConfiguration:

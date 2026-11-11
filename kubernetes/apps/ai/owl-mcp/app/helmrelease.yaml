@@ -1,0 +1,204 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app owl-mcp
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  values:
+    defaultPodOptions:
+      securityContext:
+        # Owl's image ships its app under the baked-in `owl` user = UID/GID 1001
+        # (verified from the image, NOT the repo-default 1000). owlcli + its venv
+        # live at /app/owl, owned by 1001; run as that UID per helmrelease.security.md
+        # ("a specific UID baked into the image overrides per-controller").
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+    controllers:
+      owl-mcp:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        type: deployment
+        replicas: 1
+        initContainers:
+          # Owl ships ONLY a stdio MCP server (`owlcli serve`); a RemoteMCPServer
+          # needs HTTP/SSE. sparfenyuk/mcp-proxy bridges stdio->HTTP, but it must
+          # share owlcli's process tree, so it runs IN this image (not a separate
+          # bridge image). The owl image has no pip, but DOES ship `uv`
+          # (/usr/local/bin/uv) + Python 3.14.10; this init vendors a pinned
+          # mcp-proxy (+ its full dep closure) into the shared /vendor emptyDir
+          # using that same interpreter, so the main container runs it with the
+          # base python. 0.13.0 is the newest release >=2wk old (2026-10-10) and
+          # installs clean as cp314 wheels (no source builds).
+          vendor-mcp-proxy:
+            image:
+              repository: docker.io/owlplanner/owldocker
+              tag: 2026.10.30@sha256:7fdecf39e2b17d1fa6bbb87d4180d255f026a69ef81d06520fbf2a4ec37beef6
+            command:
+              - uv
+              - pip
+              - install
+              - --no-cache
+              - --python
+              - /usr/local/bin/python3
+              - --target
+              - /vendor
+              - mcp-proxy==0.13.0
+            env:
+              HOME: /tmp
+              UV_CACHE_DIR: /tmp
+              UV_NO_PROGRESS: "1"
+            resources:
+              requests:
+                cpu: 50m
+                memory: 128Mi
+              limits:
+                memory: 512Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+        containers:
+          app:
+            image:
+              repository: docker.io/owlplanner/owldocker
+              tag: 2026.10.30@sha256:7fdecf39e2b17d1fa6bbb87d4180d255f026a69ef81d06520fbf2a4ec37beef6
+            # Run mcp-proxy (vendored into /vendor) on the base interpreter and let
+            # it spawn `owlcli serve` as its stdio backend via owlcli's absolute
+            # venv path (owlcli keeps its own venv python via its shebang). Exposes
+            # streamable-HTTP at /mcp (and SSE at /sse) on 0.0.0.0:8080. 0.13.0
+            # predates mcp-proxy's DNS-rebinding Host-header allowlist, so dialing
+            # by Service DNS needs no --allowed-host flag.
+            command:
+              - python3
+              - -m
+              - mcp_proxy
+            args:
+              - --host
+              - 0.0.0.0
+              - --port
+              - "8080"
+              - --
+              - /app/owl/.venv/bin/owlcli
+              - serve
+            env:
+              TZ: America/New_York
+              PYTHONPATH: /vendor
+              PYTHONUNBUFFERED: "1"
+              # owlcli + matplotlib write caches under $HOME; keep them on tmpfs so
+              # the root filesystem stays read-only.
+              HOME: /tmp
+              MPLCONFIGDIR: /tmp
+              # owlcli prints a disclaimer banner unless suppressed; on stdio that
+              # would corrupt the JSON-RPC stream mcp-proxy reads.
+              OWL_SKIP_DISCLAIMER: "1"
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: &port 8080
+                  initialDelaySeconds: 30
+                  periodSeconds: 30
+                  failureThreshold: 5
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: *port
+                  initialDelaySeconds: 20
+                  periodSeconds: 15
+                  failureThreshold: 6
+            resources:
+              requests:
+                cpu: 25m
+                memory: 256Mi
+              limits:
+                # Owl is matplotlib-/solver-memory-heavy on larger Monte-Carlo and
+                # historical sweeps; give it headroom.
+                memory: 2Gi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+    service:
+      app:
+        controller: owl-mcp
+        ports:
+          http:
+            port: *port
+    persistence:
+      # mcp-proxy (+ dep closure) vendored by the init container; shared RO-ish
+      # with the app container at runtime.
+      vendor:
+        type: emptyDir
+        advancedMounts:
+          owl-mcp:
+            vendor-mcp-proxy:
+              - path: /vendor
+            app:
+              - path: /vendor
+      # Writable scratch for $HOME / matplotlib / uv cache under a read-only root.
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          owl-mcp:
+            vendor-mcp-proxy:
+              - path: /tmp
+            app:
+              - path: /tmp
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: owl-mcp-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: owl-mcp
+        # Additive — the ai-ns default-deny component is what triggers lockdown;
+        # these rules punch holes through it. DNS + intra-namespace (the kagent
+        # controller's tool-discovery dial AND warren's invocation dial, both in
+        # the ai ns) are already covered by the ai baseline network-policy
+        # component, so no kagent-side CNP change is needed (owl-mcp is
+        # intra-namespace, like ghostfolio-mcp).
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # kagent (controller discovery + warren) dials the MCP over :8080.
+          # Redundant with the ai allow-intra-namespace baseline; kept explicit
+          # for clarity, matching the cooter-mcp/grocy-mcp pattern.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: ai
+            toPorts:
+              - ports:
+                  - port: "8080"
+                    protocol: TCP
+        egress:
+          # world:443 — (1) the init container fetches the pinned mcp-proxy from
+          # PyPI, and (2) owlcli fetches current public rate/assumption tables at
+          # runtime (same reason selfhosted/owl has this egress). Only PUBLIC
+          # reference data leaves; warren's financial inputs arrive over the
+          # in-cluster MCP stream and never egress. Remove (1)'s justification if
+          # this is ever moved to a pre-baked combined image.
+          - toEntities:
+              - world
+            toPorts:
+              - ports:
+                  - port: "443"
+                    protocol: TCP

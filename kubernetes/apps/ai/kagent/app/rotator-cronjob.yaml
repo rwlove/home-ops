@@ -1,0 +1,90 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/cronjob-batch-v1.json
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: kagent-mcp-gateway-jwt-rotator
+spec:
+  # Offset from the mcp-system broker rotator (30 4) so the two never hit the
+  # Authelia token endpoint in the same minute. Daily; the minted token's
+  # expires_in defaults to 7d, so a day's cadence keeps it comfortably fresh.
+  schedule: "45 4 * * *"
+  timeZone: "Etc/UTC"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: kagent-mcp-gateway-jwt-rotator
+        spec:
+          serviceAccountName: kagent-mcp-gateway-jwt-rotator
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+          containers:
+            - name: rotator
+              image: docker.io/alpine/k8s:1.37.2@sha256:dcb7185e112a453aa72f426754849a97357727ef8f40168fb208c8cf59952042
+              command:
+                - /bin/sh
+                - -ceu
+                - |
+                  RESPONSE=$(curl -fsSL -X POST "$${OIDC_TOKEN_ENDPOINT}" \
+                    -H "Content-Type: application/x-www-form-urlencoded" \
+                    --data-urlencode "grant_type=client_credentials" \
+                    --data-urlencode "client_id=$${OIDC_CLIENT_ID}" \
+                    --data-urlencode "client_secret=$${OIDC_CLIENT_SECRET}" \
+                    --data-urlencode "scope=mcp-gateway" \
+                    --data-urlencode "audience=mcp-gateway")
+                  TOKEN=$(printf '%s' "$${RESPONSE}" | jq -er '.access_token')
+                  EXPIRES_IN=$(printf '%s' "$${RESPONSE}" | jq -er '.expires_in // 604800')
+                  EXPIRES_AT=$(( $(date +%s) + EXPIRES_IN ))
+                  # Store both the raw token (parity with the mcp-system rotator /
+                  # debugging) and a ready-to-inject `authorization` value. kagent's
+                  # RemoteMCPServer.headersFrom injects the secret value verbatim as
+                  # the Authorization header, so it must already carry the "Bearer "
+                  # prefix — the Authelia SecurityPolicy JWT provider extracts the
+                  # token from `Authorization: Bearer <jwt>`.
+                  kubectl create secret generic kagent-mcp-gateway-jwt \
+                    --from-literal=token="$${TOKEN}" \
+                    --from-literal=authorization="Bearer $${TOKEN}" \
+                    --from-literal=expires_at="$${EXPIRES_AT}" \
+                    --dry-run=client -o yaml | kubectl apply -f -
+                  echo "Rotated kagent mcp-gateway JWT; expires_at=$${EXPIRES_AT} (in $${EXPIRES_IN}s)"
+              envFrom:
+                - secretRef:
+                    name: kagent-mcp-gateway-authelia-client
+              env:
+                - name: OIDC_TOKEN_ENDPOINT
+                  value: "https://auth.${SECRET_DOMAIN}/api/oidc/token"
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+                limits:
+                  memory: 128Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+                - name: kube
+                  mountPath: /.kube
+          volumes:
+            - name: tmp
+              emptyDir: {}
+            - name: kube
+              emptyDir: {}

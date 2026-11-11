@@ -1,0 +1,37 @@
+---
+# TODO: apply schema
+# The Kuadrant mcp-gateway broker, consumed through the ENFORCED public hostname
+# (mcp.${SECRET_DOMAIN}) exactly like every other gateway client (open-webui,
+# the laptop) — in-cluster direct-to-broker is closed by the access-design doc
+# (Decision 1b). Auth is an Authelia bearer (aud=mcp-gateway) minted by the
+# sibling rotator CronJob into the `kagent-mcp-gateway-jwt` secret; the gateway's
+# Envoy SecurityPolicy validates it. The X-Mcp-Virtualserver header scopes the
+# federated ~940-tool catalog down to the `kagent` MCPVirtualServer
+# (mcp-system/kagent) so controller discovery stays small.
+#
+# This server is additive: no agent references it yet. It exists to validate the
+# auth + transport + discovery path end-to-end before any agent is flipped onto
+# it (migration pilot Step A). The direct per-backend RemoteMCPServers remain the
+# live path until each agent is migrated.
+apiVersion: api.kagent.dev/v1alpha3
+kind: RemoteMCPServer
+metadata:
+  name: mcp-gateway
+spec:
+  description: >-
+    Kuadrant mcp-gateway broker (federated MCP catalog), scoped to the kagent
+    MCPVirtualServer. Authelia-bearer auth via the enforced hostname.
+  protocol: STREAMABLE_HTTP
+  url: https://mcp.${SECRET_DOMAIN}/mcp
+  timeout: 30s
+  headersFrom:
+    # Scope the federated catalog to the kagent virtual server (namespace/name).
+    - name: X-Mcp-Virtualserver
+      value: mcp-system/kagent
+    # Authelia bearer (already "Bearer <jwt>" in the secret value). Injected by
+    # the egress gateway; the controller also injects it for tool discovery.
+    - name: Authorization
+      valueFrom:
+        type: Secret
+        name: kagent-mcp-gateway-jwt
+        key: authorization

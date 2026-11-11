@@ -24,8 +24,8 @@ spec:
         containers:
           app:
             image:
-              repository: docker.io/ckanthony/openapi-mcp
-              tag: 0.1.0@sha256:50f1bf68ce58724b9569142468ea038da67b22c778697388a0af7c416af5e5cc
+              repository: ghcr.io/rwlove/mcp-openapi-proxy
+              tag: v0.4.0@sha256:23906c73b605b7d464c21194bb0a4a017b59d464828d332cdd5e44f4970c841e
             # Generic OpenAPI->MCP bridge over SSE (GET/POST /mcp, binds
             # 0.0.0.0:8080). Wardrowbe serves a real OpenAPI doc but ONLY when
             # settings.dev_mode is on (it is off in prod — OIDC is configured),
@@ -36,29 +36,10 @@ spec:
             # at the in-cluster backend; --include-tag scopes tool generation to
             # tim's wardrobe surface (71 of 110 ops). The static identity Bearer
             # is injected via REQUEST_HEADERS (from the secret).
-            args:
-              - --spec
-              - /spec/wardrowbe.json
-              - --base-url
-              - http://wardrowbe.selfhosted.svc.cluster.local:8000
-              - --name
-              - Wardrowbe
-              - --include-tag
-              - Items
-              - --include-tag
-              - Outfits
-              - --include-tag
-              - Pairings
-              - --include-tag
-              - Analytics
-              - --include-tag
-              - Weather
-              - --include-tag
-              - Preferences
-              - --include-tag
-              - Learning
             env:
               TZ: America/New_York
+              OPENAPI_SPEC_URL: file:///spec/wardrowbe.json
+              SERVER_URL_OVERRIDE: http://wardrowbe.selfhosted.svc.cluster.local:8000
             # REQUEST_HEADERS=Authorization:Bearer <tim_bearer> from 1P via the ES.
             envFrom:
               - secretRef:
@@ -130,7 +111,8 @@ spec:
           name: tim-mcp-secret
           template:
             data:
-              REQUEST_HEADERS: "Authorization:Bearer {{ .tim_bearer }}"
+              # matthewhand sends Authorization: Bearer <API_KEY> by default.
+              API_KEY: "{{ .tim_bearer }}"
         dataFrom:
           - extract:
               key: wardrowbe
@@ -145,7 +127,19 @@ spec:
           egress: false
           ingress: false
         ingress:
-          # kagent (ai ns) calls the MCP over SSE on :8080.
+          # mcp-gateway federation: the Kuadrant broker (mcp-gateway app pod,
+          # mcp-system) dials this backend directly over Service DNS to serve the
+          # federated tools. ai is default-deny; backend-ingress half of the
+          # cross-ns pattern (#15826). No istio-egress (dead, #15834).
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: mcp-system
+                  app.kubernetes.io/name: mcp-gateway
+            toPorts:
+              - ports:
+                  - port: "8080"
+                    protocol: TCP
+          # Legacy kagent direct dial (ai ns) — retired at Stage 2.
           - fromEndpoints:
               - matchLabels:
                   io.kubernetes.pod.namespace: ai

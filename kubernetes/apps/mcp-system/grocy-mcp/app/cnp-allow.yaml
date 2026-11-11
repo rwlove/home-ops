@@ -1,0 +1,25 @@
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: grocy-mcp-broker-egress
+spec:
+  # Gateway-side egress: the Kuadrant broker (mcp-gateway app pod) dials the
+  # cross-ns grocy-mcp backend directly over Service DNS. The backend-side
+  # ingress half lives in ai/grocy-mcp (networkpolicies.allow.ingress). No
+  # istio-egress CNP — the istio Envoy is never on this data path (#15834).
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: mcp-gateway
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: grocy-mcp
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP

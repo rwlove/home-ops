@@ -24,22 +24,17 @@ spec:
         containers:
           app:
             image:
-              repository: docker.io/ckanthony/openapi-mcp
-              tag: 0.1.0@sha256:50f1bf68ce58724b9569142468ea038da67b22c778697388a0af7c416af5e5cc
+              repository: ghcr.io/rwlove/mcp-openapi-proxy
+              tag: v0.4.0@sha256:23906c73b605b7d464c21194bb0a4a017b59d464828d332cdd5e44f4970c841e
             # Generic OpenAPI->MCP bridge over SSE (GET/POST /mcp, binds
             # 0.0.0.0:8080). --spec is the hand-authored Grocy subset; --base-url
             # overrides the spec's server to the in-cluster service. The
             # GROCY-API-KEY header is injected into every upstream request via
             # REQUEST_HEADERS (from the secret). Bound by the `vila` agent.
-            args:
-              - --spec
-              - /spec/grocy.json
-              - --base-url
-              - http://grocy.selfhosted.svc.cluster.local:80
-              - --name
-              - Grocy
             env:
               TZ: America/New_York
+              OPENAPI_SPEC_URL: file:///spec/grocy.json
+              SERVER_URL_OVERRIDE: http://grocy.selfhosted.svc.cluster.local:80
             # REQUEST_HEADERS=GROCY-API-KEY:<api_key> from 1P via the
             # ExternalSecret. Grocy's API key is a proper long-lived key created
             # in its UI (Manage API keys) — no expiry concern.
@@ -110,7 +105,7 @@ spec:
           name: grocy-mcp-secret
           template:
             data:
-              REQUEST_HEADERS: "GROCY-API-KEY:{{ .api_key }}"
+              EXTRA_HEADERS: "GROCY-API-KEY: {{ .api_key }}"
         dataFrom:
           - extract:
               key: grocy
@@ -125,7 +120,19 @@ spec:
           egress: false
           ingress: false
         ingress:
-          # kagent (ai ns) calls the MCP over SSE on :8080.
+          # mcp-gateway federation: the Kuadrant broker (mcp-gateway app pod,
+          # mcp-system) dials this backend directly over Service DNS to serve the
+          # federated tools. ai is default-deny; backend-ingress half of the
+          # cross-ns pattern (#15826). No istio-egress (dead, #15834).
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: mcp-system
+                  app.kubernetes.io/name: mcp-gateway
+            toPorts:
+              - ports:
+                  - port: "8080"
+                    protocol: TCP
+          # Legacy kagent direct dial (ai ns) — retired at Stage 2.
           - fromEndpoints:
               - matchLabels:
                   io.kubernetes.pod.namespace: ai

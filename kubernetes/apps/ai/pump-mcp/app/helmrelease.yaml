@@ -128,6 +128,21 @@ spec:
               - ports:
                   - port: "8000"
                     protocol: TCP
+          # mcp-gateway federation: the istio gateway data-plane proxy (mcp-system)
+          # dials this backend cross-namespace to serve the federated pump_ tools.
+          # ai is default-deny, so WITHOUT this ingress the broker->backend hop
+          # times out ("context deadline exceeded") and the broker drops the tools.
+          # The gateway-side egress half lives in mcp-system/pump-mcp/app/cnp-allow.yaml;
+          # this is the backend-side ingress half the cross-ns B1 pattern was missing.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: mcp-system
+                  gateway.networking.k8s.io/gateway-name: mcp-gateway
+                  gateway.istio.io/managed: istio.io-gateway-controller
+            toPorts:
+              - ports:
+                  - port: "8000"
+                    protocol: TCP
         egress:
           # → PUMP CNPG read replica in the databases ns.
           - toEndpoints:

@@ -84,6 +84,18 @@ spec:
           value: http://garage.storage.svc.cluster.local:3900
         - name: AWS_S3_USE_PATH_STYLE
           value: "true"
+        # AWS SDK Go v2 (smithy) defaults to proactive CRC32 upload checksums,
+        # which it sends as an `aws-chunked` streaming body with a trailer
+        # (x-amz-content-sha256: STREAMING-UNSIGNED-PAYLOAD-TRAILER). Garage stalls
+        # on that chunked PUT: the snapshot upload hung client-side and never
+        # reached Garage (garage saw only GETs, no PUT), timing out the golden
+        # build "object-store plugin upload ... DeadlineExceeded". Force the SDK to
+        # only checksum when the API requires it → a plain PUT with a computed
+        # payload hash, which Garage accepts.
+        - name: AWS_REQUEST_CHECKSUM_CALCULATION
+          value: when_required
+        - name: AWS_RESPONSE_CHECKSUM_VALIDATION
+          value: when_required
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:

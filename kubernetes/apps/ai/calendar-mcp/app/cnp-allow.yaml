@@ -31,6 +31,20 @@ spec:
         - ports:
             - port: "8080"
               protocol: TCP
+    # mcp-gateway federation: the Kuadrant broker (mcp-gateway app pod, mcp-system)
+    # dials this backend directly over Service DNS to serve the federated calendar_
+    # tools. L4 conduit only — the write-authz boundary (the five concierge agents)
+    # stays enforced above it via each agent's tool list in the kagent
+    # MCPVirtualServer, behind the gateway's Authelia bearer. Without this ingress
+    # the broker->backend SYN is dropped. Verified via Hubble (broker APP pod connects).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+            app.kubernetes.io/name: mcp-gateway
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
   egress:
     # → Google Calendar API (www/oauth2/accounts.googleapis.com) + PyPI for the
     # ephemeral `uv run --with` dependency fetch. Broad HTTPS egress; could be

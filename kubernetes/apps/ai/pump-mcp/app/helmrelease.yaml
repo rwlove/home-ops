@@ -128,17 +128,17 @@ spec:
               - ports:
                   - port: "8000"
                     protocol: TCP
-          # mcp-gateway federation: the istio gateway data-plane proxy (mcp-system)
-          # dials this backend cross-namespace to serve the federated pump_ tools.
-          # ai is default-deny, so WITHOUT this ingress the broker->backend hop
-          # times out ("context deadline exceeded") and the broker drops the tools.
-          # The gateway-side egress half lives in mcp-system/pump-mcp/app/cnp-allow.yaml;
-          # this is the backend-side ingress half the cross-ns B1 pattern was missing.
+          # mcp-gateway federation: the Kuadrant broker (the mcp-gateway APP pod in
+          # mcp-system) dials this backend DIRECTLY over Service DNS to serve the
+          # federated pump_ tools — NOT through the istio Envoy (that + the .mcp.local
+          # HTTPRoute are only declarative config the broker reads to learn the
+          # Service/port; verified via Hubble, mcp-system has no sidecars). ai is
+          # default-deny, so without this ingress the broker->backend SYN is dropped
+          # ("context deadline exceeded") and the broker removes the tools.
           - fromEndpoints:
               - matchLabels:
                   io.kubernetes.pod.namespace: mcp-system
-                  gateway.networking.k8s.io/gateway-name: mcp-gateway
-                  gateway.istio.io/managed: istio.io-gateway-controller
+                  app.kubernetes.io/name: mcp-gateway
             toPorts:
               - ports:
                   - port: "8000"

@@ -24,15 +24,23 @@ spec:
         containers:
           app:
             image:
-              repository: docker.io/crystaldba/postgres-mcp
-              tag: 0.3.0@sha256:dbbd346860d29f1543e991f30f3284bf4ab5f096d049ecc3426528f20b1b6e6b
-            # Read-only: server-level restricted mode AND the health_ro DB role
-            # (which can SELECT only the api.v_weight view). SSE binds 0.0.0.0:8000.
+              repository: docker.io/bytebase/dbhub
+              tag: 1.6.0@sha256:ccb6afc0bc1f05c143e15c3c927eb11e8103d49b06947900c33e337f2453f5e3
+            # Read-only via the health_ro DB role (SELECT only on api.v_weight) —
+            # dbhub's own --readonly flag was removed upstream (it hard-fails), and
+            # the RO role is the real guard. Serves streamable-HTTP at /mcp on
+            # 0.0.0.0:8000. Replaces crystaldba/postgres-mcp:0.3.0, whose MCP SDK was
+            # too old for kagent 1.0's server/discover (protocolVersion 2026-07-28 →
+            # DiscoveryFailed); dbhub's SDK 2.0 negotiates 2026-07-28 natively.
             args:
-              - --access-mode=restricted
-              - --transport=sse
+              - --transport=http
+              - --port=8000
             env:
               TZ: America/New_York
+              # dbhub's DNS-rebinding guard 403s a Service-DNS caller unless the Host
+              # is allow-listed. The pump-mcp-allow CNP (ingress from ns ai only) plus
+              # the read-only DB role are the real guards here, so disable the check.
+              DBHUB_ALLOWED_HOSTS: "*"
             # DATABASE_URI (health_ro → postgres-pump) from 1P via the ExternalSecret.
             envFrom:
               - secretRef:
@@ -95,7 +103,9 @@ spec:
           name: pump-mcp-secret
           template:
             data:
-              DATABASE_URI: "postgresql://health_ro:{{ .RO_DB_PASS }}@postgres-pump-ro.databases.svc.cluster.local:5432/pump"
+              # dbhub reads the connection string from env `DSN` (resolveDSN order:
+              # --dsn flag → DSN env → DB_* parts). Env DSN alone is the clean path.
+              DSN: "postgresql://health_ro:{{ .RO_DB_PASS }}@postgres-pump-ro.databases.svc.cluster.local:5432/pump"
         dataFrom:
           - extract:
               key: health
@@ -110,7 +120,7 @@ spec:
           egress: false
           ingress: false
         ingress:
-          # kagent (ai ns) calls the MCP over SSE on :8000.
+          # kagent (ai ns) calls the MCP over streamable-HTTP (/mcp) on :8000.
           - fromEndpoints:
               - matchLabels:
                   io.kubernetes.pod.namespace: ai

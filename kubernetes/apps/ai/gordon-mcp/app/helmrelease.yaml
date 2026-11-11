@@ -24,24 +24,21 @@ spec:
         containers:
           app:
             image:
-              repository: docker.io/ckanthony/openapi-mcp
-              tag: 0.1.0@sha256:50f1bf68ce58724b9569142468ea038da67b22c778697388a0af7c416af5e5cc
-            # Generic OpenAPI->MCP bridge over SSE (GET/POST /mcp, binds
-            # 0.0.0.0:8080). --spec is the hand-authored KitchenOwl subset baked
-            # in via the configMap below; --base-url overrides the spec's server
-            # (the stub points at the public instance) to the in-cluster service.
-            # The static Bearer token is injected into every upstream request via
-            # REQUEST_HEADERS (from the secret).
-            args:
-              - --spec
-              - /spec/kitchenowl.json
-              - --base-url
-              - http://kitchenowl.collab.svc.cluster.local:8080
-              - --name
-              - KitchenOwl
+              repository: ghcr.io/rwlove/mcp-openapi-proxy
+              tag: v0.4.0@sha256:23906c73b605b7d464c21194bb0a4a017b59d464828d332cdd5e44f4970c841e
+            # Generic OpenAPI->MCP bridge (matthewhand/mcp-openapi-proxy), serving
+            # STREAMABLE-HTTP at /mcp on :8080 — the image bakes
+            # MCP_TRANSPORT=streamable-http (stateless), so this backend federates
+            # through the Kuadrant mcp-gateway (SSE-only ckanthony could not).
+            # Env-driven: OPENAPI_SPEC_URL is the hand-authored KitchenOwl spec
+            # mounted below; SERVER_URL_OVERRIDE overrides the spec's server to the
+            # in-cluster service. The static Bearer token is injected into every
+            # upstream request via API_KEY (default scheme Authorization: Bearer).
             env:
               TZ: America/New_York
-            # REQUEST_HEADERS=Authorization:Bearer <token> from 1P via the ES.
+              OPENAPI_SPEC_URL: file:///spec/kitchenowl.json
+              SERVER_URL_OVERRIDE: http://kitchenowl.collab.svc.cluster.local:8080
+            # API_KEY=<gordon_agent_token> from 1P via the ES.
             envFrom:
               - secretRef:
                   name: gordon-mcp-secret
@@ -112,7 +109,8 @@ spec:
           name: gordon-mcp-secret
           template:
             data:
-              REQUEST_HEADERS: "Authorization:Bearer {{ .gordon_agent_token }}"
+              # matthewhand sends `Authorization: Bearer <API_KEY>` by default.
+              API_KEY: "{{ .gordon_agent_token }}"
         dataFrom:
           - extract:
               key: kitchenowl
@@ -127,7 +125,20 @@ spec:
           egress: false
           ingress: false
         ingress:
-          # kagent (ai ns) calls the MCP over SSE on :8080.
+          # mcp-gateway federation: the Kuadrant broker (mcp-gateway app pod,
+          # mcp-system) dials this backend directly over Service DNS to serve the
+          # federated gordon_ tools. ai is default-deny, so without this the
+          # broker->backend SYN is dropped. Verified pattern (see #15826).
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: mcp-system
+                  app.kubernetes.io/name: mcp-gateway
+            toPorts:
+              - ports:
+                  - port: "8080"
+                    protocol: TCP
+          # Legacy kagent direct dial (ai ns) — retired once gordon migrates to
+          # the gateway (Stage 2); kept transiently so nothing drops mid-rollout.
           - fromEndpoints:
               - matchLabels:
                   io.kubernetes.pod.namespace: ai

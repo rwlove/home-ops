@@ -478,3 +478,36 @@ spec:
         - ports:
             - port: "8080"
               protocol: TCP
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+#
+# Substrate WorkerPool worker egress. The ate-controller auto-creates a
+# NetworkPolicy (substrate-kagent-default) for worker pods, but it declares ONLY
+# an Ingress rule (from atenet-router) — the Substrate assumes the worker's
+# namespace permits egress freely. Our `ai` namespace is Cilium default-deny
+# egress, so the worker's atunnel cannot reach the Substrate mesh gateways to
+# tunnel Actor egress: "atunnel failed to open egress tunnel ... connecting to
+# egress gateway: context deadline exceeded", which stalls every Actor's
+# bootstrap. Open the worker's egress to the egress + ingress mesh gateways
+# (atenet-egress / atenet-router) on their pod port :8443. ate-system has no
+# default-deny, so no ate-system-side rule is needed.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: kagent-workers-egress-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      ate.dev/worker-pool: kagent-default
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ate-system
+            app: atenet-egress
+        - matchLabels:
+            io.kubernetes.pod.namespace: ate-system
+            app: atenet-router
+      toPorts:
+        - ports:
+            - port: "8443"
+              protocol: TCP

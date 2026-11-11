@@ -250,6 +250,28 @@ spec:
         - ports:
             - port: "4317"
               protocol: TCP
+    # mcp-gateway migration pilot — agents consuming MCP THROUGH the Kuadrant
+    # broker at the enforced hostname (mcp.${SECRET_DOMAIN}) rather than dialing
+    # each backend directly. Resolves to the public Envoy gateway (network ns),
+    # same target the JWT rotator uses. Actor invocation is SNAT'd through
+    # atenet-egress (ate-system, no default-deny), but the agent pod's own egress
+    # is opened here too to match the established per-backend pattern above and
+    # avoid a silent default-deny if invocation egresses from the agent pod. The
+    # Authelia bearer + gateway SecurityPolicy still gate every call, so this is
+    # not a security downgrade. Pod port 10443 (Cilium enforces the backend pod
+    # port; the Service maps 443->10443); 443 kept for parity with the rotator.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "10443"
+              protocol: TCP
+            - port: "10443"
+              protocol: UDP
+            - port: "443"
+              protocol: TCP
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
 apiVersion: cilium.io/v2
@@ -437,6 +459,25 @@ spec:
             - port: "443"
               protocol: TCP
             - port: "8443"
+              protocol: TCP
+    # mcp-gateway migration pilot — the CONTROLLER reconciles the `mcp-gateway`
+    # RemoteMCPServer by dialing the broker at the enforced hostname
+    # (mcp.${SECRET_DOMAIN}) to discover its tool list, exactly as it dials the
+    # mcp-system backends above. That resolves to the public Envoy gateway
+    # (network ns). WITHOUT this the controller's discovery reconcile fails
+    # "context deadline exceeded" and the RemoteMCPServer never reaches
+    # DiscoverySucceeded. Pod port 10443 (Service maps 443->10443); 443 for parity.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "10443"
+              protocol: TCP
+            - port: "10443"
+              protocol: UDP
+            - port: "443"
               protocol: TCP
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json

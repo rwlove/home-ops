@@ -77,7 +77,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup flate
-        uses: home-operations/flate/action@631b76b69c4e58c6f4d1cb01e23616fa61aebafa # v0.6.5
+        uses: home-operations/flate/action@bbb6ebc344da051752dbdb1b413860ceffcfb63d # v0.7.3
         with:
           # Restore/save flate's XDG cache (sources, helm charts, git mirrors,
           # blobs) between runs. Without it every run re-fetches all 52 chart
@@ -89,6 +89,39 @@ jobs:
           # Chart refs are digest-pinned and change rarely, so the cache hits
           # on nearly every run; requests not made can't be rate-limited.
           cache: true
+
+      # flate v0.7 stopped silently stubbing Secret/ConfigMap values it can't
+      # read from Git (home-operations/flate#1367). The two gha-runner-scale-set
+      # HelmReleases source `githubConfigSecret.*` via `valuesFrom` from the
+      # in-cluster `actions-runner-controller-auth` Secret (an ExternalSecret,
+      # never in Git), so without a supplied stub the chart's githubsecret.yaml
+      # validation fails at helm-template time. Staged to RUNNER_TEMP (not a
+      # committed file) so the same step works on every checkout/leg, including
+      # jobs that render the default branch. All values are placeholders.
+      - name: Prepare flate supply
+        run: |
+          cat > "${RUNNER_TEMP}/flate-supply.yaml" <<'EOF'
+          ---
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: actions-runner-controller-auth
+            namespace: actions-runner-privileged
+          stringData:
+            github_app_id: "dummy"
+            github_app_installation_id: "dummy"
+            github_app_private_key: "dummy"
+          ---
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: actions-runner-controller-auth
+            namespace: actions-runner-system
+          stringData:
+            github_app_id: "dummy"
+            github_app_installation_id: "dummy"
+            github_app_private_key: "dummy"
+          EOF
 
       # `test all` reconciles every Kustomization + HelmRelease (Helm rendering
       # is on by default) starting from the Flux entrypoint and following each
@@ -108,7 +141,10 @@ jobs:
       - name: Run flate test
         env:
           FLATE_BASE: ""
-        run: flate test all --path "${GITHUB_WORKSPACE}/kubernetes/flux"
+        run: >-
+          flate test all
+          --path "${GITHUB_WORKSPACE}/kubernetes/flux"
+          --supply "${RUNNER_TEMP}/flate-supply.yaml"
 
   diff:
     # Diff-against-default-branch only makes sense on PRs.
@@ -144,13 +180,40 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup flate
-        uses: home-operations/flate/action@631b76b69c4e58c6f4d1cb01e23616fa61aebafa # v0.6.5
+        uses: home-operations/flate/action@bbb6ebc344da051752dbdb1b413860ceffcfb63d # v0.7.3
         with:
           # Same rationale as the `test` job above -- cache chart blobs between
           # runs so anonymous ghcr.io pulls from shared GitHub egress IPs stop
           # tripping 429s. This job renders twice (PR tree + default-branch
           # baseline), so it fetches roughly double and benefits more.
           cache: true
+
+      # Stub for cluster-only Secrets flate v0.7 won't auto-fill — see the
+      # `test` job above. Supplied objects apply to both legs of the diff.
+      - name: Prepare flate supply
+        run: |
+          cat > "${RUNNER_TEMP}/flate-supply.yaml" <<'EOF'
+          ---
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: actions-runner-controller-auth
+            namespace: actions-runner-privileged
+          stringData:
+            github_app_id: "dummy"
+            github_app_installation_id: "dummy"
+            github_app_private_key: "dummy"
+          ---
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: actions-runner-controller-auth
+            namespace: actions-runner-system
+          stringData:
+            github_app_id: "dummy"
+            github_app_installation_id: "dummy"
+            github_app_private_key: "dummy"
+          EOF
 
       # flate's changed-only mode (--path-orig baseline = the default-branch
       # checkout) reconciles just the subtree the PR touches. FLATE_BASE="" so
@@ -165,6 +228,7 @@ jobs:
           flate diff all \
             --path "${GITHUB_WORKSPACE}/pull/kubernetes/flux" \
             --path-orig "${GITHUB_WORKSPACE}/default/kubernetes/flux" \
+            --supply "${RUNNER_TEMP}/flate-supply.yaml" \
             -o diff > diff-full.patch || true
           cp diff-full.patch diff.patch
           # GitHub comment hard limit is 65536 chars; cap with a notice.

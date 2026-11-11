@@ -84,7 +84,39 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Setup flate
-        uses: home-operations/flate/action@631b76b69c4e58c6f4d1cb01e23616fa61aebafa # v0.6.5
+        uses: home-operations/flate/action@bbb6ebc344da051752dbdb1b413860ceffcfb63d # v0.7.3
+
+      # flate v0.7 stopped silently stubbing Secret values it can't read from
+      # Git (home-operations/flate#1367), so the two gha-runner-scale-set
+      # HelmReleases (githubConfigSecret sourced from the in-cluster
+      # actions-runner-controller-auth ExternalSecret) now fail helm-template
+      # rendering. Supply placeholder values. Staged to RUNNER_TEMP so it works
+      # on both matrix legs — including the `default` leg that checks out main.
+      - name: Prepare flate supply
+        shell: sh
+        run: |
+          cat > "${RUNNER_TEMP}/flate-supply.yaml" <<'EOF'
+          ---
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: actions-runner-controller-auth
+            namespace: actions-runner-privileged
+          stringData:
+            github_app_id: "dummy"
+            github_app_installation_id: "dummy"
+            github_app_private_key: "dummy"
+          ---
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: actions-runner-controller-auth
+            namespace: actions-runner-system
+          stringData:
+            github_app_id: "dummy"
+            github_app_installation_id: "dummy"
+            github_app_private_key: "dummy"
+          EOF
 
       # Retry mostly covers first-call cold-cache misses on upstream
       # registries when resolving chart/image refs.
@@ -107,6 +139,7 @@ jobs:
           command: |
             flate get images \
               --path "$GITHUB_WORKSPACE/kubernetes/flux" \
+              --supply "$RUNNER_TEMP/flate-supply.yaml" \
               --output json > images.json
 
       # Multi-line heredoc avoids needing jq for this step — file is

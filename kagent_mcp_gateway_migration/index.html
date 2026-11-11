@@ -1722,10 +1722,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#phase-0--foundations-no-agent-impact" class="md-nav__link">
+  <a href="#phase-1-pilot--step-a-auth--transport-foundation-no-agent-impact" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Phase 0 — Foundations (no agent impact)
+        Phase 1 pilot — Step A: auth + transport foundation (no agent impact)
       
     </span>
   </a>
@@ -1733,10 +1733,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#phase-1--pilot-pump-mcp-one-backend-arnold--crusher" class="md-nav__link">
+  <a href="#phase-1-pilot--step-b-flip-one-agent-triage-router--memory-via-gateway" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Phase 1 — Pilot: pump-mcp (one backend, arnold + crusher)
+        Phase 1 pilot — Step B: flip one agent (triage-router → memory via gateway)
       
     </span>
   </a>
@@ -2370,10 +2370,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#phase-0--foundations-no-agent-impact" class="md-nav__link">
+  <a href="#phase-1-pilot--step-a-auth--transport-foundation-no-agent-impact" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Phase 0 — Foundations (no agent impact)
+        Phase 1 pilot — Step A: auth + transport foundation (no agent impact)
       
     </span>
   </a>
@@ -2381,10 +2381,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#phase-1--pilot-pump-mcp-one-backend-arnold--crusher" class="md-nav__link">
+  <a href="#phase-1-pilot--step-b-flip-one-agent-triage-router--memory-via-gateway" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Phase 1 — Pilot: pump-mcp (one backend, arnold + crusher)
+        Phase 1 pilot — Step B: flip one agent (triage-router → memory via gateway)
       
     </span>
   </a>
@@ -2472,7 +2472,7 @@
 
 
 <h1 id="kagent--kuadrant-mcp-gateway-migration-plan">kagent → Kuadrant mcp-gateway migration plan<a class="headerlink" href="#kagent--kuadrant-mcp-gateway-migration-plan" title="Permanent link">&para;</a></h1>
-<p><strong>Status:</strong> Plan (approved model, pilot pending) · <strong>Created:</strong> 2026-11-11 · <strong>Tracking:</strong> home-ops#15735</p>
+<p><strong>Status:</strong> In progress — pilot Step A built (auth+transport foundation) · <strong>Created:</strong> 2026-11-11 · <strong>Tracking:</strong> home-ops#15735</p>
 <p>Migrate the kagent 1.0 agent fleet from dialing MCP servers <strong>directly</strong> (one
 <code>RemoteMCPServer</code> per backend) to consuming them <strong>through the cluster's Kuadrant
 mcp-gateway</strong> (agentgateway broker, ns <code>mcp-system</code>). The end-state centralizes
@@ -2507,13 +2507,13 @@ hand-maintained per-backend CiliumNetworkPolicy fan-out to a single gateway hop.
 <tbody>
 <tr>
 <td>Gateway auth</td>
-<td><strong>Actor-JWT</strong> — kagent sets <code>RemoteMCPServer.spec.actorJwt.audiences: [mcp-gateway]</code>; gateway validates the <strong>Substrate IdP</strong> issuer via a second JWT provider</td>
-<td>Upstream agentgateway guidance = JWT for service-to-service; uses kagent's native per-agent identity (no bespoke token rotator); route-scoped Envoy <code>SecurityPolicy</code> ≠ the fail-closed Authorino path</td>
+<td><strong>Authelia bearer via the enforced hostname</strong> — kagent reuses the existing <code>mcp-gateway</code> Authelia OIDC client (client-credentials, <code>aud=mcp-gateway</code>) through its <strong>own rotator</strong> (mirrors the mcp-system / open-webui rotators) into an ns-<code>ai</code> secret, injected as <code>Authorization: Bearer …</code> via <code>RemoteMCPServer.spec.headersFrom</code>. All clients dial <code>https://mcp.${SECRET_DOMAIN}/mcp</code>; in-cluster direct-to-broker is closed (<code>mcp_gateway_access_design.md</code> Decision 1b)</td>
+<td>No Authelia config change, fewest new parts, correct authn; the existing route-scoped Envoy <code>SecurityPolicy</code> already validates <code>aud=mcp-gateway</code> and is <strong>not</strong> the fail-closed Authorino path. Actor-JWT (Substrate IdP as a second provider) was the earlier pick but needs a gateway-side JWT-provider change and the Substrate IdP issuer wired in; the bearer path reuses proven machinery. A dedicated <code>mcp-kagent</code> client is the access-design doc's Decision 2 (deferred)</td>
 </tr>
 <tr>
 <td>Scope</td>
-<td><strong>Pilot-then-expand</strong></td>
-<td>Lowest blast radius; reversible at each gate</td>
+<td><strong>Pilot-then-expand</strong>, pilot split into <strong>Step A (additive foundation, zero agent impact)</strong> then <strong>Step B (reversible agent flip)</strong></td>
+<td>Lowest blast radius; Step A validates auth+transport+discovery before any agent is touched; reversible at each gate</td>
 </tr>
 <tr>
 <td>SSE backends</td>
@@ -2528,56 +2528,65 @@ hand-maintained per-backend CiliumNetworkPolicy fan-out to a single gateway hop.
 </tbody>
 </table>
 <p><strong>Consumption shape:</strong> kagent points <code>RemoteMCPServer</code>(s) at the gateway endpoint
-and each agent keeps a <code>tools[]</code> allowlist — but rewritten to the gateway's
-<strong>prefixed</strong> names. Because of the ~940-tool cap, use a small number of
-<code>MCPVirtualServer</code>-scoped endpoints (e.g. an ops scope, a concierge scope) rather
-than one giant endpoint, injected per <code>RemoteMCPServer</code> via the
-<code>X-Mcp-Virtualserver</code> header (<code>headersFrom</code>).</p>
+(<code>https://mcp.${SECRET_DOMAIN}/mcp</code>) and each agent keeps a <code>tools[]</code> allowlist —
+but rewritten to the gateway's <strong>prefixed</strong> names. Each gateway <code>RemoteMCPServer</code>
+carries two <code>headersFrom</code> entries: <code>Authorization</code> (from the rotator secret
+<code>kagent-mcp-gateway-jwt</code>, key <code>authorization</code>, already <code>Bearer …</code>) and
+<code>X-Mcp-Virtualserver</code> (static <code>mcp-system/&lt;scope&gt;</code>). Because of the ~940-tool cap,
+use a small number of <code>MCPVirtualServer</code>-scoped endpoints rather than one giant
+endpoint; the pilot starts with a single <code>kagent</code> scope (<code>mcp-system/kagent</code>) and
+grows it as agents migrate.</p>
+<p><strong>Auth plumbing (ns <code>ai</code>, mirrors mcp-system/open-webui):</strong>
+<code>ExternalSecret kagent-mcp-gateway-authelia-client</code> (1P <code>mcp-gateway-authelia</code>) →
+<code>CronJob kagent-mcp-gateway-jwt-rotator</code> (client-credentials grant to
+<code>https://auth.${SECRET_DOMAIN}/api/oidc/token</code>, <code>scope=audience=mcp-gateway</code>) →
+secret <code>kagent-mcp-gateway-jwt</code> (<code>token</code> raw, <code>authorization</code> = <code>Bearer &lt;jwt&gt;</code>).
+A dedicated <code>CiliumNetworkPolicy</code> opens the rotator's egress to the public Envoy
+gateway; the kagent controller (discovery) and agent pods (invocation) get the
+same envoy egress added to their existing CNPs.</p>
 <p><strong>Stays direct (does not federate):</strong> kagent's own <code>kagent-controller</code> and
 <code>kagent-tool-server</code> (stateful / <code>Mcp-Session-Id</code>, cannot federate — home-ops#14362).</p>
-<h2 id="phase-0--foundations-no-agent-impact">Phase 0 — Foundations (no agent impact)<a class="headerlink" href="#phase-0--foundations-no-agent-impact" title="Permanent link">&para;</a></h2>
+<h2 id="phase-1-pilot--step-a-auth--transport-foundation-no-agent-impact">Phase 1 pilot — Step A: auth + transport foundation (no agent impact)<a class="headerlink" href="#phase-1-pilot--step-a-auth--transport-foundation-no-agent-impact" title="Permanent link">&para;</a></h2>
+<p>All additive; <strong>no agent references the gateway yet</strong>, so the live fleet is
+untouched. Validates the entire auth+transport+discovery path before any flip.</p>
 <ol>
-<li><strong>Auth feasibility (confirm):</strong> add the Substrate IdP as a second JWT provider
-   on the gateway's in-cluster MCP route — issuer <code>https://idp.ate-system.svc</code>,
-   <code>audiences: [mcp-gateway]</code>, <code>remoteJWKS</code> from the IdP's <code>jwks_uri</code>. Verify an
-   Envoy <code>SecurityPolicy</code> can target the in-cluster route (vs. the external
-   hostname); if the in-cluster (Istio) path can't take an Envoy SecurityPolicy,
-   enforce with an Istio <code>RequestAuthentication</code> on the gateway instead. Validate
-   a kagent actor-JWT is accepted end-to-end with a throwaway call <strong>before</strong>
-   flipping any agent.</li>
-<li><strong>Decide the <code>MCPVirtualServer</code> scopes</strong> kagent needs (map the 17 agents'
-   tool sets → minimal scopes) and author them.</li>
-<li>Keep a frozen inventory of every agent's current <code>tools[]</code> (backend-native) ↔
-   the gateway's prefixed names, as the rewrite source of truth.</li>
+<li><strong>Auth plumbing</strong> (ns <code>ai</code>): the <code>ExternalSecret</code> → rotator <code>CronJob</code> → secret
+   chain above, plus the rotator egress CNP. (One-time: after merge, trigger the
+   rotator once — <code>create job --from=cronjob/kagent-mcp-gateway-jwt-rotator</code> — so
+   the <code>kagent-mcp-gateway-jwt</code> secret exists before the next scheduled run.)</li>
+<li><strong><code>kagent</code> <code>MCPVirtualServer</code></strong> (ns <code>mcp-system</code>) scoped to <code>memory_search</code>
+   only — the minimal pilot scope; grows as agents migrate.</li>
+<li><strong>Gateway <code>RemoteMCPServer</code> <code>mcp-gateway</code></strong> (ns <code>ai</code>): <code>url</code>
+   <code>https://mcp.${SECRET_DOMAIN}/mcp</code>, <code>headersFrom</code> the bearer + the
+   <code>mcp-system/kagent</code> virtual-server header. No agent references it.</li>
+<li><strong>Controller + agent envoy egress</strong> added to the existing kagent CNPs.</li>
+<li><strong>Validate:</strong> the rotator mints a token; <code>kubectl get rmcps mcp-gateway -n ai</code>
+   reaches <strong>DiscoverySucceeded</strong> exposing <code>memory_search</code>. <strong>Bake</strong> here.</li>
 </ol>
-<p><strong>Rollback:</strong> nothing changed for agents; drop the added JWT provider + virtual
-servers.</p>
-<h2 id="phase-1--pilot-pump-mcp-one-backend-arnold--crusher">Phase 1 — Pilot: pump-mcp (one backend, arnold + crusher)<a class="headerlink" href="#phase-1--pilot-pump-mcp-one-backend-arnold--crusher" title="Permanent link">&para;</a></h2>
-<p>pump-mcp is the ideal pilot: it's the one backend currently <strong>failing</strong> direct
-discovery (crystaldba/postgres-mcp:0.3.0 is SSE-only; the 1.0 controller's
-discovery breaks its SSE endpoint), so the pilot is also the fix.</p>
+<p><strong>Rollback:</strong> all additive — <code>git revert</code>; nothing referenced it.</p>
+<p>Also keep a frozen inventory of every agent's current <code>tools[]</code> (backend-native)
+↔ the gateway's prefixed names, as the Phase-2 rewrite source of truth.</p>
+<h2 id="phase-1-pilot--step-b-flip-one-agent-triage-router--memory-via-gateway">Phase 1 pilot — Step B: flip one agent (triage-router → memory via gateway)<a class="headerlink" href="#phase-1-pilot--step-b-flip-one-agent-triage-router--memory-via-gateway" title="Permanent link">&para;</a></h2>
+<p>triage-router is the ideal flip: it uses exactly <strong>one</strong> read-only tool
+(<code>memory-mcp</code> → <code>search</code>), already federated as <code>memory_search</code>, so the blast
+radius is a single low-risk classifier reading curated memory.</p>
 <ol>
-<li><strong>Re-front</strong> pump-mcp as streamable-http (bridge via <code>mcp-proxy</code>, same pattern
-   as owl-mcp, or a crystaldba version that serves streamable-http) → <code>/mcp</code>.</li>
-<li><strong>Federate:</strong> add an HTTPRoute on the gateway's <code>mcps</code> listener
-   (<code>pump-mcp.mcp.local</code> → the Service) + an <code>MCPServerRegistration</code> with
-   <code>prefix: pump_</code> + <code>targetRef</code> the route. Confirm <code>READY=True</code> and the tool
-   appears in the catalog as <code>pump_*</code>.</li>
-<li><strong>Consume via gateway:</strong> repoint the <code>pump-mcp</code> <code>RemoteMCPServer</code> at the
-   gateway endpoint (+ <code>actorJwt</code> + the ops <code>X-Mcp-Virtualserver</code> header), and
-   rewrite arnold's + crusher's <code>tools[]</code> entries to the <code>pump_</code>-prefixed names.</li>
-<li><strong>Validate:</strong> <code>RemoteMCPServer</code> <code>Accepted=True</code>; a live <code>pump_*</code> tool call from
-   arnold succeeds; discovery stable for ≥1 reconcile cycle.</li>
-<li><strong>Bake</strong> before expanding.</li>
+<li><strong>Repoint</strong> triage-router's <code>tools[]</code> from <code>{RemoteMCPServer memory-mcp →
+   search}</code> to <code>{RemoteMCPServer mcp-gateway → memory_search}</code>.</li>
+<li><strong>Validate:</strong> triage-router discovers <code>memory_search</code> via the gateway; a live
+   classification that exercises <code>search</code> returns correctly; discovery stable for
+   ≥1 reconcile cycle. <strong>Bake</strong> before expanding.</li>
 </ol>
-<p><strong>Rollback:</strong> revert the agent <code>RemoteMCPServer</code>/<code>tools[]</code> to the direct dial
-(git revert); the direct path + its CNP are untouched until Phase 4.</p>
+<p><strong>Rollback:</strong> revert the one-line <code>tools[]</code> change (git revert); the direct
+<code>memory-mcp</code> <code>RemoteMCPServer</code> + its CNP are untouched until Phase 4.</p>
 <h2 id="phase-2--batched-federation--migration-remaining-backends">Phase 2 — Batched federation + migration (remaining backends)<a class="headerlink" href="#phase-2--batched-federation--migration-remaining-backends" title="Permanent link">&para;</a></h2>
 <p>Migrate in small batches ordered by blast radius, <strong>read-only/low-risk first</strong>,
 write-capable and the media-acquisition MCP <strong>last</strong>. For each batch:</p>
 <ol>
 <li>For any <strong>not-yet-federated</strong> backend (15 of them, incl. the 6 openapi-mcp SSE
-   bridges + owl-mcp): re-front SSE→streamable-http where needed, add the
+   bridges, owl-mcp, and <strong>pump-mcp</strong> — the one backend currently <em>failing</em> direct
+   discovery because crystaldba/postgres-mcp:0.3.0 is SSE-only, so federating it
+   is also its fix): re-front SSE→streamable-http where needed, add the
    <code>mcps</code> HTTPRoute + <code>MCPServerRegistration</code> (+ prefix), confirm <code>READY=True</code>.</li>
 <li>Repoint the agents' <code>RemoteMCPServer</code> refs at the gateway + rewrite their
    <code>tools[]</code> to prefixed names.</li>
@@ -2592,9 +2601,13 @@ netbox/github/ha/esphome/comfyui/paperless); (b) ai-ns read tools
 media-acquisition MCP + notify/pr.</p>
 <p><strong>Rollback:</strong> per-batch git revert; each batch is independently reversible.</p>
 <h2 id="phase-3--auth-hardening">Phase 3 — Auth hardening<a class="headerlink" href="#phase-3--auth-hardening" title="Permanent link">&para;</a></h2>
-<p>Flip every migrated <code>RemoteMCPServer</code> to require the actor-JWT (if not done per
-backend in Phases 1–2), and confirm the gateway rejects un-authenticated
-in-cluster calls. Keep the per-agent <code>toolNames</code> allowlist as the tool scope.</p>
+<p>The Authelia bearer is enforced from Step A onward (the gateway's Envoy
+<code>SecurityPolicy</code> already validates <code>aud=mcp-gateway</code> on the enforced hostname), so
+there is no later "turn auth on" step. This phase instead: confirm the gateway
+rejects an un-authenticated / wrong-<code>aud</code> call; keep the per-agent <code>toolNames</code>
+allowlist as the tool scope; and decide whether to graduate from the shared
+<code>mcp-gateway</code> client to a dedicated <code>mcp-kagent</code> Authelia client (access-design
+doc Decision 2) once the fleet is fully migrated.</p>
 <h2 id="phase-4--teardown--docs">Phase 4 — Teardown + docs<a class="headerlink" href="#phase-4--teardown--docs" title="Permanent link">&para;</a></h2>
 <ul>
 <li>Remove the per-backend direct-dial egress rules from <code>ai/kagent/app/cnp-allow.yaml</code>
@@ -2610,9 +2623,15 @@ in-cluster calls. Keep the per-agent <code>toolNames</code> allowlist as the too
 <li><strong>Tool-name rewrite across 17 agents</strong> (prefixed names, incl. <code>ha_ha_*</code>) — the
    bulk of the work; mis-mapping silently removes a tool. Mitigate: the Phase-0
    frozen inventory + per-agent validation.</li>
-<li><strong>Auth path</strong> — if the in-cluster route can't take the Envoy SecurityPolicy,
-   fall back to Istio <code>RequestAuthentication</code> on the gateway (do <strong>not</strong> use the
-   Authorino <code>AuthPolicy</code> — fail-closes the shared gateway).</li>
+<li><strong>Bearer injection on the actor invocation path</strong> — the novel bit. Controller
+   <em>discovery</em> egresses from a normal ns-<code>ai</code> pod (plain Cilium CNP, like every
+   other backend), but <em>actor invocation</em> is SNAT'd through the Substrate egress
+   gateway (<code>atenet-egress</code>), which is where <code>headersFrom</code> secret headers are
+   injected. Step A validates discovery; <strong>Step B</strong> is the first real test that
+   the bearer reaches the gateway on the actor path. If it doesn't, the fallback
+   is <code>tokenPassthrough</code>/<code>actorJwt</code> for invocation. (The gateway auth <em>mechanism</em>
+   itself is already proven — open-webui consumes the same enforced hostname with
+   the same bearer.)</li>
 <li><strong>SSE re-fronting</strong> — the openapi-mcp bridges + pump may need a bridge
    container; owl-mcp already proves the <code>mcp-proxy</code> pattern.</li>
 <li><strong>~940-tool cap</strong> — size the <code>MCPVirtualServer</code> scopes so no agent's client

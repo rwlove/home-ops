@@ -173,11 +173,24 @@ Whenever requested to fix or correct schemas, follow these instructions:
 |------------|------|--------|
 | `mcp.kuadrant.io/v1` | `MCPServerRegistration` | (no upstream JSON schema yet — append `# TODO: apply schema`) |
 | `mcp.kuadrant.io/v1` | `MCPGatewayExtension` | (no upstream JSON schema yet — append `# TODO: apply schema`) |
+| `mcp.kuadrant.io/v1` | `MCPVirtualServer` | (no upstream JSON schema yet — append `# TODO: apply schema`) |
 
 > `mcp.kuadrant.io/v1alpha1` was **retired** in mcp-gateway v1.0.0 (Kuadrant#1381
 > — `served: false`). The served + storage version is now `v1`; do not
-> reintroduce `v1alpha1`. `MCPVirtualServer` also exists on the CRD but is unused
-> in this repo.
+> reintroduce `v1alpha1`.
+
+### kagent / Agentic Tooling Engine (ate)
+
+kagent and its Agentic-Tooling-Engine substrate publish **no JSON schema in
+any catalog** — datreeio, `k8s-schemas.bjw-s.dev`, and
+`k8s-schemas.home-operations.com` all 404, and the catalog directories do not
+exist (re-confirmed 2026-11-11). Append `# TODO: apply schema` to every
+manifest of these kinds; do not re-hunt until upstream ships one.
+
+| apiVersion | kind | schema |
+|------------|------|--------|
+| `api.kagent.dev/v1alpha3` | `Agent` / `AgentTemplate` / `ModelConfig` / `RemoteMCPServer` / `Harness` | (no upstream JSON schema yet — append `# TODO: apply schema`) |
+| `ate.dev/v1` | `WorkerPool` | (no upstream JSON schema yet — append `# TODO: apply schema`) |
 
 ### Renovate Operator
 

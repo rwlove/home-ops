@@ -1,0 +1,62 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/postgresql.cnpg.io/cluster_v1.json
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres-kagent-substrate
+spec:
+  # Adopting into GitOps a cluster that was created imperatively (kubectl apply)
+  # during the kagent 1.0 cutover (home-ops#15735). Every user-settable field
+  # below matches the live cluster's kubectl.kubernetes.io/last-applied-configuration
+  # exactly, so Flux's server-side apply claims no field another manager already
+  # set to a conflicting value (the CNPG operator keeps defaulting everything not
+  # listed here). The ONLY intentional additions are the mandatory Barman->Garage
+  # DR backup (storage-class.instructions.md: no CNPG cluster without it) and the
+  # PodMonitor; adding the barman-cloud plugin injects a sidecar, so CNPG does one
+  # switchover-safe rolling update on first reconcile (brief client blip, no data
+  # loss). superuserSecret is deliberately omitted — the consumer (kagent
+  # controller, ns ai) connects as the `ate` app user via its own
+  # kagent-postgres-owner/-readwrite ExternalSecrets, not the superuser.
+  instances: 2
+
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.7
+
+  primaryUpdateStrategy: unsupervised
+
+  storage:
+    size: 10Gi
+    storageClass: ceph-block
+
+  walStorage:
+    size: 8Gi
+    storageClass: ceph-block
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+  enableSuperuserAccess: true
+
+  bootstrap:
+    initdb:
+      database: ate
+      owner: ate
+
+  monitoring:
+    enablePodMonitor: true
+
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters: &params
+        barmanObjectName: garage-kagent-substrate
+        serverName: postgres-kagent-substrate-backup
+
+  externalClusters:
+    - name: source
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        parameters: *params

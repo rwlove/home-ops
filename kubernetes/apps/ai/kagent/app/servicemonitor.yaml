@@ -1,0 +1,37 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/servicemonitor_v1.json
+#
+# kagent-tools-metrics (:8085) was never scraped before this — the built-in
+# kagent-tool-server (k8s_*/cilium_*/helm_*/istio_*/kubescape_*/prometheus_*
+# tools every operator persona calls) exposes
+# `kagent_tools_mcp_invocations_total`, which only increments on a REAL,
+# successfully-completed tool call. That makes it the dead-man's-switch
+# signal for prometheusrule.yaml's KagentFleetTaskActivityStale — see that
+# rule for why this is the signal (not kube_cronjob_status_last_successful_time
+# or TRIAGE_RESULT log parsing). The `ai` namespace's baseline
+# allow-monitoring-scrape CNP (endpointSelector: {}) already admits the
+# observability Prometheus pod into every pod in this namespace, so no CNP
+# change is needed here.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kagent-tools-metrics
+  labels:
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/instance: kagent
+    app.kubernetes.io/name: kagent-tools
+    prometheus: kube-prometheus
+spec:
+  endpoints:
+    - interval: 60s
+      path: /metrics
+      port: prometheus-metrics
+      scheme: http
+      scrapeTimeout: 10s
+  namespaceSelector:
+    matchNames:
+      - ai
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: metrics
+      app.kubernetes.io/name: kagent-tools

@@ -9,7 +9,7 @@ Robert gets one aggregated, checkable view.
 
 `kubernetes/apps/collab/vikunja/`:
 
-- **Pod**: `docker.io/vikunja/vikunja:2.8.0`, port **3456**, app-template HelmRelease,
+- **Pod**: `ghcr.io/go-vikunja/vikunja:2.8.0`, port **3456**, app-template HelmRelease,
   `statefulset`.
 - **Internal hostname**: `vikunja.${SECRET_DOMAIN}` on the **internal** gateway only
   (no public exposure). There is **no gateway extAuth `SecurityPolicy`** in front of

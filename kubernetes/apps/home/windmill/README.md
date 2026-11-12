@@ -1,8 +1,8 @@
 # Windmill
 
-FOSS workflow automation tool, replacing. See the migration plan in
-`docs/src/audit/` and the steady-marshmallow plan at
-`~/.claude-personal/plans/i-want-you-to-steady-marshmallow.md`.
+FOSS workflow automation tool. See the steady-marshmallow plan at
+`~/.claude-personal/plans/i-want-you-to-steady-marshmallow.md` and the
+Windmill side of `docs/src/workflow_automation.md`.
 
 ## Activation (Phase 1a — no SSO yet)
 
@@ -108,16 +108,14 @@ HTTPRoute at the oauth2-proxy Service instead of `windmill-app:8000`.
 
 ## Phase 2 — Author 7 workflows
 
-Per the migration plan. Workflows checked into git under
-`./workflows/<name>.yaml` (Windmill flow format). Tools to use:
-`wmill sync` CLI from inside the pod, or the Windmill UI's "Save +
+Per the migration plan. Workflows are checked into git under
+`./workflows/<name>.ts` (TypeScript — see `./workflows/README.md`). Tools to
+use: the `wmill` CLI from inside the pod, or the Windmill UI's "Save +
 Deploy" + workspace git-sync feature.
 
-Workspace `lovenet` already created via API for this purpose.
-
-Source-of-truth workflows (to be migrated) live at
-
-namespace go away (Phase 3).
+Workspace `lovenet` already created via API for this purpose. The
+checked-in `.ts` files under `./workflows/` are the canonical source; the
+Windmill DB holds the runtime copy.
 
 ## Failure detection
 
@@ -142,9 +140,10 @@ Alerting is `./app/prometheusrule.yaml`, keyed on
 
 ### Windmill error handlers do not work — do not re-add them
 
-**Both** of Windmill's error-handler mechanisms are inert on CE v1.771.0.
-Tested 2026-07-26; neither is a config mistake, and neither is a viable
-fallback for the watchdog.
+**Both** of Windmill's error-handler mechanisms are inert on CE (tested
+2026-07-26 against CE v1.771.0; the chart is now 4.0.x / CE ~1.79.x — re-verify
+on a major CE bump before relying on them). Neither is a config mistake, and
+neither is a viable fallback for the watchdog.
 
 | mechanism | configuration | result |
 |---|---|---|

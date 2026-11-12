@@ -1,17 +1,17 @@
 # Windmill workflow source
 
 These TypeScript scripts are the source-of-truth for the Windmill
-flows that replaced in the `lovenet` workspace.
+flows in the `lovenet` workspace.
 
 Runtime lives in the Windmill DB; this directory is the *checked-in
-canonical text*. Push to Windmill via the API (see `tools/wmill-sync.sh`
-or the inline curl in the README two levels up).
+canonical text*. Push to Windmill via the `wmill` CLI from inside the
+pod, or the inline curl in the README two levels up.
 
 ## Convention
 
 - One `.ts` file per workflow.
 - Filename matches the Windmill script path basename — e.g.
-  `langgraph-cost-cap-watcher.ts` → `f/lovenet/langgraph-cost-cap-watcher`.
+  `workaround-watcher.ts` → `f/lovenet/workaround-watcher`.
 - Each file is self-contained: no shared modules. Windmill's "trigger
   the script via webhook" model expects each script to be standalone.
 - Secrets are read from environment variables that the worker pod
@@ -39,5 +39,5 @@ in each workflow (self-contained, per the convention above).
 
 The earlier ntfy push + Zulip DM paths — including the langgraph
 interactive approve/reject/defer action buttons — were retired when the
-langgraph fleet was decommissioned (2026-07-07) and ntfy + Zulip were
+langgraph fleet was decommissioned (2026-07-06) and ntfy + Zulip were
 removed from the notification stack.

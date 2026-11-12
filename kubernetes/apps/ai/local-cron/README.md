@@ -1,10 +1,12 @@
 # local-cron — local-model (Ollama) cron tier
 
-Phase 2 of the two-tier cron routing established by `ai/claude-runner`.
-Where `claude-runner` hosts workflows that genuinely need Claude's
-reasoning + tool-use, **this app hosts the summarize / classify /
-log-triage work that HOMELAB-SPEC Layer 6 assigns to local models** — so
-those runs cost **zero Anthropic tokens**.
+The scheduled, unattended cron tier of the local agent stack: **the
+summarize / classify / triage / digest work that HOMELAB-SPEC Layer 6
+assigns to local models**, so every run costs **zero Anthropic tokens**.
+It complements the kagent fleet (`ai/kagent`) — kagent is the on-demand
+agent runtime; this app is the time-triggered doer/triage/digest jobs.
+(The old Claude-tier `ai/claude-runner` cron app this was once paired
+with has been removed; local-cron stands on its own now.)
 
 The load-bearing design points:
 
@@ -16,10 +18,10 @@ The load-bearing design points:
   Loki HTTP API, summarizes on Ollama, and posts one themed HTML email via
   notify-mcp (`/send`). None of that touches the k8s API, so the SA has zero RBAC
   and `automountServiceAccountToken: false`. Future API needs get scoped
-  read-only RBAC — never the broker (same rule as `claude-runner`).
+  read-only RBAC — never the MCP broker (the standing fleet rule for unattended loops).
 - **Pure curl, no custom image.** The job runs `docker.io/alpine/k8s`
   (carries `curl` + `jq`), so there is no image to build/publish and no
-  Gate-0 auth spike — unlike `claude-runner`.
+  Gate-0 auth spike.
 - **Private sink.** The digest reaches Rob as a themed HTML email via
   notify-mcp (`/send`, `mcp-system:8060`), which holds the relay
   recipient-lock — so it can carry namespace/app names a public GitHub
@@ -28,9 +30,40 @@ The load-bearing design points:
 
 ## Workflows
 
-| Workflow | Schedule (UTC) | Tier | What |
-|---|---|---|---|
-| `renovate-pr-digest` | `30 12 * * *` (08:30 EDT / 07:30 EST, daily) | Local (deterministic, no model) | **Action-only (narrowed 2026-10-21).** Read the open Renovate PRs (unauthenticated GitHub REST — the repo is public) and email ONLY the subset **stuck > 7 days** (automerge did not take them), flagging likely major bumps. Silent (exit 0, no send) on any day with nothing stuck. The full queue lives on the GitHub Renovate dashboard; this surface only pushes what is waiting on Rob. Previously it emailed the whole queue daily (a roster that duplicated the dashboard — see `feedback_digests_problems_only_no_allclear_roster`); the local-model summarizer was dropped since a 0-few item stuck list needs no summarization. |
+18 CronJobs today (`cronjob-*.yaml`; the files are authoritative for exact
+schedules). They fall into three groups:
+
+**Operator triage / doer** — per-domain health surfacing and remediation
+proposals on the local models (paired with the matching kagent operator
+persona):
+
+- `ml-triage` / `ml-doer`
+- `network-triage`
+- `observability-triage` / `observability-doer`
+- `smart-home-triage` / `smart-home-doer`
+- `storage-triage` / `storage-doer`
+
+**Concierge digests** — scheduled per-persona life-admin jobs:
+
+- `arnold-queue-check` — training queue check
+- `cooter-recall` — NHTSA recall watch for the fleet · `cooter-reminder-digest`
+- `crusher-review` — weekly health-trend review · `crusher-weight-sync` — daily
+  PUMP→Medikeep weight reconcile
+- `vila-warranty-digest` — property warranty/expiry surfacing
+- `warren-plan-refresh` — finance plan refresh
+
+**Infra** — cluster-wide housekeeping:
+
+- `homeops-hygiene` — cluster hygiene surfacing
+- `renovate-pr-digest` (`30 12 * * *`, daily) — **action-only (narrowed
+  2026-10-21):** read the open Renovate PRs (unauthenticated GitHub REST — the
+  repo is public) and email ONLY the subset **stuck > 7 days**, flagging likely
+  major bumps. Silent (exit 0, no send) when nothing is stuck. The full queue
+  lives on the GitHub Renovate dashboard; this surface only pushes what is
+  waiting on Rob (see `feedback_digests_problems_only_no_allclear_roster`).
+
+All post to the private notify-mcp email sink; outputs are
+problems-and-next-step only, never all-clear rosters.
 
 > `loki-error-skim` was retired 2026-10-17 (home-ops#15048): its substring
 > ranking surfaced the chattiest apps rather than the erroring ones, so every

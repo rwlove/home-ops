@@ -150,7 +150,7 @@ cached); the other took another 18 minutes (it wasn't).
 - **Reconsider `remediation` on `flux-instance`.** Rollback cannot help
   when the failure is "the new pod hasn't finished pulling" — it only
   adds churn. Compare the reasoning in
-  [`.agents/instructions/workarounds.md`](https://github.com/rwlove/home-ops)
+  [`.agents/instructions/workarounds.md`](https://github.com/rwlove/home-ops/blob/main/.agents/instructions/workarounds.md)
   and the existing guidance that rollback is unsafe for forward-only
   changes.
 - **`strategy: Recreate` on a singleton, cluster-critical Deployment is

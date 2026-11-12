@@ -1,13 +1,14 @@
 # kagent
 
 [kagent](https://kagent.dev) (CNCF sandbox) — a Kubernetes-native agent runtime.
-Agents, models, and tools are CRDs; agents run on local models and are consumable
-by Claude Code over MCP. This app is the **controller install**; the agent
-definitions themselves live elsewhere (see *Agent CRDs* below).
+Agents, models, and tools are CRDs; agents run on **local models** and are
+consumable by Claude Code over MCP. This app deploys **both** the controller
+**and** the in-repo agent fleet.
 
 Part of the two-tier agent architecture (Claude cockpit + kagent local operators).
 Full design, transition sequence, and kill-criteria:
-`~/.claude-personal/plans/wild-tumbling-goblet.md`.
+`~/.claude-personal/plans/wild-tumbling-goblet.md`. Tool federation through the
+Kuadrant mcp-gateway: `docs/src/kagent_mcp_gateway_migration.md`.
 
 ## What this deploys
 
@@ -15,66 +16,58 @@ Full design, transition sequence, and kill-criteria:
 |---|---|
 | `app/ocirepository-crds.yaml` + `helmrelease-crds.yaml` | `kagent-crds` chart (CRDs) — installed first |
 | `app/ocirepository.yaml` + `helmrelease.yaml` | `kagent` controller chart (dependsOn crds) |
-| `app/values.yaml` | local-model config + trial guardrails (fed via `configMapGenerator`) |
+| `app/values.yaml` | local-model config + guardrails (fed via `configMapGenerator`) |
+| `app/agent-*.yaml` (17) | the operator + concierge `Agent` CRDs |
+| `app/agenttemplate-*.yaml` (4) | shared `AgentTemplate`s for the operator personas |
+| `app/modelconfig-litellm.yaml` / `modelconfig-vllm-spark.yaml` | `ModelConfig`s pointing at the local model router / Spark |
+| `app/remotemcpserver-mcp-gateway.yaml` | the **single** `RemoteMCPServer` every agent uses (tools federated through the gateway) |
+| `app/harness-kagent.yaml` / `workerpool-kagent-default.yaml` | the 1.0 Agentic-Tooling-Engine execution substrate |
+| `app/rotator-cronjob.yaml` + `rotator-rbac.yaml` | mints/rotates the gateway bearer the agents present |
+| `app/httproute*.yaml` / `securitypolicy.yaml` / `servicemonitor.yaml` / `prometheusrule.yaml` | ingress, auth, and observability |
 
-Chart version **0.10.1** (pinned; `v1.0.0-alpha*` exists but we track the stable line).
-Renovate will bump the `OCIRepository` tags.
+Chart version **1.0.1** (pinned, CRDs + controller; Renovate bumps the
+`OCIRepository` tags). Values verified against `helm show values …@1.0.0`.
 
-## Trial posture (deliberate)
+## Posture
 
-- **Controller-only.** Every built-in agent (`k8s-agent`, `observability-agent`,
-  `promql-agent`, the `cilium-*` agents, …) is `enabled: false`. Enable one at a
-  time, mapped to an operator persona, once its RBAC + model path are validated.
-- **Local inference only.** `providers.default: ollama` → `ollama.ai.svc.cluster.local:11434`
-  (`qwen2.5:7b`). No cloud provider keys; the native Ollama provider is keyless
-  (avoids [kagent#57](https://github.com/kagent-dev/kagent/issues/57)).
-- **Contained to `ai`.** `rbac.namespaces: [ai]` → the controller watches only `ai`
-  (namespaced Role/RoleBinding, not a cluster-wide ClusterRole). Widen deliberately.
-- **No custom CiliumNetworkPolicy** — the `ai` namespace baseline already allows the
-  controller's egress (apiserver, DNS, intra-namespace). Agents that later reach
-  external hosts/MCP will need their own `cnp-allow.yaml`.
-- **Bundled dev Postgres** on `ceph-block` (regenerable). Not for production.
+- **Local inference only.** Agents route through `litellm` (`ai/litellm`) to
+  Ollama (P40) and vLLM (Spark) — no cloud provider keys, zero Claude tokens.
+- **Tools via the federated gateway.** All 17 agents consume the single
+  `mcp-gateway` `RemoteMCPServer`; there are no per-backend `RemoteMCPServer`s
+  (that migration completed — see the migration doc above). Egress is granted in
+  three layers (substrate `credentialProvider` namespace policies +
+  `EgressPolicy` CRs + the `ai` → backend CNP).
+- **No bundled database.** kagent 1.0 dropped the bundled dev Postgres; it takes
+  external Postgres connection strings from Secrets.
+- **No prebuilt-agent subcharts.** 1.0 dropped the `k8s-agent` /
+  `observability-agent` / `promql-agent` / `cilium-*` / bundled `grafana-mcp`
+  subcharts; the fleet is the in-repo `Agent` CRDs instead, and operator agents
+  consume the shared `mcp-system/grafana-mcp` through the gateway.
+
+See `app/values.yaml` for the full 1.0 schema notes (what changed vs the 0.10.x
+trial) and the local-model wiring.
+
+## Agent CRD content
+
+The `Agent`/`AgentTemplate` CRDs here hold **method + wiring** (model config, tool
+list, system-prompt shape) — the persona *method*, not private facts, which agents
+fetch at runtime via tools. The canonical persona source is
+`~/.claude-personal/agents/*.md`.
 
 ## Verify before merge
 
-Values were verified against `helm show values ...@0.10.1`, but confirm the render:
-
 ```sh
 flux build ks kagent --path ./kubernetes/apps/ai/kagent/app   # or: kustomize build
-helm template kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent --version 0.10.1 \
+helm template kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent --version 1.0.1 \
   -f kubernetes/apps/ai/kagent/app/values.yaml | less
 ```
 
-Ship suspended → manual-verify the controller comes up and the generated
-`ModelConfig` reaches ollama → then let it reconcile (mirrors the claude-runner
-trial discipline).
-
-## Agent CRDs (not here)
-
-Agent personas carry Internal/Restricted content, and this repo is **public**, so
-`Agent` CRDs live in a **separate private Flux source**, not in home-ops. Personas
-hold *method, not private facts* (fetch specifics at runtime via tools). The
-canonical persona source is `~/.claude-personal/agents/*.md`.
-
-## Production follow-ups
-
-- Point `database.postgres.url` at a CNPG cluster with **pgvector**
-  (`vectorEnabled: true`) to enable long-term agent memory; retire the bundled DB.
-- `ui.enabled: true` + an HTTPRoute behind **Authelia** for the kagent web UI.
-- `otel.tracing.enabled: true` → the cluster OTLP/Tempo endpoint.
-- Expose the controller's agents over MCP behind the lovenet gateway for Claude
-  Code delegation.
-- **grafana-mcp — DEDUPED 2026-10-03** (`grafana-mcp.enabled: false`). The chart's
-  bundled grafana-mcp (a second in-namespace instance) was removed; the operator
-  agents now consume the shared `mcp-system/grafana-mcp` via
-  `remotemcpserver-grafana-mcp.yaml` (cross-ns, same pattern as every other
-  mcp-system server they use). That instance is read-only (`--disable-write`) and
-  Host-agnostic (`--allowed-hosts "*"`). This also removed the
-  `kagent-grafana-mcp-secret` ExternalSecret and the `kagent-grafana-mcp-allow`
-  CNP. Re-enable the bundle only if the shared instance is retired (restore the
-  image pin + token block from git history).
+After any infra/agent/content change, **prove the fleet works end to end** —
+invoke a canary agent and confirm it reaches both the LLM and a tool
+(`TASK_STATE_COMPLETED`); `ResolvedRefs`/`Ready`/flux-green alone do not prove it.
+See `.agents/skills/kagent-e2e-verify.md`.
 
 ## Revert
 
 Drop `./kagent/ks.yaml` from `kubernetes/apps/ai/kustomization.yaml` and delete this
-directory → Flux prunes the controller, CRDs, and the (regenerable) bundled PVC.
+directory → Flux prunes the controller, CRDs, and the agent fleet.

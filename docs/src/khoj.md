@@ -2,7 +2,7 @@
 
 [Khoj](https://khoj.dev) is the cluster's personal-document RAG surface — conversational chat over your own notes, backed by persistent chat threads in `postgres-khoj` and per-user custom agents. It has no side effects (read-only) and no task queue; contrast with "do this thing" task automation, which is a different shape of problem.
 
-Khoj was previously documented here relative to the langgraph-agents multi-agent task fleet (task-in / side-effect-out, 18-agent triager→specialist→reporter pipeline, `hai` CLI / Zulip bot / Open WebUI surface). That fleet was fully decommissioned 2026-07-06, so khoj is now the cluster's only conversational AI surface — there's no longer a second system to disambiguate against.
+Khoj was previously documented here relative to the langgraph-agents multi-agent task fleet (task-in / side-effect-out, 18-agent triager→specialist→reporter pipeline, `hai` CLI / Zulip bot / Open WebUI surface). That fleet was decommissioned 2026-07-06 and replaced by the kagent fleet. Khoj remains a distinct, **read-only personal-RAG** surface — orthogonal to Open WebUI (general chat → vllm-driver-spark) and to the kagent agents (task automation on local models). It is not the cluster's only conversational surface; it's the one scoped to your own notes.
 
 ## Where it lives
 
@@ -10,7 +10,7 @@ Khoj was previously documented here relative to the langgraph-agents multi-agent
 
 - **Pod**: `ghcr.io/khoj-ai/khoj:2.0.0-beta.28`, port 42110
 - **External hostname**: `khoj.${SECRET_DOMAIN}` behind Authelia (gateway extAuth `SecurityPolicy`, admin tier; `/api/*` bypasses gateway auth for khoj API tokens)
-- **Internal mode**: `--anonymous-mode` (every request is the auto-bootstrapped "default" user — safe because oauth2 is the gate)
+- **Internal mode**: `--anonymous-mode` (every request is the auto-bootstrapped "default" user — safe because the gateway extAuth `SecurityPolicy` is the gate; the oauth2-proxy sidecar was retired 2026-07-01, #12767)
 - **Database**: `postgres-khoj` (CNPG 3-replica, pgvector embeddings)
 - **PVCs**: `khoj-config` (`/root/.khoj/`), `khoj-models` (`/root/.cache/` for sentence-transformer downloads)
 - **LLM**: Ollama via OpenAI-compat API (`http://ollama.ai.svc.cluster.local:11434/v1`), default model `qwen2.5:7b` (P40)

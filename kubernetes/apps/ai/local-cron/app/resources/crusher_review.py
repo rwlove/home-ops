@@ -21,7 +21,7 @@ thing that leaves the cluster is the short interpretation text in the email
 notify-mcp relays to Robert (a Robert-directed private sink). Never a public sink,
 never a remote model. Stdlib only (runs on the shared local-cron python image).
 
-Env: AGENT_URL AGENT_NAME TITLE PROMPT
+Env: AGENT_URL AGENT AGENT_NAME TITLE PROMPT
      [BUDGET_SECONDS=800] [NOTIFY_URL=http://notify-mcp.mcp-system:8060/send]
 """
 import datetime
@@ -33,6 +33,9 @@ import urllib.request
 import a2a_client
 
 AGENT_URL = os.environ["AGENT_URL"]
+# The real kagent Agent CR name (namespace `ai`) to invoke via AGENT_URL's MCP
+# endpoint — distinct from AGENT_NAME (notify/title label only).
+AGENT = os.environ["AGENT"]
 AGENT_NAME = os.environ.get("AGENT_NAME", "crusher")
 TITLE = os.environ.get("TITLE", "crusher trend review")
 BUDGET = int(os.environ.get("BUDGET_SECONDS", "800"))
@@ -77,7 +80,7 @@ def main():
     prompt = os.environ["PROMPT"].strip() + CONTRACT
     day = datetime.date.today().isoformat()
 
-    text, state = a2a_client.call_agent(AGENT_URL, prompt, budget=BUDGET, message_id="crusher-review")
+    text, state = a2a_client.call_agent(AGENT_URL, AGENT, prompt, budget=BUDGET, message_id="crusher-review")
 
     # Unreachable agent / unreachable model backend / slow-non-terminal / empty:
     # stay silent (the weekly cadence tolerates a skipped run). a2a_client never

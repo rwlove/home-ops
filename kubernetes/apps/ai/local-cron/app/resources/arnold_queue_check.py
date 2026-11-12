@@ -20,7 +20,7 @@ that leaves the cluster is the short reminder text in the email notify-mcp relay
 to Rob — generic training/check-in language, never medical specifics, never a
 public sink or remote model. Stdlib only (shared local-cron python image).
 
-Env: AGENT_URL AGENT_NAME TITLE PROMPT
+Env: AGENT_URL AGENT AGENT_NAME TITLE PROMPT
      [BUDGET_SECONDS=300] [NOTIFY_URL=http://notify-mcp.mcp-system:8060/send]
 """
 import json
@@ -31,6 +31,9 @@ import urllib.request
 import a2a_client
 
 AGENT_URL = os.environ["AGENT_URL"]
+# The real kagent Agent CR name (namespace `ai`) to invoke via AGENT_URL's MCP
+# endpoint — distinct from AGENT_NAME (notify/title label only).
+AGENT = os.environ["AGENT"]
 AGENT_NAME = os.environ.get("AGENT_NAME", "arnold")
 TITLE = os.environ.get("TITLE", "arnold plan-queue check")
 BUDGET = int(os.environ.get("BUDGET_SECONDS", "300"))
@@ -75,7 +78,7 @@ def notify_email(subject, body):
 
 def main():
     prompt = os.environ["PROMPT"].strip() + CONTRACT
-    text, state = a2a_client.call_agent(AGENT_URL, prompt, budget=BUDGET, message_id="arnold-queue-check")
+    text, state = a2a_client.call_agent(AGENT_URL, AGENT, prompt, budget=BUDGET, message_id="arnold-queue-check")
 
     # Unreachable / slow / empty: stay silent (weekly cadence tolerates a skip).
     if not text:

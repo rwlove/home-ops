@@ -12,7 +12,7 @@ Anything invalid/absent/no-op degrades to a silent, logged no-op (no notificatio
 a PR-opened or a hard failure emails Robert via notify-mcp (/send). A flaky 7B can
 only ever cause a PR you decline — never a bad merge, never a cluster write.
 
-Env: AGENT_URL AGENT_NAME ALLOWED_ACTIONS REPO GITHUB_PR_TOKEN
+Env: AGENT_URL AGENT AGENT_NAME ALLOWED_ACTIONS REPO GITHUB_PR_TOKEN
      (NOTIFY_URL PATH_PREFIX GIT_USER_NAME GIT_USER_EMAIL optional)
 """
 import hashlib
@@ -29,6 +29,11 @@ import urllib.request
 import a2a_client
 
 AGENT_URL = os.environ["AGENT_URL"]
+# The real kagent Agent CR name (namespace `ai`) to invoke via AGENT_URL's MCP
+# endpoint — distinct from AGENT_NAME, which is only a notify/branch-name label
+# and does not match the CR name for every doer cron (e.g. ml-doer: "ml" vs the
+# real Agent "ml-operator").
+AGENT = os.environ["AGENT"]
 AGENT_NAME = os.environ.get("AGENT_NAME", "doer")
 ALLOWED_ACTIONS = set(a.strip() for a in os.environ.get("ALLOWED_ACTIONS", "").split(",") if a.strip())
 REPO = os.environ["REPO"]
@@ -81,7 +86,7 @@ def ask_agent(prompt):
     deadline = time.monotonic() + backend_window
     backoff = 20
     while True:
-        text, state = a2a_client.call_agent(AGENT_URL, prompt, budget=budget, message_id="doer")
+        text, state = a2a_client.call_agent(AGENT_URL, AGENT, prompt, budget=budget, message_id="doer")
         if not a2a_client.is_backend_unavailable(text, state):
             return text, state
         remaining = int(deadline - time.monotonic())

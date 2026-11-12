@@ -64,23 +64,23 @@ spec:
               protocol: TCP
             - port: "80"
               protocol: TCP
-    # OIDC token exchange — direct to authelia in-cluster Service
-    # (Pattern E). Immich's server-side OIDC integration (configured
-    # via system.json oauth.issuerUrl) does the code exchange
-    # server-side after user redirect. toEntities:[world]:443 and
-    # matchPattern:auth.${SECRET_DOMAIN} DO NOT work for this
-    # in-cluster path: split-horizon DNS returns the LB IP and
-    # Cilium socket-lb rewrites the connect() to the envoy pod IP +
-    # targetPort 10443 BEFORE policy check, so neither rule matches
-    # the rewritten destination. Authelia's CNP already permits
-    # fromEntities:cluster on 9091. Mirrors paperless PR #11525.
+    # OIDC discovery + token exchange against Authelia. Immich's
+    # server-side OIDC integration (system.json oauth.issuerUrl =
+    # auth.${SECRET_DOMAIN}, the external issuer URL) hits split-horizon
+    # DNS, which returns the envoy LB IP (10.45.0.13). Cilium's socket-lb
+    # rewrites the connect() to the envoy pod IP + targetPort 10443
+    # BEFORE policy evaluation, so the policy must allow the envoy pod on
+    # its container port — NOT world:443 (doesn't match cluster LB IPs)
+    # and NOT authelia:9091 directly (immich never reaches it post-
+    # rewrite; that was the incomplete 2026-05-18 fix). Mirrors
+    # paperless / pump-oauth2-proxy PR #11559 / #11562.
     - toEndpoints:
         - matchLabels:
-            io.kubernetes.pod.namespace: auth
-            app.kubernetes.io/name: authelia
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
       toPorts:
         - ports:
-            - port: "9091"
+            - port: "10443"
               protocol: TCP
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json

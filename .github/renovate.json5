@@ -16,10 +16,9 @@
     'github>rwlove/home-ops//.github/renovate/semanticCommits.json5',
     'helpers:pinGitHubActionDigests',
   ],
-  dependencyDashboardTitle: 'Renovate Dashboard 🤖',
-  // .archive/** holds historical app configs no longer deployed — don't
-  // scan them. Keeps the Detected Dependencies section of the dashboard
-  // (#10329) focused on live workloads.
+  dependencyDashboard: {
+    title: 'Renovate Dashboard 🤖',
+  },
   ignorePaths: [
     '.archive/**',
   ],
@@ -29,34 +28,10 @@
   ],
   timezone: 'America/New_York',
   rebaseWhen: 'auto',
-  // Pace merges so a dependency-dashboard flush can't avalanche. Ticking the
-  // dashboard checkboxes force-creates PRs and bypasses minimumReleaseAge;
-  // with automerge on and no rate limit (the removed ':disableRateLimiting'),
-  // a 27-PR flush merged within ~10 minutes on 2026-08-16 → a concurrent
-  // reconcile storm that saturated image pulls and took authelia (the
-  // ext-authz SPOF) down. These caps bound concurrent open PRs (== concurrent
-  // automerges/reconciles) and the creation rate, so a flush trickles instead.
   prConcurrentLimit: 5,
   prHourlyLimit: 3,
   commitBodyTable: true,
-  // 'disabled' = plain git push. 'enabled' (Contents API) appears to
-  // interact badly with Renovate's "Repository has changed during
-  // renovation" abort: each successful platform-commit push immediately
-  // trips the check and Renovate bails before PR creation, leaving an
-  // orphan branch (see Dashboard #10329 stall on 2026-05-17). Trade-off
-  // is unsigned commits from the bot, which we accept.
   platformCommit: 'disabled',
-  // registry.k8s.io is a redirector to Google Artifact Registry whose OCI
-  // /tags/list returns 405, so Renovate can't enumerate tags ("Error
-  // obtaining docker token" + Package lookup failures on Dashboard #10329).
-  // Alias the *lookup* to the GAR backend (which Renovate reads natively);
-  // the registry.k8s.io reference in the manifests is unchanged.
-  //
-  // Single-segment images (e.g. `pause`) get Docker Hub's `library/` prepend
-  // because they have no namespace slash, so the broad alias resolves them to
-  // the empty GAR repo .../images/library/pause → no-result. Map those
-  // explicitly to their full GAR path (longest-prefix match wins, and the
-  // slash suppresses the `library/` prepend) so they stay tracked.
   registryAliases: {
     'registry.k8s.io/pause': 'us-central1-docker.pkg.dev/k8s-artifacts-prod/images/pause',
     'registry.k8s.io': 'us-central1-docker.pkg.dev/k8s-artifacts-prod/images',
@@ -76,47 +51,49 @@
       '/kubernetes/.+\\.ya?ml$/',
     ],
   },
-  // Inlined 2026-07-02 (was commitMessage.json5 + overrides.json5 as
-  // separate imports — 2 files of indirection for ~1 line of config each).
   commitMessageTopic: '{{depName}}',
   commitMessageExtra: 'to {{newVersion}}',
   commitMessageSuffix: '',
-  // Security fast-track. Normal bumps sit through autoMerge.json5's 3-day
-  // minimumReleaseAge soak; a *security* bump shouldn't wait. osvVulnerabilityAlerts
-  // pulls CVE data from OSV (works without GitHub Dependabot); vulnerabilityAlerts
-  // then overrides the soak to 0 and automerges those PRs with a `security` label.
-  //
-  // NOTE: this is Renovate's OWN advisory detection (OSV/GHSA-mapped), NOT the
-  // trivy-operator VulnerabilityReports — coverage for container images is
-  // partial. trivy remains the audit that catches what this lane misses; for
-  // those, merge the freshness PR manually (the soak only gates *auto*-merge,
-  // and the dependency-dashboard checkbox force-creates bypassing it).
   osvVulnerabilityAlerts: true,
   vulnerabilityAlerts: {
     enabled: true,
     minimumReleaseAge: '0',
     automerge: true,
-    labels: ['security'],
+    labels: [
+      'security',
+    ],
   },
   packageRules: [
     {
-      matchDatasources: ['helm'],
+      matchDatasources: [
+        'helm',
+      ],
       commitMessageTopic: 'chart {{depName}}',
     },
     {
-      matchDatasources: ['docker'],
+      matchDatasources: [
+        'docker',
+      ],
       commitMessageTopic: 'image {{depName}}',
     },
     {
       description: 'Override Helmfile Dependency Name',
-      matchDatasources: ['docker'],
-      matchManagers: ['helmfile'],
+      matchDatasources: [
+        'docker',
+      ],
+      matchManagers: [
+        'helmfile',
+      ],
       overrideDepName: '{{packageName}}',
     },
     {
       description: 'Override Renovate Operator source',
-      matchDatasources: ['docker'],
-      matchPackageNames: ['ghcr.io/mogenius/helm-charts/renovate-operator'],
+      matchDatasources: [
+        'docker',
+      ],
+      matchPackageNames: [
+        'ghcr.io/mogenius/helm-charts/renovate-operator',
+      ],
       sourceUrl: 'https://github.com/mogenius/renovate-operator',
     },
   ],

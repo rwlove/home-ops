@@ -10,11 +10,13 @@ verify against `kubectl -n longhorn-system ...` before executing.
 - Backup target (set in HelmRelease):
   `nfs://beast:/mnt/mass_storage/longhorn-backups`
 - Recurring jobs
-  (`kubernetes/apps/longhorn-system/longhorn/config/recurring-jobs.yaml`):
+  (`kubernetes/apps/longhorn-system/longhorn/config/recurring-jobs.yaml`;
+  canonical schedule/retain table is in `storage_operations.md`):
   - `daily-snapshots` — every day at 00:00, retain 7
-  - `weekly-backups` — Saturdays at 00:00, retain 4
-  - `monthly-backups` — 1st of month at 00:00, retain 6
-  - `weekly-filesystem-trim` — Sundays at 03:00
+  - `weekly-backups` — **Fridays** (`* * 5`) at 00:00, retain 4
+  - `monthly-backups` — 1st of month at 00:00, retain **12**
+  - `weekly-filesystem-trim` — Sundays at 03:00 (opt-in group, **not**
+    `default` — see the detached-volume gotcha below)
 - Storage tier (per `storage-class.instructions.md`):
   cluster-loss-survivable. Used for irreplaceable state only.
 
@@ -91,6 +93,15 @@ the `nfs://beast` backup target.
 
 6. Scale the consumer pod up.
 7. Verify app starts cleanly.
+
+!!! warning "Recreate as ext4, not XFS"
+    XFS Longhorn volumes corrupt across a Longhorn engine upgrade — the
+    cluster is mid-migration off XFS onto ext4 (new volume name per
+    migrated app; `…/longhorn/volumes/*-xfs.yaml` are the retained
+    rollback copies). When a restore **creates a new volume**, create it
+    **ext4** with a fresh name so you don't re-introduce a
+    corruption-prone XFS volume. See
+    `[[feedback_xfs_longhorn_upgrade_corruption_migrate_ext4]]`.
 
 ## Scenario C — full Longhorn rebuild (cluster recreated)
 

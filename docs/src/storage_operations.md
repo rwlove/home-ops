@@ -178,9 +178,14 @@ Recurring jobs live at
 | Job | Schedule | Task | Groups | Retain |
 |---|---|---|---|---|
 | `daily-snapshots` | `0 0 * * *` (daily, 00:00 UTC) | snapshot | `default`, `daily-snapshot`, `weekly-snapshot` | 7 |
-| `weekly-backups` | `0 0 * * 6` (Saturdays, 00:00 UTC) | backup | `default`, `weekly-backup` | 4 |
-| `monthly-backups` | `0 0 1 * *` (1st of month, 00:00 UTC) | backup | `default`, `monthly-backup` | 6 |
-| `weekly-filesystem-trim` | `0 3 * * 0` (Sundays, 03:00 UTC) | filesystem-trim | `default` | 0 |
+| `weekly-backups` | `0 0 * * 5` (Fridays, 00:00 UTC) | backup | `default`, `weekly-backup` | 4 |
+| `monthly-backups` | `0 0 1 * *` (1st of month, 00:00 UTC) | backup | `default`, `monthly-backup` | 12 |
+| `weekly-filesystem-trim` | `0 3 * * 0` (Sundays, 03:00 UTC) | filesystem-trim | `weekly-filesystem-trim` **only** (deliberately **not** `default`) | 0 |
+
+> `weekly-filesystem-trim` is **opt-in**, not in `default`: it hard-fails on
+> the first detached volume it hits and poisons the whole sweep, so only
+> reliably-attached volumes carry its group label. See `longhorn_restore.md`
+> for the detached-volume / migration-orphan gotcha.
 
 **Recurring-job labels live on the Volume CR, not the PV.** Longhorn's
 job selection matches `recurring-job-group.longhorn.io/<group>` labels

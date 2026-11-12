@@ -12,8 +12,12 @@ step.
   `ceph-block` pool (per `storage-class.instructions.md`)
 - Mons live on dedicated control-plane / mon nodes per the
   CephCluster CR
-- Toolbox pod: `rook-ceph-tools-*` in the `rook-ceph` namespace —
-  `kubectl exec -it -n rook-ceph deploy/rook-ceph-tools -- ceph -s`
+- **No toolbox pod.** This cluster does not run `rook-ceph-tools`
+  (the operator HelmRelease has no `toolbox.enabled: true`). All
+  `ceph` CLI work goes through a mon pod with explicit connection
+  flags — see `storage_operations.md` → *No toolbox pod — use a mon
+  pod* for the exact `MON=$(…)` / `kubectl exec` recipe. Every
+  `ceph …` command below runs inside that mon-pod exec.
 
 ## Tier 1 — Single OSD loss
 
@@ -85,9 +89,10 @@ This cluster runs an odd-numbered mon set (3 mons). Quorum requires
    - Add mons back one at a time, verifying quorum at each step.
 3. **If 0/3 mons alive:** disaster — see Tier 3.
 
-The Rook-Ceph upstream toolbox has explicit mon-recovery scripts
-(`rook-ceph-mon-quorum-recovery`). Use those before manual quorum
-edits. Reference:
+The `kubectl rook-ceph` krew plugin has an explicit mon-quorum
+recovery command (`kubectl rook-ceph mons restore-quorum <good-mon>`)
+— use it before any manual quorum edit. (We run no toolbox pod, so
+the old `rook-ceph-tools`-script path doesn't apply here.) Reference:
 <https://rook.io/docs/rook/v1.18/Storage-Configuration/Advanced/ceph-mon-health/>
 
 ## Tier 3 — Full Ceph cluster loss
@@ -154,8 +159,9 @@ Expect Tier 3 recovery to take 4–8 hours total: ~30 min teardown,
   API; safe with 8 OSDs + 3-way replication for the ~10-min
   recovery window).
 - **OSD pods stuck on `Init:0/N`.** Usually a `lvm tag`
-  mismatch on the disk after a hard power loss. Run the
-  rook-ceph-tools `ceph-volume lvm zap --osd-id <id>` to clear,
+  mismatch on the disk after a hard power loss. Clear it with
+  `ceph-volume lvm zap --osd-id <id>` — run it on the OSD's node
+  (or via `kubectl rook-ceph`), not a toolbox pod (we run none) —
   then let Rook re-provision.
 - **`HEALTH_WARN: mons are allowing insecure global_id reclaim`** —
   cosmetic; clear with `ceph config set mon auth_allow_insecure_global_id_reclaim false`.

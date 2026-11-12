@@ -2707,7 +2707,7 @@
 
 <h1 id="cnpg-day-2-operations">CNPG Day-2 Operations<a class="headerlink" href="#cnpg-day-2-operations" title="Permanent link">&para;</a></h1>
 <p>Day-2 health and lifecycle runbook for the CloudNativePG (CNPG)
-Postgres fleet in <code>databases</code> — 21 <code>Cluster</code> resources under
+Postgres fleet in <code>databases</code> — 28 <code>Cluster</code> resources under
 <code>kubernetes/apps/databases/cloudnative-pg/config/&lt;app&gt;/</code>, all sharing
 one operator HelmRelease at
 <code>kubernetes/apps/databases/cloudnative-pg/app/</code>.</p>
@@ -2745,14 +2745,14 @@ cluster gets it for free; don't hand-roll a bespoke
 ObjectStore/ScheduledBackup pair unless you have a real reason to
 deviate from the fleet.</p>
 <p>Almost every cluster runs 3 instances (1 primary + 2 async standbys)
-on PostgreSQL 17.7. One exception to know about before you assume
-uniformity: <code>postgres-pump</code> is on 17.5 — always check the live
-<code>imageName</code> before planning a coordinated bump. Three clusters (<code>postgres-immich</code>,
-<code>postgres-khoj</code>, <code>postgres-langgraph-memory</code>) run the
-<code>cloudnative-vectorchord</code> image instead of stock
-<code>cloudnative-pg/postgresql</code> — they need pgvector/vectorchord
-extensions; treat their minor-version bumps as a separate track from
-the stock-image fleet.</p>
+on PostgreSQL 17.11 (stock <code>ghcr.io/cloudnative-pg/postgresql:17.11</code>,
+25 clusters). The exception to know about before you assume
+uniformity: three clusters (<code>postgres-immich</code>, <code>postgres-khoj</code>,
+<code>postgres-langgraph-memory</code>) run the <code>cloudnative-vectorchord:14.17</code>
+image instead — a <strong>PG14</strong> base — because they need
+pgvector/vectorchord extensions. Treat their major-version line and
+minor bumps as a separate track from the stock 17.x fleet, and always
+check the live <code>imageName</code> before planning a coordinated bump.</p>
 <p>Apps connect via the CNPG-managed services —
 <code>postgres-&lt;app&gt;-rw.databases.svc.cluster.local</code> for read-write,
 <code>-ro</code> for read-only replica traffic, <code>-r</code> for any-instance read
@@ -2989,10 +2989,11 @@ short primary-switchover blip per bump, not a hard outage.</p>
 </span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="c1"># Confirm the new version landed on every instance</span>
 </span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>kubectl<span class="w"> </span>cnpg<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>status<span class="w"> </span>postgres-&lt;app&gt;<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span><span class="s1">'PostgreSQL Image'</span>
 </span></code></pre></div>
-<p>Remember the version outlier noted above (<code>pump</code> on 17.5) before
-assuming a fleet-wide bump PR covers every cluster — check each
-<code>cluster.yaml</code>'s current <code>imageName</code>, don't copy a version string
-across all clusters blind.</p>
+<p>Remember the version outliers noted above (the three
+<code>cloudnative-vectorchord</code> <strong>PG14</strong> clusters) before assuming a
+fleet-wide bump PR covers every cluster — check each <code>cluster.yaml</code>'s
+current <code>imageName</code>, don't copy a version string across all clusters
+blind.</p>
 <p><strong>Major-version bumps</strong> (e.g. 16→17) <em>are</em> supported as a declarative
 in-place upgrade on this operator (CNPG ≥1.26; fleet is on 1.30): bump
 <code>imageName</code> to the new major and the operator runs an <strong>offline</strong>
@@ -3009,7 +3010,7 @@ then seed a fresh base backup immediately after (pre-upgrade backups
 can't do cross-major PITR) and run <code>ANALYZE</code>. Rollback: revert
 <code>imageName</code>; the operator discards the failed job and restarts on the
 old major — no data is modified on failure. <code>postgres-nametag</code> was
-taken 16→17.7 this way.</p>
+taken 16→17 this way (now on 17.11 with the rest of the stock fleet).</p>
 <h3 id="onboarding-a-new-cluster--seed-the-first-backup">Onboarding a new cluster — seed the first backup<a class="headerlink" href="#onboarding-a-new-cluster--seed-the-first-backup" title="Permanent link">&para;</a></h3>
 <p>The shared <code>cnpg-app-database</code> component does <strong>not</strong> set <code>immediate:
 true</code> on the <code>ScheduledBackup</code> (it used to; the immediate backup raced
@@ -3101,8 +3102,9 @@ above.</p>
 <li>WAL-archive staleness by clock time is a false signal on an idle
   database — watch the <code>.ready</code>-segment backlog count, not time-since-
   last-archive.</li>
-<li><code>pump</code> (17.5) is the one cluster off the fleet-standard 17.7 image
-  — verify before a coordinated bump.</li>
+<li>Three <code>cloudnative-vectorchord</code> clusters (<code>postgres-immich</code>,
+  <code>postgres-khoj</code>, <code>postgres-langgraph-memory</code>) are on a <strong>PG14</strong> base,
+  off the stock-fleet 17.11 image — verify before a coordinated bump.</li>
 <li>No <code>Pooler</code> exists anywhere in this fleet; apps connect straight to
   the <code>-rw</code>/<code>-ro</code>/<code>-r</code> services.</li>
 <li><code>bootstrap.recovery</code> only fires on first cluster creation — it is

@@ -2439,8 +2439,12 @@ step.</p>
   <code>ceph-block</code> pool (per <code>storage-class.instructions.md</code>)</li>
 <li>Mons live on dedicated control-plane / mon nodes per the
   CephCluster CR</li>
-<li>Toolbox pod: <code>rook-ceph-tools-*</code> in the <code>rook-ceph</code> namespace —
-  <code>kubectl exec -it -n rook-ceph deploy/rook-ceph-tools -- ceph -s</code></li>
+<li><strong>No toolbox pod.</strong> This cluster does not run <code>rook-ceph-tools</code>
+  (the operator HelmRelease has no <code>toolbox.enabled: true</code>). All
+  <code>ceph</code> CLI work goes through a mon pod with explicit connection
+  flags — see <code>storage_operations.md</code> → <em>No toolbox pod — use a mon
+  pod</em> for the exact <code>MON=$(…)</code> / <code>kubectl exec</code> recipe. Every
+  <code>ceph …</code> command below runs inside that mon-pod exec.</li>
 </ul>
 <h2 id="tier-1--single-osd-loss">Tier 1 — Single OSD loss<a class="headerlink" href="#tier-1--single-osd-loss" title="Permanent link">&para;</a></h2>
 <p><strong>Symptom:</strong> <code>ceph -s</code> shows <code>HEALTH_WARN</code>, one OSD <code>down/out</code>,
@@ -2496,9 +2500,10 @@ ceph-block PVCs get IO errors.</p>
 <li>Add mons back one at a time, verifying quorum at each step.</li>
 <li><strong>If 0/3 mons alive:</strong> disaster — see Tier 3.</li>
 </ol>
-<p>The Rook-Ceph upstream toolbox has explicit mon-recovery scripts
-(<code>rook-ceph-mon-quorum-recovery</code>). Use those before manual quorum
-edits. Reference:
+<p>The <code>kubectl rook-ceph</code> krew plugin has an explicit mon-quorum
+recovery command (<code>kubectl rook-ceph mons restore-quorum &lt;good-mon&gt;</code>)
+— use it before any manual quorum edit. (We run no toolbox pod, so
+the old <code>rook-ceph-tools</code>-script path doesn't apply here.) Reference:
 <a href="https://rook.io/docs/rook/v1.18/Storage-Configuration/Advanced/ceph-mon-health/">https://rook.io/docs/rook/v1.18/Storage-Configuration/Advanced/ceph-mon-health/</a></p>
 <h2 id="tier-3--full-ceph-cluster-loss">Tier 3 — Full Ceph cluster loss<a class="headerlink" href="#tier-3--full-ceph-cluster-loss" title="Permanent link">&para;</a></h2>
 <p><strong>Symptom:</strong> all mons dead, OSDs dead, or the rook-ceph namespace
@@ -2559,8 +2564,9 @@ was also being shipped offsite.</p>
   API; safe with 8 OSDs + 3-way replication for the ~10-min
   recovery window).</li>
 <li><strong>OSD pods stuck on <code>Init:0/N</code>.</strong> Usually a <code>lvm tag</code>
-  mismatch on the disk after a hard power loss. Run the
-  rook-ceph-tools <code>ceph-volume lvm zap --osd-id &lt;id&gt;</code> to clear,
+  mismatch on the disk after a hard power loss. Clear it with
+  <code>ceph-volume lvm zap --osd-id &lt;id&gt;</code> — run it on the OSD's node
+  (or via <code>kubectl rook-ceph</code>), not a toolbox pod (we run none) —
   then let Rook re-provision.</li>
 <li><strong><code>HEALTH_WARN: mons are allowing insecure global_id reclaim</code></strong> —
   cosmetic; clear with <code>ceph config set mon auth_allow_insecure_global_id_reclaim false</code>.</li>

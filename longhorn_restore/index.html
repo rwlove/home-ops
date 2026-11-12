@@ -2503,11 +2503,13 @@ verify against <code>kubectl -n longhorn-system ...</code> before executing.</p>
 <li>Backup target (set in HelmRelease):
   <code>nfs://beast:/mnt/mass_storage/longhorn-backups</code></li>
 <li>Recurring jobs
-  (<code>kubernetes/apps/longhorn-system/longhorn/config/recurring-jobs.yaml</code>):</li>
+  (<code>kubernetes/apps/longhorn-system/longhorn/config/recurring-jobs.yaml</code>;
+  canonical schedule/retain table is in <code>storage_operations.md</code>):</li>
 <li><code>daily-snapshots</code> — every day at 00:00, retain 7</li>
-<li><code>weekly-backups</code> — Saturdays at 00:00, retain 4</li>
-<li><code>monthly-backups</code> — 1st of month at 00:00, retain 6</li>
-<li><code>weekly-filesystem-trim</code> — Sundays at 03:00</li>
+<li><code>weekly-backups</code> — <strong>Fridays</strong> (<code>* * 5</code>) at 00:00, retain 4</li>
+<li><code>monthly-backups</code> — 1st of month at 00:00, retain <strong>12</strong></li>
+<li><code>weekly-filesystem-trim</code> — Sundays at 03:00 (opt-in group, <strong>not</strong>
+    <code>default</code> — see the detached-volume gotcha below)</li>
 <li>Storage tier (per <code>storage-class.instructions.md</code>):
   cluster-loss-survivable. Used for irreplaceable state only.</li>
 </ul>
@@ -2573,6 +2575,16 @@ the <code>nfs://beast</code> backup target.</p>
 <li>Scale the consumer pod up.</li>
 <li>Verify app starts cleanly.</li>
 </ol>
+<div class="admonition warning">
+<p class="admonition-title">Recreate as ext4, not XFS</p>
+<p>XFS Longhorn volumes corrupt across a Longhorn engine upgrade — the
+cluster is mid-migration off XFS onto ext4 (new volume name per
+migrated app; <code>…/longhorn/volumes/*-xfs.yaml</code> are the retained
+rollback copies). When a restore <strong>creates a new volume</strong>, create it
+<strong>ext4</strong> with a fresh name so you don't re-introduce a
+corruption-prone XFS volume. See
+<code>[[feedback_xfs_longhorn_upgrade_corruption_migrate_ext4]]</code>.</p>
+</div>
 <h2 id="scenario-c--full-longhorn-rebuild-cluster-recreated">Scenario C — full Longhorn rebuild (cluster recreated)<a class="headerlink" href="#scenario-c--full-longhorn-rebuild-cluster-recreated" title="Permanent link">&para;</a></h2>
 <p>The cluster was destroyed and rebuilt from Git. Longhorn is
 deployed fresh with no volumes. The backup target NFS is intact.</p>

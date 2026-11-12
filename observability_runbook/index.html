@@ -2946,16 +2946,30 @@ kubelet's reach, an SMTP relay, Home Assistant).</p>
 </li>
 </ol>
 <h2 id="alert-routing">Alert routing<a class="headerlink" href="#alert-routing" title="Permanent link">&para;</a></h2>
-<p>Routing is entirely by <strong>alertname</strong>, not by severity — see
+<p>The root receiver is <code>pushover</code>, and routing is primarily by
+<strong>alertname</strong> — see
 <code>kubernetes/apps/observability/kube-prometheus-stack/app/alertmanagerconfig.yaml</code>.
-Two alertnames route to a <code>null</code> receiver (<code>Watchdog</code>, <code>InfoInhibitor</code>,
-plus <code>KubePodPendingBrief</code> — deliberately Grafana-only, see the comment
-in that file for why an <code>inhibitRule</code> can't do this instead); every
-other alert — critical, warning, or info — falls through to the single
-<code>pushover</code> receiver and notifies. There is no severity-based
-suppression today: if you want an alert to page, no label change is
-needed; if you want one silenced, it needs an explicit <code>null</code>-receiver
-route by alertname.</p>
+Three alertnames route to a <code>null</code> receiver (<code>Watchdog</code>, <code>InfoInhibitor</code>,
+and <code>KubePodPendingBrief</code> — deliberately Grafana-only, see the comment
+in that file for why an <code>inhibitRule</code> can't do this instead). Four
+other routes sit above the <code>pushover</code> fallthrough:</p>
+<ul>
+<li><strong><code>agent-bridge</code></strong> (<code>continue: true</code>) — any <code>severity: critical</code> alert
+  is <em>also</em> fanned to the in-cluster kagent observability-operator via
+  the <code>alert-agent-bridge</code> webhook for root-cause enrichment. <code>continue</code>
+  keeps evaluation going so the raw page still reaches <code>pushover</code> exactly
+  as before — enrichment is additive, not a replacement.</li>
+<li><strong><code>email</code></strong> — a small, explicit set of <code>alertname</code>s (a <code>=~</code> regex;
+  five warning alertnames + <code>CPUThrottlingHigh</code>) routes to the <code>email</code>
+  receiver <em>instead of</em> <code>pushover</code>, to de-noise the pager.</li>
+<li><strong><code>agent-ops-ingest</code></strong> (<code>continue: true</code>) — alerts carrying
+  <code>queue: agent-ops</code> are forwarded to the Windmill agent-ops work queue.
+  No PrometheusRule sets that label yet, so this matches zero alerts
+  today (wired-but-cold; opt an alert in by adding the label).</li>
+</ul>
+<p>Everything not caught above falls through to <code>pushover</code> and pages. If
+you want an alert to page, no label change is needed; to silence one, add
+an explicit <code>null</code>-receiver route by alertname.</p>
 <p>The one severity-aware behavior is an <code>inhibitRule</code>: a firing
 <code>critical</code> suppresses a <code>warning</code> sharing the same <code>alertname</code> +
 <code>namespace</code>. This is the flood/mute tradeoff already made in this

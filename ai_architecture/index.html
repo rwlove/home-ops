@@ -2603,14 +2603,25 @@ the vault runbook at <code>~/vaults/claude/runbooks/home-ops/workflow_automation
 per HOMELAB-SPEC Layer 2 #5.</p>
 <h2 id="big-picture">Big picture<a class="headerlink" href="#big-picture" title="Permanent link">&para;</a></h2>
 <blockquote>
-<p><strong>2026-07-06:</strong> the <code>langgraph-agents</code> fleet — the FastAPI multi-agent
-runtime this diagram used to show as the hub between every surface,
-Windmill bridge, and inference backend — was removed entirely, along
-with <code>sync-receiver</code>, the <code>postgres-langgraph-checkpoints</code> CNPG
-cluster, the <code>langgraph-vault</code> PVCs, and 16 Windmill workflows. The
-diagram below reflects what's actually running today; see
-<a href="#agent-fleet--status-today">Agent fleet — status today</a> for the
-decommission detail.</p>
+<p>⚠️ <strong>Partially historical — read this first.</strong> The automated agent
+fleet today is <strong>kagent</strong> (<code>ai/kagent</code>), a CNCF Kubernetes-native agent
+runtime: operator + concierge personas defined as CRDs, running on
+<strong>local models</strong> via <code>litellm</code> (Ollama/P40, vLLM/Spark) and reaching
+tools through the Authelia-gated MCP gateway. See
+<a href="../kagent_mcp_gateway_migration/">kagent MCP-gateway migration</a> for the
+current fleet and its tool federation. The sibling <strong>local-cron</strong>
+(<code>ai/local-cron</code>) runs the scheduled doer/triage/digest jobs on the
+same local models, and <strong>alert-agent-bridge</strong> (<code>ai/alert-agent-bridge</code>)
+fans <code>severity: critical</code> alerts to the kagent observability-operator
+for enrichment.</p>
+<p><strong>2026-07-06:</strong> the predecessor <code>langgraph-agents</code> FastAPI fleet — the
+hub this chapter's diagrams and roster describe — was removed entirely
+(with <code>sync-receiver</code>, the <code>postgres-langgraph-checkpoints</code> cluster, the
+<code>langgraph-vault</code> PVCs, and 16 Windmill workflows) and <strong>replaced by
+kagent</strong>. The inference/RAG/retrieval layers below (Ollama, vLLM, TEI,
+Qdrant, memory-mcp, Windmill RAG flows, Open WebUI, Khoj) are current;
+the <strong>agent-fleet</strong> sections are preserved as a historical record of the
+langgraph design, not a status board.</p>
 </blockquote>
 <pre class="mermaid"><code>flowchart TB
     subgraph Surfaces[Surfaces — how work enters]
@@ -2632,7 +2643,7 @@ decommission detail.</p>
     end
 
     subgraph Tools[Tool surfaces]
-        Gw[MCP Gateway&lt;br/&gt;16 MCP servers behind Istio]
+        Gw[MCP Gateway&lt;br/&gt;35 MCP servers behind Istio]
         Q[(Qdrant&lt;br/&gt;vector DB)]
         PG[(Postgres CNPG&lt;br/&gt;memory)]
     end
@@ -2722,7 +2733,7 @@ shown above because neither currently does anything.</p>
 Triager bot (<code>zulip-triager-webhook.ts</code> deleted) and operator taps on
 ntfy for approval actions (<code>langgraph-agents</code> <code>/approval</code> endpoint
 deleted). Neither has a replacement today.</p>
-<p>There are <strong>8 Windmill TypeScript workflows</strong> in the repo today (down
+<p>There are <strong>7 Windmill TypeScript workflows</strong> in the repo today (down
 from 23 — 16 scripts were deleted 2026-07-06: 14 <code>langgraph-*.ts</code>
 fleet scripts plus <code>smoke-approval-flow.ts</code> and
 <code>zulip-triager-webhook.ts</code>; then <code>paperless-rag-fanout.ts</code> was added
@@ -3124,7 +3135,7 @@ is gone along with everything else in the removed column above.</p>
 <tr>
 <td>GPU utilization</td>
 <td>Prometheus via DCGM</td>
-<td>GB10's DCGM counters are mostly broken — use <code>POWER_USAGE</code> as the proxy (see <code>.agents/instructions/gpu-routing.md</code>)</td>
+<td>On GB10 <code>GPU_UTIL</code>, <code>GPU_TEMP</code>, <code>POWER_USAGE</code>, <code>SM_CLOCK</code>, and <code>TOTAL_ENERGY_CONSUMPTION</code> work; <code>MEM_COPY_UTIL</code>/<code>MEMORY_TEMP</code>/<code>GR_ENGINE_ACTIVE</code>/<code>FB_*</code> (memory) are dead/absent — read GPU memory from the Spark host's <code>/proc/meminfo</code> (see <code>.agents/instructions/gpu-routing.md</code>)</td>
 </tr>
 <tr>
 <td>Windmill workflows</td>

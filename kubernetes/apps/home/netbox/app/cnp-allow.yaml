@@ -76,22 +76,21 @@ spec:
         - ports:
             - port: "3900"
               protocol: TCP
-    # OIDC token exchange — direct to authelia in-cluster Service
-    # (Pattern E). netbox uses python-social-auth's OpenID Connect
-    # backend (configured via the oidc.yaml extra config) to do
-    # server-side token exchange against Authelia after the user
-    # login redirect. toEntities:[world]:443 and
-    # matchPattern:auth.${SECRET_DOMAIN} DO NOT work for the
-    # in-cluster path: split-horizon DNS returns the LB IP and
-    # Cilium socket-lb rewrites the connect() to the envoy pod IP +
-    # targetPort 10443 BEFORE policy check, so neither rule matches
-    # the rewritten destination. Authelia's CNP already permits
-    # fromEntities:cluster on 9091. Mirrors paperless PR #11525.
+    # OIDC discovery + token exchange against Authelia. netbox uses
+    # python-social-auth's OpenID Connect backend (oidc.yaml extra
+    # config, external issuer URL auth.${SECRET_DOMAIN}) for server-side
+    # token exchange. Split-horizon DNS returns the envoy LB IP
+    # (10.45.0.13); Cilium's socket-lb rewrites the connect() to the
+    # envoy pod IP + targetPort 10443 BEFORE policy evaluation, so the
+    # policy must allow the envoy pod on its container port — NOT
+    # world:443 (doesn't match cluster LB IPs) and NOT authelia:9091
+    # directly (never reached post-rewrite; the incomplete 2026-05-18
+    # fix). Mirrors paperless / pump-oauth2-proxy PR #11559 / #11562.
     - toEndpoints:
         - matchLabels:
-            io.kubernetes.pod.namespace: auth
-            app.kubernetes.io/name: authelia
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
       toPorts:
         - ports:
-            - port: "9091"
+            - port: "10443"
               protocol: TCP

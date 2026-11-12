@@ -77,7 +77,7 @@ Vikunja + its CNPG cluster become a dependency for the fleet's task read/write p
 Mitigations in place: CNPG 3-instance with weekly Barman backup, Longhorn files PVC
 with weekly backup, and internal-gateway-only exposure. The app is not on the
 household-facing critical path (HA / media / voice), so an outage degrades automation
-bookkeeping, not Renee-facing services.
+bookkeeping, not household-user-facing services.
 
 ## Troubleshooting
 

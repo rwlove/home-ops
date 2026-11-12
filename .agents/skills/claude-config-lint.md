@@ -45,7 +45,7 @@ test -f ~/.claude-personal/rules/persona-base.md \
 # Discover all CLAUDE.md files: workspace repos + user-global, exclude worktrees.
 # Use a read-loop (not `mapfile`, which is bash-only and absent in zsh — this
 # session's default shell) to avoid word-splitting on paths with spaces
-# (e.g. "3532 Foxhall/CLAUDE.md"). Portable across bash and zsh.
+# (e.g. "My Project/CLAUDE.md"). Portable across bash and zsh.
 CLAUDE_MDs=()
 while IFS= read -r line; do
   CLAUDE_MDs+=("$line")

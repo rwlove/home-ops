@@ -57,7 +57,7 @@ Once content is indexed:
 
 - The `notes` tool on the `Homelab` agent will return matches with paragraph citations.
 - Searches use semantic similarity (sentence-transformers + pgvector), not just keyword grep.
-- You can ask "what did the inspection-fix plan say about the basement" and get cited results from your `~/vaults/personal/property/3532-foxhall/inspection-fix-plan.md`.
+- You can ask "what did the inspection-fix plan say about the basement" and get cited results from your property notes (e.g. an `inspection-fix-plan.md` under `~/vaults/personal/property/`).
 
 ## Other content sources
 

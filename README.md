@@ -42,7 +42,7 @@ flowchart LR
     Dev[👤 Operator] -->|git push| Repo[(📦 GitHub<br/>home-ops)]
     Renovate[🤖 Renovate] -.->|automated PRs| Repo
     Repo -->|reconciles| Flux[⚙️ Flux]
-    Flux -->|deploys| Cluster[☸️ Kubernetes<br/>11 nodes · 188 apps]
+    Flux -->|deploys| Cluster[☸️ Kubernetes<br/>11 nodes]
 
     Cluster --> Ceph[(🪨 Ceph<br/>block · default durable)]
     Cluster --> LH[(🐂 Longhorn<br/>+ recurring backups)]
@@ -66,7 +66,7 @@ Storage tiers are picked deliberately per workload — see [`storage-class.instr
 |------------------|-------------------------------------|-------------------------------------------------------|
 | **OS**           | CentOS Stream 9 / 10 (+ Ubuntu 24.04 on Spark) | Node operating system                      |
 | **Runtime**      | cri-o + crun (containerd on Spark)  | CRI + OCI runtime; Spark is the lone containerd node  |
-| **Kubernetes**   | v1.35.4                             | Control-plane and node version                        |
+| **Kubernetes**   | v1.36.4                             | Control-plane and node version                        |
 | **GPU**          | NVIDIA GPU Operator + Container Toolkit | P40 on worker8 (Pascal, 24 GB); GB10 on Spark (Grace-Blackwell, 128 GB unified) |
 | **GitOps**       | Flux2                               | Declarative cluster reconciliation                    |
 | **Automation**   | Renovate + GitHub Actions           | Dependency PRs, link checks, self-hosted runners     |
@@ -93,15 +93,15 @@ Storage tiers are picked deliberately per workload — see [`storage-class.instr
 | Role | Hostname  | Device              | CPU | RAM   | OS         | Storage / Accelerators       | Notes                                 |
 |------|-----------|---------------------|-----|-------|------------|------------------------------|---------------------------------------|
 | 🧠   | master1   | bare-metal          | 4   | 32 GB | CentOS 10  | NVMe (Longhorn)              | Intel iGPU · RTL-SDR · control plane  |
-| 🧠   | master2   | VM on **beast**     | 3   | 10.5 GB | CentOS 9   |                              | virtualized control plane             |
-| 🧠   | master3   | VM on **beast**     | 3   | 10.5 GB | CentOS 9   |                              | virtualized control plane             |
+| 🧠   | master2   | VM on **beast**     | 3   | 10.5 GB | CentOS 10  |                              | virtualized control plane             |
+| 🧠   | master3   | VM on **beast**     | 3   | 10.5 GB | CentOS 10  |                              | virtualized control plane             |
 | 💪   | worker2   | ThinkCentre M910x   | 8   | 32 GB | CentOS 9   | NVMe (Longhorn + Ceph OSD)   | ZWA-2 Z-Wave dongle                   |
 | 💪   | worker3   | ThinkCentre M910x   | 8   | 64 GB | CentOS 9   | NVMe (Longhorn + Ceph OSD)   | Sonoff Zigbee dongle                  |
 | 💪   | worker4   | ThinkCentre M910x   | 8   | 32 GB | CentOS 9   | NVMe (Longhorn + Ceph OSD)   | Coral USB TPU                         |
-| 💪   | worker5   | VM on **beast**     | 10  | 21.5 GB | CentOS 9   | NVMe (Longhorn + Ceph OSD)   |                                       |
-| 💪   | worker6   | VM on **beast**     | 10  | 26.5 GB | CentOS 9   | NVMe (Longhorn + Ceph OSD)   |                                       |
-| 💪   | worker7   | VM on **beast**     | 10  | 26.5 GB | CentOS 9   | NVMe (Longhorn + Ceph OSD)   |                                       |
-| 🎮   | worker8   | VM on **beast**     | 10  | 51.5 GB | CentOS 9   | NVMe (Longhorn + Ceph OSD)   | NVIDIA **P40** (24 GB VRAM)           |
+| 💪   | worker5   | VM on **beast**     | 10  | 21.5 GB | CentOS 10  | NVMe (Longhorn + Ceph OSD)   |                                       |
+| 💪   | worker6   | VM on **beast**     | 10  | 26.5 GB | CentOS 10  | NVMe (Longhorn + Ceph OSD)   |                                       |
+| 💪   | worker7   | VM on **beast**     | 10  | 26.5 GB | CentOS 10  | NVMe (Longhorn + Ceph OSD)   |                                       |
+| 🎮   | worker8   | VM on **beast**     | 10  | 51.5 GB | CentOS 10  | NVMe (Longhorn + Ceph OSD)   | NVIDIA **P40** (24 GB VRAM)           |
 | 🚀   | spark     | NVIDIA DGX Spark    | 20  | 128 GB| Ubuntu 24.04 | NVMe + 8 GPU slots         | NVIDIA **GB10** (Grace-Blackwell, 128 GB unified); arm64 · containerd outlier |
 
 ### Off-cluster infrastructure
@@ -181,10 +181,15 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 
 | App | Purpose |
 |-----|---------|
+| **kagent** | CNCF Kubernetes-native agent runtime — CRD-defined operator + concierge agent fleet on local models |
+| **local-cron** | Scheduled doer / triage / digest CronJobs on local models |
+| **litellm** | Model router fronting the local GPUs for the agent fleet |
+| **alert-agent-bridge** | Fans critical alerts to the kagent observability-operator for enrichment |
 | **Ollama** (P40) | Local LLM serving on the Pascal P40 (≤8b-class models, embeddings) |
-| **vLLM (Spark)** | LLM serving on Spark/GB10 — `vllm-driver-spark` (qwen3.6-35b-a3b) for Open WebUI chat |
-| **ComfyUI** | Image generation workflows |
+| **vLLM (Spark)** | LLM serving on Spark/GB10 — `vllm-driver-spark` (qwen3.6-35b-a3b) for Open WebUI chat; plus parked coder / decompile drivers |
+| **ComfyUI** | Image generation workflows (ComfyUI + comfyui-spark on GB10) |
 | **Khoj** | Personal AI assistant over notes + docs (Authelia extAuth-gated) |
+| **LightRAG** | Graph-RAG retrieval (general + finance) over the document corpus |
 | **Paperless-AI** | Auto-tagging for paperless-ngx |
 | **tei-embed-spark** | Text-embedding-inference (bge-m3) on Spark/GB10 — RAG + knowledge-graph embeddings |
 | **tei-spark** | Text-embedding-inference reranker (unsuspended 2026-05-21) |
@@ -281,7 +286,6 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 | **mcp-gateway** | Aggregating gateway; Envoy SecurityPolicy validates Authelia-issued JWTs (daily-rotated key) |
 | **ha-mcp** | Home Assistant entities + service calls |
 | **esphome-mcp** | ESPHome dashboard: device YAML edit, validate, logs, compile + OTA flash |
-| **immich-mcp** | Immich library search + asset metadata |
 | **kubectl-mcp** | Cluster introspection + safe `kubectl` ops |
 | **grafana-mcp** | Grafana dashboards + Loki/Prom queries |
 | **prometheus-mcp** | Direct PromQL access |
@@ -297,6 +301,12 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 | **cilium-mcp** | Read-only Cilium / Hubble introspection (kubectl-mcp-style, Cilium-scoped) |
 | **windmill-mcp** | Aggregated Windmill workspace tools (script run, flow trigger) |
 | **ghidra-mcp** | Headless Ghidra + GhidraMCP 2.0 reverse-engineering tools |
+| **notify-mcp** | Outbound notification fan-out (email) for agents + crons |
+
+The balance of the 35 registered servers are **per-domain concierge
+backends** (health, vehicles, food, wardrobe, finance, property,
+insurance, music, …) that back the kagent persona fleet — same
+Authelia-gated gateway, omitted here for brevity.
 
 </details>
 
@@ -304,33 +314,43 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 
 ## 🧠 AI architecture (overview)
 
-Local-first by default — chat and retrieval today; the automated
-agent fleet and its cloud-escalation gate were both removed
-2026-07-06 (see **Current state** below). Claude Code (this CLI) is
-available for interactive, operator-driven use, but there is no
-automated pipeline that reaches it or the Claude API on its own.
+Local-first by default. Two automated surfaces run on local GPUs and
+cost zero Claude tokens: the **kagent** fleet (CNCF Kubernetes-native
+agent runtime — agents, models, and tools are CRDs, served by local
+models through `litellm`) and the **local-cron** persona doer/triage
+CronJobs. Both reach their tools through the Authelia-gated MCP
+gateway. **Claude Code** (this CLI) is the interactive operator
+cockpit on top. There is still no _automated_ lane to the Claude API —
+escalation to Claude is operator-driven only.
+
+The predecessor `langgraph-agents` fleet was retired 2026-07-06 and
+**replaced by kagent**; HolmesGPT and Langfuse were removed in the same
+cleanup (alert enrichment now runs through the kagent
+observability-operator — see **Alert triage** below).
 
 > 📖 **Full chapter**: see [`docs/src/ai_architecture.md`](https://github.com/rwlove/home-ops/blob/main/docs/src/ai_architecture.md)
-> for per-app integration paths, RAG pipelines, the historical agent-fleet
-> roster, and the file:line references behind every claim here.
+> and [`docs/src/kagent_mcp_gateway_migration.md`](https://github.com/rwlove/home-ops/blob/main/docs/src/kagent_mcp_gateway_migration.md)
+> for per-app integration paths, RAG pipelines, the kagent fleet, and the
+> historical agent-fleet roster.
 
 ```mermaid
 flowchart TB
     subgraph Surfaces[Surfaces]
         OWUI[Open WebUI<br/>chat + RAG]
         Khoj[Khoj<br/>personal AI]
+        CC[Claude Code<br/>operator cockpit]
     end
 
-    subgraph Bridges[Windmill bridges<br/>7 TS workflows]
-        WPaperless[paperless-rag-ingest/tombstone.ts]
-        WLightrag[lightrag-rag-ingest/tombstone.ts]
-        WOther[windmill-failure-watcher.ts ·<br/>workaround-watcher.ts]
+    subgraph Agents[Automated agents<br/>local models]
+        Kagent[kagent fleet<br/>CRD agents + templates]
+        Cron[local-cron<br/>doer / triage CronJobs]
     end
 
     subgraph Inference[Inference]
-        OllamaP40[(ollama / P40<br/>qwen2.5:7b · embeddings)]
+        OllamaP40[(ollama / P40<br/>≤8b · embeddings)]
         VllmDriver[(vllm-driver-spark / GB10<br/>qwen3.6-35b-a3b)]
         TeiEmbed[(tei-embed-spark / GB10<br/>bge-m3 embeddings)]
+        LiteLLM[litellm<br/>model router]
     end
 
     subgraph Tools[Tools + retrieval]
@@ -341,22 +361,28 @@ flowchart TB
 
     subgraph Outputs[Outputs + observability]
         AM[AlertManager]
+        Bridge[alert-agent-bridge]
         Push[Pushover<br/>direct page]
     end
 
     OWUI -->|chat| VllmDriver
-    OWUI --> Gw --> Mem
+    OWUI --> Gw
+    CC --> Gw
+    Kagent --> Gw
+    Kagent --> LiteLLM --> OllamaP40
+    LiteLLM --> VllmDriver
+    Cron --> LiteLLM
+    Gw --> Mem
     OWUI --> Q
     Mem -->|embed| TeiEmbed
     Khoj --> OllamaP40
-    WPaperless --> Q
-    WLightrag --> Q
+    AM -->|severity=critical| Bridge --> Kagent
     AM --> Push
 ```
 
-There's no agent fleet, no gated Claude API lane, and no OTLP trace
-producer left in this diagram — all three were `langgraph-agents`
-plumbing, removed 2026-07-06 along with the fleet.
+The langgraph-agents plumbing (the old fleet, its gated Claude API
+lane, and its OTLP trace producer) was removed 2026-07-06; the kagent
+fleet above replaced it, running entirely on local models.
 
 ### Surfaces and bridges
 
@@ -368,18 +394,30 @@ plumbing, removed 2026-07-06 along with the fleet.
 - **Langfuse** — removed 2026-07-06. Its only consumer (langgraph-agents) was already gone; the keep-dormant-vs-remove question is now resolved as remove.
 - **memory-mcp** (`mcp-system/`) — cross-agent knowledge graph on `postgres-langgraph-memory` with pgvector(1024), bge-m3 embeds via tei-embed-spark. Fully unaffected by the decommission — it's memory-mcp's own database, used by Claude Code and Open WebUI. It just lost langgraph-agents as a consumer.
 
-### Agent fleet — retired 2026-07-06
+### Agent fleet — kagent (current)
 
-The langgraph-agents multi-agent fleet (`triager`, `supervisor`,
-`historian`, `reporter`, `reviewer`, the five operator personas —
-`storage`/`network`/`observability`/`ml`/`smart-home` — plus
-`errand-runner`, `researcher`, `homelab-engineer`, and eight more
-wired-but-cold agents) was removed in its entirety. There is no
-automated agent pipeline in the cluster today. The full historical
-roster with per-agent role and trigger detail lives in
-[`docs/src/ai_architecture.md`](https://github.com/rwlove/home-ops/blob/main/docs/src/ai_architecture.md#agent-fleet--status-today),
-preserved as a record of what was built and retired — not as a status
-board for anything currently running.
+The automated agent fleet today is **kagent** (`ai/kagent`), a CNCF
+Kubernetes-native agent runtime. Agents, model configs, and tool
+bindings are CRDs reconciled by Flux; the fleet is a set of operator
+and concierge personas (storage / network / observability / ml /
+smart-home operators, a triage router, a home-ops operator, plus
+per-domain concierge agents) backed by agent templates. Every agent
+runs on **local models** via `litellm` (Ollama on the P40, vLLM on
+Spark) and reaches its tools through the Authelia-gated MCP gateway —
+so the fleet costs **zero Claude tokens**. It is also consumable
+interactively from Claude Code over MCP.
+
+The sibling **local-cron** app (`ai/local-cron`) runs the scheduled
+doer/triage and digest CronJobs on the same local models.
+
+> The predecessor `langgraph-agents` FastAPI fleet (`triager`,
+> `supervisor`, `historian`, operator personas, and ~20 more agents)
+> was removed in its entirety 2026-07-06 — its Postgres checkpoints,
+> vault PVCs, both public routes, and `sync-receiver` sidecar are
+> gone. kagent replaced it. The historical roster is preserved in
+> [`docs/src/ai_architecture.md`](https://github.com/rwlove/home-ops/blob/main/docs/src/ai_architecture.md),
+> and the gateway cutover in
+> [`docs/src/kagent_mcp_gateway_migration.md`](https://github.com/rwlove/home-ops/blob/main/docs/src/kagent_mcp_gateway_migration.md).
 
 ### Local-first routing tiers
 
@@ -388,10 +426,11 @@ board for anything currently running.
 | 1    | `qwen2.5:7b` on Ollama (P40)         | Fast / simple chat, embeddings, voice STT/TTS support      |
 | 2    | `qwen3.6-35b-a3b` on vllm-driver-spark (GB10) | Default chat inference (Open WebUI) |
 
-**Removed 2026-07-06:** the third tier — gated Claude API escalation
-via langgraph-agents (`ENABLE_CLAUDE_API`, cost caps `$5/task` ·
-`$10/agent/day` · `$30/global/day`) — is gone along with the fleet.
-There is no automated cloud-escalation tier today.
+The kagent fleet and local-cron route to these same two tiers through
+`litellm`. There is **no automated cloud-escalation tier** — the old
+gated Claude API lane (`ENABLE_CLAUDE_API`, per-task/agent/day cost
+caps) went away with langgraph-agents 2026-07-06 and was not rebuilt;
+escalation to Claude is operator-driven (Claude Code) only.
 
 ### Voice-to-action: retired, known gap
 
@@ -410,17 +449,34 @@ preserved as a historical record in
 
 ### Alert triage
 
-There is no automated investigation step today. AlertManager fires a
-critical alert and pages Pushover directly. HolmesGPT used to sit in
-between (querying Prometheus, Loki, and the cluster to build a
-root-cause hypothesis before posting back via Windmill) but was
-removed 2026-07-06 — no value delivered.
+AlertManager pages Pushover directly for every critical alert, and —
+via a `continue: true` route — _also_ fans `severity: critical` alerts
+to the **alert-agent-bridge** (`ai/alert-agent-bridge`), which hands
+them to the kagent observability-operator for root-cause enrichment.
+Enrichment is additive: the raw page still reaches Pushover exactly as
+before, and the bridge logs-only on enrichment failure so it can never
+swallow a page. (HolmesGPT filled this slot until 2026-07-06, when it
+was removed — no value delivered — and later replaced by the kagent
+bridge.)
 
-### Current state (2026-07-06)
+### Current state
 
-- **HolmesGPT** — removed. No longer deployed anywhere in the cluster.
-- **LangGraph fleet** — removed in its entirety: the FastAPI runtime, `postgres-langgraph-checkpoints`, the `langgraph-vault`/`langgraph-vault-rw` PVCs, both public routes (`hai.${SECRET_DOMAIN}`, `hai-web.${SECRET_DOMAIN}`), and `sync-receiver`. 16 of 23 Windmill workflows deleted with it. `postgres-langgraph-memory` and `memory-mcp` are **kept** — that database is memory-mcp's own backend, unaffected by this decommission. Known gap: the HA voice "inbox …" intent is now broken (see **Voice-to-action** above).
-- **claude-runner** — retired 2026-05-23, superseded by the langgraph fleet (its two CronJobs graduated into agent workflows inside langgraph-agents). With langgraph-agents now also removed, that functionality is gone twice over — there is no automated Claude Code or Claude API pipeline anywhere in the cluster today. Claude Code use is interactive-only (an operator running the CLI, same as the session that made this edit).
+- **kagent fleet + local-cron** — the live automated agent surface, on
+  local models (see **Agent fleet** above). Replaced langgraph-agents.
+- **memory-mcp** — kept; cross-agent knowledge graph on
+  `postgres-langgraph-memory` (pgvector 1024, bge-m3). Used by the
+  kagent fleet, Claude Code, and Open WebUI.
+- **HolmesGPT** — removed 2026-07-06; alert enrichment is now the
+  kagent observability-operator via alert-agent-bridge.
+- **LangGraph fleet** — removed 2026-07-06 in its entirety (FastAPI
+  runtime, `postgres-langgraph-checkpoints`, the
+  `langgraph-vault`/`langgraph-vault-rw` PVCs, both public routes, and
+  `sync-receiver`; 16 of 23 Windmill workflows deleted with it).
+  Replaced by kagent.
+- **claude-runner** — retired; there is no _automated_ Claude Code or
+  Claude API pipeline in the cluster. Claude Code is interactive-only
+  (operator-driven, same as the session that made this edit); automated
+  agent work runs on local models via kagent/local-cron.
 - **KubeClaw** — retired (memo `project_open_issues_cleanup_2026_05_20`).
 
 ---
@@ -452,11 +508,11 @@ All ExternalSecrets resolve through External Secrets Operator from 1Password. Ap
 
 ### 🪪 Authentication — single sign-on everywhere
 
-Authelia (with LLDAP) is the identity provider; per-route Envoy Gateway `SecurityPolicy` extAuth (Authelia's ext-authz endpoint) enforces auth at the gateway — 26 apps sit behind SSO today, tiered admin vs household via `access_control` rules (the oauth2-proxy sidecar fleet was retired 2026-07-01, #12767). Native-OIDC apps (immich, paperless, open-webui, …) authenticate against Authelia directly. The mcp-gateway validates Authelia-issued JWTs with a daily-rotated signing key for MCP tooling.
+Authelia (with LLDAP) is the identity provider; per-route Envoy Gateway `SecurityPolicy` extAuth (Authelia's ext-authz endpoint) enforces auth at the gateway — ~39 per-route `SecurityPolicy` gates today, tiered admin vs household via `access_control` rules (the oauth2-proxy sidecar fleet was retired 2026-07-01, #12767). Native-OIDC apps (immich, paperless, open-webui, …) authenticate against Authelia directly. The mcp-gateway validates Authelia-issued JWTs with a daily-rotated signing key for MCP tooling.
 
 ### 🔭 Observability — metrics, logs, dashboards
 
-kube-prometheus-stack scrapes everything; Loki ingests pod logs (via Vector); Tempo ingests traces (via OpenTelemetry Collector); Grafana stitches the dashboards. AlertManager fans critical alerts straight to Pushover — no automated triage step (the HolmesGPT investigation path was removed 2026-07-06).
+kube-prometheus-stack scrapes everything; Loki ingests pod logs (via Vector); Tempo ingests traces (via OpenTelemetry Collector); Grafana stitches the dashboards. AlertManager pages Pushover directly for critical alerts and, via a `continue: true` route, also fans them to the kagent observability-operator (through alert-agent-bridge) for root-cause enrichment — additive, never swallowing the page. (HolmesGPT filled that slot until it was removed 2026-07-06.)
 
 ### 🎮 GPU workloads
 

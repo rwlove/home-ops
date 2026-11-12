@@ -2,16 +2,20 @@
 
 > **Note:** The `langgraph-agents` fleet that once drove task intake, the
 > approval loop, and 16 additional Windmill flows was decommissioned
-> 2026-07-06 and removed entirely. This page documents only what runs
-> today; the original design lives in git history if it is ever needed.
+> 2026-07-06 and **replaced by the kagent fleet** (`ai/kagent`, local
+> models — see [AI architecture](ai_architecture.md) and
+> [kagent MCP-gateway migration](kagent_mcp_gateway_migration.md)). This
+> page documents only the **Windmill** side that remains; the original
+> langgraph design lives in git history if it is ever needed.
 
 ## Current state
 
-- **No agent fleet.** `langgraph-agents` (the FastAPI service that used to
-  live in the `ai` namespace) was deleted along with its Postgres
-  checkpoints database, vault PVCs, and public routes. There is no
-  `/inbox`, `/approval`, or `/admin/tasks`, and no automated Class A–D
-  approval taxonomy.
+- **The agent fleet moved off Windmill.** `langgraph-agents` (the FastAPI
+  service that used to live in the `ai` namespace) was deleted along with
+  its Postgres checkpoints database, vault PVCs, and public routes — no
+  `/inbox`, `/approval`, or `/admin/tasks`, and no Windmill-driven Class
+  A–D approval taxonomy. The current agent fleet is **kagent** (CRD
+  agents on local models), out of scope for this Windmill page.
 - **Windmill is still deployed and runs 7 workflows** — none agent- or
   approval-related. All live under
   `kubernetes/apps/home/windmill/workflows/`:

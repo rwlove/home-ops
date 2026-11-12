@@ -1,10 +1,14 @@
 # Cluster Upgrade Runbook
 
-> **This is a retrospective.** The 1.34 → 1.34.7 patch + 1.34 → 1.35 minor
-> upgrades were executed 2026-05-02 / 2026-05-03 and the cluster is now on
-> v1.35.4 across all nodes. Phase 3 (per-node procedure) is the reusable
-> part — apply it verbatim for future minor bumps. The "Phase 0 preflight"
-> checklist and "Failure modes" table are the load-bearing references.
+> **This is a retrospective.** Successive upgrades (1.34 → 1.34.7 patch
+> and 1.34 → 1.35 on 2026-05-02/03, then **1.35.4 → 1.36.4 on
+> 2026-08-22**) were all executed against the Phase 3 procedure below;
+> the cluster is now on **v1.36.4** across all 11 nodes. The **next**
+> minor (1.37) is on HOLD — gated on Cilium 1.21.0 GA (~2027-02), since
+> Cilium 1.20.x never tests against k8s 1.37. Phase 3 (per-node
+> procedure) is the reusable part — apply it verbatim for future minor
+> bumps. The "Phase 0 preflight" checklist and "Failure modes" table are
+> the load-bearing references.
 
 This runbook covers an in-place rolling upgrade of the cluster, planned
 in May 2026 to bring all nodes to a single k8s 1.34 patch + cri-o 1.34,

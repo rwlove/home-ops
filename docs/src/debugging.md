@@ -256,8 +256,8 @@ That's the only path that doesn't depend on wg-easy being healthy (which depends
 
 If a problem isn't yielding to direct inspection:
 
-- **AlertManager pages Pushover directly** for critical alerts — there's no automated root-cause/investigation step. Check the Pushover ping for the raw alert payload, then work the failure-modes tables below and in `cluster_upgrade.md` by hand.
-- **mdBook docs** elsewhere in `docs/src/` — `cluster_upgrade.md` has a deep failure-modes table from the 1.34 → 1.35 upgrade that captures most cri-o / kubelet / Longhorn / Rook failure shapes.
+- **AlertManager pages Pushover directly** for critical alerts, and also fans them to the kagent observability-operator (via alert-agent-bridge) for root-cause enrichment — but that's additive, not a gate, so start from the raw Pushover payload, then work the failure-modes tables below and in `cluster_upgrade.md` by hand.
+- **mdBook docs** elsewhere in `docs/src/` — `cluster_upgrade.md` has a deep failure-modes table (built across the 1.34 → 1.35 and 1.35 → 1.36 upgrades) that captures most cri-o / kubelet / Longhorn / Rook failure shapes.
 
 ## External references
 

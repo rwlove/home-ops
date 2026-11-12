@@ -26,7 +26,8 @@ Design points:
     degrades gracefully — the agent still gets the alert, never a crash.
 
 Stdlib only. Config via env:
-  OBSERVABILITY_AGENT_URL   default http://observability-operator.ai:8080/
+  OBSERVABILITY_AGENT_URL   default http://kagent-controller.ai:8083/mcp
+  AGENT                     real kagent Agent CR name; default observability-operator
   AGENT_TIMEOUT_SECONDS     default 400
   MAX_INFLIGHT              default 2
   MAX_ALERTS_PER_GROUP      default 8
@@ -43,7 +44,16 @@ import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-AGENT_URL = os.environ.get("OBSERVABILITY_AGENT_URL", "http://observability-operator.ai:8080/")
+# kagent 1.0's ATE rewrite removed the per-agent Deployment + Service + raw-A2A
+# endpoint this used to speak (http://<agent>.ai:8080/, message/send). Agents
+# now run as transient sandboxed Actors; the only HTTP surface the controller
+# exposes for invoking one is its own built-in MCP server (tools/call ->
+# invoke_agent, kagent-dev/kagent#1160 — the same endpoint Claude Code uses via
+# kagent-mcp.${SECRET_DOMAIN}/mcp). See local-cron/app/resources/a2a_client.py
+# for the sibling client this mirrors (shared contract, not shared code — this
+# bridge is intentionally dependency-free, no local-cron ConfigMap to import).
+AGENT_URL = os.environ.get("OBSERVABILITY_AGENT_URL", "http://kagent-controller.ai:8083/mcp")
+AGENT = os.environ.get("AGENT", "observability-operator")
 AGENT_TIMEOUT = int(os.environ.get("AGENT_TIMEOUT_SECONDS", "400"))
 MAX_INFLIGHT = int(os.environ.get("MAX_INFLIGHT", "2"))
 MAX_ALERTS = int(os.environ.get("MAX_ALERTS_PER_GROUP", "8"))
@@ -226,29 +236,53 @@ def _agent_prompt(alerts):
     )
 
 
+def _parse_jsonrpc(raw):
+    """Body may be a plain JSON-RPC object OR an SSE stream of `data: {…}` lines
+    (kagent's MCP endpoint advertises text/event-stream). Return the last JSON
+    object. Mirrors local-cron/app/resources/a2a_client.py's parser."""
+    raw = raw.strip()
+    if raw.startswith("{"):
+        return json.loads(raw)
+    obj = {}
+    for line in raw.splitlines():
+        line = line.strip()
+        if line.startswith("data:"):
+            chunk = line[5:].strip()
+            if chunk and chunk != "[DONE]":
+                try:
+                    obj = json.loads(chunk)
+                except Exception:  # noqa: BLE001
+                    pass
+    return obj
+
+
 def _call_agent(prompt):
     body = json.dumps({
-        "jsonrpc": "2.0", "id": 1, "method": "message/send",
-        "params": {"message": {
-            "role": "user",
-            "parts": [{"kind": "text", "text": prompt}],
-            "messageId": "alert-bridge", "kind": "message",
-        }},
+        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {
+            "name": "invoke_agent",
+            "arguments": {
+                "agent": {"namespace": "ai", "name": AGENT},
+                "message": prompt,
+                "message_id": "alert-bridge",
+            },
+        },
     }).encode()
     req = urllib.request.Request(AGENT_URL, data=body, headers={
         "Content-Type": "application/json",
         "Accept": "application/json, text/event-stream",
     })
     with urllib.request.urlopen(req, timeout=AGENT_TIMEOUT) as r:
-        resp = json.loads(r.read().decode())
+        resp = _parse_jsonrpc(r.read().decode())
+    if resp.get("error"):
+        raise RuntimeError("invoke_agent error: %r" % resp["error"])
     result = resp.get("result", {}) or {}
-    parts = []
-    for art in result.get("artifacts", []) or []:
-        parts += art.get("parts", []) or []
-    msg = (result.get("status", {}) or {}).get("message", {}) or {}
-    parts += msg.get("parts", []) or []
-    texts = [p.get("text", "") for p in parts if p.get("kind") == "text" and p.get("text")]
-    return texts[-1] if texts else ""
+    sc = result.get("structuredContent") or {}
+    if sc.get("text"):
+        return sc["text"]
+    parts = [p.get("text", "") for p in (result.get("content") or [])
+             if p.get("type") == "text"]
+    return parts[-1] if parts else ""
 
 
 def _notify(subject, body):

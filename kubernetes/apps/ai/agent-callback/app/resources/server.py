@@ -26,7 +26,7 @@ signed-in user from tampering the agent/action in the URL.
 
 Env:
   CALLBACK_HMAC_KEY   REQUIRED — shared secret; notify-mcp signs, this verifies.
-  A2A_BASE            default http://%s.ai:8080/  (%s = agent name)
+  AGENT_MCP_URL       default http://kagent-controller.ai:8083/mcp
   A2A_TIMEOUT         default 20 (seconds; the invoke is fire-and-ack)
   HOST / PORT         bind (default 0.0.0.0:8080)
 Stdlib only.
@@ -45,7 +45,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "8080"))
 HMAC_KEY = os.environ.get("CALLBACK_HMAC_KEY", "").encode()
-A2A_BASE = os.environ.get("A2A_BASE", "http://%s.ai:8080/")
+# kagent 1.0 ATE removed the per-agent Service + raw-A2A endpoint this used to
+# format with %-agent-name (http://%s.ai:8080/). Invocation now goes through
+# the controller's own MCP interface (kagent-dev/kagent#1160), shared by every
+# agent — the target agent name travels in the JSON-RPC body instead of the
+# URL. See local-cron/app/resources/a2a_client.py for the sibling client.
+AGENT_MCP_URL = os.environ.get("AGENT_MCP_URL", "http://kagent-controller.ai:8083/mcp")
 A2A_TIMEOUT = int(os.environ.get("A2A_TIMEOUT", "20"))
 
 # In-memory single-use ledger of consumed token ids. Best-effort: Authelia is the
@@ -97,7 +102,8 @@ def _prune() -> None:
 
 
 def invoke_agent(agent: str, action: str, ctx: str) -> None:
-    """Fire the decision at the target agent over A2A (fire-and-ack)."""
+    """Fire the decision at the target agent via kagent's MCP endpoint
+    (fire-and-ack — the response is read only to surface transport errors)."""
     prompt = (
         "Robert CONFIRMED the following action via an email action button: "
         f"\"{action}\". Context: {ctx or '(none)'}. This is his explicit approval "
@@ -106,14 +112,17 @@ def invoke_agent(agent: str, action: str, ctx: str) -> None:
         "notify Robert of the outcome via your notify_rob tool."
     )
     body = json.dumps({
-        "jsonrpc": "2.0", "id": 1, "method": "message/send",
-        "params": {"message": {
-            "role": "user",
-            "parts": [{"kind": "text", "text": prompt}],
-            "messageId": "email-callback", "kind": "message",
-        }},
+        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {
+            "name": "invoke_agent",
+            "arguments": {
+                "agent": {"namespace": "ai", "name": agent},
+                "message": prompt,
+                "message_id": "email-callback",
+            },
+        },
     }).encode()
-    req = urllib.request.Request(A2A_BASE % agent, data=body, headers={
+    req = urllib.request.Request(AGENT_MCP_URL, data=body, headers={
         "Content-Type": "application/json",
         "Accept": "application/json, text/event-stream",
     })

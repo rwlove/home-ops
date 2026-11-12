@@ -168,11 +168,11 @@ done
 
 **Commented** — block exists in the file but is commented out. Uncomment before the relevant Flux Kustomization runs on rebuild:
 
-- `medikeep`, `netbox`, `pump`, `romm`, `sparkyfitness`, the media-pull-stack apps
+- `ghostfolio`, `lubelogger`, `medikeep`, `netbox`, `nocodb`, `pump`, `reactive-resume`, `romm`, the media-pull-stack apps
 
 **No recovery block at all** — these clusters have never been wired for Barman recovery. **Add a `bootstrap.recovery` block (and confirm an `ObjectStore` + `ScheduledBackup` exist) before any rebuild that needs them to survive:**
 
-- `authelia`, `av1corrector`, `khoj`, `langgraph-memory`, `nametag`, `videodupfinder`
+- `authelia`, `av1corrector`, `kagent-substrate`, `khoj`, `langgraph-memory`, `monica`, `nametag`, `videodupfinder`, `vikunja`, `wardrowbe`, `windmill`
 
 For commented and no-recovery sets, edit `cluster.yaml` to include:
 
@@ -209,8 +209,8 @@ kubectl -n databases logs -l cnpg.io/jobRole=full-recovery -f
 ### Point-in-time recovery (PITR)
 
 To recover to a specific moment instead of "latest WAL", add a
-`recoveryTarget` block — see the commented template in
-`config/nextcloud/cluster.yaml`:
+`recoveryTarget` block to a pre-armed cluster's
+`bootstrap.recovery` (e.g. `config/immich/cluster.yaml`):
 
 ```yaml
   bootstrap:

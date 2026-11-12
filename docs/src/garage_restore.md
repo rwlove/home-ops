@@ -19,7 +19,7 @@ the running deployment before executing destructive steps.
 
 ## Buckets in use
 
-- `cnpg-<app>` (one per CNPG cluster) — Barman base + WAL
+- `postgres-<app>-backup` (one per CNPG cluster) — Barman base + WAL
 - App-level workloads using S3 API (e.g. Loki object store if
   configured, Velero if deployed, etc.)
 - Offsite-backup CronJobs (`immich-offsite-backup`,

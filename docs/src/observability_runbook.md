@@ -189,16 +189,30 @@ Triage order:
 
 ## Alert routing
 
-Routing is entirely by **alertname**, not by severity — see
+The root receiver is `pushover`, and routing is primarily by
+**alertname** — see
 `kubernetes/apps/observability/kube-prometheus-stack/app/alertmanagerconfig.yaml`.
-Two alertnames route to a `null` receiver (`Watchdog`, `InfoInhibitor`,
-plus `KubePodPendingBrief` — deliberately Grafana-only, see the comment
-in that file for why an `inhibitRule` can't do this instead); every
-other alert — critical, warning, or info — falls through to the single
-`pushover` receiver and notifies. There is no severity-based
-suppression today: if you want an alert to page, no label change is
-needed; if you want one silenced, it needs an explicit `null`-receiver
-route by alertname.
+Three alertnames route to a `null` receiver (`Watchdog`, `InfoInhibitor`,
+and `KubePodPendingBrief` — deliberately Grafana-only, see the comment
+in that file for why an `inhibitRule` can't do this instead). Four
+other routes sit above the `pushover` fallthrough:
+
+- **`agent-bridge`** (`continue: true`) — any `severity: critical` alert
+  is *also* fanned to the in-cluster kagent observability-operator via
+  the `alert-agent-bridge` webhook for root-cause enrichment. `continue`
+  keeps evaluation going so the raw page still reaches `pushover` exactly
+  as before — enrichment is additive, not a replacement.
+- **`email`** — a small, explicit set of `alertname`s (a `=~` regex;
+  five warning alertnames + `CPUThrottlingHigh`) routes to the `email`
+  receiver *instead of* `pushover`, to de-noise the pager.
+- **`agent-ops-ingest`** (`continue: true`) — alerts carrying
+  `queue: agent-ops` are forwarded to the Windmill agent-ops work queue.
+  No PrometheusRule sets that label yet, so this matches zero alerts
+  today (wired-but-cold; opt an alert in by adding the label).
+
+Everything not caught above falls through to `pushover` and pages. If
+you want an alert to page, no label change is needed; to silence one, add
+an explicit `null`-receiver route by alertname.
 
 The one severity-aware behavior is an `inhibitRule`: a firing
 `critical` suppresses a `warning` sharing the same `alertname` +

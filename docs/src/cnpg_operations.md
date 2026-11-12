@@ -1,7 +1,7 @@
 # CNPG Day-2 Operations
 
 Day-2 health and lifecycle runbook for the CloudNativePG (CNPG)
-Postgres fleet in `databases` — 21 `Cluster` resources under
+Postgres fleet in `databases` — 28 `Cluster` resources under
 `kubernetes/apps/databases/cloudnative-pg/config/<app>/`, all sharing
 one operator HelmRelease at
 `kubernetes/apps/databases/cloudnative-pg/app/`.
@@ -43,14 +43,14 @@ ObjectStore/ScheduledBackup pair unless you have a real reason to
 deviate from the fleet.
 
 Almost every cluster runs 3 instances (1 primary + 2 async standbys)
-on PostgreSQL 17.7. One exception to know about before you assume
-uniformity: `postgres-pump` is on 17.5 — always check the live
-`imageName` before planning a coordinated bump. Three clusters (`postgres-immich`,
-`postgres-khoj`, `postgres-langgraph-memory`) run the
-`cloudnative-vectorchord` image instead of stock
-`cloudnative-pg/postgresql` — they need pgvector/vectorchord
-extensions; treat their minor-version bumps as a separate track from
-the stock-image fleet.
+on PostgreSQL 17.11 (stock `ghcr.io/cloudnative-pg/postgresql:17.11`,
+25 clusters). The exception to know about before you assume
+uniformity: three clusters (`postgres-immich`, `postgres-khoj`,
+`postgres-langgraph-memory`) run the `cloudnative-vectorchord:14.17`
+image instead — a **PG14** base — because they need
+pgvector/vectorchord extensions. Treat their major-version line and
+minor bumps as a separate track from the stock 17.x fleet, and always
+check the live `imageName` before planning a coordinated bump.
 
 Apps connect via the CNPG-managed services —
 `postgres-<app>-rw.databases.svc.cluster.local` for read-write,
@@ -325,10 +325,11 @@ kubectl -n databases get pods -l cnpg.io/cluster=postgres-<app> -w
 kubectl cnpg -n databases status postgres-<app> | grep 'PostgreSQL Image'
 ```
 
-Remember the version outlier noted above (`pump` on 17.5) before
-assuming a fleet-wide bump PR covers every cluster — check each
-`cluster.yaml`'s current `imageName`, don't copy a version string
-across all clusters blind.
+Remember the version outliers noted above (the three
+`cloudnative-vectorchord` **PG14** clusters) before assuming a
+fleet-wide bump PR covers every cluster — check each `cluster.yaml`'s
+current `imageName`, don't copy a version string across all clusters
+blind.
 
 **Major-version bumps** (e.g. 16→17) *are* supported as a declarative
 in-place upgrade on this operator (CNPG ≥1.26; fleet is on 1.30): bump
@@ -346,7 +347,7 @@ then seed a fresh base backup immediately after (pre-upgrade backups
 can't do cross-major PITR) and run `ANALYZE`. Rollback: revert
 `imageName`; the operator discards the failed job and restarts on the
 old major — no data is modified on failure. `postgres-nametag` was
-taken 16→17.7 this way.
+taken 16→17 this way (now on 17.11 with the rest of the stock fleet).
 
 ### Onboarding a new cluster — seed the first backup
 
@@ -464,8 +465,9 @@ above.
 - WAL-archive staleness by clock time is a false signal on an idle
   database — watch the `.ready`-segment backlog count, not time-since-
   last-archive.
-- `pump` (17.5) is the one cluster off the fleet-standard 17.7 image
-  — verify before a coordinated bump.
+- Three `cloudnative-vectorchord` clusters (`postgres-immich`,
+  `postgres-khoj`, `postgres-langgraph-memory`) are on a **PG14** base,
+  off the stock-fleet 17.11 image — verify before a coordinated bump.
 - No `Pooler` exists anywhere in this fleet; apps connect straight to
   the `-rw`/`-ro`/`-r` services.
 - `bootstrap.recovery` only fires on first cluster creation — it is

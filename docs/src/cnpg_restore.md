@@ -1,10 +1,10 @@
 # CNPG Cluster Restore Template
 
-Per-cluster restore procedure for any of the ~25 CloudNativePG
+Per-cluster restore procedure for any of the 28 CloudNativePG
 `Cluster` resources under
-`kubernetes/apps/databases/cloudnative-pg/config/<app>/`. Paper
-runbook — verify against the actual app's `cluster.yaml` +
-`objectstore.yaml` before executing.
+`kubernetes/apps/databases/cloudnative-pg/config/<app>/` (each named
+`postgres-<app>`). Paper runbook — verify against the actual app's
+`cluster.yaml` + the `garage-<app>` ObjectStore before executing.
 
 ## When to use this
 
@@ -16,12 +16,17 @@ the gotchas section at the bottom first.
 ## What survives in Garage
 
 Every CNPG cluster in this repo writes to a paired Barman
-ObjectStore (`barmancloud.cnpg.io/ObjectStore`). The bucket layout
-in Garage:
+ObjectStore (`barmancloud.cnpg.io/ObjectStore`, named
+`garage-<app>`) whose `destinationPath` is the Garage bucket
+`s3://postgres-<app>-backup/`. Barman writes under a server
+directory matching `serverName` (also `postgres-<app>-backup`), so
+the objects live at:
 
-- `<cluster-name>/base/<backup-id>/` — full base backups (daily
-  cadence on most clusters, scheduled by `ScheduledBackup`)
-- `<cluster-name>/wals/` — WAL archive (continuous)
+- `s3://postgres-<app>-backup/postgres-<app>-backup/base/<backup-id>/`
+  — full base backups (weekly `ScheduledBackup`; the first is seeded
+  by hand at onboarding — there is no `immediate` backup)
+- `s3://postgres-<app>-backup/postgres-<app>-backup/wals/` — WAL
+  archive (continuous)
 
 Lose Garage and you lose the recovery target. See
 `garage_restore.md` for Garage substrate recovery.
@@ -43,24 +48,34 @@ specific timestamp without losing the cluster.
    # find the latest WAL timestamp before the bad event
    ```
 
-2. Edit `kubernetes/apps/databases/cloudnative-pg/config/<app>/cluster.yaml`
-   to add `spec.bootstrap.recovery`:
+2. **Pre-armed** clusters (`atuin`, `home-assistant`, `immich`, `lldap`,
+   `paperless` — see `cluster_rebuild.md` → *State of the bootstrap
+   blocks* for the current arming lists) already ship a
+   `bootstrap.recovery` stanza (`source: source`, with an
+   `externalClusters[name: source]` reusing a `&params` plugin anchor —
+   `barmanObjectName: garage-<app>`, `serverName: postgres-<app>-backup`).
+   For a commented / no-recovery cluster you first add/uncomment that
+   block. Then, for PITR, add a `recoveryTarget` to it in
+   `kubernetes/apps/databases/cloudnative-pg/config/<app>/cluster.yaml`:
 
    ```yaml
    spec:
      bootstrap:
        recovery:
-         source: <app>
+         source: source
          recoveryTarget:
            targetTime: "2026-05-20 14:30:00.00+00"
      externalClusters:
-       - name: <app>
+       - name: source
          plugin:
            name: barman-cloud.cloudnative-pg.io
            parameters:
-             barmanObjectName: <app>
-             serverName: <app>
+             barmanObjectName: garage-<app>
+             serverName: postgres-<app>-backup
    ```
+
+   On a pre-armed cluster the `externalClusters` block is already present
+   (shared via the `*params` anchor) — don't duplicate it.
 
 3. **Delete the existing cluster** (destructive):
 
@@ -93,10 +108,12 @@ the cluster from scratch from the latest base backup + WALs to
 "now".
 
 Same as Scenario A but with `recoveryTarget` set to `latest`
-(omitting `targetTime`), or simply leave the cluster's normal spec
-in place and CNPG will bootstrap from the ObjectStore on its own —
-the `barmancloud.cnpg.io/ObjectStore` is the bootstrap source by
-convention in this repo.
+(omitting `targetTime`). For a **pre-armed** cluster (Scenario A
+step 2) the `bootstrap.recovery` stanza is already in place, so
+CNPG bootstraps from the ObjectStore on its own once the PGData PVC
+is gone — just reconcile. For a commented / no-recovery cluster,
+add the recovery + `externalClusters` block first (Scenario A
+step 2), or it will bootstrap empty via `initdb` and lose the data.
 
 Concretely:
 
@@ -106,7 +123,7 @@ Concretely:
    kubectl -n databases get objectstore <app>
    # Check Garage bucket directly:
    AWS_ENDPOINT_URL_S3=https://s3.${SECRET_DOMAIN} \
-     aws s3 ls s3://cnpg-<app>/base/
+     aws s3 ls s3://postgres-<app>-backup/postgres-<app>-backup/base/
    ```
 
 2. Reconcile Flux to re-create the cluster CR. CNPG sees no
@@ -129,10 +146,9 @@ shipped offsite. App reconstruction depends on the app:
 - media-pull-stack apps — full data loss is non-recoverable beyond
   re-scraping from external sources
 - `medikeep` — full loss; manual reentry
-- `pump`, `sparkyfitness`, `videodupfinder` —
-  application-specific; mostly recoverable from source data
-- `nametag`, `medialyze`, `windmill` — workflow / metadata; full
-  loss
+- `pump`, `videodupfinder` — application-specific; mostly
+  recoverable from source data
+- `nametag`, `windmill` — workflow / metadata; full loss
 
 **For Immich and Paperless**: see `offsite_recovery.md` — these
 two have a separate offsite-backup pipeline to AWS Glacier Deep
@@ -140,15 +156,18 @@ Archive, restored independently.
 
 ## Per-cluster cheatsheet
 
+Bucket = `postgres-<app>-backup`; Barman server directory inside it is
+also `postgres-<app>-backup` (see *What survives in Garage* above).
+
 | Cluster | Garage bucket | Special considerations |
 |---|---|---|
-| `atuin` | `cnpg-atuin` | None — terminal history is ephemeral |
-| `home-assistant` | `cnpg-home-assistant` | Pair with HA backup (`.tar` in vault) for full restore |
-| `immich` | `cnpg-immich` | Also covered by offsite Glacier — see `offsite_recovery.md` |
-| `paperless` | `cnpg-paperless` | Also covered by offsite Glacier — see `offsite_recovery.md` |
-| `langgraph-memory` | `cnpg-langgraph-memory` | memory-mcp's knowledge-graph backend (langgraph-agents, its former co-consumer, was decommissioned 2026-07-06 — cluster now sole owner is memory-mcp) — 35+ entities; rebuildable but expensive |
-| `windmill` | `cnpg-windmill` | Workflow definitions in Git; secrets in 1P — runtime state can be re-bootstrapped |
-| Others (25 total) | `cnpg-<app>` | Follow the template above |
+| `postgres-atuin` | `postgres-atuin-backup` | None — terminal history is ephemeral |
+| `postgres-home-assistant` | `postgres-home-assistant-backup` | Pair with HA backup (`.tar` in vault) for full restore |
+| `postgres-immich` | `postgres-immich-backup` | Also covered by offsite Glacier — see `offsite_recovery.md` |
+| `postgres-paperless` | `postgres-paperless-backup` | Also covered by offsite Glacier — see `offsite_recovery.md` |
+| `postgres-langgraph-memory` | `postgres-langgraph-memory-backup` | memory-mcp's knowledge-graph backend (langgraph-agents, its former co-consumer, was decommissioned 2026-07-06 — sole owner is now memory-mcp) — 35+ entities; rebuildable but expensive |
+| `postgres-windmill` | `postgres-windmill-backup` | Workflow definitions in Git; secrets in 1P — runtime state can be re-bootstrapped |
+| Others (28 total) | `postgres-<app>-backup` | Follow the template above |
 
 ## Gotchas
 

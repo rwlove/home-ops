@@ -1,15 +1,23 @@
 # Agent GitHub Identity Design Proposal
 
-Status: **Proposal — research only, not implemented.** Companion to
-[MCP Tool-Level Authorization](mcp_tool_authz_design.md); together these
-are the two prerequisites for letting an agent run unattended.
+Status: **Proposal — research only, not implemented. Premise now dated.**
+Companion to [MCP Tool-Level Authorization](mcp_tool_authz_design.md).
 Owner: home-ops
 Last updated: 2026-07-25
+
+> ⚠️ **Reframe.** This proposal is written around the in-cluster
+> `opencode` MCP server, which **no longer exists**. The *concern* it
+> raises — in-cluster agents touching GitHub **as `rwlove`** with no
+> self-approval guardrail — still stands, but the subject today is the
+> **kagent fleet** (and `github-mcp` behind the federated gateway), not
+> opencode. Treat the specifics below (opencode wiring, tool lists) as
+> illustrative; the identity design still needs doing for kagent. See
+> [MCP Gateway Access & Identity Design](mcp_gateway_access_design.md).
 
 ## Problem statement
 
 Every agent that touches GitHub does so **as `rwlove`**. The in-cluster
-opencode server reaches `github_*` tools through the MCP gateway, and
+MCP server reaches `github_*` tools through the MCP gateway, and
 those tools include:
 
 ```text

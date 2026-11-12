@@ -1,8 +1,15 @@
 # NetworkPolicy Rollout Plan
 
-Status: **19 of 21 in-scope namespaces locked down (default-deny enforced). `downloads` + `vpn` carved out due to VXLAN DHCP broadcast incompat with cilium default-deny.**
+Status: **COMPLETE — re-rollout finished. 22 namespaces carry
+`network-policy/default-deny` today (verify:
+`grep -rl network-policy/default-deny kubernetes/apps | wc -l`). The
+2026-05-18 full reset described below was subsequently re-rolled-out
+successfully; the VXLAN-DHCP-incompatible carve-outs (`downloads`,
+`vpn`) remain intentional. The gotchas + patterns A–H + retrospective
+below are the evergreen value — keep them.**
 Owner: home-ops
-Last updated: 2026-05-18
+Last updated: 2026-11-12 (re-rollout recorded; body below is the
+2026-05 reset retrospective)
 
 > **2026-07-01 update:** the oauth2-proxy fleet this plan references was
 > retired (#12767) — auth now rides per-route Envoy Gateway extAuth
@@ -97,6 +104,11 @@ no public ingress to these workloads, only `bt.${SECRET_DOMAIN}` +
 media-pull-stack UIs which are still gated by oauth2-proxy).
 
 ## Full rollback 2026-05-18 — reset and redesign
+
+> **Historical.** This section records the 2026-05-18 reset. The
+> re-rollout has since completed — default-deny is enforced across 22
+> namespaces today (see Status above). Read on for why the reset
+> happened and the patterns that made the re-rollout stick.
 
 **Outcome:** All default-deny CNPs deleted from the 19 remaining
 locked-down namespaces. `cluster-apps` Flux Kustomization SUSPENDED

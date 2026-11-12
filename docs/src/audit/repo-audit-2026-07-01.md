@@ -1,5 +1,11 @@
 # Repo audit — 2026-07-01
 
+> **Historical snapshot — not current cluster state.** This is a
+> point-in-time audit from 2026-07-01; its counts (~200 HelmReleases,
+> 190 Kustomizations) and gap lists have since drifted. Regenerate
+> rather than trusting the numbers here; see the live README badges and
+> `tools/lint-readme-drift.py` for current counts.
+
 Full-repo review across three dimensions — security posture,
 simplification, optimization — covering ~200 HelmReleases, 190 Flux
 Kustomizations, and 13 CI workflows. Three parallel audits, findings

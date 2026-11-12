@@ -58,7 +58,7 @@ Constraints from the cluster's reality:
 - **Approximately 422 pods.** Of those, ~75% would be candidates for
   sidecar injection (the rest are hostNetwork, daemonsets, batch
   jobs, or operators).
-- **Cilium 1.19 is CNI today.** No plan to replace it. Istio sidecar
+- **Cilium (1.20.4) is CNI today.** No plan to replace it. Istio sidecar
   and Cilium are well-tested together; ambient mode requires more
   care (see § Architectural choice).
 - **NetworkPolicy rollout is freshly rolled back** (2026-05-18) after

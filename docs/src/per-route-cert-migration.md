@@ -32,8 +32,8 @@ issuance for ~7 days.
 | Cert SANs | apex, `*.${SECRET_DOMAIN}`, `*.app.…`, `*.mcp.…` |
 | Reflection | Secret reflected to `network`, `istio-system`, `mcp-system` |
 | Issuer | `letsencrypt-production` (DNS01 via Cloudflare) |
-| Gateways | 4 — `external` (network), `internal` (network), `istio` (istio-system), `mcp-gateway` (mcp-system) |
-| HTTPRoutes per Gateway | external: 11, internal: 50+, mcp-gateway: 9, istio: 2 |
+| Gateways | 3 — `external` (network), `internal` (network), `mcp-gateway` (mcp-system). *(The `istio` Gateway in `istio-system` was retired after this runbook was written — ignore the istio-specific steps below.)* |
+| HTTPRoutes per Gateway | external: 11, internal: 50+, mcp-gateway: 9 |
 | Existing TTL | LE default 90d, autorenew at ~30d remaining |
 
 ## Target state — split by exposure
@@ -458,7 +458,12 @@ If hit:
 Run only after every HTTPRoute on every Gateway has been migrated
 and soaked for 7+ days.
 
-### 4.0 istio Gateway migration (prerequisite)
+### 4.0 istio Gateway migration (prerequisite) — OBSOLETE
+
+> **Obsolete.** The `istio` Gateway in `istio-system` has been retired;
+> there is no istio Gateway to migrate. Skip this entire subsection. The
+> live Gateway set is `external` + `internal` (network) + `mcp-gateway`
+> (mcp-system). The steps below are kept only for historical context.
 
 The istio Gateway was excluded from Phase 0 / Phase 3 because its
 listener references the reflector-mirrored Secret. Migrate any

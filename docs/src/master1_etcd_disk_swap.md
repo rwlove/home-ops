@@ -1,6 +1,10 @@
 # master1 etcd-Disk Swap Plan
 
-> **Status: PLAN — not yet executed (captured 2026-05-05).**
+> **Status: PLAN — still not executed as of 2026-11-12** (captured
+> 2026-05-05). master1 has not been reinstalled and remains the slow
+> etcd voter; the 2026-08-09 raft-timer tuning is the applied *stopgap*,
+> not the fix (see [etcd raft timers](etcd_raft_timers.md)). Re-verify
+> the drive model + pricing below before ordering.
 
 Active plan to fix master1's degraded etcd performance by replacing
 the NVMe under `/`. Captured 2026-05-05 from a diagnostic session.

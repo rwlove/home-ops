@@ -5,6 +5,10 @@ Snapshot date: 2026-05-18. Audit scope: every `ClusterRoleBinding`,
 to anything bound to `cluster-admin` or carrying wildcard verbs /
 resources.
 
+> **Point-in-time snapshot (6+ months old).** Predates the kagent fleet
+> and the immich-mcp removal; a re-run is recommended before relying on
+> the roster below as current.
+
 This is an awareness document. **No RBAC was changed by this audit.**
 Findings are sorted into tiers so a follow-up PR can pick off the
 easiest, highest-value wins first.

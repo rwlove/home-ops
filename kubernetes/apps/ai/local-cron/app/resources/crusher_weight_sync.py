@@ -22,7 +22,7 @@ Data classification: all reasoning runs on the LOCAL kagent model; every weight
 value stays in-cluster. The only thing leaving is the short correction summary
 notify-mcp relays to Robert (a Robert-locked private sink). Stdlib only.
 
-Env: AGENT_URL AGENT_NAME TITLE PROMPT
+Env: AGENT_URL AGENT AGENT_NAME TITLE PROMPT
      [BUDGET_SECONDS=600] [NOTIFY_URL=http://notify-mcp.mcp-system:8060/send]
 """
 import datetime
@@ -35,6 +35,9 @@ import urllib.request
 import a2a_client
 
 AGENT_URL = os.environ["AGENT_URL"]
+# The real kagent Agent CR name (namespace `ai`) to invoke via AGENT_URL's MCP
+# endpoint — distinct from AGENT_NAME (notify label only).
+AGENT = os.environ["AGENT"]
 AGENT_NAME = os.environ.get("AGENT_NAME", "crusher")
 TITLE = os.environ.get("TITLE", "crusher weight sync")
 BUDGET = int(os.environ.get("BUDGET_SECONDS", "600"))
@@ -79,7 +82,7 @@ def main():
     day = datetime.date.today().isoformat()
 
     text, state = a2a_client.call_agent(
-        AGENT_URL, prompt, budget=BUDGET, message_id="crusher-weight-sync"
+        AGENT_URL, AGENT, prompt, budget=BUDGET, message_id="crusher-weight-sync"
     )
 
     if not text:

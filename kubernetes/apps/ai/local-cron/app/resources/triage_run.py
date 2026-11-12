@@ -43,7 +43,7 @@ SILENT skipped run — the next scheduled sweep covers it — and only genuine,
 tagged findings ever reach a sink. Root-cause note: F1 in
 plans/wise-tinkering-fern.md. Stdlib only.
 
-Env: AGENT_URL AGENT_NAME TITLE PROMPT
+Env: AGENT_URL AGENT AGENT_NAME TITLE PROMPT
      [BUDGET_SECONDS=800] [NOTIFY_URL=http://notify-mcp.mcp-system:8060/send]
      [PROMPT_OVERRIDE]  (test hook — replaces PROMPT only, gate is unchanged)
 """
@@ -133,6 +133,10 @@ def is_empty_finding(body):
     return len(stripped) < 12
 
 AGENT_URL = os.environ["AGENT_URL"]
+# The real kagent Agent CR name (namespace `ai`) to invoke via AGENT_URL's MCP
+# endpoint — distinct from AGENT_NAME, which is only a notify/title label and in
+# a few crons (the *-doer jobs) does not match the CR name.
+AGENT = os.environ["AGENT"]
 AGENT_NAME = os.environ.get("AGENT_NAME", "operator")
 TITLE = os.environ.get("TITLE", AGENT_NAME + " triage")
 BUDGET = int(os.environ.get("BUDGET_SECONDS", "800"))
@@ -237,7 +241,7 @@ def main():
     while True:
         prompt = prompt_retry if drift_retry_used else prompt_first
         mid = "triage-cron-retry" if drift_retry_used else "triage-cron"
-        text, state = a2a_client.call_agent(AGENT_URL, prompt, budget=per_call, message_id=mid)
+        text, state = a2a_client.call_agent(AGENT_URL, AGENT, prompt, budget=per_call, message_id=mid)
 
         # Missing GPU / unreachable model backend → requeue: wait and retry the same
         # agent until the model is back or the window is spent.

@@ -71,3 +71,38 @@ jobs:
             exit 1
           fi
           echo "✅ No restricted-tier names found in narrative artifacts."
+
+      - name: Grep restricted personal identifiers (secret-backed)
+        env:
+          PII_REGEX: ${{ secrets.RESTRICTED_PII_REGEX }}
+        run: |
+          set -euo pipefail
+          # Personal identifiers — the home street address and household
+          # member names — are Restricted (HOMELAB-SPEC Layer 2 #1 / Layer 5)
+          # and must not appear in ANY tracked file in this PUBLIC repo:
+          # manifest, agent prompt, doc, comment, or path. Unlike the
+          # app-name scan above there is NO manifest exemption — there is no
+          # legitimate reason for this PII to be in the tree at all.
+          #
+          # The match pattern lives in the `RESTRICTED_PII_REGEX` repo secret
+          # (a case-insensitive ERE, e.g. the address + first names), so the
+          # values are NEVER committed to this public repo. Set/extend it at
+          # Settings → Secrets and variables → Actions. If unset, this scan
+          # is skipped (so the job can't be weaponised by an empty secret).
+          if [ -z "${PII_REGEX:-}" ]; then
+            echo "⚠️  RESTRICTED_PII_REGEX secret not set — PII scan skipped."
+            echo "    Set it to enforce the home-address / household-name check."
+            exit 0
+          fi
+          # Scan every tracked file in HEAD (no path filter). git grep exits
+          # 1 on no-match (the good case), 0 on a match (the leak → fail).
+          if git grep -nEi "${PII_REGEX}"; then
+            echo
+            echo "❌ Restricted personal identifier found in a tracked file."
+            echo "Home address / household names are Restricted and must not"
+            echo "appear anywhere in this public repo. Use a generic"
+            echo "descriptor ('his home', 'the household user') and fetch the"
+            echo "specifics at runtime via tools — never inline."
+            exit 1
+          fi
+          echo "✅ No restricted personal identifiers found."

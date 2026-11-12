@@ -42,6 +42,17 @@ the tier before you emit. Per HOMELAB-SPEC Layer 5.
 - Specific hostnames, internal IPs, MAC addresses unless required for
   the technical content. Prefer roles (`the gateway`, `the storage
   node`) over names in external artifacts.
+- **Personal identifiers — the home street address and household member
+  names** (HOMELAB-SPEC Layer 2 #1 / Layer 5). These must never appear in
+  **any** tracked file in this public repo — not in manifests, agent
+  system prompts, docs, comments, or paths (there is no manifest
+  exemption, unlike the app-name rule above). Personas hold *method, not
+  private facts*: use a generic descriptor (`his home`, `the household
+  user`) and fetch the specifics at runtime via tools. Enforced in CI by
+  the `data-classification-scrub.yaml` job, which greps every tracked file
+  against the `RESTRICTED_PII_REGEX` repo secret — the match patterns live
+  in that secret, never in the repo, so this instruction names the
+  *category*, never the values.
 
 ## When to check
 

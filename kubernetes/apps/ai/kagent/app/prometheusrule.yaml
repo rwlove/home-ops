@@ -1,0 +1,78 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: kagent-tools-rules
+spec:
+  groups:
+    # Dead-man's-switch for the whole kagent agent fleet (home-ops#15855 /
+    # #15856, 2026-11). The 2026-11 kagent 1.0 ATE cutover left a
+    # credential-egress gap that 403'd EVERY agent's LLM + tool call for
+    # ~42h with nobody notified — the local-cron triage/doer CronJobs each
+    # caught the failure and exited 0 (Complete), so
+    # `kube_cronjob_status_last_successful_time` never moved and the
+    # existing log-based kagent-triage alert
+    # (observability/loki/app/configmap.yaml's KagentTriageGpuUnavailable)
+    # depends on triage_run.py's own text classification of the failure —
+    # a signal that is exactly as fragile as the code that failed.
+    #
+    # kagent_tools_mcp_invocations_total (scraped via servicemonitor.yaml,
+    # kagent-tools-metrics:8085) is the robust alternative: it is a counter
+    # inside the built-in kagent-tool-server that increments ONLY on a
+    # real, successfully-completed tool call (k8s_*/cilium_*/helm_*/
+    # istio_*/kubescape_*/prometheus_* — the tools every operator persona
+    # uses routinely). It does not depend on local-cron's exit code, on
+    # TRIAGE_RESULT text parsing, or on which specific agent/CronJob broke —
+    # it is downstream of the ENTIRE invocation path (Actor bootstrap ->
+    # credential-provider grant -> atenet-egress SNAT -> kagent-tools), so
+    # the exact outage class above (or any future one that silently breaks
+    # agent invocation end to end) reads as zero real tool calls fleet-wide,
+    # whether or not any individual script's error handling masks it.
+    #
+    # `(... or vector(0))` makes the zero-case fire even if the metric is
+    # entirely absent (ServiceMonitor misconfigured, kagent-tools pod down,
+    # or scrape itself failing) rather than going silently unevaluated —
+    # confirmed live against Prometheus pre-merge (no false result shape).
+    - name: kagent-fleet.deadmansswitch
+      rules:
+        - alert: KagentFleetTaskActivityStale
+          expr: |
+            (sum(increase(kagent_tools_mcp_invocations_total[12h])) or vector(0)) == 0
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: "kagent fleet: zero real tool-calls fleet-wide in 12h"
+            description: >-
+              No kagent built-in tool call (k8s_*/cilium_*/helm_*/istio_*/
+              kubescape_*/prometheus_*, via kagent-tools-metrics) has
+              completed anywhere in the agent fleet for 12h. The 4
+              operator triage CronJobs (ml/network/observability/
+              smart-home-triage, ns ai, every 6h) each normally make at
+              least one such call per run, so this means at least 2
+              consecutive 6h cycles produced nothing real — this is NOT a
+              one-off miss.
+
+              This is independent of CronJob exit code and of
+              TRIAGE_RESULT log text — see home-ops#15855/#15856: that
+              outage's CronJobs stayed "Complete" and
+              kube_cronjob_status_last_successful_time never caught it.
+
+              First rule out a pure scrape problem (vs. a real fleet
+              outage): check target health for job kagent-tools-metrics
+              in Prometheus's /targets page or Grafana Explore
+              (`up{service="kagent-tools-metrics"}`). If the target is
+              up and the fleet is genuinely silent, run the
+              kagent-e2e-verify recipe
+              (.agents/skills/kagent-e2e-verify.md) against a canary
+              agent (e.g. ml-operator) for a direct
+              TASK_STATE_COMPLETED/FAILED read with the real error, and
+              check:
+                kubectl -n ai logs -l app.kubernetes.io/name=local-cron --tail=200 | grep -E "TRIAGE_RESULT=error|backend/model unavailable|transport-error"
+                kubectl -n ate-system logs deploy/k8s-credential-provider --tail=200
+              Likely causes: an EgressPolicy/credential-provider grant
+              gap, a CiliumNetworkPolicy gap on the atenet-egress SNAT
+              hop, or kagent-controller/litellm down outright. Self-
+              clears on the next real agent task completion — no
+              action needed once the underlying path is fixed.

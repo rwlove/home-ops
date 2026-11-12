@@ -12,6 +12,7 @@ context window space on every turn.
 
 | File | What it does |
 |------|--------------|
+| `claude-runner-routing.md` | Execution-lane routing for recurring work (now-dormant — the `claude-runner` app it governed has been removed; retained for the local-cron routing policy it also carries). |
 | `configmap.resources.instructions.md` | ConfigMap source files live under `app/resources/`; file names match the in-container basename. |
 | `data-classification.md` | Public / Internal / Restricted tiers for narrative artifacts (PR text, docs, summaries, prompts to remote models). |
 | `flux.sorting.instructions.md` | Field ordering for Flux-managed YAML (Kustomization, dependsOn, sourceRef). |
@@ -19,10 +20,12 @@ context window space on every turn.
 | `helmfile.sorting.instructions.md` | Field ordering for HelmRelease YAML, especially app-template-based releases. |
 | `helmrelease.security.md` | Pod-securityContext defaults (runAsNonRoot, readOnlyRootFilesystem, etc.) for new HelmReleases. |
 | `kustomize.config.sorting.instructions.md` | Field ordering for kustomize `kustomization.yaml` files. |
+| `netbox-omada-reconciliation.md` | network-operator discipline: mirror any live Omada port/profile/VLAN write into the matching NetBox Interface record in the same session. |
 | `persona.md` | Repo-specific persona — role framing, tone, decision bias. |
 | `schema.correction.md` | apiVersion + kind → `# yaml-language-server: $schema=…` mappings used in this repo. |
 | `storage-class.instructions.md` | When to pick Rook/Ceph vs Longhorn vs Garage vs direct NFS. |
 | `workarounds.md` | `# workaround:` annotation format + `workaround` GitHub label convention; pairs with the upstream-watcher skill. |
+| `worktree-isolation.md` | Mutating git work goes in a dated worktree, never the primary checkout; recovery recipe for a collision. |
 
 When you add a new instructions file, also add an `@`-import line at
 the top of `CLAUDE.md` so it gets loaded.
@@ -43,9 +46,12 @@ skills can discover them.
 | `data-classification-audit.md` | Grep a PR diff + description for restricted-tier names, credentials, and internal hostnames per data-classification.md. |
 | `dependency-mapper.md` | Build and validate the Flux Kustomization dependency graph. |
 | `expose-app.md` | Attach an HTTPRoute to a per-app Gateway listener with shim-managed TLS. |
+| `feature-adoption.md` | Review a month's worth of upstream features against the deployed versions and adopt the worthwhile ones. |
 | `flux-suspend.md` | Document the suspend / unsuspend workflow and the `disable-<app>` commit pattern. |
 | `historian.md` | Produce a weekly summary of this repo's work, written to the vault. |
+| `kagent-e2e-verify.md` | Prove the kagent fleet works end-to-end after any infra/agent/content change (invoke a canary agent → `TASK_STATE_COMPLETED`). |
 | `pre-submit.md` | Author-time checklist gating agent-authored PRs before push. |
+| `provision-cnpg-garage-backup.md` | Wire a CNPG cluster's Barman ObjectStore + ScheduledBackup to Garage. |
 | `pr-review.md` | Apply the repo's PR review standards to a Renovate or manual PR. |
 | `upstream-watcher.md` | Re-check `workaround`-labeled issues against upstream; open removal PRs when upstream catches up. |
 

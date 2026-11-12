@@ -49,7 +49,7 @@ Three tables under the `kg` schema:
 ```sql
 kg.entities      (id, name UNIQUE, type, namespace, source JSONB,
                   created_at, updated_at)
-kg.observations  (id, entity_id, content, embedding vector(768),
+kg.observations  (id, entity_id, content, embedding vector(1024),
                   source JSONB, created_at, deleted_at)
 kg.relations     (id, from_entity, to_entity, type, source JSONB,
                   created_at, UNIQUE (from_entity, to_entity, type))
@@ -57,7 +57,7 @@ kg.relations     (id, from_entity, to_entity, type, source JSONB,
 
 Indexes: `kg_obs_embedding_hnsw` using `vchordrq (embedding vector_cosine_ops)` for semantic search; per-column indexes on entity type + namespace.
 
-Embedding model is `nomic-embed-text` (768 dimensions). The model must be resident on Ollama — see [Ollama /api/embed reference](./offsite_recovery.md) for the pull procedure (`POST /api/pull` with `{"model": "nomic-embed-text", "stream": false}`).
+Embedding model is **`bge-m3` (1024 dimensions)**, served by **tei-embed-spark** (Text-Embeddings-Inference, OpenAI-compatible) at `http://tei-embed-spark.ai.svc.cluster.local:3000` — `EMBED_BACKEND: openai` / `EMBED_MODEL: bge-m3` in the HelmRelease. Embeddings were cut from ollama-spark to tei-embed-spark on 2026-07-25; the weights (bge-m3) and the pgvector column are unchanged.
 
 **Soft delete only.** `memory_delete_observation` sets `deleted_at = now()`, never DROPs. The principle is "don't silently delete memories across namespaces" — observation history stays inspectable even after a logical delete.
 
@@ -114,7 +114,7 @@ A `ServiceMonitor` in `mcp-system` scrapes `/metrics` every 30s. This is current
 Probes:
 
 - **`/healthz`** — process up + Postgres `SELECT 1`. Used by liveness + startup probes.
-- **`/readyz`** — `/healthz` plus Ollama `/api/tags` reachable. Used by readiness probe; returns 503 if Ollama is degraded, dropping the pod from the Service rotation until embeddings work again.
+- **`/readyz`** — `/healthz` plus a **real embed call against tei-embed-spark** (as of v0.3.0; raise `READYZ_EMBED_TIMEOUT` for a cold backend). Used by the readiness probe; returns 503 if the embedding backend is degraded, dropping the pod from the Service rotation until embeddings work again.
 
 ## Schema migrations
 
@@ -126,7 +126,7 @@ The server **does not** apply schema. A one-shot `Job` (`memory-mcp-schema-init`
 
 | Symptom | First check |
 |---------|-------------|
-| Semantic search returns nothing | `kubectl exec memory-mcp-... -- curl http://ollama.ai.svc:11434/api/embed -d '{"model":"nomic-embed-text","input":"x"}'` — 404 = model not pulled |
+| Semantic search returns nothing | `kubectl exec memory-mcp-... -- curl http://tei-embed-spark.ai.svc.cluster.local:3000/v1/embeddings -d '{"model":"bge-m3","input":"x"}'` — non-200 = embedding backend down/unreachable |
 | Pod `CrashLoopBackOff` on startup | Pod logs for `kg.<table> missing` — schema-init Job hasn't completed yet (or failed) |
 | Flux Kustomization stuck on `field is immutable` | Job-template change without delete; see Schema migrations above |
 | Embed counter `error` spiking | Ollama unreachable or model unloaded; `/readyz` will already be 503 |

@@ -66,9 +66,6 @@ take effect.
 renovate-operator shares the same App and never hit any of this — it runs a
 Job per cycle, so each run starts a fresh pod that reads the current Secret.
 
-renovate-operator shares the same App and never hit this: it runs a Job per
-cycle, so each run starts a fresh pod that reads the current Secret.
-
 ## Provisioning (done)
 
 The out-of-Git secrets and the Authelia client were created on 2026-06-24:

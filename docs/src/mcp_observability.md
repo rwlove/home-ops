@@ -1,9 +1,12 @@
 # MCP Fleet Observability
 
-The MCP fleet under `mcp-system` ships per-tool Prometheus metrics for the
-Class A backends we own (`memory-mcp`, `time-mcp`, `netbox-mcp`) plus
-Istio-sidecar RED metrics for everything else. Alerts and a Grafana
-dashboard sit on top.
+The MCP fleet under `mcp-system` (~35 registered backends today) ships
+per-tool Prometheus metrics for the Class A backends we own
+(`memory-mcp`, `time-mcp`, `netbox-mcp`; a `notify-mcp` ServiceMonitor
+now exists too but isn't yet wired into the recording-rule groups) plus
+Istio-sidecar RED metrics for every mesh backend. Alerts and a Grafana
+dashboard sit on top. The Class A/D rosters below are a representative
+subset, not an exhaustive list of all ~35 backends.
 
 | | |
 |---|---|
@@ -18,7 +21,7 @@ dashboard sit on top.
 | Class | Backends | Layer |
 |---|---|---|
 | A — per-tool metrics | `memory-mcp`, `time-mcp`, `netbox-mcp` | App-level `prometheus-client` + `@track_tool` decorator + ServiceMonitor |
-| D — istio only | `chrome-mcp`, `arr-mcp`, `github-mcp`, `grafana-mcp`, `ha-mcp`, `immich-mcp`, `kubectl-mcp`, `omada-mcp`, `paperless-mcp`, `prometheus-mcp`, `searxng-mcp` | Envoy sidecar emits `istio_requests_total` per pod; no app-level work |
+| D — istio only | `chrome-mcp`, `arr-mcp`, `github-mcp`, `grafana-mcp`, `ha-mcp`, `kubectl-mcp`, `omada-mcp`, `paperless-mcp`, `prometheus-mcp`, `searxng-mcp`, … (+ the concierge backends) | Envoy sidecar emits `istio_requests_total` per pod; no app-level work |
 
 Class B/C never materialized: a 2026-05-19 sweep found that none of the
 upstream third-party backends expose `/metrics` today
@@ -28,7 +31,7 @@ upstream third-party backends expose `/metrics` today
 
 Two rows:
 
-**Row 1 — Fleet (istio sidecar)** covers all 14 backends. Inbound +
+**Row 1 — Fleet (istio sidecar)** covers every mesh backend. Inbound +
 outbound rate panels + 5xx panels by `destination_workload` and
 `source_workload`. Especially useful for `chrome-mcp` / `searxng-mcp`
 where the meaningful metric is whether the outbound HTTPS calls
@@ -219,8 +222,8 @@ from GitHub — only the published images remain on registries.
 For the remaining live upstream repos (`grafana/mcp-grafana`,
 `pab1it0/prometheus-mcp-server`, `rohitg00/kubectl-mcp-server`,
 `github/github-mcp-server`, `homeassistant-ai/ha-mcp`,
-`baruchiro/paperless-mcp`, `joeru/claw2immich`,
-`microsoft/playwright-mcp`), filing upstream issues is the
+`baruchiro/paperless-mcp`, `microsoft/playwright-mcp`; `joeru/claw2immich`
+is no longer relevant — immich-mcp was removed), filing upstream issues is the
 documented next step **only if a specific operational pain triggers
 it** — not a checklist. The plan capped per-backend effort at 1
 upstream issue + 1 PR + 2-week wait, demote to Class D otherwise.

@@ -9,9 +9,10 @@ Identity is decided by **MusicBrainz**, the authority on artist identity — so
 renames/aliases (two names, one artist) and genuine wrong-content are
 distinguished by fact, not a hand-maintained list or a text guess.
 
-Bound cross-namespace to `rick` as a `RemoteMCPServer`
-(`ai/kagent/app/remotemcpserver-rick-library-mcp.yaml`). Streamable-HTTP on
-`:8095/mcp`.
+Reachable by the `rick` agent **through the Kuadrant mcp-gateway** — it is
+registered as an mcp-system backend and federated via the single
+`ai/kagent/app/remotemcpserver-mcp-gateway.yaml` (there are no per-backend
+`RemoteMCPServer`s since the gateway migration). Streamable-HTTP on `:8095/mcp`.
 
 ## Safety model (non-negotiable)
 

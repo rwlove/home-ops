@@ -78,9 +78,9 @@ First-boot timing on Spark:
 
 Subsequent pod restarts skip the HF Hub steps (PVC cache is warm) and complete in ~55 s. The `startupProbe` budget is 5 min (60 × 5 s) — comfortable margin, can be tightened to ~2 min if/when we want faster pod-failure detection.
 
-### 5. DCGM utilization counters are broken on GB10
+### 5. Some DCGM counters are unavailable on GB10
 
-Most DCGM utilization counters are broken on GB10: `GPU_UTIL`, `MEM_COPY_UTIL`, `GR_ENGINE_ACTIVE`, `FB_USED` are stuck at 0 or empty on Spark. Only `POWER_USAGE` and `SM_CLOCK` report. Don't write GPU-utilization-based alerts; use request-success metrics instead.
+A subset of DCGM counters is missing on GB10 (re-verified 2026-07-24, driver 580.142): `GPU_UTIL`, `GPU_TEMP`, `POWER_USAGE`, `SM_CLOCK`, and `TOTAL_ENERGY_CONSUMPTION` **do** work now, but `MEM_COPY_UTIL` and `MEMORY_TEMP` are stuck at 0 and `GR_ENGINE_ACTIVE` / all `FB_*` (memory) fields are absent — GB10's unified LPDDR5X has no discrete framebuffer, so GPU memory is permanently unreadable via DCGM (read it from the Spark host's `/proc/meminfo`). `GPU_UTIL` is now a fine "is the GB10 busy" signal; still prefer request-success metrics for alerting. See `.agents/instructions/gpu-routing.md`.
 
 ## Configuration knobs
 

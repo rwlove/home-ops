@@ -1,0 +1,30 @@
+---
+# TODO: apply schema (api.kagent.dev has no upstream JSON schema in any
+# catalog yet — see .agents/instructions/schema.correction.md)
+#
+# MCP-tool leg of the same missing-grant gap documented in
+# egresspolicy-llm.yaml: every Agent's tool calls — the federated mcp-gateway
+# broker (every per-backend RemoteMCPServer was retired in favor of this one,
+# see kustomization.yaml) and kagent's own built-in tool server
+# (kagent-tool-server / k8s_get_resources etc., served by the kagent-tools
+# Service) — failed the same way with zero EgressPolicy grants in the
+# cluster.
+#
+# mcp-gateway needs the Authelia bearer already minted into
+# kagent-mcp-gateway-jwt (remotemcpserver-mcp-gateway.yaml) — the secret value
+# is already "Bearer <jwt>", so no prefix here. kagent-tools is in-namespace
+# and unauthenticated (no auth block in kagent/app/values.yaml) — it only
+# needs the origin allowed, not a credential.
+apiVersion: api.kagent.dev/v1alpha3
+kind: EgressPolicy
+metadata:
+  name: kagent-mcp-tools-egress
+spec:
+  destinations:
+    - origin: https://mcp.${SECRET_DOMAIN}
+      authentication:
+        header: Authorization
+        secretKeyRef:
+          name: kagent-mcp-gateway-jwt
+          key: authorization
+    - origin: http://kagent-tools.ai.svc.cluster.local:8084

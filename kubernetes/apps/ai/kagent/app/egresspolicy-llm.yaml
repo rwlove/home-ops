@@ -1,0 +1,31 @@
+---
+# TODO: apply schema (api.kagent.dev has no upstream JSON schema in any
+# catalog yet — see .agents/instructions/schema.correction.md)
+#
+# kagent 1.0's ATE Substrate runs every Agent's model-call egress through
+# atenet-egress, which denies ALL secret resolution for an atespace unless an
+# EgressPolicy in that atespace's namespace explicitly grants it — confirmed
+# live: every agent invocation failed "OpenAI API error: 403 Forbidden"
+# (atenet-egress: "credential provider k8s.io denied ... atespace \"ai\" is
+# not permitted to resolve secrets in namespace \"ai\"") because zero
+# EgressPolicy CRs existed anywhere in the cluster. litellm itself was always
+# healthy (direct call succeeds) — this is purely the missing grant.
+#
+# This is the LLM leg: every Agent's ModelConfig ("strong"/"fast") points at
+# litellm.ai:4000 with a Bearer token from the vllm-api-key Secret
+# (modelconfig-litellm.yaml). The egress gateway injects that header itself
+# (the Actor never sees the real secret) — it just needs permission to read
+# it from this namespace.
+apiVersion: api.kagent.dev/v1alpha3
+kind: EgressPolicy
+metadata:
+  name: kagent-llm-egress
+spec:
+  destinations:
+    - origin: http://litellm.ai.svc.cluster.local:4000
+      authentication:
+        header: Authorization
+        prefix: "Bearer "
+        secretKeyRef:
+          name: vllm-api-key
+          key: OPENAI_API_KEY

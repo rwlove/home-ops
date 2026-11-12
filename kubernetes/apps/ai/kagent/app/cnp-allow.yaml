@@ -34,6 +34,13 @@ spec:
     # Without this the bootstrap times out ("bootstrap initialization deadline"),
     # the agent never binds :8081, the wakeup probe fails and the golden actor
     # crashes. ate-system pods carry `app: <name>`.
+    #
+    # Port 8084 is the SAME SNAT'd atenet-egress hop, for a live agent's tool
+    # calls to the built-in kagent-tool-server (kagent-tools Service, selected
+    # here too since it carries this CNP's `instance: kagent` label). Confirmed
+    # live: without it, every k8s_get_* tool call timed out ("Connect: deadline
+    # has elapsed") even after the credential-provider grant
+    # (egresspolicy-mcp-tools.yaml) was in place — a separate, network-layer gap.
     - fromEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: ate-system
@@ -41,6 +48,8 @@ spec:
       toPorts:
         - ports:
             - port: "8083"
+              protocol: TCP
+            - port: "8084"
               protocol: TCP
   egress:
     # OTel tracing → the cluster OTLP collector (observability), gRPC :4317.

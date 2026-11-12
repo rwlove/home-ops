@@ -1,0 +1,43 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+#
+# kagent 1.0's ATE Substrate routes every Agent's model-call egress through
+# atenet-egress (ate-system), which SNATs the sandboxed Actor's traffic. The
+# `ai` namespace's baseline only allows INTRA-namespace ingress
+# (components/network-policy/baseline/allow-intra-namespace.yaml); a
+# cross-namespace caller like atenet-egress is default-denied without this.
+# Confirmed live: agent invocation got past the credential-provider grant
+# (see ai/kagent egresspolicy-llm.yaml + ate-system/substrate
+# credentialProvider.namespacePolicies) only to time out ("Connect: deadline
+# has elapsed") reaching litellm — this CNP is the other half of that fix.
+#
+# Side effect, intentional: litellm had NO CiliumNetworkPolicy before this —
+# Cilium only enforces default-deny ingress on an endpoint once SOME CNP
+# selects it, so this is the first policy to lock litellm's ingress down at
+# all. Verified complete consumer set at the time of writing: intra-namespace
+# (the `allow-intra-namespace` baseline — e.g. kagent-controller's own direct
+# model-config egress, and litellm's health probes), Prometheus scraping
+# (observability ns, via litellm's own ServiceMonitor-side allow), and this
+# atenet-egress:4000 rule. No HTTPRoute exposes litellm externally, and no
+# other cross-namespace CNP targets it. This reinforces — doesn't change —
+# the existing "litellm is no-auth, CNP-gated" model (see memory
+# reference_litellm_masterkey_optout_and_leak_watch): the lockdown is a
+# deliberate narrowing, not an accidental one. Keep it; don't widen without
+# re-checking the consumer set above.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: litellm-allow-ate-egress
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: litellm
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ate-system
+            app: atenet-egress
+      toPorts:
+        - ports:
+            - port: "4000"
+              protocol: TCP

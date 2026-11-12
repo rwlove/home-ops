@@ -106,6 +106,42 @@ spec:
             secretKeyRef:
               name: garage-substrate-creds
               key: AWS_SECRET_ACCESS_KEY
+    # Gate in front of EgressPolicy (api.kagent.dev): an EgressPolicy CR only
+    # shapes WHICH header/secret an egress destination gets, it does not grant
+    # the underlying permission to resolve ANY secret. That permission is this
+    # static namespace-policy, rendered by the chart into the
+    # k8s-credential-provider-namespace-policy ConfigMap
+    # (/etc/k8s-credential-provider/namespace-policy.yaml). Confirmed live:
+    # with this empty (the 1.0.0 cutover default), k8s-credential-provider
+    # denied EVERY secret resolution for the `ai` atespace ("atespace \"ai\" is
+    # not permitted to resolve secrets in namespace \"ai\"") regardless of any
+    # EgressPolicy CR or Agent egressPolicyRefs — every agent's LLM + MCP-tool
+    # call failed "OpenAI API error: 403 Forbidden" fleet-wide since the
+    # cutover.
+    #
+    # KEY PATH VERIFIED (this block only — unlike the generic TODO(verify)
+    # banner above, which predates this and never covered it): rendered this
+    # exact values block through `helm template` against the pinned
+    # substrate OCIRepository tag (1.0.1, oci://ghcr.io/kagent-dev/substrate/
+    # helm/substrate — see ocirepository.yaml) and confirmed the
+    # k8s-credential-provider-namespace-policy ConfigMap comes out as
+    # `policies: [{"allowedNamespaces":["ai"],"atespace":"ai"}]` — i.e. this
+    # key path is not silently dropped. The chart's own README documents
+    # `credentialProvider.namespacePolicies` (default `[]`) as "Default-deny
+    # atespace-to-namespace grants; the chart includes get-only Secret RBAC
+    # for the provider" — namespace is the finest grain this mechanism
+    # offers (the generated ClusterRole grants `get` on all secrets
+    # cluster-wide with no resourceNames restriction; the actual enforcement
+    # is 100% in the credential-provider binary's namespace-policy-file, not
+    # K8s RBAC). The EgressPolicy CRs (egresspolicy-llm.yaml,
+    # egresspolicy-mcp-tools.yaml) are what narrow it further, per secret
+    # name. Scope kept minimal within what the mechanism allows: one
+    # atespace, its own namespace only.
+    credentialProvider:
+      namespacePolicies:
+        - atespace: ai
+          allowedNamespaces:
+            - ai
   # ate-api-server binds :443; the chart requests NET_BIND_SERVICE but ships
   # allowPrivilegeEscalation:false, so on CRI-O (no_new_privs) the cap is not
   # ambient for the non-root process and the bind fails (cloud nodes default

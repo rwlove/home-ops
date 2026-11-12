@@ -1,0 +1,29 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+#
+# kagent 1.0's ATE Substrate routes every Agent's model-call egress through
+# atenet-egress (ate-system), which SNATs the sandboxed Actor's traffic. The
+# `ai` namespace's baseline only allows INTRA-namespace ingress
+# (components/network-policy/baseline/allow-intra-namespace.yaml); a
+# cross-namespace caller like atenet-egress is default-denied without this.
+# Confirmed live: agent invocation got past the credential-provider grant
+# (see ai/kagent egresspolicy-llm.yaml + ate-system/substrate
+# credentialProvider.namespacePolicies) only to time out ("Connect: deadline
+# has elapsed") reaching litellm — this CNP is the other half of that fix.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: litellm-allow-ate-egress
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: litellm
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ate-system
+            app: atenet-egress
+      toPorts:
+        - ports:
+            - port: "4000"
+              protocol: TCP

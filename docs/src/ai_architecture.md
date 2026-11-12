@@ -11,14 +11,26 @@ per HOMELAB-SPEC Layer 2 #5.
 
 ## Big picture
 
-> **2026-07-06:** the `langgraph-agents` fleet — the FastAPI multi-agent
-> runtime this diagram used to show as the hub between every surface,
-> Windmill bridge, and inference backend — was removed entirely, along
-> with `sync-receiver`, the `postgres-langgraph-checkpoints` CNPG
-> cluster, the `langgraph-vault` PVCs, and 16 Windmill workflows. The
-> diagram below reflects what's actually running today; see
-> [Agent fleet — status today](#agent-fleet--status-today) for the
-> decommission detail.
+> ⚠️ **Partially historical — read this first.** The automated agent
+> fleet today is **kagent** (`ai/kagent`), a CNCF Kubernetes-native agent
+> runtime: operator + concierge personas defined as CRDs, running on
+> **local models** via `litellm` (Ollama/P40, vLLM/Spark) and reaching
+> tools through the Authelia-gated MCP gateway. See
+> [kagent MCP-gateway migration](kagent_mcp_gateway_migration.md) for the
+> current fleet and its tool federation. The sibling **local-cron**
+> (`ai/local-cron`) runs the scheduled doer/triage/digest jobs on the
+> same local models, and **alert-agent-bridge** (`ai/alert-agent-bridge`)
+> fans `severity: critical` alerts to the kagent observability-operator
+> for enrichment.
+>
+> **2026-07-06:** the predecessor `langgraph-agents` FastAPI fleet — the
+> hub this chapter's diagrams and roster describe — was removed entirely
+> (with `sync-receiver`, the `postgres-langgraph-checkpoints` cluster, the
+> `langgraph-vault` PVCs, and 16 Windmill workflows) and **replaced by
+> kagent**. The inference/RAG/retrieval layers below (Ollama, vLLM, TEI,
+> Qdrant, memory-mcp, Windmill RAG flows, Open WebUI, Khoj) are current;
+> the **agent-fleet** sections are preserved as a historical record of the
+> langgraph design, not a status board.
 
 ```mermaid
 flowchart TB
@@ -41,7 +53,7 @@ flowchart TB
     end
 
     subgraph Tools[Tool surfaces]
-        Gw[MCP Gateway<br/>16 MCP servers behind Istio]
+        Gw[MCP Gateway<br/>35 MCP servers behind Istio]
         Q[(Qdrant<br/>vector DB)]
         PG[(Postgres CNPG<br/>memory)]
     end
@@ -106,7 +118,7 @@ Triager bot (`zulip-triager-webhook.ts` deleted) and operator taps on
 ntfy for approval actions (`langgraph-agents` `/approval` endpoint
 deleted). Neither has a replacement today.
 
-There are **8 Windmill TypeScript workflows** in the repo today (down
+There are **7 Windmill TypeScript workflows** in the repo today (down
 from 23 — 16 scripts were deleted 2026-07-06: 14 `langgraph-*.ts`
 fleet scripts plus `smoke-approval-flow.ts` and
 `zulip-triager-webhook.ts`; then `paperless-rag-fanout.ts` was added
@@ -315,7 +327,7 @@ Document the kill in the plan's changelog and remove the CronJob.
 | Langfuse traces | Langfuse (OTLP) | ❌ **Removed 2026-07-06.** langgraph-agents was Langfuse's only trace source; with the producer already gone, Langfuse itself (app + bundled ClickHouse/Valkey/MinIO + its CNPG Postgres cluster) was removed too — the keep-dormant-vs-remove question is resolved as remove. |
 | Critical AlertManager alerts | Pushover | Direct `pushover` receiver — no AI investigation step (HolmesGPT + `alertmanager-holmesgpt-notify.ts` removed 2026-07-06) |
 | Ollama (both) | Prometheus | scraped via standard ollama exporter Service in the `ai` namespace |
-| GPU utilization | Prometheus via DCGM | GB10's DCGM counters are mostly broken — use `POWER_USAGE` as the proxy (see `.agents/instructions/gpu-routing.md`) |
+| GPU utilization | Prometheus via DCGM | On GB10 `GPU_UTIL`, `GPU_TEMP`, `POWER_USAGE`, `SM_CLOCK`, and `TOTAL_ENERGY_CONSUMPTION` work; `MEM_COPY_UTIL`/`MEMORY_TEMP`/`GR_ENGINE_ACTIVE`/`FB_*` (memory) are dead/absent — read GPU memory from the Spark host's `/proc/meminfo` (see `.agents/instructions/gpu-routing.md`) |
 | Windmill workflows | Windmill's own UI + Loki | Workflow logs ship via Vector → Loki under the windmill namespace |
 | claude-runner | Zulip stream `ops/pr-triage`, `ops/cost-cap-commentary` + CronJob events | No persistent state; useful-card rate is operator-observed |
 

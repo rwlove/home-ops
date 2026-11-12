@@ -1,12 +1,20 @@
 # MCP Gateway Access & Identity Design
 
-Status: **Proposal — 2026-10-01.** Supersedes, for *current* consumers, the
-scope of the abandoned [per-tool-authz
-proposal](mcp_tool_authz_design.md) (whose subject, `opencode`, no longer
-exists). That doc is retained as a postmortem and its hard constraints carry
-forward here unchanged.
+Status: **Proposal — 2026-10-01; partially overtaken by events.**
+Supersedes, for *current* consumers, the scope of the abandoned
+[per-tool-authz proposal](mcp_tool_authz_design.md) (whose subject,
+`opencode`, no longer exists). That doc is retained as a postmortem and
+its hard constraints carry forward here unchanged.
+
+> ⚠️ **Decision 3 has been reversed.** This doc recommended keeping the
+> kagent fleet on *direct* broker access. The fleet was subsequently
+> migrated to consume tools **through the gateway** (all 17 agents now
+> use the single `mcp-gateway` `RemoteMCPServer`) — see
+> [kagent MCP-gateway migration](kagent_mcp_gateway_migration.md).
+> Decision 1a (`open-webui` onto a bearer token) also landed (#14657).
+
 Owner: home-ops
-Last updated: 2026-10-01
+Last updated: 2026-11-12
 
 ## TL;DR
 
@@ -177,6 +185,12 @@ controls don't already approximate. Decision 2 should wait for a consumer
 that genuinely does (e.g. a semi-trusted external MCP client).
 
 ## Decision 3 — the kagent fleet: stay direct, harden governance
+
+> **Reversed (2026-11).** The fleet was migrated *onto* the gateway
+> instead — see the banner at the top and
+> [kagent_mcp_gateway_migration.md](kagent_mcp_gateway_migration.md).
+> The analysis below is retained for its reasoning, not as the decision
+> in force.
 
 Moving the 10 agents behind the gateway+policy would make their tool scope a
 reviewed GitOps artifact instead of per-CR `toolNames`. Attractive, but

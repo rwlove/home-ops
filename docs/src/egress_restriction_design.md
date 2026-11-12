@@ -71,8 +71,8 @@ Meaningful egress restriction with these constraints:
    home-lab scale. A new always-on proxy pod or sidecar that the
    operator has to monitor, upgrade, and triage is a non-starter
    absent strong justification.
-3. **Stays within Cilium primitives where possible.** Cilium 1.19 is
-   the cluster's CNI; standing up a parallel egress data plane (e.g.
+3. **Stays within Cilium primitives where possible.** Cilium (1.20.4)
+   is the cluster's CNI; standing up a parallel egress data plane (e.g.
    a separate proxy mesh) duplicates that investment.
 4. **Compatible with GitOps + per-app PR rhythm.** Whatever ships
    should be expressible in `kubernetes/components/` or per-app
@@ -201,17 +201,14 @@ documented in `project_cilium_matchpattern_fqdn_limits.md`).
 data plane, no new infrastructure. CNPs stay in the same shape; we
 just stop hitting the silent-failure trap.
 
-**Con:** Requires a Cilium upgrade (we're on 1.19.4). 1.19 → 1.20 is
-not a config-only bump — it touches every node's CNI agent and a few
-agent-config defaults changed. Risk is non-trivial in a one-operator
-cluster. 1.21 isn't GA yet, so the *real* matchName-canonical fix is
-~6+ months out. In the interim, 1.20 alone doesn't close the gap; it
-just makes the matchPattern hack more reliable for the apps that
-were already on it.
+**Con:** The real matchName-canonical fix needs Cilium 1.21. The
+cluster is now on **1.20.4** (the 1.19 → 1.20 bump is done), but 1.20
+alone doesn't close the gap — it just makes the matchPattern hack more
+reliable for the apps already on it. **1.21 is still not GA** (now
+dated ~2027-02-03), so the real fix remains out.
 
 **Verdict:** Hold. Track upstream; revisit when 1.21 reaches stable.
-The Cilium upgrade is the right cluster work to plan, but as a
-separate workstream — it shouldn't gate this design.
+The 1.20 upgrade has landed; the matchName fix still waits on 1.21.
 
 ### E. Hybrid: keep `world:443`, layer Hubble alerting for unusual destinations
 
@@ -391,9 +388,8 @@ Candidate order:
 4. actions-runner-controller operator (not the runners — runners are
    unbounded)
 5. mcp-system/github-mcp
-6. mcp-system/immich-mcp
-7. media/<media-pull-stack apps> (per-app, sequential)
-8. observability/* exporters
+6. media/<media-pull-stack apps> (per-app, sequential)
+7. observability/* exporters
 
 Each PR: one new alert rule + the per-app baseline JSON. No CNP
 changes.

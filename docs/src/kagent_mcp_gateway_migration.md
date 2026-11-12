@@ -1,6 +1,6 @@
 # kagent → Kuadrant mcp-gateway migration plan
 
-**Status:** In progress — pilot Step A built (auth+transport foundation) · **Created:** 2026-11-11 · **Tracking:** home-ops#15735
+**Status:** Largely complete — all 17 agents now consume tools through the single `mcp-gateway` `RemoteMCPServer`; no per-backend `RemoteMCPServer` definitions remain in `ai/kagent`. Residual teardown / observability tracked in #15735. · **Created:** 2026-11-11 · **Last updated:** 2026-11-12 · **Tracking:** home-ops#15735
 
 Migrate the kagent 1.0 agent fleet from dialing MCP servers **directly** (one
 `RemoteMCPServer` per backend) to consuming them **through the cluster's Kuadrant

@@ -10,7 +10,8 @@ baseline by design (upstream-chart broker / grocy s6 cannot run non-root). Phase
 `actions-runner-system` caveat (flagged below) fired same-day — the
 `actions-runner-privileged` namespace carve-out (#15712) **SHIPPED (2026-11-08)** —
 see **Phase 2 follow-up**. That carve-out had its own CNP gap (the cross-namespace
-listener pod left uncovered by default-deny); the fix is proposed, PR pending.
+listener pod left uncovered by default-deny); the fix **SHIPPED (#15716)** —
+`cnp-containers-listener.yaml` (see **Phase 2 follow-up**).
 Owner: home-ops
 Last updated: 2026-11-08
 
@@ -68,7 +69,7 @@ controller manages `AutoscalingRunnerSet`s across namespaces via the chart's
 `controllerServiceAccount` cross-namespace reference, which is the chart's documented
 mechanism for exactly this case.
 
-**CNP gap found post-merge (fix proposed, PR pending):** that cross-namespace
+**CNP gap found post-merge (fix SHIPPED, #15716):** that cross-namespace
 mechanism has a consequence #15712 missed — for a runner set whose
 `controllerServiceAccount` points at a controller in a different namespace, the
 chart creates the **AutoscalingListener pod in the controller's namespace**
@@ -267,7 +268,6 @@ have a structural reason:
   `zulip` user internally. **Verify drop-privs is real, then keep.**
 - `home/home-assistant-code` — code-server images start
   as root then drop. **Verify, then keep.**
-- `mcp-system/immich-mcp` — review whether image supports non-root.
 - `ai/khoj` — review.
 - `media/immichkiosk-transcode` — review (likely needs ffmpeg perms).
 

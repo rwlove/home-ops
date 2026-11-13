@@ -79,6 +79,31 @@ _NEGATION = re.compile(
     r"(?i)^[ \t:*_`.–—-]*(none|no\b|nothing|n/?a|all[ \t]*clear|no problem|no issue)"
 )
 
+# The local qwen model intermittently drifts into a non-English language mid-reply
+# despite the English-only contract (seen live 2026-11-13: a full-Chinese storage
+# sweep). Such a reply is useless to the reader (English only) AND defeats the
+# English-anchored tag heuristics above, so a CJK-bearing body must NEVER reach the
+# email sink — even when it leads with a correct English `PROBLEM:` tag. Built from
+# integer codepoint ranges so the source stays plain ASCII (no literal CJK glyphs
+# or \u escapes to mangle on edit). Threshold >=3 clears the odd stray fullwidth
+# glyph while catching any real drift (which runs to hundreds of CJK chars).
+_CJK_RANGES = (
+    (0x3040, 0x30FF),  # Hiragana + Katakana
+    (0x3400, 0x4DBF),  # CJK Unified Ext-A
+    (0x4E00, 0x9FFF),  # CJK Unified
+    (0xAC00, 0xD7AF),  # Hangul syllables
+    (0xFF00, 0xFFEF),  # Halfwidth + Fullwidth forms
+)
+_CJK = re.compile(
+    "[" + "".join("%s-%s" % (chr(lo), chr(hi)) for lo, hi in _CJK_RANGES) + "]")
+
+
+def is_non_english(text):
+    """True when the reply carries a meaningful amount of CJK text — the known
+    local-model language-drift failure. Treated as an adherence miss (malformed):
+    re-asked once, then silent. Rob reads English only."""
+    return len(_CJK.findall(text)) >= 3
+
 
 def classify_tag(text):
     m = _TAG_RE.search(text)
@@ -317,8 +342,15 @@ def main():
             log(text)
             # Positive gate: only output whose leading tag is recognised may reach
             # the sink. Untagged garbage / wrong-language strings classify as None →
-            # malformed → silent, so a bad run can NEVER notify.
-            tag = classify_tag(text)
+            # malformed → silent, so a bad run can NEVER notify. A CJK-bearing reply
+            # is forced to None here so even a correctly English-tagged-but-
+            # non-English-bodied finding is held back (English-only; re-asked once).
+            if is_non_english(text):
+                tag = None
+                log("non-English reply (CJK detected) — English-only contract "
+                    "violated; not notifying")
+            else:
+                tag = classify_tag(text)
             if tag == "allclear":
                 result = "allclear"
                 log("ALL CLEAR — nothing sent")

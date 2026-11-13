@@ -167,3 +167,40 @@ spec:
             description: >-
               `mcp-gateway-istio` is unscrapable. Claude Code and any
               other MCP clients lose access to the MCP fleet.
+
+        # --- ext_proc gRPC stream failures against the broker
+        # (outbound|50051||mcp-gateway.mcp-system.svc.cluster.local).
+        # failure_mode_allow is false on that EnvoyFilter, so every
+        # failed stream fails the in-flight tool call closed — a
+        # transient gRPC EOF/reset is a real, if usually self-healing,
+        # user-visible failure. The metric only exists once the
+        # proxyStatsMatcher opt-in on the Gateway
+        # (kubernetes/apps/mcp-system/mcp-gateway/app/gateway.yaml)
+        # is live; absent() below means "nobody told us" rather than
+        # "zero failures" until that rollout lands — see the PR
+        # description for the verification step.
+        #
+        # Threshold: increase(...[15m]) >= 5, for: 5m. A single
+        # isolated blip increments the counter once; one increment can
+        # only ever contribute to one 15m window, and 1 < 5, so it
+        # never satisfies the expr regardless of `for:` — no flap on a
+        # lone sub-second reset. It only fires on a *cluster* of
+        # failures (≥5 inside 15m, sustained for a further 5m), which
+        # is the crash-loop / sustained-outage pattern, not the rare
+        # one-off this alert exists to NOT page on.
+        - alert: MCPGatewayExtProcStreamFailures
+          expr: increase(envoy_http_ext_proc_streams_failed{namespace="mcp-system"}[15m]) >= 5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "MCP gateway ext_proc gRPC stream failures clustering"
+            description: >-
+              The Gateway's ext_proc filter (fail-closed,
+              failure_mode_allow=false) has recorded 5+ failed gRPC
+              streams to the mcp-gateway broker in a 15-minute window,
+              sustained for 5+ minutes. Each failure fails a tool call
+              closed. One isolated transient EOF does not reach this
+              threshold — this fires on a sustained/repeating pattern
+              (broker crash-loop, persistent connectivity break). Check
+              mcp-gateway broker pod logs and restart count.

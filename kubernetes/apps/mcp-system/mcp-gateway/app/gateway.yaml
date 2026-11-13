@@ -12,6 +12,24 @@ spec:
   infrastructure:
     annotations:
       lbipam.cilium.io/ips: "${SVC_MCPGATEWAY_ADDR}"
+      # Opt back in to the ext_proc HTTP filter's own stat tree. Istio's
+      # default proxyStatsMatcher drops the entire envoy_http_* family
+      # (including http.<prefix>.ext_proc.*) before it ever reaches
+      # /stats/prometheus, so the EnvoyFilter at
+      # kubernetes/apps/mcp-system/mcp-gateway/app/*-ext-proc-*.yaml
+      # (mcp-ext-proc-mcp-system-gateway) that gates every MCP tool call
+      # through the broker's gRPC ExternalProcessor has NO exported
+      # counter today — a stream failure (gRPC EOF/reset against the
+      # broker) is invisible to Prometheus. This is additive-only: it
+      # does not change ext_proc's fail-closed behavior
+      # (failure_mode_allow stays false), only what Envoy exports.
+      # Requires a mcp-gateway-istio pod restart to take effect (Istio
+      # docs). See kubernetes/apps/mcp-system/observability/app/prometheusrule.yaml
+      # (MCPGatewayExtProcStreamFailures) for the alert this feeds.
+      proxy.istio.io/config: |
+        proxyStatsMatcher:
+          inclusionRegexps:
+          - ".*\\.ext_proc\\..*"
   listeners:
     # Public-facing broker entry. External clients reach this via the
     # envoy internal Gateway (mcp-gateway-internal HTTPRoute) → the

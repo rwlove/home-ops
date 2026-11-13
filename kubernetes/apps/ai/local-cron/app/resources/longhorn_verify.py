@@ -10,7 +10,7 @@ RecurringJob cadence covering that volume's recurring-job-group labels. A
 volume POSITIVELY confirmed current is dropped from the body -- the chunk
 that named it, and ONLY that chunk; everything else is left untouched.
 
-Why: prompt-steering a 7B model is the wrong layer for this specific false
+Why: prompt-steering the local model is the wrong layer for this specific false
 positive (home-ops#15872) -- it kept re-flagging medialyze-config-xfs, a
 ks-disabled app's RETAINED Longhorn volume that is still actively backed up
 on schedule, as an orphan. See reference_longhorn_ks_disabled_app_pv_absent_

@@ -1,0 +1,75 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: kagent-e2e-watchdog-rules
+spec:
+  groups:
+    # Active synthetic-probe dead-man's-switch for the kagent agent fleet's
+    # END-TO-END health (home-ops#15855/#15856; the NOT-YET-BUILT follow-up
+    # scoped in .agents/skills/kagent-e2e-verify.md). The 2026-11 kagent 1.0
+    # ATE cutover 403'd every agent's LLM + tool call for ~42h with nobody
+    # paged -- every status read `Ready: True`, every CronJob exited 0, so no
+    # existing signal moved. This is the active complement to the PASSIVE
+    # counter-based KagentFleetTaskActivityStale (ai/kagent/app/
+    # prometheusrule.yaml): that one watches real fleet traffic
+    # (kagent_tools_mcp_invocations_total) and can read "stale" simply because
+    # nothing happened to invoke the fleet; THIS one independently DRIVES a
+    # known-good task against a canary agent every 30m and proves it reaches
+    # TASK_STATE_COMPLETED with a real function_call artifact (both the LLM and
+    # the MCP-tool leg), so a silent break pages even when the fleet is idle.
+    #
+    # Failure modes this guards:
+    #   - MUTE (the real risk): a silent fleet break goes unnoticed ~18h, as
+    #     in the 42h outage. This alert is the fix.
+    #   - FLOOD (what we avoid): the exporter seeds its success timestamp with
+    #     its own boot time, so a deploy/restart does NOT flap; the 2h stale
+    #     window (>= 4 missed 30m cycles) + `for: 15m` means a transient one-
+    #     cycle miss (a model occasionally skipping the tool -- the exporter
+    #     already retries once per cycle) never fires.
+    - name: kagent-e2e-watchdog.deadmansswitch
+      rules:
+        # Fires when the newest proven end-to-end success is older than 2h
+        # (>= 4 consecutive missed 30m cycles) OR when the series is absent
+        # entirely -- exporter crashed, unscheduled, or its scrape is failing.
+        # The absent() arm is essential: a dead-man's-switch that goes blind
+        # when its OWN producer dies is useless. Both arms route the same way
+        # (page), and the description tells the operator how to tell them apart.
+        - alert: KagentFleetE2EStale
+          expr: |-
+            (time() - max(kagent_e2e_last_success_timestamp_seconds)) > 7200
+            or
+            absent(kagent_e2e_last_success_timestamp_seconds)
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: "kagent agent fleet: no proven end-to-end task completion in >2h"
+            description: >-
+              The kagent-e2e-watchdog has not recorded a proven end-to-end
+              agent task completion (TASK_STATE_COMPLETED with a real tool
+              call against the ml-operator canary) in over 2 hours, OR the
+              watchdog's own metric is absent. Either way the agent fleet's
+              end-to-end health is unconfirmed -- this is the exact silent
+              break class behind home-ops#15855/#15856, where every status
+              read Ready and every CronJob exited 0 while nothing actually
+              worked.
+
+              First tell the two cases apart in Prometheus/Grafana Explore:
+                - `up{service="kagent-e2e-watchdog"}` == 0, or
+                  `absent(kagent_e2e_last_success_timestamp_seconds)` == 1
+                  -> the watchdog itself is down/unscraped. Check
+                  `kubectl -n ai get pods -l app.kubernetes.io/name=kagent-e2e-watchdog`
+                  and its logs; a scrape-only break is NOT a fleet outage.
+                - watchdog up but `kagent_e2e_up` == 0 -> the fleet is really
+                  failing end to end. Run the kagent-e2e-verify recipe
+                  (.agents/skills/kagent-e2e-verify.md) against ml-operator for
+                  a direct TASK_STATE_COMPLETED/FAILED read with the real error,
+                  then check:
+                    kubectl -n ate-system logs deploy/k8s-credential-provider --tail=200
+                    kubectl -n ate-system logs deploy/atenet-egress --tail=200
+              Likely causes: an EgressPolicy/credential-provider grant gap, a
+              CiliumNetworkPolicy gap on the atenet-egress SNAT hop, or
+              kagent-controller/litellm down. Self-clears on the next proven
+              task completion once the underlying path is fixed.

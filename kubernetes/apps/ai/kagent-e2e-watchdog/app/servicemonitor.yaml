@@ -1,0 +1,34 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/servicemonitor_v1.json
+#
+# Scrapes the kagent-e2e-watchdog exporter (:9115 /metrics), whose
+# kagent_e2e_last_success_timestamp_seconds gauge is the signal the
+# KagentFleetE2EStale dead-man's-switch (prometheusrule.yaml) alerts on.
+#
+# NO per-app CiliumNetworkPolicy is needed for this scrape: the `ai`
+# namespace's baseline allow-monitoring-scrape CNP (endpointSelector: {},
+# ingress from observability/app.kubernetes.io/name=prometheus on ANY port)
+# already admits the Prometheus pod into every pod in this namespace -- the
+# same mechanism ai/kagent (kagent-tools-metrics) and ai/tei-spark rely on.
+# Verified live 2026-11-13: allow-monitoring-scrape present + VALID in `ai`.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kagent-e2e-watchdog
+  labels:
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/name: kagent-e2e-watchdog
+    prometheus: kube-prometheus
+spec:
+  endpoints:
+    - interval: 60s
+      path: /metrics
+      port: metrics
+      scheme: http
+      scrapeTimeout: 10s
+  namespaceSelector:
+    matchNames:
+      - ai
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kagent-e2e-watchdog

@@ -76,32 +76,53 @@ spec:
                     and the single next step you would propose (name the backup
                     precondition for any destructive fix).
                     A detached Longhorn volume with no pod owner is NOT
-                    automatically a zombie. Before flagging one for deletion,
-                    look up its PersistentVolume: a PV with reclaimPolicy=Retain
-                    in phase Released is an INTENTIONAL retained rollback/migration
-                    copy (the repo keeps the old volume after a dynamic->static or
-                    XFS->ext4 cutover), not an orphan. Classify these as
-                    "intentionally retained -- not a durability gap"; do NOT
-                    propose deleting them as zombies, at most note them as
-                    retirement candidates pending owner confirmation. A "unknown"
-                    robustness on a detached volume means Longhorn has not attached
-                    it to count replicas, not that replicas are lost. A detached
-                    volume whose PV is phase Bound to a live PVC is NORMAL when its
-                    owner is a CronJob or a scaled-to-zero workload: the volume
+                    automatically a zombie, and a missing PV/PVC is NOT
+                    automatically an orphan. For ANY detached or unbound
+                    Longhorn volume, check backup recency FIRST -- before
+                    reasoning about its PV/PVC at all: read the Volume's own
+                    status.lastBackupAt (or its most recent completed Backup
+                    CR) against roughly 1.5x its owning RecurringJob's cron
+                    interval. Longhorn's recurring jobs attach/run/detach a
+                    volume by its OWN Volume CR and recurring-job-group
+                    label -- they need no bound PVC or surviving PV object
+                    to run, so "no PVC to auto-attach" is not evidence by
+                    itself. A current backup for its schedule means the
+                    volume IS actively protected and is NOT a finding,
+                    regardless of attach state, PV presence, or "unknown"
+                    robustness (which only means Longhorn hasn't attached it
+                    to count replicas, not that replicas are lost).
+                    A PV being ABSENT from the cluster is a weaker signal
+                    than it looks: Flux pruning a deliberately disabled
+                    app's Kustomization deletes that app's PV/PVC manifests
+                    while the independently-managed Longhorn Volume CR (and
+                    its backups) keep running. Before calling a PV-absent,
+                    detached volume a true orphan: confirm its backup is
+                    ACTUALLY stale per the check above, AND memory_search
+                    the exact volume/app name for a documented "app
+                    intentionally disabled, volume retained" note -- an
+                    exact-name match means this is a KNOWN, ACKNOWLEDGED
+                    state, not a new finding, and must NOT be re-surfaced.
+                    Separately: a PV with reclaimPolicy=Retain in phase
+                    Released is an INTENTIONAL retained rollback/migration
+                    copy (the repo keeps the old volume after a
+                    dynamic->static or XFS->ext4 cutover), not an orphan --
+                    classify it "intentionally retained -- not a durability
+                    gap" and at most note it as a retirement candidate,
+                    never propose deleting it as a zombie. A detached volume
+                    whose PV is phase Bound to a live PVC is NORMAL when its
+                    owner is a CronJob or a scaled-to-zero workload: it
                     detaches between runs, and this cluster sets
                     allowRecurringJobWhileVolumeDetached=true, so Longhorn
-                    auto-attaches it to run its scheduled snapshot/backup jobs, then
-                    detaches again. "detached" or "unknown" robustness on a
-                    Bound-PV volume is therefore NEVER a durability finding on its
-                    own (beets-config-xfs, owned by the media/beets CronJob, is the
-                    canonical example -- it sits detached between its twice-daily
-                    runs and is labeled for the `default` recurring-job group). Flag
-                    such a volume ONLY if its scheduled backups have actually stopped
-                    completing -- check its BackupVolume lastBackupAt against its
-                    backup schedule -- not merely because it is detached or reports
-                    "unknown". Only a detached volume whose PV is absent, or a PV in
-                    phase Released with reclaimPolicy=Delete, is a true orphan worth
-                    surfacing.
+                    auto-attaches it to run scheduled jobs then detaches
+                    again (beets-config-xfs, owned by the media/beets
+                    CronJob, is the canonical example). A true orphan worth
+                    surfacing is a detached/unbound volume whose backup IS
+                    stale beyond its schedule's window AND -- when its PV is
+                    absent -- memory has no record of an intentional
+                    decommission; e.g. a PV in phase Released with
+                    reclaimPolicy=Delete (storage WILL be reclaimed), or a
+                    volume with no recurring-job group label and no
+                    completed backup ever.
                     For the CNPG/Barman check: Postgres Clusters live in the
                     `databases` namespace (NOT `postgresql`), and CNPG PGData on
                     ceph-block is the STANDARD durable pattern -- a ceph-backed

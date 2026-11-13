@@ -125,13 +125,60 @@ def strip_roster(text):
     return text[:m.start()].rstrip() if m else text
 
 
+# A real finding states each problem as its own itemized line -- a markdown
+# bullet/numbered-list/heading line (the CONTRACT explicitly allows "- bullets"
+# and short "#"/"##" headings), or, for a reply naming more than one problem by
+# repeating the tag instead of itemizing, a SECOND occurrence of the PROBLEM-
+# class tag later in the body. Healthy narrative decorates neither -- a model
+# explaining why something is fine doesn't itemize it or re-announce it as a
+# problem. Same shape as longhorn_verify._CHUNK_START (same line-anchored-regex
+# discipline, independent module, no cross-import).
+_FINDING_MARK = re.compile(r"(?m)^[ \t]*(?:[-*]\s|\d+[.)]\s|##?\s)")
+
+
 def is_empty_finding(body):
-    """True when a reply carried a PROBLEM-class tag but no real finding above the
-    roster (model emitted only a roster under a bare tag). Strip the leading tag
-    line, then all markdown/punctuation/space; <12 chars of substance left = empty."""
+    """True when a PROBLEM-class reply carries no real finding once the leading
+    tag line is removed. Two deterministic cases:
+
+    1. Roster-only: <12 chars of substance left after stripping the leading tag
+       line, then all markdown/punctuation/space (model emitted only a roster
+       under a bare tag -- the original check this function covered).
+
+    2. Preamble leak (confirmed live 2026-11-13, storage-triage): a full
+       healthy-narrative PREAMBLE survives the roster-strip + longhorn-verify
+       backstops because it sits BEFORE the roster/finding chunk those
+       backstops cut away -- long enough to clear check 1, but it doesn't name
+       an itemized problem at all. Example (the exact body this run emailed
+       after the one real finding it led with was correctly dropped as
+       confirmed-protected): "All Longhorn volumes show `lastBackupAt` around
+       ... these are expected lifecycle patterns." Detect this by requiring, in
+       the remainder after the leading tag is stripped, EITHER a bullet/
+       numbered/heading finding line OR a second (repeated) PROBLEM-class tag.
+       Neither present -> the remainder is narrative, not a finding, regardless
+       of length.
+
+    TRADEOFF (named, not hidden): the CONTRACT requires findings "as
+    declaratives," not bulleted -- a model COULD in principle state its one
+    real finding as a single un-bulleted, un-retagged prose sentence, and case
+    2 would then wrongly call that empty (demoted to allclear = silent). We
+    accept this risk rather than fail open on it: every real finding observed
+    from this fleet is already bulleted or re-tagged per-item (the CONTRACT's
+    own markdown allowance steers that way, and the storage-triage PROMPT asks
+    for one triaged write-up "for each" risk), while the alternative -- leaving
+    case 2 undetected -- is the CONFIRMED, live, every-run leak this fix
+    closes. If a genuine prose-only finding starts getting eaten, loosen this
+    check (e.g. require a second structural/vocabulary signal before trusting
+    it); don't revert it wholesale back to the open leak. Staying silent by
+    default on ambiguous non-findings matches the fleet's own problems-only
+    bias -- see feedback_digests_problems_only_no_allclear_roster -- but this
+    is the one place that bias trades against the prime directive (never bury
+    a REAL alert), so it is scoped as narrowly as the two signals above allow,
+    and false positives already lean toward "still sent" in the test matrix."""
     stripped = _TAG_RE.sub("", body, count=1)
-    stripped = re.sub(r"[\s>*_#`.\-:]+", "", stripped)
-    return len(stripped) < 12
+    substance = re.sub(r"[\s>*_#`.\-:]+", "", stripped)
+    if len(substance) < 12:
+        return True
+    return not (_FINDING_MARK.search(stripped) or _TAG_RE.search(stripped))
 
 AGENT_URL = os.environ["AGENT_URL"]
 # The real kagent Agent CR name (namespace `ai`) to invoke via AGENT_URL's MCP

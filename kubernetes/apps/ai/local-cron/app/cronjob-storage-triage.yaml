@@ -17,13 +17,16 @@ spec:
   # instead of a KubeJobFailed page. This cron supplies only the domain prompt.
   schedule: "20 7 * * *"
   timeZone: America/New_York
-  # TEMPORARILY SUSPENDED 2026-11-13: the local 7B model re-emits a known
-  # false positive (a ks-disabled app's retained-but-currently-backed-up
-  # Longhorn volume flagged as an orphan) daily, despite the prompt reorder in
-  # PR #15872. Prompt-steering a 7B model is the wrong layer. Re-enabled by the
-  # deterministic-backstop fix (suppress a PROBLEM on a volume with a current
-  # backup) — Fleet Todo observability-operator / #89. Do NOT unsuspend without it.
-  suspend: true
+  # Re-enabled 2026-11-13: the local 7B model was re-emitting a known false
+  # positive (a ks-disabled app's retained-but-currently-backed-up Longhorn
+  # volume flagged as an orphan) daily, despite the prompt reorder in
+  # PR #15872 — prompt-steering a 7B model was the wrong layer. Fixed with a
+  # deterministic backstop (LONGHORN_VERIFY_BACKUPS below): before the
+  # send-gate emails a PROBLEM, it verifies any named Longhorn volume's
+  # backup recency against ground truth and drops the finding only if
+  # positively confirmed current — see resources/longhorn_verify.py. Fleet
+  # Todo observability-operator / #89.
+  suspend: false
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 1
@@ -43,8 +46,14 @@ spec:
         spec:
           nodeSelector:
             kubernetes.io/arch: amd64
-          serviceAccountName: local-cron
-          automountServiceAccountToken: false
+          # This is the ONLY local-cron CronJob with a mounted token + RBAC
+          # -- the Longhorn-backup-recency backstop needs get/list on
+          # volumes/backups/recurringjobs in longhorn-system (rbac.yaml +
+          # longhorn-system/longhorn/config/rbac-storage-triage-read.yaml).
+          # Every other local-cron job stays on the zero-RBAC `local-cron`
+          # SA with automount=false.
+          serviceAccountName: local-cron-storage-verify
+          automountServiceAccountToken: true
           restartPolicy: OnFailure
           containers:
             - name: triage
@@ -70,6 +79,8 @@ spec:
                   value: storage-operator
                 - name: TITLE
                   value: storage triage
+                - name: LONGHORN_VERIFY_BACKUPS
+                  value: "true"
                 - name: BUDGET_SECONDS
                   value: "800"
                 - name: PROMPT

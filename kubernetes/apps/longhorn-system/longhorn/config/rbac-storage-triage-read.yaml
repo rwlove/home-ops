@@ -1,0 +1,32 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/role-rbac-v1.json
+# Scoped read path for the ai/local-cron storage-triage Longhorn backup-
+# recency backstop (ai/local-cron/app/resources/longhorn_verify.py). get/
+# list ONLY, ONLY on the 3 CRDs it reads, ONLY in this namespace -- never
+# the mcp-gateway broker (unattended-loop rule, claude-runner-routing.md).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: local-cron-storage-triage-read
+rules:
+  - apiGroups: ["longhorn.io"]
+    resources: ["volumes", "backups", "recurringjobs"]
+    verbs: ["get", "list"]
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/rolebinding-rbac-v1.json
+# Cross-namespace subject: the SA lives in `ai`, this Role lives here. A
+# RoleBinding grants access to resources IN ITS OWN namespace to a subject
+# in ANY namespace -- the subject's namespace field below is explicit and
+# must NOT be omitted.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: local-cron-storage-triage-read
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: local-cron-storage-triage-read
+subjects:
+  - kind: ServiceAccount
+    name: local-cron-storage-verify
+    namespace: ai

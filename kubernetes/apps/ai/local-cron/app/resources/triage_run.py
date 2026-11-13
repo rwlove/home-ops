@@ -56,6 +56,7 @@ import time
 import urllib.request
 
 import a2a_client
+import longhorn_verify
 
 # The tag must LEAD a line, but tolerate the light markdown the CONTRACT permits
 # (**bold**, ## heading, > quote, list dash) — a `**PROBLEM**` finding must NOT be
@@ -278,6 +279,8 @@ def main():
                 # Deterministic backstop: drop any trailing healthy/"not actionable"
                 # roster the model appended despite the contract (adherence wall).
                 body = strip_roster(text)
+                if os.environ.get("LONGHORN_VERIFY_BACKUPS") == "true":
+                    body = longhorn_verify.suppress_confirmed(body, log=log)
                 if is_empty_finding(body):
                     # Nothing but a roster under a bare tag → nothing actionable.
                     result = "allclear"

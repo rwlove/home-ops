@@ -1,0 +1,106 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kagent-e2e-watchdog
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 30m
+  values:
+    defaultPodOptions:
+      # Zero-RBAC SA (created below) + never mount its token: this exporter
+      # only makes an outbound HTTP call to the in-cluster kagent controller
+      # and serves /metrics; it touches no Kubernetes API.
+      automountServiceAccountToken: false
+    controllers:
+      kagent-e2e-watchdog:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        pod:
+          serviceAccount: kagent-e2e-watchdog
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+        containers:
+          app:
+            image:
+              # python:*-slim is the repo convention for stdlib-only exporters
+              # (cf. ai/alert-agent-bridge) and what the kagent-e2e-verify skill
+              # recipe pulls; the script uses only http.server + urllib, no pip.
+              repository: docker.io/library/python
+              tag: "3.15-slim"
+            command:
+              - python3
+              - /app/kagent_e2e_watchdog.py
+            env:
+              # Zero Anthropic tokens: the controller runs local-GPU inference
+              # (litellm -> Ollama/vLLM). Intra-ns (both in `ai`), so the hop is
+              # covered by the baseline allow-intra-namespace CNP -- no per-app
+              # egress policy needed (see servicemonitor.yaml for the ingress side).
+              CONTROLLER_URL: http://kagent-controller.ai:8083
+              # Canary: ml-operator is Green-tier, read-only, two built-in tools,
+              # no destructive path (same default the kagent-e2e-verify skill uses).
+              CANARY_AGENT: ml-operator
+              CANARY_AGENT_NAMESPACE: ai
+              PROBE_INTERVAL_SECONDS: "1800"
+              PROBE_TIMEOUT_SECONDS: "120"
+              METRICS_PORT: "9115"
+              PYTHONDONTWRITEBYTECODE: "1"
+              HOME: /tmp
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /metrics
+                    port: 9115
+                  initialDelaySeconds: 10
+                  periodSeconds: 30
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /metrics
+                    port: 9115
+                  initialDelaySeconds: 10
+                  periodSeconds: 30
+            resources:
+              requests:
+                cpu: 10m
+                memory: 32Mi
+              limits:
+                memory: 96Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+    service:
+      app:
+        controller: kagent-e2e-watchdog
+        ports:
+          metrics:
+            port: 9115
+    persistence:
+      scripts:
+        type: configMap
+        name: kagent-e2e-watchdog
+        globalMounts:
+          - path: /app
+            readOnly: true
+      tmp:
+        type: emptyDir
+        medium: Memory
+        globalMounts:
+          - path: /tmp
+    serviceAccount:
+      kagent-e2e-watchdog: {}

@@ -9,10 +9,31 @@
 # federated ~940-tool catalog down to the `kagent` MCPVirtualServer
 # (mcp-system/kagent) so controller discovery stays small.
 #
-# This server is additive: no agent references it yet. It exists to validate the
-# auth + transport + discovery path end-to-end before any agent is flipped onto
-# it (migration pilot Step A). The direct per-backend RemoteMCPServers remain the
-# live path until each agent is migrated.
+# Migration has since moved past Step A: all 21 agents now reference this
+# RemoteMCPServer (the per-backend direct dials were retired in the Phase
+# 2/4 migration PRs). The "additive, no agent references it yet" framing
+# above is stale — left as-is for history; see git log for the migration
+# sequence.
+#
+# status.discoveredTools forced to re-sync 2026-11-14 (Vikunja #96): the
+# controller's cached tool catalog froze at 245 tools from the one-time
+# discovery snapshot at 2026-11-11T14:37:10Z — ~2h before the
+# healthrw-tools/health-tools MCPServerRegistrations existed, and never
+# advanced across 5 later MCPVirtualServer generation bumps (now at 320
+# declared tools). A live stateful handshake direct to the broker proves
+# health_rw_upsert_weight resolves and executes correctly — the broker,
+# virtualserver scope, and backend are fine; only the controller's cached
+# view is stale. A kagent-controller pod restart does NOT clear this: this
+# object's metadata.generation and status.conditions[0].observedGeneration
+# were both already 1 before the restart (confirmed live), and `generation`
+# only increments on a spec-field write (core apiserver behavior for any
+# CRD with the status subresource, independent of kagent's own code) — a
+# bare restart re-reads the same already-"observed" generation and skips
+# re-discovery. This description edit is a real (if cosmetic) spec change
+# to advance generation to 2 and force the controller's reconcile loop to
+# treat this object as needing fresh work, matching the explicit
+# observedGeneration-gated condition pattern already present in this CRD's
+# status schema.
 apiVersion: api.kagent.dev/v1alpha3
 kind: RemoteMCPServer
 metadata:
@@ -21,6 +42,8 @@ spec:
   description: >-
     Kuadrant mcp-gateway broker (federated MCP catalog), scoped to the kagent
     MCPVirtualServer. Authelia-bearer auth via the enforced hostname.
+    status.discoveredTools re-sync forced 2026-11-14 (Vikunja #96) — see the
+    comment above this object for why a restart alone did not do this.
   protocol: STREAMABLE_HTTP
   url: https://mcp.${SECRET_DOMAIN}/mcp
   timeout: 30s

@@ -36,11 +36,28 @@ spec:
     # tools. L4 conduit only — the write-authz boundary (the five concierge agents)
     # stays enforced above it via each agent's tool list in the kagent
     # MCPVirtualServer, behind the gateway's Authelia bearer. Without this ingress
-    # the broker->backend SYN is dropped. Verified via Hubble (broker APP pod connects).
+    # the broker->backend SYN is dropped.
+    #
+    # SECOND selector added 2026-11-14: Cilium enforces policy on BOTH endpoints
+    # under default-deny — egress-allow on the caller AND ingress-allow on the
+    # callee. home-ops#15904 fixed the caller's (mcp-gateway-istio, the Istio
+    # data-plane pod) egress side, but every backend's own ingress rule here
+    # still only matched the broker's identity, not the istio pod's — because
+    # every HTTPRoute (mcp-gateway's `mcps` listener) is dispatched directly by
+    # the Istio pod per tool call, not proxied through the broker. Root-caused
+    # on health-mcp-rw via Tempo trace 51dc161b71ac0d3e8c8ddef903f4c9f5 (3x
+    # sequential 10s connect-timeout/UF retries) plus a live `Policy denied`
+    # drop-counter spike on health-mcp-rw's own node during the exact incident
+    # window — i.e. the SYN left the istio pod cleanly and was dropped on
+    # arrival here. media/music-assistant-allow already carried both selectors
+    # (the proven precedent); this generalizes that fix to the other 7 backends.
     - fromEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: mcp-system
             app.kubernetes.io/name: mcp-gateway
+        - matchLabels:
+            io.kubernetes.pod.namespace: mcp-system
+            gateway.networking.k8s.io/gateway-name: mcp-gateway
       toPorts:
         - ports:
             - port: "8080"

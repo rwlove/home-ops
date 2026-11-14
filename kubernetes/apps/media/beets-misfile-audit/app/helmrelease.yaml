@@ -68,7 +68,16 @@ spec:
               # false to go back to report-only (audit digest email + log, no
               # remediation).
               REMEDIATE: "true"
-              REMEDIATE_AGENT_URL: http://rick.ai.svc.cluster.local:8080/
+              # kagent 1.0 ATE removed the per-agent Service + raw-A2A endpoint
+              # this used to dial (http://rick.ai.svc.cluster.local:8080/, dead
+              # since the 2026-11-10 Substrate cutover — see
+              # project_rick_library_integrity_steward.md). Invocation now goes
+              # through the controller's own MCP interface (kagent-dev/kagent#1160),
+              # the same contract ai/local-cron's doer/triage crons use via
+              # a2a_client.call_agent().
+              AGENT_URL: http://kagent-controller.ai:8083/mcp
+              # The kagent Agent CR name (namespace ai) to invoke.
+              AGENT: rick
             resources:
               requests:
                 cpu: 100m
@@ -90,6 +99,9 @@ spec:
         type: configMap
         name: beets-misfile-audit-scripts
         globalMounts:
+          - path: /scripts/a2a_client.py
+            subPath: a2a_client.py
+            readOnly: true
           - path: /scripts/misfile-audit.py
             subPath: misfile-audit.py
             readOnly: true
@@ -120,15 +132,17 @@ spec:
               - ports:
                   - port: "8060"
                     protocol: TCP
-          # rick ward agent (ai ns) A2A endpoint — hand album-tag findings off for
-          # autonomous HIGH-confidence remediation (the weekly loop). The agent
-          # pods carry app.kubernetes.io/part-of: kagent. Ingress half is in
-          # ai/kagent/app/cnp-allow.yaml (kagent-agents-allow).
+          # kagent-controller (ai ns) MCP endpoint (:8083) — hand album-tag
+          # findings off to the rick ward agent for autonomous HIGH-confidence
+          # remediation (the weekly loop), via invoke_agent. Replaces the old
+          # per-agent-pod A2A dial (app.kubernetes.io/part-of: kagent, :8080)
+          # that kagent 1.0 ATE retired. Ingress half is in
+          # ai/kagent/app/cnp-allow.yaml (kagent-allow-gateway).
           - toEndpoints:
               - matchLabels:
                   io.kubernetes.pod.namespace: ai
-                  app.kubernetes.io/part-of: kagent
+                  app.kubernetes.io/instance: kagent
             toPorts:
               - ports:
-                  - port: "8080"
+                  - port: "8083"
                     protocol: TCP

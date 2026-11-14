@@ -56,6 +56,8 @@ import urllib.request
 import acoustid
 import mutagen
 
+import a2a_client
+
 # pyacoustid defaults to http:// (port 80, blocked cluster-wide); force HTTPS.
 acoustid.set_base_url("https://api.acoustid.org/v2/")
 
@@ -71,14 +73,19 @@ NOTIFY_URL = os.environ.get("NOTIFY_URL",
                             "http://notify-mcp.mcp-system.svc.cluster.local:8060/send")
 AGENT_NAME = os.environ.get("AGENT_NAME", "rick")
 # Weekly remediation handoff: pass the candidate dirs to the rick ward agent
-# (A2A), which MusicBrainz-resolves and fixes each one autonomously (retag /
-# relocate / leave) with no human gate. Artist names stay runtime-only — the
-# folder list is built at call time; this template carries none. When REMEDIATE
-# is on, Rick's action summary is the single report (the audit skips its own
-# digest email to avoid a duplicate).
+# via the kagent controller's MCP endpoint (invoke_agent), which
+# MusicBrainz-resolves and fixes each one autonomously (retag / relocate /
+# leave) with no human gate. Artist names stay runtime-only — the folder list
+# is built at call time; this template carries none. When REMEDIATE is on,
+# Rick's action summary is the single report (the audit skips its own digest
+# email to avoid a duplicate).
 REMEDIATE = os.environ.get("REMEDIATE", "true").lower() in ("1", "true", "yes")
-REMEDIATE_AGENT_URL = os.environ.get("REMEDIATE_AGENT_URL",
-                                     "http://rick.ai.svc.cluster.local:8080/")
+# kagent 1.0 ATE removed the per-agent Service + raw-A2A endpoint this used to
+# dial directly; invocation now goes through the controller's shared MCP
+# interface (kagent-dev/kagent#1160) via a2a_client.call_agent() — the same
+# contract ai/local-cron's doer/triage crons use.
+AGENT_URL = os.environ.get("AGENT_URL", "http://kagent-controller.ai:8083/mcp")
+AGENT = os.environ.get("AGENT", "rick")
 
 # Various-artists / compilation markers — pass 2 skips a dir whose artist folder
 # or album-artist tag is a VA bucket (per-track artists differ by design). These
@@ -277,13 +284,14 @@ def notify(subject, body):
 
 
 def remediate(content, album):
-    """Hand the candidate directories (both passes) to the rick ward agent (A2A)
-    to resolve AUTONOMOUSLY — MusicBrainz decides identity, the agent retags /
-    relocates / leaves each one with no human gate, and rescans the player. This
-    closes the weekly loop: detect -> resolve -> surface. Best-effort — the audit
-    is a detector and NEVER fails on a handoff error (the agent keeps working
-    in-cluster even past a client-side timeout)."""
-    if not (REMEDIATE and REMEDIATE_AGENT_URL):
+    """Hand the candidate directories (both passes) to the rick ward agent
+    (via the kagent controller's invoke_agent) to resolve AUTONOMOUSLY —
+    MusicBrainz decides identity, the agent retags / relocates / leaves each
+    one with no human gate, and rescans the player. This closes the weekly
+    loop: detect -> resolve -> surface. Best-effort — the audit is a detector
+    and NEVER fails on a handoff error (the agent keeps working in-cluster
+    even past a client-side timeout)."""
+    if not (REMEDIATE and AGENT_URL):
         return
     # Union the two passes' directories (a dir can trip both); one line each.
     dirs = []
@@ -312,26 +320,20 @@ def remediate(content, album):
         "applied change as 'already correct' or 'no changes needed'.\n\n"
         "Directories:\n" + listing
     )
-    body = json.dumps({
-        "jsonrpc": "2.0", "id": 1, "method": "message/send",
-        "params": {"message": {
-            "role": "user",
-            "parts": [{"kind": "text", "text": prompt}],
-            "messageId": "misfile-audit-remediate", "kind": "message",
-        }},
-    }).encode()
-    try:
-        req = urllib.request.Request(REMEDIATE_AGENT_URL, data=body, headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json, text/event-stream",
-        })
-        with urllib.request.urlopen(req, timeout=900) as r:
-            r.read()
+    # a2a_client.call_agent() never raises for an operational failure
+    # (transport error, timeout, task failure) — it returns ("", "<state>").
+    # A client-side timeout/non-completed state is non-fatal here: the agent
+    # keeps working in-cluster past it.
+    text, state = a2a_client.call_agent(
+        AGENT_URL, AGENT, prompt, budget=900, message_id="misfile-audit-remediate")
+    if a2a_client.is_backend_unavailable(text, state):
+        print(f"[misfile-audit] remediation handoff: backend/model unavailable "
+              f"(state={state}) — skipping; the agent is not reachable this run")
+    elif state == "completed":
         print(f"[misfile-audit] handed {len(dirs)} candidate dir(s) to the ward "
               "agent for autonomous resolution")
-    except Exception as e:  # noqa: BLE001 - never fail the audit on handoff error
-        # A client-side timeout is non-fatal: the agent keeps working in-cluster.
-        print(f"[misfile-audit] remediation handoff returned: {type(e).__name__}: {str(e)[:120]}")
+    else:
+        print(f"[misfile-audit] remediation handoff returned state={state}: {text[:200]!r}")
 
 
 def main():

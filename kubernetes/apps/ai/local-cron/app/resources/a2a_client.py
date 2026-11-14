@@ -29,6 +29,7 @@ triage python image with nothing to pip-install.
 """
 import json
 import urllib.request
+import uuid
 
 # Terminal MCP/A2A task states (after stripping any `task_state_` / `TASK_STATE_`
 # prefix and lowercasing). `working`/`submitted`/`auth-required` would be the
@@ -106,6 +107,23 @@ def call_agent(agent_mcp_url, agent_name, prompt, budget=600, poll_interval=10,
     unused: invoke_agent blocks until the task is terminal, there is nothing to
     poll.
     """
+    # The A2A `message_id` is a STICKY SESSION KEY: invoke_agent maps a given
+    # message_id to the FIRST Session created with it and reuses that Session on
+    # every later call — and a Session freezes its resolved tool wiring (e.g. a
+    # RemoteMCPServer's URL) at creation time. So a caller passing a fixed
+    # message_id ("crusher-weight-sync", "crusher-review", "doer", …) pins every
+    # run to one eternal Session whose config can no longer track reality: when
+    # the mcp-gateway RMS url moved to /mcp/stateful (home-ops#15929), the
+    # pre-existing crusher-weight-sync Session kept POSTing the stale /mcp and
+    # every nightly run failed `context deadline exceeded` (Vikunja #96) —
+    # resnapshotting the Agent and draining the WorkerPool did NOT help because
+    # the frozen state lived in the Session, not the Agent template or the pod.
+    # Appending a per-invocation nonce makes every run a FRESH Session that
+    # resolves the CURRENT config, which is the correct semantics for these
+    # stateless, independent cron runs (they carry no cross-run conversation).
+    # The caller's string stays as a human-readable prefix. (Trade-off: a new
+    # Session per run — Session GC is tracked separately.)
+    run_message_id = "%s-%s" % (message_id, uuid.uuid4().hex)
     call = {
         "jsonrpc": "2.0", "id": 1, "method": "tools/call",
         "params": {
@@ -113,7 +131,7 @@ def call_agent(agent_mcp_url, agent_name, prompt, budget=600, poll_interval=10,
             "arguments": {
                 "agent": {"namespace": agent_namespace, "name": agent_name},
                 "message": prompt,
-                "message_id": message_id,
+                "message_id": run_message_id,
             },
         },
     }

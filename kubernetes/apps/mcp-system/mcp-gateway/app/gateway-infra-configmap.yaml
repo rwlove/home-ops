@@ -1,0 +1,45 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/configmap-v1.json
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mcp-gateway-istio-infra
+data:
+  # Istio's gateway-api auto-deploy controller owns the mcp-gateway-istio
+  # Deployment/Service end to end (ownerRef: Gateway/mcp-gateway) and
+  # reconciles it from the Gateway's spec on every change — a plain
+  # `kubectl scale` or a hand-authored Deployment manifest in this repo
+  # would just get overwritten on the next reconcile. The supported
+  # customization point is spec.infrastructure.parametersRef on the
+  # Gateway (gateway.yaml) → this ConfigMap, applied as a Strategic
+  # Merge Patch onto the generated resources. Valid keys: deployment,
+  # service, serviceAccount, horizontalPodAutoscaler,
+  # podDisruptionBudget. https://istio.io/latest/docs/tasks/traffic-management/ingress/gateway-api/
+  #
+  # Vikunja #91 — mcp-gateway-istio is the single Envoy ingress for
+  # ALL MCP tool traffic (fleet + laptop + Open WebUI); 1 replica is a
+  # fleet-wide SPOF. Floor of 2 fixed replicas (not an HPA — this
+  # workload's load is tool-call fan-out, not CPU-bound, so autoscaling
+  # on a metric has no signal to scale on; a fixed floor is the correct
+  # primitive here) + preferred anti-affinity so both land on different
+  # nodes + a PDB so a voluntary node drain can't take both at once.
+  deployment: |
+    spec:
+      replicas: 2
+      template:
+        spec:
+          affinity:
+            podAntiAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  podAffinityTerm:
+                    topologyKey: kubernetes.io/hostname
+                    labelSelector:
+                      matchLabels:
+                        gateway.networking.k8s.io/gateway-name: mcp-gateway
+  # minAvailable: 1 (not maxUnavailable) so a voluntary drain/eviction
+  # never takes the last replica — matches the floor-of-2 intent even
+  # if replicas is ever bumped past 2 later.
+  podDisruptionBudget: |
+    spec:
+      minAvailable: 1

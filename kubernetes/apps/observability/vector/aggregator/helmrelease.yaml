@@ -172,10 +172,31 @@ spec:
               - ports:
                   - port: "6002"
                     protocol: TCP
-          # vector-agent → aggregator on 6000 (kubernetes_source) + 6002
-          # (journald_source) is intra-ns, covered by baseline
-          # allow-intra-namespace. Prometheus scrape of :8686 covered by
-          # allow-monitoring-scrape baseline.
+          # vector-agent → aggregator on 6000 (kubernetes_source) was
+          # DOCUMENTED as "intra-ns, covered by baseline allow-intra-
+          # namespace" but was NOT actually being allowed — confirmed live
+          # 2026-11-14 via continuous "client error (Connect)" retries on
+          # vector-agent's `kubernetes` + `kube_apiserver_audit` sinks (both
+          # target this port) and zero `namespace`/`app`/`node`-labeled
+          # streams ever reaching Loki (only the world-sourced :6002
+          # journald path, labeled `hostname` only, was getting through).
+          # `allow-intra-namespace` carries a `policy.cilium.io/audit-mode`
+          # annotation — it may not be enforcing cluster-wide; that is a
+          # bigger, cross-namespace question for network-operator (every
+          # other app CNP in this repo that says "covered by baseline" may
+          # have the same latent gap). This explicit rule closes the ONE
+          # confirmed gap — the Kubernetes pod-log pipeline — without
+          # touching the cluster-wide baseline policy. See
+          # project_loki_namespace_label_missing in memory.
+          - fromEndpoints:
+              - matchLabels:
+                  app.kubernetes.io/name: vector-agent
+            toPorts:
+              - ports:
+                  - port: "6000"
+                    protocol: TCP
+          # Prometheus scrape of :8686 covered by allow-monitoring-scrape
+          # baseline.
         egress:
           # GeoIP DB updates via init container (geoipupdate from MaxMind).
           # Runs only at pod start (`GEOIPUPDATE_FREQUENCY: "0"`) but the

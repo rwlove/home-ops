@@ -47,7 +47,9 @@ spec:
     matchLabels:
       gateway.networking.k8s.io/gateway-name: mcp-gateway
       gateway.istio.io/managed: istio.io-gateway-controller
-  # Additive — egress to broker + MCP servers is same-ns (baseline).
+  # Additive — egress to istiod is same-ns-adjacent baseline; egress to
+  # MCP backends is NOT covered by any baseline (they live in ai/media,
+  # cross-namespace from mcp-system) and is enumerated explicitly below.
   enableDefaultDeny:
     egress: false
     ingress: false
@@ -88,6 +90,94 @@ spec:
             - port: "15017"
               protocol: TCP
             - port: "443"
+              protocol: TCP
+    # Direct-dispatch MCP backends. Every backend's HTTPRoute attaches
+    # to this Gateway's `mcps` listener (*.mcp.local), so the Istio
+    # data-plane pod routes STRAIGHT to the backend Service on every
+    # tool call -- it does not go through the mcp-gateway broker. The
+    # per-app `<app>-mcp-broker-egress` CNPs (one per backend dir) only
+    # cover the broker's OWN identity (app.kubernetes.io/name=mcp-gateway),
+    # which this pod does not carry, so they never applied here.
+    #
+    # Root-caused 2026-11-14 on health-mcp-rw: `health_rw_upsert_weight`
+    # hung ~30s (3x sequential 10s connect_timeout retries, confirmed in
+    # Tempo trace 51dc161b71ac0d3e8c8ddef903f4c9f5) and
+    # `cilium-dbg endpoint get` on this pod's identity showed
+    # health-mcp-rw's identity absent from `allowed-egress-identities` --
+    # a hard Cilium policy-deny on every call (cx_connect_fail ==
+    # cx_total == 9 lifetime on the envoy cluster, 100% failure), not an
+    # intermittent flake. The exact same gap was hit and fixed once
+    # before for a different backend (see music-assistant-mcp-istio-egress
+    # in ../../music-assistant-mcp/app/cnp-allow.yaml) but never
+    # generalized. Audited 2026-11-14: 8 backends were exposed to this
+    # gap (the other 2 missing a companion CNP, notify-mcp + pr-mcp, are
+    # incidentally covered because they live in mcp-system itself, under
+    # allow-intra-namespace). Consolidated here as ONE rule so a future
+    # new direct-dispatch backend needs one entry added here, not a new
+    # CNP file in its own app dir.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: calendar-mcp
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: ghostfolio-mcp
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: health-mcp
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: health-mcp-rw
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: owl-mcp
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: pump-mcp
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai
+            app.kubernetes.io/name: rick-gonic-mcp
+      toPorts:
+        - ports:
+            - port: "8099"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: media
+            app.kubernetes.io/name: rick-library-mcp
+      toPorts:
+        - ports:
+            - port: "8095"
               protocol: TCP
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json

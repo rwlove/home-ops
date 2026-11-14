@@ -152,18 +152,28 @@ def strip_roster(text):
 
 # A real finding states each problem as its own itemized line -- a markdown
 # bullet/numbered-list/heading line (the CONTRACT explicitly allows "- bullets"
-# and short "#"/"##" headings), or, for a reply naming more than one problem by
-# repeating the tag instead of itemizing, a SECOND occurrence of the PROBLEM-
-# class tag later in the body. Healthy narrative decorates neither -- a model
-# explaining why something is fine doesn't itemize it or re-announce it as a
-# problem. Same shape as longhorn_verify._CHUNK_START (same line-anchored-regex
-# discipline, independent module, no cross-import).
-_FINDING_MARK = re.compile(r"(?m)^[ \t]*(?:[-*]\s|\d+[.)]\s|##?\s)")
+# and short "#"/"##" headings), a line that LEADS with a **bold** term (the
+# CONTRACT also allows "**bold**", and every operator triage model observed
+# leads each itemized finding with a bolded alert/resource name rather than a
+# dash -- confirmed live 2026-11-14, observability-triage: 5 real findings
+# incl. a critical KagentFleetTaskActivityStale, each shaped
+# "**Name** (details) - text." with no leading dash, all silently demoted to
+# allclear by this gate before the bold-lead case was recognized here), or,
+# for a reply naming more than one problem by repeating the tag instead of
+# itemizing, a SECOND occurrence of the PROBLEM-class tag later in the body.
+# Healthy narrative decorates neither a dash/heading NOR a leading bold term --
+# a model explaining why something is fine doesn't itemize it, bold-lead it,
+# or re-announce it as a problem; the ROSTER_CUT patterns above already strip
+# the benign "**Not actionable:**"-style section headers this might otherwise
+# collide with, before this check ever runs. Same shape as
+# longhorn_verify._CHUNK_START (same line-anchored-regex discipline,
+# independent module, no cross-import).
+_FINDING_MARK = re.compile(r"(?m)^[ \t]*(?:[-*]\s|\d+[.)]\s|##?\s|\*\*\S)")
 
 
 def is_empty_finding(body):
     """True when a PROBLEM-class reply carries no real finding once the leading
-    tag line is removed. Two deterministic cases:
+    tag line is removed. Three deterministic cases:
 
     1. Roster-only: <12 chars of substance left after stripping the leading tag
        line, then all markdown/punctuation/space (model emitted only a roster
@@ -182,23 +192,37 @@ def is_empty_finding(body):
        Neither present -> the remainder is narrative, not a finding, regardless
        of length.
 
+    3. Bold-lead leak (CONFIRMED live 2026-11-14, observability-triage, 3
+       consecutive 6h runs): a real, multi-item finding list -- including a
+       CRITICAL KagentFleetTaskActivityStale -- was demoted to allclear and
+       never emailed because every item was shaped "**Name** (details) -
+       text." (a bold-led declarative line) rather than a dash/star/numbered
+       bullet. `_FINDING_MARK` originally only recognized the latter, so
+       check 2's "no finding marker" test false-positived on a genuinely
+       itemized reply. Fixed by adding a `**\\S` (bold-immediately-followed-
+       by-non-space) alternative to `_FINDING_MARK` -- narrowly scoped to a
+       LEADING bold term, so it doesn't rescue a benign roster line (those are
+       plain prose or already cut by `_ROSTER_CUT` before this check runs).
+
     TRADEOFF (named, not hidden): the CONTRACT requires findings "as
     declaratives," not bulleted -- a model COULD in principle state its one
-    real finding as a single un-bulleted, un-retagged prose sentence, and case
-    2 would then wrongly call that empty (demoted to allclear = silent). We
-    accept this risk rather than fail open on it: every real finding observed
-    from this fleet is already bulleted or re-tagged per-item (the CONTRACT's
-    own markdown allowance steers that way, and the storage-triage PROMPT asks
-    for one triaged write-up "for each" risk), while the alternative -- leaving
-    case 2 undetected -- is the CONFIRMED, live, every-run leak this fix
-    closes. If a genuine prose-only finding starts getting eaten, loosen this
-    check (e.g. require a second structural/vocabulary signal before trusting
-    it); don't revert it wholesale back to the open leak. Staying silent by
-    default on ambiguous non-findings matches the fleet's own problems-only
-    bias -- see feedback_digests_problems_only_no_allclear_roster -- but this
-    is the one place that bias trades against the prime directive (never bury
-    a REAL alert), so it is scoped as narrowly as the two signals above allow,
-    and false positives already lean toward "still sent" in the test matrix."""
+    real finding as a single un-bulleted, un-bolded, un-retagged prose
+    sentence, and case 2 would then wrongly call that empty (demoted to
+    allclear = silent). We accept this risk rather than fail open on it: every
+    real finding observed from this fleet is already bulleted, bold-led, or
+    re-tagged per-item (the CONTRACT's own markdown allowance steers that way,
+    and the storage-triage PROMPT asks for one triaged write-up "for each"
+    risk), while the alternative -- leaving case 2/3 undetected -- is the
+    CONFIRMED, live, every-run leak this fix closes (twice now: the dash/
+    heading gap on 2026-11-13, the bold-lead gap on 2026-11-14). If a genuine
+    prose-only finding starts getting eaten, loosen this check (e.g. require a
+    second structural/vocabulary signal before trusting it); don't revert it
+    wholesale back to the open leak. Staying silent by default on ambiguous
+    non-findings matches the fleet's own problems-only bias -- see
+    feedback_digests_problems_only_no_allclear_roster -- but this is the one
+    place that bias trades against the prime directive (never bury a REAL
+    alert), so it is scoped as narrowly as the signals above allow, and false
+    positives already lean toward "still sent" in the test matrix."""
     stripped = _TAG_RE.sub("", body, count=1)
     substance = re.sub(r"[\s>*_#`.\-:]+", "", stripped)
     if len(substance) < 12:
@@ -387,7 +411,27 @@ def main():
         break
 
     log("TRIAGE_RESULT=%s agent=%s" % (result, AGENT_NAME))
-    return 0
+    # Vikunja #88 / home-ops#15855-#15856: during the ~42h kagent 1.0 ATE
+    # cutover outage, every triage CronJob exited 0 (Complete) despite every
+    # tool/model call failing -- `kube_cronjob_status_last_successful_time`
+    # never caught it, and the ONLY existing signal (the Loki-based
+    # KagentTriageGpuUnavailable alert, observability/loki/app/configmap.yaml)
+    # depends on these logs actually reaching Loki, which is exactly the path
+    # found broken separately (project_loki_namespace_label_missing / the
+    # vector-aggregator:6000 CNP gap fixed alongside this PR) -- a single log
+    # pipeline outage would have silenced BOTH signals at once. Exit non-zero
+    # ONLY on the one terminal state the module's own docstring already calls
+    # "the one thing worth paging on": `error` (backend/model unreachable
+    # through the full BACKEND_RETRY_SECONDS requeue window, i.e. GPU down
+    # AND already retried). This gives Job status
+    # (`kube_cronjob_status_last_successful_time` + the existing cluster-wide
+    # KubeJobFailed alert) an independent, Loki-free path to the same signal.
+    # Deliberately NOT done for allclear/sent (success) or empty/malformed
+    # (the adherence-wall self-heals next sweep by design -- see the module
+    # docstring's "Why this replaces the old inline curl|jq shell block":
+    # exiting 1 on those reintroduces the exact KubeJobFailed flap this
+    # rewrite removed).
+    return 1 if result == "error" else 0
 
 
 if __name__ == "__main__":

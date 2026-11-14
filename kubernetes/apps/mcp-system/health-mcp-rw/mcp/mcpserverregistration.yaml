@@ -11,6 +11,24 @@ spec:
     kind: HTTPRoute
     name: health-mcp-rw
   prefix: health_rw_
+  # health-mcp-rw (ghcr.io/rwlove/health-mcp, python `mcp` SDK 1.30.0) runs
+  # Streamable-HTTP stateless mode — same transport class as kubectl-mcp
+  # 2.0.0 (see kubectl-tools' registration), which made this field
+  # load-bearing: Kuadrant/mcp-gateway #1515 (closed #1483) — the broker
+  # trusts whatever is declared here to decide the stateful-vs-stateless
+  # discovery path, so removing the field risks the same silent 0-tool
+  # federation regression kubectl-mcp hit if the broker falls back to
+  # treating an unlisted backend as unsupported-stateless. Pinning rather
+  # than removing until that's verified.
+  #
+  # The "2026-07-28" entry was wrong: a live raw `initialize` probe direct
+  # to the pod (`kubectl exec -n ai deploy/health-mcp-rw`) proved the real
+  # server only negotiates up to 2025-11-25 (it correctly downgrades and
+  # returns that in the initialize response) and then 400s any subsequent
+  # tools/call still carrying an MCP-Protocol-Version of 2026-07-28 — this
+  # broke health_rw_upsert_weight (kagent task
+  # 01a1da45-a3d9-784a-894f-f7ebf60d8f44, 2026-11-14T08:36:03 EST:
+  # "Bad Request: Unsupported protocol version: 2026-07-28. Supported
+  # versions: 2024-11-05, 2025-03-26, 2025-06-18, 2025-11-25").
   supportedProtocolVersions:
     - "2025-11-25"
-    - "2026-07-28"

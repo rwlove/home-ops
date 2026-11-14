@@ -59,6 +59,20 @@ spec:
             )
           labels:
             backend: netbox
+    # health-mcp-rw (Vikunja #90). Lives in `ai`, not `mcp-system` like the
+    # other backends — the recording rule's expr isn't namespace-scoped, so
+    # that's transparent here; the ScrapeFailed alert below is (see its
+    # namespace="ai" selector). No tool_call_duration_seconds histogram is
+    # exposed by this backend (confirmed live via /metrics), so no p99_5m
+    # record — MCPBackendHighLatency simply won't fan out for this backend,
+    # same as any backend missing that metric.
+    - name: mcp.recording.health.rules
+      interval: 1m
+      rules:
+        - record: mcp:tool_calls:rate5m
+          expr: sum by (tool, status) (rate(health_mcp_tool_calls_total[5m]))
+          labels:
+            backend: health-rw
 
     # Alerts are deliberately minimal and recording-rule-driven so a
     # new backend = adding one `mcp.recording.<x>.rules` group, no
@@ -110,6 +124,20 @@ spec:
               has been absent or unhealthy for 15+ minutes. Pod likely
               down, SM mislabeled, or /metrics endpoint hung past the
               10s scrapeTimeout. Tools served by netbox-mcp will fail.
+        - alert: MCPBackendScrapeFailed
+          expr: absent(up{namespace="ai", service="health-mcp-rw"} == 1)
+          for: 15m
+          labels:
+            severity: warning
+            backend: health-rw
+          annotations:
+            summary: "MCP backend health-mcp-rw unscrapable for ≥15m"
+            description: >-
+              scrape target `up{namespace=ai, service=health-mcp-rw}` has
+              been absent or unhealthy for 15+ minutes. Pod likely down,
+              SM mislabeled, or /metrics endpoint hung past the 10s
+              scrapeTimeout. The guarded upsert_weight write path (Crusher
+              weight sync) will fail.
 
         # --- High-error-rate alert via normalized recording rule.
         # Adding a backend = adding its mcp.recording.<x>.rules group;

@@ -130,15 +130,31 @@ spec:
                     protocol: TCP
           # mcp-gateway federation: the Kuadrant broker (the mcp-gateway APP pod in
           # mcp-system) dials this backend DIRECTLY over Service DNS to serve the
-          # federated pump_ tools — NOT through the istio Envoy (that + the .mcp.local
-          # HTTPRoute are only declarative config the broker reads to learn the
-          # Service/port; verified via Hubble, mcp-system has no sidecars). ai is
-          # default-deny, so without this ingress the broker->backend SYN is dropped
-          # ("context deadline exceeded") and the broker removes the tools.
+          # federated pump_ tools. ai is default-deny, so without this ingress the
+          # broker->backend SYN is dropped ("context deadline exceeded") and the
+          # broker removes the tools.
+          #
+          # SECOND selector added 2026-11-14 — CORRECTS the claim above. The
+          # .mcp.local HTTPRoute is NOT just declarative config the broker reads;
+          # every backend's HTTPRoute (the mcp-gateway `mcps` listener) is
+          # actually dispatched per tool call by the Istio data-plane pod
+          # itself. The "verified via Hubble, mcp-system has no sidecars" check
+          # only ever observed the broker's own health-ping/registration dial,
+          # not the real per-call data path. home-ops#15904 fixed that pod's
+          # egress side; this adds the matching ingress half here (destination
+          # side), mirroring the two-selector shape already proven in
+          # media/music-assistant-allow. Root-caused on health-mcp-rw via Tempo
+          # trace 51dc161b71ac0d3e8c8ddef903f4c9f5 (3x 10s connect-timeout/UF) +
+          # a live `Policy denied` drop spike on the backend's own node during
+          # the incident window. Full rationale:
+          # kubernetes/apps/ai/calendar-mcp/app/cnp-allow.yaml.
           - fromEndpoints:
               - matchLabels:
                   io.kubernetes.pod.namespace: mcp-system
                   app.kubernetes.io/name: mcp-gateway
+              - matchLabels:
+                  io.kubernetes.pod.namespace: mcp-system
+                  gateway.networking.k8s.io/gateway-name: mcp-gateway
             toPorts:
               - ports:
                   - port: "8000"

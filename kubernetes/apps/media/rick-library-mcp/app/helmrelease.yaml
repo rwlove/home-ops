@@ -184,11 +184,28 @@ spec:
           # mcp-system) dials this backend cross-namespace over Service DNS to serve
           # the federated ricklibrary_ tools. media is default-deny, so without this
           # the broker->backend SYN is dropped (context deadline → broker removes the
-          # tools). Verified via Hubble: the broker APP pod connects, not the istio Envoy.
+          # tools).
+          #
+          # SECOND selector added 2026-11-14: every backend's HTTPRoute (the
+          # mcp-gateway `mcps` listener) is actually dispatched per tool call by
+          # the Istio data-plane pod itself, not proxied through the broker —
+          # the "Verified via Hubble" note above only ever tested the broker's
+          # own health-ping/registration dial, not the real per-call data path.
+          # home-ops#15904 fixed that pod's egress side; this adds the matching
+          # ingress half here (destination side), mirroring the two-selector
+          # shape already proven in media/music-assistant-allow (same
+          # namespace). Root-caused on health-mcp-rw via Tempo trace
+          # 51dc161b71ac0d3e8c8ddef903f4c9f5 (3x 10s connect-timeout/UF) + a
+          # live `Policy denied` drop spike on the backend's own node during
+          # the incident window. Full rationale:
+          # kubernetes/apps/ai/calendar-mcp/app/cnp-allow.yaml.
           - fromEndpoints:
               - matchLabels:
                   io.kubernetes.pod.namespace: mcp-system
                   app.kubernetes.io/name: mcp-gateway
+              - matchLabels:
+                  io.kubernetes.pod.namespace: mcp-system
+                  gateway.networking.k8s.io/gateway-name: mcp-gateway
             toPorts:
               - ports:
                   - port: "8095"

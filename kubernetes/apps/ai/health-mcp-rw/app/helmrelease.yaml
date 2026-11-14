@@ -147,11 +147,30 @@ spec:
           # the write-authz boundary (ONLY Crusher) is enforced above it: health_rw_
           # is scoped to crusher's tool list in the kagent MCPVirtualServer, behind
           # the gateway's Authelia bearer. ai is default-deny, so without this the
-          # broker->backend SYN is dropped. Verified via Hubble (broker APP pod connects).
+          # broker->backend SYN is dropped.
+          #
+          # SECOND selector added 2026-11-14 — this is the backend that surfaced
+          # the gap: `health_rw_upsert_weight` hung ~30s and failed every call
+          # (Tempo trace 51dc161b71ac0d3e8c8ddef903f4c9f5: 3x sequential 10s
+          # connect-timeout/UF retries from mcp-gateway-istio, the Istio
+          # data-plane pod). Its own egress was fixed in home-ops#15904, but
+          # this pod's ingress rule still only matched the broker's identity
+          # ("Verified via Hubble" above only ever tested the broker's own
+          # health-ping/registration dial) — every HTTPRoute on the mcp-gateway
+          # `mcps` listener is actually dispatched per tool call by the Istio
+          # pod directly, not proxied through the broker. Confirmed by a live
+          # `Policy denied` drop-counter spike on THIS pod's own node, exactly
+          # during the incident window, after the egress-only fix landed.
+          # Mirrors the two-selector shape already proven in
+          # media/music-assistant-allow. Full rationale:
+          # kubernetes/apps/ai/calendar-mcp/app/cnp-allow.yaml.
           - fromEndpoints:
               - matchLabels:
                   io.kubernetes.pod.namespace: mcp-system
                   app.kubernetes.io/name: mcp-gateway
+              - matchLabels:
+                  io.kubernetes.pod.namespace: mcp-system
+                  gateway.networking.k8s.io/gateway-name: mcp-gateway
             toPorts:
               - ports:
                   - port: "8080"

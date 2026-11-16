@@ -31,8 +31,15 @@ thing that leaves the cluster is the short interpretation text in the email
 notify-mcp relays to Robert (a Robert-directed private sink). Never a public sink,
 never a remote model. Stdlib only (runs on the shared local-cron python image).
 
+The weekly finding is recorded to memory-mcp by THIS runner (see
+memory_mcp_client), not by the agent — the local model mis-targeted the entity
+and duplicated observations when it owned the write, so the runner now owns the
+entity name (a literal) and writes one observation per run, idempotently.
+
 Env: AGENT_URL AGENT AGENT_NAME TITLE PROMPT
      [BUDGET_SECONDS=800] [NOTIFY_URL=http://notify-mcp.mcp-system:8060/send]
+     [MEMORY_ENTITY=crusher_weekly_review]
+     [MEMORY_MCP_URL=http://memory-mcp.mcp-system.svc.cluster.local:8070/mcp]
 """
 import datetime
 import json
@@ -42,6 +49,7 @@ import sys
 import urllib.request
 
 import a2a_client
+import memory_mcp_client
 
 AGENT_URL = os.environ["AGENT_URL"]
 # The real kagent Agent CR name (namespace `ai`) to invoke via AGENT_URL's MCP
@@ -51,6 +59,11 @@ AGENT_NAME = os.environ.get("AGENT_NAME", "crusher")
 TITLE = os.environ.get("TITLE", "crusher trend review")
 BUDGET = int(os.environ.get("BUDGET_SECONDS", "800"))
 NOTIFY_URL = os.environ.get("NOTIFY_URL", "http://notify-mcp.mcp-system:8060/send")
+# Single, runner-owned memory entity for the weekly finding — a literal, never
+# model-chosen (the model mis-targeted/duplicated when it owned the write).
+MEMORY_ENTITY = os.environ.get("MEMORY_ENTITY", "crusher_weekly_review")
+MEMORY_MCP_URL = os.environ.get(
+    "MEMORY_MCP_URL", "http://memory-mcp.mcp-system.svc.cluster.local:8070/mcp")
 
 # Output contract — owns FORMAT + one-way + never-fabricate + not-a-clinician.
 # The per-cron PROMPT supplies only the DOMAIN focus (what to review).
@@ -180,6 +193,18 @@ def main():
         # non-fatal signal; do not hard-fail (next week retries).
         log("WARN: notify-mcp delivery failed: %r" % e)
         log("CRUSHER_REVIEW_RESULT=delivery-failed agent=%s" % AGENT_NAME)
+
+    # Record the week's finding deterministically — the RUNNER owns the entity
+    # name and the write, not the model (which mis-targeted/duplicated). One
+    # observation per run, idempotent per day. Non-fatal: the email already went.
+    try:
+        ok, detail = memory_mcp_client.write_weekly_observation(
+            MEMORY_ENTITY, text, day, mcp_url=MEMORY_MCP_URL)
+        log("memory write %s on '%s': %s" % ("OK" if ok else "FAILED", MEMORY_ENTITY, detail))
+        log("CRUSHER_REVIEW_MEMORY=%s" % ("ok" if ok else "failed"))
+    except Exception as e:
+        log("WARN: memory-mcp write failed: %r" % e)
+        log("CRUSHER_REVIEW_MEMORY=error")
     return 0
 
 

@@ -28,6 +28,29 @@
       ignoreTests: false,
     },
     {
+      // Auto-merge the one-time "pin the digest" PRs that pinDigests=true
+      // (renovate.json5) opens for every still-floating tag — container
+      // images AND OCIRepository / HelmChart refs. This is a DISTINCT update
+      // type from "digest": "digest" re-tags an already-pinned image to new
+      // content, while "pinDigest" records the digest the floating tag
+      // ALREADY resolves to — the exact content already deployed. So there is
+      // nothing new to soak: NO minimumReleaseAge on purpose (which also
+      // sidesteps the unsatisfiable age-gate trap that withholds first-party
+      // images — see the rwlove rule at the bottom). flate still gates
+      // (ignoreTests=false): adding a digest is a real manifest edit and CI
+      // must confirm it still renders. Without this rule these pins match no
+      // automerge entry, sit as manual-merge, and the "immortal" flag loops
+      // them closed/reopened forever (home-ops #15946-#15950). The
+      // prConcurrentLimit/prHourlyLimit caps in renovate.json5 trickle the
+      // initial sweep so these no-op (same-content) reconciles can't avalanche.
+      description: "Auto-merge initial digest pins (pinDigest)",
+      matchDatasources: ["docker", "helm"],
+      automerge: true,
+      automergeType: "pr",
+      matchUpdateTypes: ["pinDigest"],
+      ignoreTests: false,
+    },
+    {
       // Blanket non-major auto-merge for containers + helm charts.
       // patch/minor are non-breaking by the semver contract; majors
       // are firewalled to manual review in packageRules.json5. The

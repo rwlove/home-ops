@@ -34,6 +34,26 @@
 # treat this object as needing fresh work, matching the explicit
 # observedGeneration-gated condition pattern already present in this CRD's
 # status schema.
+#
+# RECURRED 2026-11-16 (home-ops #15962/#15975/#15976 live verification):
+# status.discoveredTools had frozen AGAIN, this time at 321 tools since
+# 2026-11-14T21:11:50Z — the timestamp of the ABOVE fix's own one-time
+# re-sync — and never advanced across the vikunja-mcp federation
+# (MCPVirtualServer now at 326 declared tools). Proof this is the SAME
+# bug, not a new one: a direct stateful handshake to the broker resolves
+# and executes `vikunja_get_v1_projects` correctly in <100ms; the `radar`
+# Agent's live toolset (confirmed via a diagnostic invoke_agent call) was
+# missing all 5 vikunja_* tools despite them being declared in its
+# spec.template.inline.tools, while calendar_list_events/github_* (present
+# in the stale 321-tool snapshot) resolved fine — exactly the
+# intersection-with-the-stale-cache pattern, not a broker/network/auth
+# fault. **This is a one-time fix, not a durable one**: the 2026-11-14
+# re-sync ran exactly once and froze again on the very next backend
+# addition. A periodic or event-driven re-sync (ideally an upstream kagent
+# fix so RemoteMCPServer discovery tracks the live MCPVirtualServer
+# instead of a one-shot snapshot) is the real remediation — tracked
+# separately, not attempted here. Bumping generation again (to 3) for the
+# immediate unblock.
 apiVersion: api.kagent.dev/v1alpha3
 kind: RemoteMCPServer
 metadata:
@@ -42,8 +62,11 @@ spec:
   description: >-
     Kuadrant mcp-gateway broker (federated MCP catalog), scoped to the kagent
     MCPVirtualServer. Authelia-bearer auth via the enforced hostname.
-    status.discoveredTools re-sync forced 2026-11-14 (Vikunja #96) — see the
-    comment above this object for why a restart alone did not do this.
+    status.discoveredTools re-sync forced 2026-11-14 (Vikunja #96), then
+    forced AGAIN 2026-11-16 (home-ops #15962/#15975/#15976 vikunja-mcp
+    federation) after it refroze at 321 tools — see the comment above this
+    object for why a restart alone did not do this, and why this is a
+    recurring one-time-only fix, not a durable one.
   protocol: STREAMABLE_HTTP
   url: https://mcp.${SECRET_DOMAIN}/mcp/stateful
   timeout: 30s

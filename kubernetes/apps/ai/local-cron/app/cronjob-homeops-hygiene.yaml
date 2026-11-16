@@ -34,6 +34,15 @@ spec:
   # healthy (notify-mcp ingress fixed) and it now carries the agent↔MCP CNP
   # reachability audit, so the weekly digest goes live directly. Weekly +
   # ALL-CLEAR suppression keeps the mail surface and the Spark's model load low.
+  #
+  # Mechanics: the A2A call + the FYI:/ALL CLEAR send-gate live in the shared,
+  # tested resources/homeops_hygiene.py (over resources/a2a_client.py); this
+  # cron supplies only the domain prompt. Migrated 2026-11-16 off the dead
+  # kagent-1.0 per-agent endpoint (`http://homeops-operator.ai:8080/`, removed
+  # by kagent's ATE rewrite) onto the controller's shared MCP interface — see
+  # resources/a2a_client.py's module docstring. That move also fixes a latent
+  # stale-Session bug the old inline script carried: its fixed messageId pinned
+  # one eternal Session; a2a_client appends a per-run nonce instead.
   suspend: false
   schedule: "0 8 * * 1"
   timeZone: America/New_York
@@ -63,108 +72,36 @@ spec:
           restartPolicy: OnFailure
           containers:
             - name: hygiene
-              # Carries curl + jq. Same image the other local-cron jobs use.
-              image: docker.io/alpine/k8s:1.37.2@sha256:7a82aeefea3d554a43a8676b137f2b88bae6c1fe11c13862b191b3a086cc28c0
+              # Stdlib-only runner (resources/homeops_hygiene.py) — no more
+              # curl/jq, so this is the same python image every other
+              # kagent-tier local-cron job uses.
+              image: docker.io/library/python:3.15
               imagePullPolicy: IfNotPresent
               command:
                 - /bin/sh
                 - -ceu
-                # Flux postBuild runs envsubst in STRICT mode over this manifest:
-                # a bare ${VAR} is read as a Flux substitution and fails the whole
-                # Kustomization. Every shell `$` is doubled (`$$`) so the rendered
-                # manifest carries a literal `$` for /bin/sh. Same convention as
-                # cronjob-observability-triage.yaml.
-                - |
-                  # homeops-operator agent A2A endpoint (intra-namespace; the ai
-                  # baseline allow-intra-namespace covers this hop, same as the
-                  # observability-operator call in the obs triage job).
-                  AGENT="http://homeops-operator.ai:8080/"
-                  DAY="$$(date -u +%Y-%m-%d)"
-
-                  # Ask the agent (read-only, Green tier) to sweep and report a
-                  # concise ranked digest. jq -n builds the A2A message/send body
-                  # so the prompt is safely JSON-escaped.
-                  REQ="$$(jq -n '{
-                    jsonrpc:"2.0", id:1, method:"message/send",
-                    params:{ message:{
-                      role:"user",
-                      parts:[{kind:"text", text:"Using your read-only tools, sweep the home-ops repo and the live cluster for repo-hygiene issues in your five areas: (1) deprecated/removed apiVersions vs the versions the cluster serves, (2) missing/wrong/dead yaml-language-server schema lines, (3) docs that no longer match the manifests they describe, (4) git-vs-cluster drift (respecting deliberate Flux suspensions), (5) retirable upstream workarounds — search the repo for the marker `# workaround:`; for each annotation read its upstream link and its remove-when condition, then using ONLY your read-only GitHub tools check whether that condition now holds AND the fix is in the version this repo actually pins (read our pin with get_file_contents; check upstream with get_latest_release and search_pull_requests). Flag an annotation ONLY when you can show both — resolved upstream AND reachable in our pinned version; if you cannot confirm it with read-only tools, do NOT flag it (a false retirement is worse than a missed one). Do NOT open a removal PR yourself — a human runs the upstream-watcher skill to verify and remove; just report the file path and a one-line upstream-resolution evidence. Read AGENTS.md and .agents/instructions/ (including workarounds.md) first for the repo conventions. Report the TOP findings you are confident about (at most 8, but ALWAYS include any area-5 retirement candidate even if it displaces a lower-priority item from areas 1-4), ranked most-actionable first. FORMAT the findings as a markdown bulleted list — one `- ` bullet per finding, each LEADING with the **bold** file path, then `— <one-line problem> -> <one-line proposed fix>`; never a prose paragraph. Do NOT include full diffs. If you find nothing confident, reply with EXACTLY: ALL CLEAR. Otherwise BEGIN your reply with exactly the tag FYI: then the findings list. This is a one-way notification — never ask a question or request confirmation (nobody can reply). Under 3500 characters. You may add a short `##` heading to group the list. Light markdown only — **bold**, `code`, `- bullets`, short `#`/`##` headings, [links](url) — it is rendered into a themed HTML email; do not use tables or images."}],
-                      messageId:"homeops-hygiene-cron", kind:"message"
-                    }}
-                  }')"
-
-                  RESP="$$(curl -sS --max-time 1700 -X POST "$$AGENT" \
-                            -H 'Content-Type: application/json' \
-                            -H 'Accept: application/json, text/event-stream' \
-                            -d "$$REQ")" || {
-                    echo "FATAL: agent A2A call errored"
-                    exit 1
-                  }
-
-                  # A2A returns a task; the answer is in result.artifacts[].parts[]
-                  # or result.status.message.parts[]. Take the last text part.
-                  TEXT="$$(printf '%s' "$$RESP" | jq -r '
-                    [ (.result.artifacts[]?.parts[]? // empty),
-                      (.result.status.message.parts[]? // empty) ]
-                    | map(select(.kind=="text") | .text) | last // empty')"
-                  STATE="$$(printf '%s' "$$RESP" | jq -r '.result.status.state // "?"')"
-
-                  if [ -z "$$TEXT" ]; then
-                    echo "FATAL: no agent text (state=$$STATE)"
-                    printf '%s' "$$RESP" | head -c 600
-                    exit 1
-                  fi
-
-                  echo "----- homeops-operator hygiene sweep (state=$$STATE) -----"
-                  printf '%s\n' "$$TEXT"
-
-                  # ALL CLEAR -> silent; anything else -> ONE FYI email. Findings
-                  # are Internal-tier repo state (public repo + cluster paths) —
-                  # fine for the guardrailed agent-notify relay (recipient-locked
-                  # to Rob). No pager branch: repo hygiene is never same-day-urgent.
-                  case "$$TEXT" in
-                    *"ALL CLEAR"*) echo "ALL CLEAR — nothing sent"; exit 0;;
-                  esac
-
-                  # Positive gate (inbox-spam fix): only a well-formed FYI: digest
-                  # may reach the mail sink. Anything else — untagged local-model
-                  # garbage, a wrong-language reply, or a tool-init error string
-                  # ("failed to extract tools" / "session not found") — is
-                  # malformed; log a snippet and exit clean so a bad run can NEVER
-                  # notify Rob. (ALL CLEAR handled above.)
-                  case "$$TEXT" in
-                    *"FYI:"*) : ;;
-                    *)
-                      echo "no FYI: tag — malformed agent output, not notifying"
-                      printf '%s\n' "$$TEXT" | head -c 300 || true
-                      exit 0
-                      ;;
-                  esac
-
-                  # ONE themed, per-agent HTML email via notify-mcp /send. It
-                  # renders the markdown body in this agent's theme and holds the
-                  # SAME relay recipient-lock, so it can still only ever email Rob.
-                  # jq -n builds the JSON body so the finding is safely escaped.
-                  # 3800-char cap keeps it terse.
-                  MSG="$$(printf '%s' "$$TEXT" | cut -c1-3800)"
-                  REQ="$$(jq -n --arg s "homeops hygiene — $${DAY}" \
-                                --arg b "$$MSG" --arg a "homeops-operator" \
-                            '{subject:$$s, body:$$b, agent:$$a}')"
-                  HTTP="$$(curl -sS --max-time 30 -o /tmp/send.out -w '%{http_code}' \
-                            -H 'Content-Type: application/json' -d "$$REQ" \
-                            http://notify-mcp.mcp-system:8060/send)" || {
-                    echo "FATAL: notify-mcp /send request errored"
-                    exit 1
-                  }
-                  case "$$HTTP" in
-                    2??) echo "themed FYI digest emailed (HTTP $$HTTP)";;
-                    *) echo "FATAL: notify-mcp /send returned HTTP $$HTTP"; cat /tmp/send.out; exit 1;;
-                  esac
+                - exec python3 /app/homeops_hygiene.py
               env:
                 - name: HOME
                   value: /tmp
                 - name: TZ
                   value: America/New_York
+                - name: AGENT_URL
+                  # kagent 1.0 ATE removed the per-agent Service + A2A endpoint;
+                  # invocation now goes through the controller's own MCP interface
+                  # (kagent-dev/kagent#1160), shared by every agent.
+                  value: http://kagent-controller.ai:8083/mcp
+                - name: AGENT
+                  value: homeops-operator
+                - name: AGENT_NAME
+                  value: homeops-operator
+                - name: TITLE
+                  value: homeops hygiene
+                - name: BUDGET_SECONDS
+                  value: "1700"
+                - name: PROMPT
+                  value: >-
+                    Using your read-only tools, sweep the home-ops repo and the live cluster for repo-hygiene issues in your five areas: (1) deprecated/removed apiVersions vs the versions the cluster serves, (2) missing/wrong/dead yaml-language-server schema lines, (3) docs that no longer match the manifests they describe, (4) git-vs-cluster drift (respecting deliberate Flux suspensions), (5) retirable upstream workarounds — search the repo for the marker `# workaround:`; for each annotation read its upstream link and its remove-when condition, then using ONLY your read-only GitHub tools check whether that condition now holds AND the fix is in the version this repo actually pins (read our pin with get_file_contents; check upstream with get_latest_release and search_pull_requests). Flag an annotation ONLY when you can show both — resolved upstream AND reachable in our pinned version; if you cannot confirm it with read-only tools, do NOT flag it (a false retirement is worse than a missed one). Do NOT open a removal PR yourself — a human runs the upstream-watcher skill to verify and remove; just report the file path and a one-line upstream-resolution evidence. Read AGENTS.md and .agents/instructions/ (including workarounds.md) first for the repo conventions. Report the TOP findings you are confident about (at most 8, but ALWAYS include any area-5 retirement candidate even if it displaces a lower-priority item from areas 1-4), ranked most-actionable first. FORMAT the findings as a markdown bulleted list — one `- ` bullet per finding, each LEADING with the **bold** file path, then `— <one-line problem> -> <one-line proposed fix>`; never a prose paragraph. Do NOT include full diffs. If you find nothing confident, reply with EXACTLY: ALL CLEAR. Otherwise BEGIN your reply with exactly the tag FYI: then the findings list. This is a one-way notification — never ask a question or request confirmation (nobody can reply). Under 3500 characters. You may add a short `##` heading to group the list. Light markdown only — **bold**, `code`, `- bullets`, short `#`/`##` headings, [links](url) — it is rendered into a themed HTML email; do not use tables or images.
               # No secrets: the digest reaches Rob via notify-mcp /send (which
               # holds the recipient) and has no Pushover branch.
               resources:
@@ -186,9 +123,16 @@ spec:
                 seccompProfile:
                   type: RuntimeDefault
               volumeMounts:
+                - name: script
+                  mountPath: /app
+                  readOnly: true
                 - name: tmp
                   mountPath: /tmp
           volumes:
+            - name: script
+              configMap:
+                name: local-cron-scripts
+                defaultMode: 0o555
             - name: tmp
               emptyDir:
                 medium: Memory

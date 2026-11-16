@@ -23,7 +23,7 @@ spec:
   #
   # Persist-first: a monthly Owl solve is heavy and can outlast a synchronous
   # A2A call. warren's system prompt already writes the result entity + inputs
-  # FIRST, then solves, then appends outputs — so even if this cron's curl
+  # FIRST, then solves, then appends outputs — so even if this cron's call
   # times out, the plan is still saved. The cron failing then is the correct,
   # visible last-run signal (failedJobsHistoryLimit).
   #
@@ -31,6 +31,15 @@ spec:
   # pause without tearing down. Unsuspended 2026-09-25 (Rob) — the warren agent +
   # Owl + memory-write path were already proven end-to-end this session, so it
   # goes live directly. Next scheduled run: the 1st at 09:00 ET.
+  #
+  # Mechanics: the A2A call + the figure-free status gate live in the shared,
+  # tested resources/warren_plan_refresh.py (over resources/a2a_client.py); this
+  # cron supplies only the domain prompt. Migrated 2026-11-16 off the dead
+  # kagent-1.0 per-agent endpoint (`http://warren.ai:8080/`, removed by kagent's
+  # ATE rewrite) onto the controller's shared MCP interface — see
+  # resources/a2a_client.py's module docstring. That move also drops a fixed
+  # messageId that risked pinning an eternal stale Session; a2a_client appends a
+  # per-run nonce instead.
   suspend: false
   schedule: "0 9 1 * *"
   timeZone: America/New_York
@@ -61,76 +70,34 @@ spec:
           restartPolicy: OnFailure
           containers:
             - name: refresh
-              # Carries curl + jq. Same image the other local-cron jobs use.
-              image: docker.io/alpine/k8s:1.37.2@sha256:7a82aeefea3d554a43a8676b137f2b88bae6c1fe11c13862b191b3a086cc28c0
+              # Stdlib-only runner (resources/warren_plan_refresh.py) — no more
+              # curl/jq, so this is the same python image every other
+              # kagent-tier local-cron job uses.
+              image: docker.io/library/python:3.15
               imagePullPolicy: IfNotPresent
               command:
                 - /bin/sh
                 - -ceu
-                # Flux postBuild runs envsubst in STRICT mode over this
-                # manifest: a bare $${VAR} is read as a Flux substitution and
-                # fails the whole Kustomization. Every shell `$` is doubled
-                # (`$$`) so the rendered manifest carries a literal `$` for
-                # /bin/sh. Same convention as the triage/skim jobs.
-                - |
-                  # warren agent A2A endpoint (intra-namespace; the ai baseline
-                  # allow-intra-namespace covers this hop, same as the triage
-                  # jobs' calls to the operator agents).
-                  AGENT="http://warren.ai:8080/"
-
-                  # Ask warren to re-solve + PERSIST the plan itself. The reply
-                  # must be figure-free (this stdout is logged). jq -n builds
-                  # the A2A message/send body so the prompt is JSON-escaped.
-                  REQ="$$(jq -n '{
-                    jsonrpc:"2.0", id:1, method:"message/send",
-                    params:{ message:{
-                      role:"user",
-                      parts:[{kind:"text", text:"You are invoked by an unattended MONTHLY cron to refresh Robert every retirement plan. Do the full refresh yourself with your tools, following your persist-first rule strictly: (1) FIRST create-or-update the plan result entity in the finance memory namespace with today date and the inputs you already know; (2) pull current portfolio state from Ghostfolio and the finance model plus prior plan from memory; (3) re-solve the retirement plan with Owl; (4) append the solved outputs (retire age, solvent-to age, spend, Roth-conversion schedule, flagged assumptions) as observations on that same entity. ALL figures stay in memory (finance namespace) — that is the Restricted store. This is a one-way unattended run: never ask a question. Your REPLY to THIS message is written to an in-cluster log, so it must contain NO figures, balances, or dollar amounts. Reply with EXACTLY one line: REFRESHED ok on success, or ERROR: followed by a short non-numeric reason if you could not complete and persist the plan."}],
-                      messageId:"warren-plan-refresh", kind:"message"
-                    }}
-                  }')"
-
-                  RESP="$$(curl -sS --max-time 1500 -X POST "$$AGENT" \
-                            -H 'Content-Type: application/json' \
-                            -H 'Accept: application/json, text/event-stream' \
-                            -d "$$REQ")" || {
-                    echo "FATAL: warren A2A call errored or timed out"
-                    echo "NOTE: persist-first means the plan may still be saved in memory; check the finance namespace."
-                    exit 1
-                  }
-
-                  # A2A returns a task; the answer is in result.artifacts[].parts[]
-                  # or result.status.message.parts[]. Take the last text part.
-                  TEXT="$$(printf '%s' "$$RESP" | jq -r '
-                    [ (.result.artifacts[]?.parts[]? // empty),
-                      (.result.status.message.parts[]? // empty) ]
-                    | map(select(.kind=="text") | .text) | last // empty')"
-                  STATE="$$(printf '%s' "$$RESP" | jq -r '.result.status.state // "?"')"
-
-                  # Reply MUST be figure-free by contract; guard anyway. Only a
-                  # small allowlisted status vocabulary is echoed to the log so
-                  # a misbehaving reply can never leak a balance into Loki.
-                  case "$$TEXT" in
-                    *"REFRESHED ok"*)
-                      echo "warren-plan-refresh: REFRESHED ok (state=$$STATE)"
-                      exit 0;;
-                    *"ERROR:"*)
-                      # Echo only the fixed prefix, not warren's free text, to
-                      # keep any stray figures out of the log.
-                      echo "warren-plan-refresh: warren reported ERROR (state=$$STATE) — check the finance memory namespace"
-                      exit 1;;
-                    "")
-                      echo "warren-plan-refresh: empty reply (state=$$STATE) — likely persisted via persist-first; check memory"
-                      exit 1;;
-                    *)
-                      echo "warren-plan-refresh: unexpected non-token reply (state=$$STATE) — not echoed (may contain figures); check memory"
-                      exit 1;;
-                  esac
+                - exec python3 /app/warren_plan_refresh.py
               env:
                 - name: HOME
                   value: /tmp
                 - name: TZ
                   value: America/New_York
+                - name: AGENT_URL
+                  # kagent 1.0 ATE removed the per-agent Service + A2A endpoint;
+                  # invocation now goes through the controller's own MCP interface
+                  # (kagent-dev/kagent#1160), shared by every agent.
+                  value: http://kagent-controller.ai:8083/mcp
+                - name: AGENT
+                  value: warren
+                - name: AGENT_NAME
+                  value: warren
+                - name: BUDGET_SECONDS
+                  value: "1500"
+                - name: PROMPT
+                  value: >-
+                    You are invoked by an unattended MONTHLY cron to refresh Robert every retirement plan. Do the full refresh yourself with your tools, following your persist-first rule strictly: (1) FIRST create-or-update the plan result entity in the finance memory namespace with today date and the inputs you already know; (2) pull current portfolio state from Ghostfolio and the finance model plus prior plan from memory; (3) re-solve the retirement plan with Owl; (4) append the solved outputs (retire age, solvent-to age, spend, Roth-conversion schedule, flagged assumptions) as observations on that same entity. ALL figures stay in memory (finance namespace) — that is the Restricted store. This is a one-way unattended run: never ask a question. Your REPLY to THIS message is written to an in-cluster log, so it must contain NO figures, balances, or dollar amounts. Reply with EXACTLY one line: REFRESHED ok on success, or ERROR: followed by a short non-numeric reason if you could not complete and persist the plan.
               # No secretRef: this job sends NO Pushover and NO email. warren
               # holds its own tool credentials in-cluster; the cron only pokes it.
               resources:
@@ -152,9 +119,16 @@ spec:
                 seccompProfile:
                   type: RuntimeDefault
               volumeMounts:
+                - name: script
+                  mountPath: /app
+                  readOnly: true
                 - name: tmp
                   mountPath: /tmp
           volumes:
+            - name: script
+              configMap:
+                name: local-cron-scripts
+                defaultMode: 0o555
             - name: tmp
               emptyDir:
                 medium: Memory

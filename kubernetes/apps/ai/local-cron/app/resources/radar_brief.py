@@ -12,10 +12,18 @@ recipient-lock, so this can only ever email Robert.
 
 Why this is a digest runner, NOT triage_run.py: triage_run is a problem-only
 gate (PROBLEM: -> notify, ALL CLEAR -> silent). A morning brief is a DIGEST
-Robert wants every day, so this ALWAYS delivers the agent's reply. It only
-stays silent when the agent is unreachable or returns nothing (a2a_client
-never raises -> a silent skipped run, tomorrow retries, never a
-KubeJobFailed page).
+Robert wants every day, so it delivers the agent's reply whenever the invoke
+actually COMPLETED — including a completed reply that itself reports a
+source as unreachable (e.g. "Vikunja unreachable"), which is still a real,
+useful partial brief (see `_ensure_gap_line` below). It stays silent
+(a2a_client never raises -> a silent skipped run, tomorrow retries, no page)
+only when the agent returns no text at all. A TOTAL invoke failure that DOES
+return text (task state != "completed" — e.g. the kagent runtime's "input
+was not accepted; retry after the session becomes available") is an infra
+failure, not a brief: emailing the raw error as a "morning brief" is inbox
+junk posing as a digest, so F4 (in `main()`) suppresses that email and fails
+the Job instead, surfacing through normal kagent cron-failure alerting where
+infra failures belong.
 
 The Vikunja Fleet Todos store (the laptop `whats-next` skill's Source 3) is
 federated in-cluster via vikunja-mcp (home-ops #15962) and is this brief's
@@ -83,20 +91,43 @@ CONTRACT = (
     "you expected data, say so by name (write the literal phrase 'Vikunja "
     "unreachable' if the Vikunja calls are the ones that failed) — never omit the "
     "gap silently, never fill it with a guess.\n"
+    "- LINE FORMAT for every Today/This-week line: `<time-or-weekday> — <item> "
+    "· <source> · <owner>`. Content leads; source and owner trail:\n"
+    "  * The calendar event summary or Vikunja task title carries a leading "
+    "`[Persona]` tag by convention (e.g. `[Crusher]`, `[storage-operator]`, case-"
+    "insensitive). STRIP that tag from the item text and move it to the END of "
+    "the line, lowercased, as the owner (e.g. `crusher`, `storage-operator`, "
+    "`vila`). If an item has no `[Persona]` tag, omit the trailing owner "
+    "entirely — never invent one.\n"
+    "  * `<source>` is the literal word `calendar` for a calendar event or "
+    "`vikunja` for a Vikunja task.\n"
+    "  * In `### Today`: a calendar event's `<time-or-weekday>` is its TIME "
+    "ONLY, `HH:MM ET` (never a date — it's today). A Vikunja task due exactly "
+    "today leads with the word `today`; an OVERDUE Vikunja task leads with the "
+    "word `overdue`; a fallback task (used ONLY when nothing is due today or "
+    "overdue) has no leading time token at all — start directly with the item.\n"
+    "  * In `### This week`: every line (calendar or Vikunja) leads with the "
+    "WEEKDAY NAME ONLY, taken from the weekday map you were given — never a "
+    "time, never a numeric date.\n"
+    "  * Examples: `11:30 ET — PT — ATI Physical Therapy · calendar · "
+    "crusher`, `overdue — Replace HVAC filter (P3) · vikunja · vila`, "
+    "`Wednesday — Check image-GC report: ~/image-gc-check-latest.txt · "
+    "calendar · storage-operator`.\n"
     "- STRUCTURE the reply so it SCANS — never one prose paragraph. Emit, in order:\n"
     "  (a) a `### Today` heading. List Vikunja tasks due today or overdue FIRST, "
     "ranked by priority P5 to P1 then soonest due date, flagging any `robert-action` "
     "label; if NOTHING is due today or overdue, fall back to the top 3-5 highest-"
     "priority OPEN tasks instead so this section is never empty. Then list today's "
     "calendar events.\n"
-    "  (b) a `### This week` heading. List Vikunja tasks due within the next 7 days "
-    "(same P5-to-P1 then soonest-due ranking, excluding anything already listed "
-    "under Today), then calendar events in that window. Omit this heading entirely "
-    "if nothing qualifies.\n"
+    "  (b) a `### This week` heading, ordered CHRONOLOGICALLY. List Vikunja tasks "
+    "due within the next 7 days (same P5-to-P1 then soonest-due ranking, excluding "
+    "anything already listed under Today) together with calendar events in that "
+    "window. Omit this heading entirely if nothing qualifies.\n"
     "  (c) a final `### Open PRs awaiting you` heading — a short, PLAIN, UNRANKED "
-    "list of open home-ops PRs (not folded into Today/This week). Note each PR's "
-    "CI state if the tool surfaces it; otherwise say 'CI state not available' "
-    "rather than guessing green/red. Omit this heading if there are no open PRs.\n"
+    "list of open home-ops PRs (not folded into Today/This week, no trailing "
+    "owner on these lines). Note each PR's CI state if the tool surfaces it; "
+    "otherwise say 'CI state not available' rather than guessing green/red. Omit "
+    "this heading if there are no open PRs.\n"
     "  Do NOT write the labels (a)/(b)/(c) in the reply.\n"
     "- Keep the WHOLE reply under 900 characters. Use **bold**, `- bullets`, `code`, "
     "and short `#`/`##`/`###` headings — no tables, no images; it is rendered into a "
@@ -208,15 +239,30 @@ def main():
     # Window is 7 days (the "This week" section), matching the laptop
     # `whats-next` skill's own Source 4 calendar pull — widened from the
     # original 3-day "Coming up" window when PRs were demoted to a footer
-    # and Vikunja due-dates became the lead content.
+    # and Vikunja due-dates became the lead content. The weekday-name map is
+    # the same determinism move applied to "This week"'s weekday-only line
+    # format — a weak local model asked to derive "what day of the week is
+    # 2026-11-19" from an ISO date will sometimes get it wrong; handing it
+    # the precomputed mapping removes that failure mode entirely.
     today = datetime.date.today()
     window_end = today + datetime.timedelta(days=7)
+    weekday_map = "; ".join(
+        "%s=%s%s" % (
+            (today + datetime.timedelta(days=i)).isoformat(),
+            (today + datetime.timedelta(days=i)).strftime("%A"),
+            " (today)" if i == 0 else "",
+        )
+        for i in range(8)
+    )
     date_context = (
         "Today's actual date is %s (America/New_York). Treat %s through %s "
         "inclusive as the 'This week' window for both calendar events and "
         "Vikunja task due dates. Do NOT assume, guess, or carry over any other "
         "date — use exactly this one.\n\n"
-        % (today.isoformat(), today.isoformat(), window_end.isoformat())
+        "Weekday names for this window (America/New_York), precomputed — use "
+        "ONLY these for the 'This week' section's weekday labels, never "
+        "compute or guess one yourself: %s\n\n"
+        % (today.isoformat(), today.isoformat(), window_end.isoformat(), weekday_map)
     )
     prompt = date_context + os.environ["PROMPT"].strip() + CONTRACT
     day = today.isoformat()
@@ -228,6 +274,23 @@ def main():
         log("no agent text (state=%s) — silent skipped run; tomorrow retries" % state)
         log("RADAR_BRIEF_RESULT=skipped agent=%s state=%s" % (AGENT_NAME, state))
         return 0
+
+    # F4 — a TOTAL invoke failure (the task never reached a completed state)
+    # is an infra failure, not a brief: emailing the raw error text as a
+    # "morning brief" is inbox junk posing as a digest. Gate strictly on the
+    # task STATE, never on string-matching the text — a `state=completed`
+    # reply that itself reports a source as unreachable (the F2 path right
+    # below) is still a real, useful partial brief and MUST still email.
+    # Only a non-"completed" state (failed/transport-error/canceled/...)
+    # means the invoke itself never finished; suppress the email and fail
+    # the Job so it surfaces through normal kagent cron-failure alerting
+    # instead of a silent skip (the `not text` branch above) OR a bogus
+    # "brief".
+    if state != "completed":
+        log("invoke did not complete (state=%s) — suppressing email, failing the Job" % state)
+        log("reply text (NOT emailed): %s" % text)
+        log("RADAR_BRIEF_RESULT=invoke-failed agent=%s state=%s" % (AGENT_NAME, state))
+        return 1
 
     # F2 — narrow backstop: normalize the wording ONLY if the model's own
     # reply already shows Vikunja failed this run. A no-op otherwise.

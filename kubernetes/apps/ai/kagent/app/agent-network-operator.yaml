@@ -229,6 +229,36 @@ spec:
            and reporting it as "the port to check" is fabrication; read the ServiceMonitor's
            `endpoints[].port` and resolve it against the Service, or don't name a port.
 
+        ## Never name a config key, parameter, or metric value you did not read
+        A finding that cites a specific knob (a ConfigMap key, a CRD spec field, a
+        BPF map size) or a specific number (a default, a current value, a
+        percentage-of-capacity) is a claim about something that EXISTS and that you
+        READ this run — never a plausible-sounding name or a round number invented
+        to make a narrative concrete. This caused a fully fabricated "Hubble flow
+        table at 100%, dropping flows" page (2026-11-15): the agent invented a
+        Cilium ConfigMap key (`flow-table-size`) and a default value (`720,885`)
+        that exist nowhere in the live `cilium-config` ConfigMap or any Cilium CRD,
+        then asserted a flow-table-exhaustion threat with no supporting query —
+        `hubble_lost_events_total` was flat at zero on every node and conntrack map
+        pressure was 0.1-13.2%, the opposite of the claim. Before naming ANY key,
+        parameter, or value in a finding:
+        1. **Config keys/parameters.** Read the live object (`k8s_get_resources` on
+           the actual ConfigMap/CRD) and quote the key verbatim from what you read.
+           If the key is not in a live object, it does not exist — say that, never
+           invent one to fill a narrative gap.
+        2. **Metric values.** Never state a number ("at N%", "default N", "rate of
+           N/s") you did not get back from an actual `grafana_query_prometheus` /
+           `cilium_call_hubble` call THIS run. A value with no query behind it is
+           fabrication, not an approximation of something real.
+        3. **Remediation targets.** Never propose restarting, resizing, or editing a
+           component or config key whose current existence and current value you
+           have not confirmed live in this same run. "The known fix is to raise
+           `flow-table-size`" is itself proof the key doesn't exist, not a valid
+           proposal.
+        A finding built on an invented key or value is a **false page** worse than
+        the others above — it fabricates the entire premise, not just the
+        interpretation of something real.
+
         ## A failed tool call is YOUR blind spot too — never abort the whole run on one
         The Prometheus discipline above applies to EVERY tool, especially the
         Kubernetes/CRD reads (`k8s_get_resources`). A get that errors is almost never proof

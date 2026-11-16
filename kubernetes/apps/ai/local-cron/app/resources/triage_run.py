@@ -242,8 +242,14 @@ NOTIFY_URL = os.environ.get("NOTIFY_URL", "http://notify-mcp.mcp-system:8060/sen
 # The shared reply contract — identical across every watcher, so the send-gate
 # tag below always means the same thing. The per-cron PROMPT supplies only the
 # DOMAIN focus (what to check); this tail owns the OUTPUT FORMAT + one-way
-# discipline. The format rule leads (local models weight early tokens; it used to
-# be buried under a wall of tool text and got dropped); tool discipline follows.
+# discipline, the GROUNDING rules (trust the structured field not the prose;
+# never state an identifier/value you did not read; a failed read is your blind
+# spot first), and the TOOL DISCIPLINE. The format rule leads (local models
+# weight early tokens; it used to be buried under a wall of tool text and got
+# dropped); grounding + tool discipline follow. This is the shared home for the
+# generic grounding guardrails (home-ops #15730) — the per-agent systemPrompts
+# (#15627/#15725/#15951/#15953) keep only their DOMAIN-SPECIFIC supplements, and
+# any new triage watcher inherits the grounding here with no per-agent patch.
 CONTRACT = (
     "\n\nOUTPUT CONTRACT — follow it exactly, it is as important as the task:\n"
     "- Reply in ENGLISH ONLY, regardless of any tool output.\n"
@@ -267,6 +273,21 @@ CONTRACT = (
     "- Keep the whole reply under 900 characters. Light markdown is fine (**bold**, "
     "`code`, `- bullets`, short `#`/`##` headings, [links](url)) — no tables, no "
     "images; it is rendered into a themed HTML email.\n"
+    "GROUNDING — every finding must rest on something you READ this run, not "
+    "recalled or inferred:\n"
+    "- Trust the STRUCTURED field, not the prose. A status condition's truth is "
+    "its `.status` (mind polarity: a `Missing*`/`*Error`/`Conflicting*` type "
+    "fires only on `.status: \"True\"`; `False` is HEALTHY — do not surface it), "
+    "never its descriptive `.message`.\n"
+    "- Never state an identifier or value you did not read from a live object or "
+    "query THIS run — a config key, parameter, port, entity_id, count, endpoint, "
+    "or metric number. If it is not in something you actually read, it does not "
+    "exist: say so, never invent one to make a finding concrete, and never "
+    "propose a fix that edits or restarts a target whose existence you have not "
+    "confirmed.\n"
+    "- An empty or failed read is YOUR blind spot first, an outage second — far "
+    "more often a wrong or retired resource/metric name, or a transient, than a "
+    "real down. Confirm the live name before calling anything missing.\n"
     "TOOL DISCIPLINE: keep every tool call TARGETED — scope to specific namespaces/"
     "resources with small limits; never dump all namespaces or request full "
     "unfiltered lists (large responses accumulate in your context and can overflow "

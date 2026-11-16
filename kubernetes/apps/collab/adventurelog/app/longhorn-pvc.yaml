@@ -16,6 +16,30 @@ spec:
   storageClassName: adventurelog-media-storage-class
 
 ---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/persistentvolume-v1.json
+#
+# Static provisioning (the repo's static-PV+volumeHandle pattern). AdventureLog
+# is a brand-new app with no pre-existing Longhorn volume, so unlike the
+# 2026-10 rename-via-copy migrations (medikeep/lubelogger/forgejo/etc.) there
+# is no restore-from-backup step here -- the backing volume is a fresh, blank
+# longhorn.io/v1beta2 Volume CR committed at
+# ../../../../longhorn-system/longhorn/volumes/adventurelog-media-ext4.yaml
+# (reconciled by the longhorn-volumes Flux Kustomization into longhorn-system,
+# which must land before this PV can attach). Longhorn's CSI driver does not
+# auto-create a backend Volume for a statically-bound PV, so that file is
+# load-bearing, not optional.
+#
+# This volume holds user-uploaded trip photos at /code/media -- non-regenerable
+# (Immich-linked photos stay in Immich; this is only AdventureLog's own
+# uploads). Hence Longhorn (survives cluster loss via the NFS backup target) at
+# 2 replicas, ext4 (deliberate -- see feedback_xfs_longhorn_upgrade_corruption_
+# migrate_ext4 in memory: XFS has hard-failed to mount after an unclean LH
+# engine detach during an upgrade; ext4 journal-replays and recovers far more
+# reliably, and ext4 is the repo's forward direction for new volumes, not just
+# migrated ones). Backups are automatic via Longhorn's `default` recurring-job
+# group (daily snapshot + weekly + monthly backup) plus weekly-filesystem-trim;
+# those recurring-job-group labels live on the Longhorn Volume CR, not this PV.
+# Static binding via volumeName means the provisioner is not invoked.
 apiVersion: v1
 kind: PersistentVolume
 metadata:
@@ -35,8 +59,8 @@ spec:
   storageClassName: adventurelog-media-storage-class
   csi:
     driver: driver.longhorn.io
-    fsType: xfs
+    fsType: ext4
     volumeAttributes:
       numberOfReplicas: "2"
       staleReplicaTimeout: "2880"
-    volumeHandle: adventurelog-media-xfs
+    volumeHandle: adventurelog-media-ext4

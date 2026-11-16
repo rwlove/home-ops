@@ -386,3 +386,157 @@ storage agree.
 Time budget: 2–3 m of downtime per HR. Pick a maintenance
 window per `CLAUDE.md` if the component is operator- or
 household-facing.
+
+## CRI-O image-store bloat from Renovate digest churn
+
+**Symptom.** A worker node's root LV climbs toward full with no
+corresponding growth in running workloads. `df -h /` shows most of
+the usage under `/var/lib/containers/storage/overlay`.
+`crictl images` lists dozens of `<none>`-tagged entries — multiple
+historical digests of the same large image (an ML-serving image,
+a workflow-runner image, etc.), only the newest of which is actually
+referenced by a running pod.
+
+**How to confirm.**
+
+```sh
+ssh root@<node> "df -h /var/lib/containers; \
+  du -sh /var/lib/containers/storage/overlay; \
+  crictl images | grep -c '<none>'"
+```
+
+A high `<none>` count with a mostly-full image-store partition and
+a node percent-used sitting *below* `imageGCHighThresholdPercent`
+is the signature — kubelet's disk-pressure image GC hasn't fired
+because the node hasn't crossed the threshold, even though most of
+the store is dead weight.
+
+**Root cause.** Two independent conditions compound:
+
+1. This repo pins every image to a digest (`pinDigests: true` in
+   the cluster-wide Renovate config). Every Renovate digest bump
+   leaves the prior digest's layers on disk, now unreferenced by
+   any pod (`<none>` in `crictl images`).
+2. Historically, kubelet's only image-GC trigger was disk-pressure
+   (`imageGCHighThresholdPercent`/`imageGCLowThresholdPercent`). A
+   node sitting just under the high-water mark never reclaims the
+   dangling digests, so they accumulate indefinitely — Renovate's
+   bump cadence sets the accumulation rate, not the GC rate.
+
+Found 2026-11-16 on `worker8` (71% root LV, CRI-O image store at
+129 GiB of a 199 GiB LV, VG with zero free extents) while
+`worker8` also hosts Ceph `mon.m` — the disk pressure correlated
+with two momentary mon quorum blips. `worker2` showed the same
+dangling-digest pattern (100 `<none>` images) on a much larger
+disk, confirming this is fleet-wide, not worker8-specific; worker8
+just has the smallest disk and the highest-stakes co-tenant.
+
+**The fix — `imageMaximumGCAge` (kubelet, GA since k8s 1.35).**
+This field ages out an image a fixed duration after it stops being
+referenced by any container, independent of disk-pressure
+thresholds — it directly targets the Renovate-digest-orphan
+pattern. Critically, the age clock starts when the image becomes
+*unused*, not when it was pulled, so it's immune to Renovate's bump
+cadence: an old digest becomes eligible the moment the new
+ReplicaSet/Pod rolls out, not some fixed time later. **A running
+container's image is never evicted**, regardless of age — only
+idle images age out, so the only cost is a re-pull if a
+rarely-scheduled workload (a CronJob, a seldom-restarted
+Deployment) needs an image again after it's aged out.
+
+Applied cluster-wide 2026-11-16 via the `kube-system/kubelet-config`
+ConfigMap:
+
+```yaml
+imageGCHighThresholdPercent: 72   # was 75
+imageGCLowThresholdPercent: 62    # was 65
+imageMaximumGCAge: 48h0m0s        # was 0s (disabled)
+```
+
+The tightened thresholds are a disk-pressure backstop independent
+of the age-based mechanism (worker8's volume group has zero free
+extents — no LV-extend headroom, so earlier pressure-relief matters
+even though the age-based GC is the primary lever).
+
+**Durability — where this lives and why it survives reprovisioning.**
+`kube-system/kubelet-config` is a **kubeadm-managed** ConfigMap, not
+a Flux/Git-tracked resource. It's the object kubeadm itself uses to
+distribute cluster-wide `KubeletConfiguration` — every `kubeadm
+join` (a freshly (re)provisioned node) and every `kubeadm upgrade
+node` (an existing node re-syncing) renders
+`/var/lib/kubelet/config.yaml` from it. That makes it the correct
+durable home for this setting with **zero new moving parts**: no
+ansible template, no extra Flux Kustomization, nothing that could
+drift from what kubeadm itself delivers to a new node. The
+ansible repo (`kubernetes/common/tasks/kubeadm.yaml` in the
+`ansible` repo) does not template kubelet config content today and
+already lags the fleet's live kubelet/kubeadm version — adding a
+second, ansible-managed copy of this file would create a competing
+source of truth that the next `kubeadm upgrade node` would silently
+overwrite anyway.
+
+**Recovery caveat — the backlog does not clear immediately.** Per
+upstream behavior (KEP-4210), the "last used" age clock for every
+image **resets at the kubelet restart** that picks up the new
+config. The existing dangling-digest backlog is not swept on the
+next GC pass — it clears roughly `imageMaximumGCAge` (48h) after
+each node's kubelet restart, or sooner on any node that crosses the
+72% disk-pressure threshold in the meantime. No separate manual
+`crictl rmi --prune` is required; it is simply not instantaneous.
+
+**Rollout — propagating to already-joined nodes.** Editing the
+ConfigMap alone changes nothing until a node re-syncs. Per node,
+one at a time:
+
+```sh
+ssh root@<node> "kubeadm upgrade node phase kubelet-config && \
+  systemctl restart kubelet"
+```
+
+This is the upstream-supported "re-render
+`/var/lib/kubelet/config.yaml` from the ConfigMap without a version
+bump" path — not a hand-edit of the file. `systemctl restart
+kubelet` is required to pick up the change; CRI-O is a separate
+daemon/socket, so **no running container is touched** — the node
+flashes `NotReady` for a few seconds during the kubelet restart,
+then returns `Ready` with the same containers still running.
+
+Order mon-hosting workers last, and confirm Ceph quorum before and
+after each:
+
+```sh
+ceph -s   # via a mon pod / toolbox — confirm quorum before and after
+```
+
+Applied 2026-11-16 to all 8 worker-class nodes
+(`worker2`–`worker8`, `spark`), mon-hosting `worker2` (`mon.l`) and
+`worker8` (`mon.m`) rolled last; quorum `[0,1,2]` and 0 mon restarts
+confirmed before/after each. **Masters (`master1`–`3`) were not
+rolled this pass** — they'll pick up the new values on their next
+`kubeadm upgrade`/config re-sync; follow-up if fleet-wide
+consistency on the control plane matters.
+
+**Verification.**
+
+```sh
+# immediately per node:
+ssh root@<node> "grep imageMaximumGCAge /var/lib/kubelet/config.yaml"
+kubectl get node <node>   # Ready, container counts unchanged
+
+# ~48h after that node's kubelet restart:
+ssh root@<node> "du -sh /var/lib/containers/storage/overlay; \
+  crictl images | grep -c '<none>'"
+ssh root@<node> "journalctl -u kubelet | grep -i \
+  'garbage collect\|removing image'"
+```
+
+**Recovery if the ConfigMap is ever reset.** Because this isn't
+Git-tracked, a future `kubeadm upgrade apply` to a new control-plane
+minor could in principle regenerate `kube-system/kubelet-config`
+from a bare `ClusterConfiguration` and drop these three fields. A
+backup of the pre-change ConfigMap is on `master1` at
+`/root/kubelet-config.backup.20261116-090515.yaml`. If the values
+are ever found reverted, re-apply the three fields above via
+`kubectl -n kube-system edit cm kubelet-config` (or `kubectl
+replace -f` the backup, adjusted for current content) and re-run
+the per-node `kubeadm upgrade node phase kubelet-config` rollout.

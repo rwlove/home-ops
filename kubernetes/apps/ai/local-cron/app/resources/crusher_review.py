@@ -15,6 +15,16 @@ wants every week, so this ALWAYS delivers the agent's reply. It only stays silen
 when the agent is unreachable or returns nothing (a2a_client never raises -> a
 silent skipped run, next week retries, never a KubeJobFailed page).
 
+Why `_clean()` exists: the local model (qwen) narrates its tool use inline when it
+fumbles a memory write — it emits the digest, then first-person working-narration
+("I appended to the wrong entity. Let me clean this up…"), then re-emits the
+digest. kagent returns that whole turn as one string, and this runner used to
+email it verbatim. `_clean()` reduces the raw reply to the single digest block:
+the CONTRACT asks the agent to wrap its final answer in <<<DIGEST>>>…<<<END>>>
+markers emitted once (primary path); if it ignores them (it does, under tool-call
+pressure) the fallback strips stray markers + narration lines and de-dupes
+repeated blocks. Markers never reach the email.
+
 Data classification: ALL medical reasoning runs on the LOCAL kagent model (qwen on
 the Spark via LiteLLM) and every reading/dose/weight stays in-cluster. The ONE
 thing that leaves the cluster is the short interpretation text in the email
@@ -27,6 +37,7 @@ Env: AGENT_URL AGENT AGENT_NAME TITLE PROMPT
 import datetime
 import json
 import os
+import re
 import sys
 import urllib.request
 
@@ -58,13 +69,78 @@ CONTRACT = (
     "- Keep the WHOLE reply under 900 characters. Light markdown is fine (**bold**, "
     "`code`, `- bullets`, short headings) — no tables, no images; it is rendered "
     "into a themed HTML email.\n"
+    "- Do NOT include any of your working in the reply: no tool-call commentary, no "
+    "self-correction, no notes about what you saved or which memory entity you wrote "
+    "to. Only the finished interpretation — write it once, do not repeat it.\n"
+    "- Wrap your ENTIRE final reply between a line containing exactly <<<DIGEST>>> "
+    "and a line containing exactly <<<END>>>, output that block EXACTLY ONCE, and "
+    "put nothing before or after the markers.\n"
     "- Do NOT call any notify/alert/email tool — THIS job delivers your reply. Just "
     "return the interpretation as your answer."
+)
+
+# The agent wraps its final digest between these markers (the CONTRACT asks for
+# it). We strip them before emailing — they never reach the email body.
+_DIGEST_START = "<<<DIGEST>>>"
+_DIGEST_END = "<<<END>>>"
+
+# First-person working-narration the local model leaks between tool calls
+# ("I see the observation was appended to the wrong entity. Let me clean this
+# up…"). Only stripped on the FALLBACK path — when the agent ignored the markers,
+# so it has already misbehaved and best-effort cleanup beats emailing the raw turn.
+_NARRATION_RE = re.compile(
+    r"^\s*(?:I|I'm|I've|I'll|I'd|Let me|Let's|Now|Okay|OK|Wait|Actually|First|Next|"
+    r"Then|Hmm|So I|Looking|Checking|Searching|Appending|Adding|Creating)\b",
+    re.IGNORECASE,
 )
 
 
 def log(m):
     print(m, flush=True)
+
+
+def _dedupe_blocks(text):
+    """Collapse exactly-repeated paragraphs (blank-line separated), preserving
+    first-occurrence order. Catches the model emitting the same block twice."""
+    seen = set()
+    out = []
+    for para in re.split(r"\n\s*\n", text):
+        norm = re.sub(r"\s+", " ", para).strip().lower()
+        if not norm or norm in seen:
+            continue
+        seen.add(norm)
+        out.append(para.strip())
+    return "\n\n".join(out)
+
+
+def _clean(text):
+    """Reduce the agent's raw reply to the single digest block we email.
+
+    Primary: take the LAST complete <<<DIGEST>>>…<<<END>>> block (robust to the
+    model re-emitting it) and strip the markers.
+
+    Fallback (markers absent — the local qwen does this under tool-call pressure):
+    drop stray marker lines, strip first-person working-narration lines, and
+    de-duplicate repeated blocks. Never returns empty for non-empty input.
+    """
+    if not text or not text.strip():
+        return text
+    s = text.strip()
+
+    if _DIGEST_START in s:
+        start = s.rfind(_DIGEST_START) + len(_DIGEST_START)
+        end = s.find(_DIGEST_END, start)
+        inner = (s[start:end] if end != -1 else s[start:]).strip()
+        if inner:
+            return inner
+
+    lines = [
+        ln for ln in s.splitlines()
+        if _DIGEST_START not in ln and _DIGEST_END not in ln
+        and not _NARRATION_RE.match(ln)
+    ]
+    cleaned = _dedupe_blocks("\n".join(lines).strip())
+    return cleaned or s
 
 
 def notify_email(subject, body):
@@ -81,6 +157,9 @@ def main():
     day = datetime.date.today().isoformat()
 
     text, state = a2a_client.call_agent(AGENT_URL, AGENT, prompt, budget=BUDGET, message_id="crusher-review")
+    # Strip the agent's working-narration / duplicate blocks down to the digest
+    # before anything downstream sees it (see module docstring + _clean).
+    text = _clean(text)
 
     # Unreachable agent / unreachable model backend / slow-non-terminal / empty:
     # stay silent (the weekly cadence tolerates a skipped run). a2a_client never

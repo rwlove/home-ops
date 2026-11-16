@@ -1,0 +1,60 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: adventurelog-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: adventurelog
+  # Additive — default-deny (collab ns) triggers the lockdown; these rules
+  # punch holes through it. DNS + intra-namespace are covered by the baseline
+  # network-policy component.
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    # CNPG cluster postgres-adventurelog in databases ns.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: databases
+            cnpg.io/cluster: postgres-adventurelog
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    # OIDC (Authelia) AND the Immich integration both reach their targets by
+    # external URL (auth.${SECRET_DOMAIN} / photos.${SECRET_DOMAIN}): split-
+    # horizon DNS returns the envoy LB IP, and Cilium socket-lb rewrites the
+    # connect() to the envoy pod containerPort 10443 BEFORE policy evaluation,
+    # so the rule must allow the envoy pod on 10443 — NOT world:443 (doesn't
+    # match cluster LB IPs) and NOT authelia:9091 directly. Mirrors paperless.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "10443"
+              protocol: TCP
+    # Verification / password-reset email via the shared internal SMTP relay in
+    # home ns (no auth, port 2525) — same target as monica/lldap/authelia.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: home
+            app.kubernetes.io/name: smtp-relay
+      toPorts:
+        - ports:
+            - port: "2525"
+              protocol: TCP
+  ingress:
+    # Internal Gateway → adventurelog monolith nginx :80.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP

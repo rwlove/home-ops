@@ -30,7 +30,7 @@ The load-bearing design points:
 
 ## Workflows
 
-18 CronJobs today (`cronjob-*.yaml`; the files are authoritative for exact
+19 CronJobs today (`cronjob-*.yaml`; the files are authoritative for exact
 schedules). They fall into three groups:
 
 **Operator triage / doer** — per-domain health surfacing and remediation
@@ -49,6 +49,10 @@ persona):
 - `cooter-recall` — NHTSA recall watch for the fleet · `cooter-reminder-digest`
 - `crusher-review` — weekly health-trend review · `crusher-weight-sync` — daily
   PUMP→Medikeep weight reconcile
+- `radar-morning-brief` — daily chief-of-staff brief (today's calendar + open
+  PRs; the Vikunja Fleet Todos backlog is not yet reachable from this tier —
+  see `cronjob-radar-morning-brief.yaml`'s header comment). Ships suspended
+  pending Robert's review (new outbound-email agent).
 - `vila-warranty-digest` — property warranty/expiry surfacing
 - `warren-plan-refresh` — finance plan refresh
 

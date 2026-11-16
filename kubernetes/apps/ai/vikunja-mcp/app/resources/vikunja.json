@@ -1,0 +1,96 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Vikunja (fleet-todo scope, READ-ONLY)",
+    "description": "Hand-authored OpenAPI subset of the Vikunja REST API (go-vikunja 2.8.0), scoped to read-only access over the agent fleet's 'Fleet Todos' project: list/get projects, list/get tasks within a project, get a single task, and list labels. Deliberately excludes every create/update/delete operation (no POST/PUT/DELETE paths are declared) so this bridge cannot mutate the fleet todo store — mutation stays on the laptop `_shared/vikunja.py` curl path under the `fleet` user's full token scope. Authentication is a static Authorization: Bearer <token> header injected by the openapi-mcp bridge (not declared here) using the same `fleet_token` the laptop helper uses.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    { "url": "http://vikunja.collab.svc.cluster.local:3456", "description": "in-cluster Vikunja (overridden at runtime by --base-url)" }
+  ],
+  "tags": [
+    { "name": "project", "description": "Vikunja projects (the fleet uses one shared 'Fleet Todos' project)" },
+    { "name": "task", "description": "Tasks within a project, each labelled with an owning persona" },
+    { "name": "label", "description": "Labels (one per owning persona, per the fleet todo contract)" }
+  ],
+  "paths": {
+    "/api/v1/projects": {
+      "get": {
+        "operationId": "getProjects",
+        "summary": "List projects. Use this to find the 'Fleet Todos' project id by title match.",
+        "tags": ["project"],
+        "parameters": [
+          { "name": "page", "in": "query", "required": false, "schema": { "type": "integer" }, "description": "1-based page number" },
+          { "name": "per_page", "in": "query", "required": false, "schema": { "type": "integer" }, "description": "Page size" },
+          { "name": "s", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Search by title" }
+        ],
+        "responses": { "200": { "description": "Array of projects" } }
+      }
+    },
+    "/api/v1/projects/{id}": {
+      "get": {
+        "operationId": "getProject",
+        "summary": "Get one project by id.",
+        "tags": ["project"],
+        "parameters": [ { "$ref": "#/components/parameters/projectId" } ],
+        "responses": { "200": { "description": "Project" } }
+      }
+    },
+    "/api/v1/projects/{id}/tasks": {
+      "get": {
+        "operationId": "getProjectTasks",
+        "summary": "List tasks in a project (paginated). Each task carries `labels[]` (the owning persona's label) and `done`/`due_date`/`priority`. This is the fleet todo backlog read path.",
+        "tags": ["task"],
+        "parameters": [
+          { "$ref": "#/components/parameters/projectId" },
+          { "name": "page", "in": "query", "required": false, "schema": { "type": "integer" }, "description": "1-based page number" },
+          { "name": "per_page", "in": "query", "required": false, "schema": { "type": "integer" }, "description": "Page size" },
+          { "name": "s", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Search by title" },
+          { "name": "filter", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Vikunja filter expression, e.g. done = false" },
+          { "name": "sort_by", "in": "query", "required": false, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Array of tasks" } }
+      }
+    },
+    "/api/v1/tasks/{id}": {
+      "get": {
+        "operationId": "getTask",
+        "summary": "Get one task by id (full detail incl. description, labels, due_date, priority, done).",
+        "tags": ["task"],
+        "parameters": [ { "$ref": "#/components/parameters/taskId" } ],
+        "responses": { "200": { "description": "Task" } }
+      }
+    },
+    "/api/v1/labels": {
+      "get": {
+        "operationId": "getLabels",
+        "summary": "List labels. The fleet convention is one label per owning persona plus `robert-action`.",
+        "tags": ["label"],
+        "parameters": [
+          { "name": "page", "in": "query", "required": false, "schema": { "type": "integer" } },
+          { "name": "per_page", "in": "query", "required": false, "schema": { "type": "integer" } },
+          { "name": "s", "in": "query", "required": false, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Array of labels" } }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "projectId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "integer" },
+        "description": "Vikunja project id"
+      },
+      "taskId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "integer" },
+        "description": "Vikunja task id"
+      }
+    }
+  }
+}

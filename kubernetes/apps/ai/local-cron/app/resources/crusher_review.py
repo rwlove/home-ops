@@ -50,6 +50,7 @@ import urllib.request
 
 import a2a_client
 import memory_mcp_client
+from english_gate import is_non_english
 
 AGENT_URL = os.environ["AGENT_URL"]
 # The real kagent Agent CR name (namespace `ai`) to invoke via AGENT_URL's MCP
@@ -193,6 +194,16 @@ def main():
     if not text:
         log("no agent text (state=%s) — silent skipped run; next week retries" % state)
         log("CRUSHER_REVIEW_RESULT=skipped agent=%s state=%s" % (AGENT_NAME, state))
+        return 0
+
+    # English-only send-gate (shared english_gate; home-ops#15899). A CJK-drifted reply
+    # is useless to Rob AND must not be written into the weekly memory entity, so skip
+    # BOTH the email and the memory write — treat it as a skipped run (the weekly cadence
+    # retries). Suppress silently; never page.
+    if is_non_english(text):
+        log("non-English reply (CJK detected) — English-only contract violated; "
+            "skipped run (no email, no memory write)")
+        log("CRUSHER_REVIEW_RESULT=skipped-non-english agent=%s state=%s" % (AGENT_NAME, state))
         return 0
 
     log("----- %s (state=%s) -----" % (TITLE, state))

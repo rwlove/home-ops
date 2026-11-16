@@ -38,6 +38,7 @@ Stdlib only. Config via env:
 """
 import json
 import os
+import re
 import sys
 import threading
 import urllib.parse
@@ -68,6 +69,39 @@ MAX_PREGATHER_PODS = 5
 MAX_PREGATHER_NODES = 4
 
 _sem = threading.BoundedSemaphore(MAX_INFLIGHT)
+
+# English-only send-gate. The local model intermittently drifts into a non-English
+# language mid-reply despite the prompt contract (seen live 2026-11-16: a full-Chinese
+# FluxHelmReleaseStalled enrichment reached Rob's inbox). Rob reads English only, so a
+# CJK-bearing body must NEVER reach the email sink. This is the SAME deterministic gate
+# the scheduled triage harness already enforces (local-cron/app/resources/triage_run.py,
+# home-ops#15899) — the bridge is intentionally dependency-free (no shared import), so
+# the mechanism is mirrored inline, not imported. Fixing this in the harness rather than
+# by prompt-steering alone is the standing rule: the local model won't reliably obey the
+# instruction, so the send path must enforce it. Ranges are integer codepoints so the
+# source stays plain ASCII; threshold >=3 clears an odd stray fullwidth glyph while
+# catching any real drift (which runs to hundreds of CJK chars).
+_CJK_RANGES = (
+    (0x3040, 0x30FF),  # Hiragana + Katakana
+    (0x3400, 0x4DBF),  # CJK Unified Ext-A
+    (0x4E00, 0x9FFF),  # CJK Unified
+    (0xAC00, 0xD7AF),  # Hangul syllables
+    (0xFF00, 0xFFEF),  # Halfwidth + Fullwidth forms
+)
+_CJK = re.compile(
+    "[" + "".join("%s-%s" % (chr(lo), chr(hi)) for lo, hi in _CJK_RANGES) + "]")
+
+# Corrective preface for the single re-ask when the first reply drifted non-English.
+_CORRECTIVE_PREFACE = (
+    "Your previous reply contained non-English (CJK) text. Reply in ENGLISH ONLY — "
+    "every word, plain ASCII, no exceptions. Now redo the triage:\n\n"
+)
+
+
+def is_non_english(text):
+    """True when the reply carries a meaningful amount of CJK text — the known
+    local-model language-drift failure. Re-asked once, then suppressed."""
+    return len(_CJK.findall(text)) >= 3
 
 
 def log(msg):
@@ -232,7 +266,8 @@ def _agent_prompt(alerts):
         "under heavy file I/O (a headroom gap, not a leak) — do not treat it as a "
         "contradiction to explain away. This is a one-way enrichment note that "
         "rides alongside the page AlertManager already sent — nobody can reply, so never ask "
-        "a question. If it's all benign/known noise, say so briefly. Keep the whole reply "
+        "a question. If it's all benign/known noise, say so briefly. Reply in ENGLISH "
+        "ONLY — every word, plain ASCII. Keep the whole reply "
         "under 1400 characters, plain text, no markdown.\n\nFiring alerts:\n" + listing + evidence
     )
 
@@ -336,6 +371,23 @@ def _handle(payload):
         if not text:
             log("agent returned no text for [%s]" % names)
             return
+        # English-only send-gate. If the reply drifted into CJK, re-ask ONCE with a
+        # corrective preface (a fresh message_id -> fresh session), then suppress if it
+        # still drifts. Suppressing loses only supplemental context, never the page —
+        # AlertManager paged this alert independently (continue: true on the forwarding
+        # route), the same load-bearing assumption the agent-failure branch above relies on.
+        if is_non_english(text):
+            log("non-English reply (CJK detected) for [%s] — re-asking once "
+                "with corrective preface" % names)
+            try:
+                text = _call_agent(_CORRECTIVE_PREFACE + _agent_prompt(alerts))
+            except Exception as e:  # noqa: BLE001
+                log("re-ask failed for [%s]: %r — enrichment suppressed" % (names, e))
+                return
+            if not text or is_non_english(text):
+                log("reply still non-English after re-ask for [%s] — enrichment "
+                    "suppressed (English-only; AlertManager paged independently)" % names)
+                return
         _notify("kagent enrichment: %s" % names, text)
         log("enrichment sent for [%s]" % names)
     finally:

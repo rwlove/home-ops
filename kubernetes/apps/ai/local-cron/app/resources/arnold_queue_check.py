@@ -29,6 +29,7 @@ import sys
 import urllib.request
 
 import a2a_client
+from english_gate import is_non_english
 
 AGENT_URL = os.environ["AGENT_URL"]
 # The real kagent Agent CR name (namespace `ai`) to invoke via AGENT_URL's MCP
@@ -100,6 +101,14 @@ def main():
     if not msg:
         log("REMIND: with empty message — no email")
         log("ARNOLD_QUEUE_RESULT=none agent=%s state=%s" % (AGENT_NAME, state))
+        return 0
+
+    # English-only send-gate (shared english_gate; home-ops#15899). A REMIND verdict whose
+    # message drifted into CJK (mixed-language reply that still passed the REMIND: gate) is
+    # unreadable to Rob — no email. The daily cadence re-surfaces a still-stale queue.
+    if is_non_english(msg):
+        log("non-English reminder (CJK detected) — English-only contract violated; no email")
+        log("ARNOLD_QUEUE_RESULT=none-non-english agent=%s state=%s" % (AGENT_NAME, state))
         return 0
 
     log("----- %s (state=%s) -----" % (TITLE, state))

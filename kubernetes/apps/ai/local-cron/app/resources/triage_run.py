@@ -57,6 +57,7 @@ import urllib.request
 
 import a2a_client
 import longhorn_verify
+from english_gate import is_non_english
 
 # The tag must LEAD a line, but tolerate the light markdown the CONTRACT permits
 # (**bold**, ## heading, > quote, list dash) — a `**PROBLEM**` finding must NOT be
@@ -79,30 +80,13 @@ _NEGATION = re.compile(
     r"(?i)^[ \t:*_`.–—-]*(none|no\b|nothing|n/?a|all[ \t]*clear|no problem|no issue)"
 )
 
-# The local qwen model intermittently drifts into a non-English language mid-reply
-# despite the English-only contract (seen live 2026-11-13: a full-Chinese storage
-# sweep). Such a reply is useless to the reader (English only) AND defeats the
-# English-anchored tag heuristics above, so a CJK-bearing body must NEVER reach the
-# email sink — even when it leads with a correct English `PROBLEM:` tag. Built from
-# integer codepoint ranges so the source stays plain ASCII (no literal CJK glyphs
-# or \u escapes to mangle on edit). Threshold >=3 clears the odd stray fullwidth
-# glyph while catching any real drift (which runs to hundreds of CJK chars).
-_CJK_RANGES = (
-    (0x3040, 0x30FF),  # Hiragana + Katakana
-    (0x3400, 0x4DBF),  # CJK Unified Ext-A
-    (0x4E00, 0x9FFF),  # CJK Unified
-    (0xAC00, 0xD7AF),  # Hangul syllables
-    (0xFF00, 0xFFEF),  # Halfwidth + Fullwidth forms
-)
-_CJK = re.compile(
-    "[" + "".join("%s-%s" % (chr(lo), chr(hi)) for lo, hi in _CJK_RANGES) + "]")
-
-
-def is_non_english(text):
-    """True when the reply carries a meaningful amount of CJK text — the known
-    local-model language-drift failure. Treated as an adherence miss (malformed):
-    re-asked once, then silent. Rob reads English only."""
-    return len(_CJK.findall(text)) >= 3
+# English-only send-gate. The local qwen model intermittently drifts into a non-English
+# language mid-reply despite the English-only contract (seen live 2026-11-13: a full-Chinese
+# storage sweep). Such a reply is useless to the reader (English only) AND defeats the
+# English-anchored tag heuristics above, so a CJK-bearing body must NEVER reach the email
+# sink — even when it leads with a correct English `PROBLEM:` tag. The gate itself now lives
+# in the shared english_gate module (is_non_english, imported at top; home-ops#15899,
+# centralized 2026-11-16) so the sibling senders enforce the identical rule.
 
 
 def classify_tag(text):

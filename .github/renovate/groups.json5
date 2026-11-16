@@ -7,6 +7,25 @@
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
   packageRules: [
     {
+      // UNGROUP the pinDigests sweep. Renovate's default config assigns every
+      // pin/pinDigest update a shared groupName ("Pin Dependencies"), so all
+      // ~100 first-time digest pins (pinDigests:true, renovate.json5) land in a
+      // SINGLE branch, renovate/pin-dependencies. Building that one branch has
+      // to resolve a digest for every dep at once, so a single dep whose digest
+      // can't be resolved fails getUpdatedPackageFiles and the WHOLE branch
+      // errors ("Error updating branch: update failure", dashboard #10329) —
+      // the branch never even reaches the remote and zero pins land, retrying
+      // forever. groupName:null splits the sweep into one branch per pin, so a
+      // bad dep only fails its own PR (and surfaces in isolation) while the rest
+      // auto-merge (autoMerge.json5 pinDigest rule) and trickle under the
+      // prConcurrentLimit/prHourlyLimit caps — which is what renovate.json5's
+      // "initial pin sweep trickles" comment already assumed. See memory
+      // reference_renovate_pindigest_vs_digest_automerge (#15952).
+      description: "Ungroup the pinDigest sweep — one pin per PR, not one fragile combined branch",
+      matchUpdateTypes: ["pin", "pinDigest"],
+      groupName: null,
+    },
+    {
       description: "1Password Connect Group",
       groupName: "1Password Connect",
       matchDatasources: ["docker"],

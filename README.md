@@ -16,11 +16,11 @@ _Production-grade Kubernetes for a household._
 
 <br/>
 
-![apps](https://img.shields.io/badge/apps-221-blue?style=for-the-badge)
-![helmreleases](https://img.shields.io/badge/HelmReleases-215-326CE5?style=for-the-badge&logo=helm&logoColor=white)
+![apps](https://img.shields.io/badge/apps-222-blue?style=for-the-badge)
+![helmreleases](https://img.shields.io/badge/HelmReleases-216-326CE5?style=for-the-badge&logo=helm&logoColor=white)
 ![nodes](https://img.shields.io/badge/k8s_nodes-11-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white)
-![cnpg](https://img.shields.io/badge/Postgres_clusters-28-336791?style=for-the-badge&logo=postgresql&logoColor=white)
-![secrets](https://img.shields.io/badge/secrets-69-0572EC?style=for-the-badge&logo=1password&logoColor=white)
+![cnpg](https://img.shields.io/badge/Postgres_clusters-29-336791?style=for-the-badge&logo=postgresql&logoColor=white)
+![secrets](https://img.shields.io/badge/secrets-70-0572EC?style=for-the-badge&logo=1password&logoColor=white)
 ![age](https://img.shields.io/badge/cluster_age-5%2B_years-success?style=for-the-badge)
 
 </div>

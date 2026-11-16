@@ -1,0 +1,123 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: adventurelog
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+
+  interval: 30m
+  values:
+    controllers:
+      adventurelog:
+        annotations:
+          reloader.stakater.com/auto: "true"
+
+        type: statefulset
+
+        pod:
+          securityContext:
+            fsGroup: 1000
+            fsGroupChangePolicy: OnRootMismatch
+
+        containers:
+          app:
+            image:
+              repository: ghcr.io/seanmorley15/adventurelog
+              tag: v0.13.1
+            env:
+              # Single public URL — derives ORIGIN / FRONTEND_URL / PUBLIC_URL /
+              # CSRF_TRUSTED_ORIGINS when those are unset.
+              SITE_URL: "https://adventurelog.${SECRET_DOMAIN}"
+              # Internal frontend port (monolith nginx fronts the app on :80).
+              PORT: "3000"
+              # Local signups off — accounts come via Authelia OIDC (SSO) or the
+              # first-boot admin; this is an internal-only, household app.
+              DISABLE_REGISTRATION: "True"
+              # Database — host/db are deterministic; user/pass from the CNPG
+              # app secret reflected into this namespace.
+              PGHOST: postgres-adventurelog-rw.databases.svc.cluster.local
+              POSTGRES_DB: adventurelog
+              POSTGRES_USER:
+                valueFrom:
+                  secretKeyRef:
+                    name: postgres-adventurelog-app
+                    key: username
+              POSTGRES_PASSWORD:
+                valueFrom:
+                  secretKeyRef:
+                    name: postgres-adventurelog-app
+                    key: password
+              # First-boot Django superuser (log in, then add the OIDC Social
+              # Application + per-user Immich link in the admin panel).
+              DJANGO_ADMIN_USERNAME: admin
+              DJANGO_ADMIN_EMAIL: "admin@${SECRET_DOMAIN}"
+              DJANGO_ADMIN_PASSWORD:
+                valueFrom:
+                  secretKeyRef:
+                    name: adventurelog-secret
+                    key: DJANGO_ADMIN_PASSWORD
+              SECRET_KEY:
+                valueFrom:
+                  secretKeyRef:
+                    name: adventurelog-secret
+                    key: SECRET_KEY
+
+            resources:
+              requests:
+                cpu: 25m
+                memory: 512Mi
+              limits:
+                # 2Gi for the first-boot world-geography import; steady-state ~1Gi.
+                memory: 2Gi
+
+            securityContext:
+              # v0.13.1 is a single monolith image (nginx + gunicorn + SvelteKit
+              # under supervisor) that writes across its rootfs and binds :80, so
+              # a non-root / read-only-rootfs config isn't validated yet. Harden
+              # after a first-boot write-path audit — tracked in a Vikunja todo +
+              # project_fogg_travel_agent memory. Deviation from
+              # helmrelease.security.md defaults, documented per that file.
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: false
+              capabilities:
+                drop:
+                  - ALL
+                add:
+                  - NET_BIND_SERVICE
+              seccompProfile:
+                type: RuntimeDefault
+
+    service:
+      app:
+        controller: adventurelog
+        ports:
+          http:
+            port: &httpPort 80
+
+    route:
+      app:
+        annotations:
+          glance/name: "AdventureLog"
+          glance/show: "true"
+          glance/icon: "https://cdn.jsdelivr.net/gh/selfhst/icons/png/adventurelog.png"
+          glance/id: "Collaboration"
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: *httpPort
+
+    persistence:
+      media:
+        existingClaim: adventurelog-media-pvc
+        globalMounts:
+          - path: /code/media

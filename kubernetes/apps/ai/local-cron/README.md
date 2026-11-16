@@ -51,8 +51,8 @@ persona):
   PUMP→Medikeep weight reconcile
 - `radar-morning-brief` — daily chief-of-staff brief (today's calendar + open
   PRs; the Vikunja Fleet Todos backlog is not yet reachable from this tier —
-  see `cronjob-radar-morning-brief.yaml`'s header comment). Ships suspended
-  pending Robert's review (new outbound-email agent).
+  see `cronjob-radar-morning-brief.yaml`'s header comment). Live on merge
+  (Robert approved shipping directly, 2026-11-16).
 - `vila-warranty-digest` — property warranty/expiry surfacing
 - `warren-plan-refresh` — finance plan refresh
 

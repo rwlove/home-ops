@@ -42,6 +42,7 @@ import sys
 import threading
 import urllib.parse
 import urllib.request
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # kagent 1.0's ATE rewrite removed the per-agent Deployment + Service + raw-A2A
@@ -264,7 +265,13 @@ def _call_agent(prompt):
             "arguments": {
                 "agent": {"namespace": "ai", "name": AGENT},
                 "message": prompt,
-                "message_id": "alert-bridge",
+                # message_id is a STICKY SESSION KEY in the kagent controller, not a
+                # request id (home-ops#15934 / project_kagent_broker_handshake_stale_catalog
+                # in memory) — reusing a constant here made every invocation replay the
+                # first-ever cached task result ("PONG", from a connectivity smoke test)
+                # instead of running fresh triage. Unique per call, mirroring the fix
+                # already applied in local-cron/app/resources/a2a_client.py.
+                "message_id": "alert-bridge-%s" % uuid.uuid4(),
             },
         },
     }).encode()

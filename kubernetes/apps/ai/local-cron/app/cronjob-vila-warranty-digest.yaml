@@ -9,8 +9,8 @@ metadata:
 spec:
   # vila (property/utilities steward) — weekly warranty-expiry + maintenance-due
   # watch. Reads HomeBox entities (warrantyExpires) and Grocy chores/batteries
-  # (next-estimated) AT RUNTIME (so no private property facts live in this PUBLIC
-  # repo) and emails Rob ONE ACTIONABLE message PER concern via notify-mcp /send
+  # AT RUNTIME (so no private property facts live in this PUBLIC repo) and
+  # emails Rob ONE ACTIONABLE message PER concern via notify-mcp /send
   # (agent=vila): what to do, the step-by-step PROCEDURE (pulled from the Grocy
   # chore's own description), and how to clear it, with deep links. Silent when
   # nothing is due. Deterministic: no LLM, no k8s API.
@@ -18,7 +18,14 @@ spec:
   # HomeBox here is the sysadminsmedia fork (v0.26): API is /api/v1/entities
   # (+ per-entity detail for warrantyExpires), NOT the classic /api/v1/items.
   #
-  # Tested 2026-11-03 → unsuspended.
+  # Chore due-ness is SELF-COMPUTED (see the inline NOTE at the chore block
+  # below) rather than trusted from Grocy's next_estimated_execution_time,
+  # which this build nulls out the moment a chore is ever tracked. Batteries
+  # still read next_estimated_charge_time — unaffected, untouched here.
+  #
+  # Tested 2026-11-03 → unsuspended. Chore-due logic fixed + re-verified
+  # against live data 2026-11-16 (see memory
+  # feedback_grocy_chore_next_due_null_after_execution).
   suspend: false
   schedule: "0 8 * * 1"
   timeZone: America/New_York
@@ -103,12 +110,68 @@ spec:
                   done
 
                   # ---- Grocy chores due within CHORE_WINDOW (keep chore_id) ---
+                  # NOTE (2026-11-16): this Grocy build's /api/chores
+                  # next_estimated_execution_time goes NULL the moment a
+                  # chore has ANY tracked execution (confirmed across
+                  # period_type/period_config combos on live chore 9
+                  # "Gutters -- clean" + a disposable test chore -- an
+                  # app bug, not a config error; see memory
+                  # feedback_grocy_chore_next_due_null_after_execution).
+                  # Before any execution that field is just start_date
+                  # verbatim, not a real projection either. So: self-
+                  # compute due-ness from the fields that ARE reliable --
+                  #   due = last_tracked_time (or start_date if never
+                  #   tracked) + one period step, where the step comes
+                  #   from period_type/period_interval/period_days.
                   CH="$$(curl -sS --max-time 30 -H "GROCY-API-KEY: $${GROCY_API_KEY}" \
                           "$$GR/api/chores")" || CH='[]'
-                  printf '%s' "$$CH" | jq -r '.[]? | [ (.next_estimated_execution_time // ""), (.chore_name // ""), ((.chore_id|tostring) // "") ] | @tsv' 2>/dev/null > /tmp/gr.tsv || : > /tmp/gr.tsv
-                  while IFS="$$TAB" read -r WHEN NAME CID; do
-                    [ -z "$$WHEN" ] && continue
-                    WD="$${WHEN%% *}"
+                  CFG="$$(curl -sS --max-time 30 -H "GROCY-API-KEY: $${GROCY_API_KEY}" \
+                          "$$GR/api/objects/chores")" || CFG='[]'
+                  jq -n --argjson ch "$$CH" --argjson cfg "$$CFG" -r '
+                    ($$cfg | map({(.id|tostring): .}) | add) as $$cfgmap
+                    | $$ch[]?
+                    | ($$cfgmap[(.chore_id|tostring)]) as $$c
+                    | select($$c != null)
+                    | select(($$c.active // 1) == 1)
+                    | [ (.chore_name // ""),
+                        ($$c.period_type // "-"),
+                        (($$c.period_interval // 1) | tostring),
+                        (($$c.period_days // 0) | tostring),
+                        ($$c.start_date // "-"),
+                        ((.last_tracked_time // "") | if length > 10 then .[0:10] else "-" end),
+                        (.chore_id | tostring) ]
+                    | @tsv
+                  ' 2>/dev/null > /tmp/gr.tsv || : > /tmp/gr.tsv
+                  while IFS="$$TAB" read -r NAME PTYPE PINT PDAYS SDATE LTRACK CID; do
+                    [ -z "$$NAME" ] && continue
+                    [ "$$LTRACK" = "-" ] && LTRACK=""
+                    [ "$$SDATE" = "-" ] && SDATE=""
+                    BASE="$$LTRACK"; [ -z "$$BASE" ] && BASE="$$SDATE"
+                    [ -z "$$BASE" ] && continue
+                    if [ -z "$$LTRACK" ]; then
+                      # never executed -- due date is the raw start_date
+                      WD="$$BASE"
+                    else
+                      case "$$PTYPE" in
+                        daily|dynamic-regular)
+                          STEP="$${PDAYS:-1}"
+                          WD="$$(date -d "$$BASE + $$((STEP * PINT)) days" +%F 2>/dev/null || echo '')"
+                          ;;
+                        weekly)
+                          WD="$$(date -d "$$BASE + $$((7 * PINT)) days" +%F 2>/dev/null || echo '')"
+                          ;;
+                        monthly)
+                          WD="$$(date -d "$$BASE + $$PINT months" +%F 2>/dev/null || echo '')"
+                          ;;
+                        yearly)
+                          WD="$$(date -d "$$BASE + $$PINT years" +%F 2>/dev/null || echo '')"
+                          ;;
+                        manually|*)
+                          WD=""  # no automatic schedule -- never auto-flagged
+                          ;;
+                      esac
+                    fi
+                    [ -z "$$WD" ] && continue
                     EPOCH="$$(date -d "$$WD" +%s 2>/dev/null || echo '')"
                     [ -z "$$EPOCH" ] && continue
                     DAYS="$$(( (EPOCH - NOW) / 86400 ))"

@@ -75,18 +75,28 @@ spec:
                 memory: 2Gi
 
             securityContext:
-              # v0.13.1 is a single monolith image (nginx + gunicorn + SvelteKit
-              # under supervisor) that writes across its rootfs and binds :80, so
-              # a non-root / read-only-rootfs config isn't validated yet. Harden
-              # after a first-boot write-path audit — tracked in a Vikunja todo +
-              # project_fogg_travel_agent memory. Deviation from
-              # helmrelease.security.md defaults, documented per that file.
-              allowPrivilegeEscalation: false
+              # v0.13.1 is a single monolith image that runs as root under
+              # supervisor (nginx + memcached + gunicorn + SvelteKit) and drops
+              # its workers to `nobody` (65534). First-boot audit: a drop-ALL /
+              # non-root config FATALs nginx + memcached at boot
+              # (chown "/var/lib/nginx/body" + setuid/setgroups to nobody =>
+              # "Operation not permitted"). It needs CHOWN/SETUID/SETGID/SETPCAP
+              # to drop privileges, DAC_OVERRIDE/FOWNER for its runtime dirs, and
+              # NET_BIND_SERVICE for :80, with privilege-escalation allowed and a
+              # writable rootfs. Documented deviation from helmrelease.security.md
+              # (upstream image is not non-root/read-only-rootfs capable).
+              allowPrivilegeEscalation: true
               readOnlyRootFilesystem: false
               capabilities:
                 drop:
                   - ALL
                 add:
+                  - CHOWN
+                  - DAC_OVERRIDE
+                  - FOWNER
+                  - SETGID
+                  - SETUID
+                  - SETPCAP
                   - NET_BIND_SERVICE
               seccompProfile:
                 type: RuntimeDefault

@@ -16,8 +16,8 @@ _Production-grade Kubernetes for a household._
 
 <br/>
 
-![apps](https://img.shields.io/badge/apps-219-blue?style=for-the-badge)
-![helmreleases](https://img.shields.io/badge/HelmReleases-214-326CE5?style=for-the-badge&logo=helm&logoColor=white)
+![apps](https://img.shields.io/badge/apps-221-blue?style=for-the-badge)
+![helmreleases](https://img.shields.io/badge/HelmReleases-215-326CE5?style=for-the-badge&logo=helm&logoColor=white)
 ![nodes](https://img.shields.io/badge/k8s_nodes-11-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white)
 ![cnpg](https://img.shields.io/badge/Postgres_clusters-28-336791?style=for-the-badge&logo=postgresql&logoColor=white)
 ![secrets](https://img.shields.io/badge/secrets-68-0572EC?style=for-the-badge&logo=1password&logoColor=white)
@@ -279,7 +279,7 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 </details>
 
 <details>
-<summary>🔌 <b>MCP Servers</b> — 35 Model Context Protocol servers behind an Authelia-gated gateway</summary>
+<summary>🔌 <b>MCP Servers</b> — 36 Model Context Protocol servers behind an Authelia-gated gateway</summary>
 
 | Server | Exposes |
 |--------|---------|
@@ -303,7 +303,7 @@ Worker nodes attach to **iot** and **sec** VLANs via Multus for direct camera an
 | **ghidra-mcp** | Headless Ghidra + GhidraMCP 2.0 reverse-engineering tools |
 | **notify-mcp** | Outbound notification fan-out (email) for agents + crons |
 
-The balance of the 35 registered servers are **per-domain concierge
+The balance of the 36 registered servers are **per-domain concierge
 backends** (health, vehicles, food, wardrobe, finance, property,
 insurance, music, …) that back the kagent persona fleet — same
 Authelia-gated gateway, omitted here for brevity.

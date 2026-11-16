@@ -17,7 +17,7 @@ Kuadrant mcp-gateway: `docs/src/kagent_mcp_gateway_migration.md`.
 | `app/ocirepository-crds.yaml` + `helmrelease-crds.yaml` | `kagent-crds` chart (CRDs) — installed first |
 | `app/ocirepository.yaml` + `helmrelease.yaml` | `kagent` controller chart (dependsOn crds) |
 | `app/values.yaml` | local-model config + guardrails (fed via `configMapGenerator`) |
-| `app/agent-*.yaml` (17) | the operator + concierge `Agent` CRDs |
+| `app/agent-*.yaml` (18) | the operator + concierge `Agent` CRDs |
 | `app/agenttemplate-*.yaml` (4) | shared `AgentTemplate`s for the operator personas |
 | `app/modelconfig-litellm.yaml` / `modelconfig-vllm-spark.yaml` | `ModelConfig`s pointing at the local model router / Spark |
 | `app/remotemcpserver-mcp-gateway.yaml` | the **single** `RemoteMCPServer` every agent uses (tools federated through the gateway) |
@@ -32,7 +32,7 @@ Chart version **1.0.1** (pinned, CRDs + controller; Renovate bumps the
 
 - **Local inference only.** Agents route through `litellm` (`ai/litellm`) to
   Ollama (P40) and vLLM (Spark) — no cloud provider keys, zero Claude tokens.
-- **Tools via the federated gateway.** All 17 agents consume the single
+- **Tools via the federated gateway.** All 18 agents consume the single
   `mcp-gateway` `RemoteMCPServer`; there are no per-backend `RemoteMCPServer`s
   (that migration completed — see the migration doc above). Egress is granted in
   three layers (substrate `credentialProvider` namespace policies +

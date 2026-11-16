@@ -15,9 +15,10 @@ spec:
   # kagent-controller MCP endpoint. It invokes the in-cluster `radar`
   # chief-of-staff agent over A2A (local model, qwen3.6-35b-a3b on the Spark
   # via LiteLLM, modelConfig `strong`) and asks it to assemble, from its
-  # READ-ONLY tools (calendar-mcp for today's concierge-calendar events,
-  # github-mcp for open home-ops PRs + CI state, memory-mcp for prior-brief
-  # context), ONE ranked morning brief — then DELIVERS it to Robert as a
+  # READ-ONLY tools (vikunja-mcp for the Fleet Todos backlog — this brief's
+  # primary content — calendar-mcp for today's + this week's concierge-
+  # calendar events, github-mcp for open home-ops PRs as an informational
+  # footer), ONE ranked morning brief — then DELIVERS it to Robert as a
   # themed HTML email via notify-mcp (/send) — the same private sink the
   # sibling local-cron digests use; notify-mcp holds the recipient-lock, so
   # it can only email Robert. Unlike the problem-only triage crons this
@@ -25,17 +26,16 @@ spec:
   # a SILENT skipped run (a2a_client never raises) — never a KubeJobFailed
   # page. ALL reasoning stays in-cluster except the short brief text in the
   # email notify-mcp relays to Robert; never a public sink, never a remote
-  # model.
+  # model. No memory-mcp tool is wired to this agent (see agent-radar.yaml's
+  # header comment) — don't reintroduce a "check memory-mcp" instruction here.
   #
-  # Known gap (2026-11-16, see agent-radar.yaml's header comment): the
-  # Vikunja Fleet Todos store and local plan files (the laptop `whats-next`
-  # skill's Source 2 + Source 3) have NO in-cluster MCP backend federated
-  # yet, so this brief covers only calendar + PRs. The agent's systemPrompt
-  # requires it to state that gap by name every run rather than invent or
-  # silently drop the fleet-todo backlog — see the email body's "Backlog"
-  # line. Standing up a vikunja-mcp backend + federating it is tracked
-  # separately (a new-backend onboarding, not a tool-scope tweak); do not
-  # treat its absence as a bug in this job.
+  # Vikunja wiring (2026-11-16, home-ops #15962 + this PR): the Fleet Todos
+  # store is now federated via vikunja-mcp and is the brief's lead content —
+  # Today/This week rank Vikunja tasks ahead of calendar/PRs; open PRs moved
+  # to a plain, unranked footer section. Local plan files (the laptop
+  # `whats-next` skill's Source 2) remain laptop-only with no in-cluster MCP
+  # tool, but that source never fed `whats-next --brief` mode either, so
+  # there is no gap to carry for it.
   #
   # LIVE on merge (2026-11-16, Robert's call — approved shipping directly
   # rather than the suspended-then-unsuspend staging crusher-review used,
@@ -98,14 +98,15 @@ spec:
                 - name: PROMPT
                   value: >-
                     This is today's morning brief. Follow your systemPrompt's
-                    gather/rank/output method exactly: pull today's concierge-
-                    calendar events plus the next 3 days, pull open home-ops
-                    PRs (CI state where available), and check memory-mcp for
-                    any prior-brief context worth carrying forward. Rank per
-                    your systemPrompt (today's calendar, then CI-red PRs, then
-                    CI-green PRs, then the 3-day lookahead), and end with the
-                    one required Backlog line stating the Vikunja/todo backlog
-                    is not visible from this tier. If nothing is actionable
+                    gather/rank method exactly: pull the Vikunja Fleet Todos
+                    backlog (your primary content — tasks due today/overdue,
+                    then due within the next 7 days), pull today's and this
+                    week's concierge-calendar events, and pull open home-ops
+                    PRs (CI state where available) for the footer. Rank per
+                    your systemPrompt (Today: Vikunja due-today/overdue then
+                    today's calendar; This week: Vikunja due within 7 days
+                    then calendar in that window; Open PRs awaiting you: a
+                    plain unranked footer list). If nothing is actionable
                     today, say so in one line.
               resources:
                 requests:

@@ -76,9 +76,18 @@ CONTRACT = (
     "a tool call you actually made. If a source errors or returns nothing where "
     "you expected data, say so by name — never omit the gap silently, never "
     "fill it with a guess.\n"
-    "- Keep the WHOLE reply under 900 characters. Light markdown is fine "
-    "(**bold**, `code`, `- bullets`, short headings) — no tables, no images; it "
-    "is rendered into a themed HTML email.\n"
+    "- STRUCTURE the reply so it SCANS — never one prose paragraph. Emit, in order:\n"
+    "  (a) a `### Today` heading, then one `- ` bullet per actionable item (today's "
+    "calendar events, then CI-red PRs, then CI-green PRs), each bullet LEADING with "
+    "a **bold** label for what it is;\n"
+    "  (b) a `### Coming up` heading, then one `- ` bullet per item in the next 3 "
+    "days; omit this heading entirely if nothing qualifies;\n"
+    "  (c) a final `### Backlog` heading with exactly ONE line stating the Vikunja/"
+    "todo backlog is not visible from this tier. Do NOT write the labels (a)/(b)/(c) "
+    "in the reply.\n"
+    "- Keep the WHOLE reply under 900 characters. Use **bold**, `- bullets`, `code`, "
+    "and short `#`/`##`/`###` headings — no tables, no images; it is rendered into a "
+    "themed HTML email.\n"
     "- Do NOT include any of your working in the reply: no tool-call commentary, "
     "no self-correction. Only the finished brief, written once.\n"
     "- Wrap your ENTIRE final reply between a line containing exactly <<<DIGEST>>> "
@@ -96,6 +105,26 @@ _NARRATION_RE = re.compile(
     r"Then|Hmm|So I|Looking|Checking|Searching|Pulling|Gathering)\b",
     re.IGNORECASE,
 )
+
+# F2 — deterministic backstop for the systemPrompt's required gap line. The
+# model is asked to always state the Vikunja/todo-backlog gap in a "###
+# Backlog" section; a weak local model can drop it under tool-call pressure
+# (the same class of omission crusher_review.py's memory-write backstop
+# exists for). Cheap sentinel check, NOT fabrication detection: if nothing
+# mentioning Vikunja/the fleet-todo backlog survived `_clean()`, append the
+# canned gap line deterministically rather than trust the model said it.
+_GAP_SENTINEL_RE = re.compile(r"vikunja|fleet[- ]todo", re.IGNORECASE)
+_CANNED_GAP_LINE = (
+    "\n\n### Backlog\nVikunja Fleet Todos backlog not visible from this tier "
+    "(no MCP backend federated yet) — see the laptop `whats-next --brief` run."
+)
+
+
+def _ensure_gap_line(text):
+    if _GAP_SENTINEL_RE.search(text or ""):
+        return text
+    log("WARN: agent reply missing the Vikunja-gap sentinel — appending the canned line")
+    return (text or "").rstrip() + _CANNED_GAP_LINE
 
 
 def log(m):
@@ -149,8 +178,21 @@ def notify_email(subject, body):
 
 
 def main():
-    prompt = os.environ["PROMPT"].strip() + CONTRACT
-    day = datetime.date.today().isoformat()
+    # The container's TZ=America/New_York env makes date.today() the correct
+    # ET calendar date (same tz handling the email-subject `day` below already
+    # relies on). Inject the REAL date + an explicit window into the prompt so
+    # the model never guesses "today" — F3: a weak local model asked to find
+    # "today's" events with no date anchor will happily hallucinate one.
+    today = datetime.date.today()
+    window_end = today + datetime.timedelta(days=3)
+    date_context = (
+        "Today's actual date is %s (America/New_York). Query the calendar for "
+        "events from %s through %s inclusive. Do NOT assume, guess, or carry "
+        "over any other date — use exactly this one.\n\n"
+        % (today.isoformat(), today.isoformat(), window_end.isoformat())
+    )
+    prompt = date_context + os.environ["PROMPT"].strip() + CONTRACT
+    day = today.isoformat()
 
     text, state = a2a_client.call_agent(AGENT_URL, AGENT, prompt, budget=BUDGET, message_id="radar-brief")
     text = _clean(text)
@@ -159,6 +201,10 @@ def main():
         log("no agent text (state=%s) — silent skipped run; tomorrow retries" % state)
         log("RADAR_BRIEF_RESULT=skipped agent=%s state=%s" % (AGENT_NAME, state))
         return 0
+
+    # F2 — deterministic backstop: the model is required to state the
+    # Vikunja/todo-backlog gap every run; don't just trust it did.
+    text = _ensure_gap_line(text)
 
     log("----- %s (state=%s) -----" % (TITLE, state))
     log(text)

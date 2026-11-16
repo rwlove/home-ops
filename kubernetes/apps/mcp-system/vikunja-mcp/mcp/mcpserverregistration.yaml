@@ -11,17 +11,48 @@ spec:
     kind: HTTPRoute
     name: vikunja-mcp
   prefix: vikunja_
-  # Only 2026-07-28 — the broker's 2025-11-25 router ("router-202511")
-  # requires a session handshake (Mcp-Session-Id) to succeed before it will
-  # proxy a tools/call; mcp-openapi-proxy (this backend's image) is natively
-  # session-less under EVERY protocol version it declares (no initialize, no
-  # Mcp-Session-Id, Connection: close) per its own docs. Declaring
-  # "2025-11-25" here let the broker pick that version for a live client
-  # session, which then failed instantly with "failed to get remote session:
-  # failed to create client: context canceled" (surfaced to the agent as a
-  # misleading "Gateway Timeout") — discovery still worked (catalog polling
-  # uses a different, working path), masking this until radar's first real
-  # tools/call. Dropping the version this backend can't actually honor forces
-  # negotiation onto 2026-07-28, which it fully supports.
+  # CORRECTED 2026-11-16, superseding the single-version comment this
+  # replaces (home-ops #15975). That fix was WRONG and is reverted here.
+  #
+  # What #15975 got right: the ORIGINAL symptom (a live tools/call failing
+  # with "failed to get remote session: failed to create client: context
+  # canceled", surfaced to the agent as a misleading "Gateway Timeout") was
+  # real and reproduced. What it got wrong: the fix (dropping "2025-11-25",
+  # leaving only "2026-07-28") was never actually proven to resolve that
+  # call failure — a kagent-controller runtime outage (unrelated,
+  # ClusterTrustBundleProjection/kubelet; ml-operator fixed separately)
+  # intervened before a clean re-test, and the "context canceled" error is
+  # exactly what you'd expect from an in-flight call getting killed by that
+  # SAME runtime instability, independent of protocol version. We never
+  # got a true before/after comparison.
+  #
+  # What the single-version config DID cause, proven decisively: vikunja
+  # silently disappeared from the broker's served tool catalog entirely —
+  # confirmed via a direct tools/list against the live broker (both scoped
+  # to the kagent MCPVirtualServer and full-federation-wide): 0 vikunja_*
+  # tools, vs. the expected 5. Checked every one of the other 35
+  # MCPServerRegistrations' supportedProtocolVersions in the same live
+  # query: vikunja-tools was the ONLY one configured as ["2026-07-28"]
+  # alone. Every other mcp-openapi-proxy sibling using the IDENTICAL
+  # session-less image (homebox/grocy/cooter/gordon/lloyd/tim-tools) is
+  # configured ["2025-11-25", "2026-07-28"] (dual) and IS present in the
+  # served catalog (10/11/31/30/8/71 tools respectively, confirmed same
+  # query). health-tools proves a single OLDER version also works fine
+  # (["2025-11-25"] alone, present). Single-newest-version-only is the one
+  # configuration never exercised elsewhere in this fleet, and it is the
+  # one broken case — strong, falsifiable evidence this exact declaration
+  # breaks catalog aggregation, independent of session-lessness.
+  #
+  # Fix: restore the dual-version declaration, matching every other
+  # working mcp-openapi-proxy registration exactly. This is the lowest-
+  # blast-radius, most upgrade-clean option (zero bespoke config — it's
+  # the SAME shape already proven correct for 6 sibling backends) rather
+  # than inventing a session-capable shim or broker-side exclusion-list
+  # patch for a problem that may not even be about session-lessness.
+  # Whether the ORIGINAL tools/call failure recurs under dual-version now
+  # that the runtime outage is fixed is the open question this PR's
+  # post-merge verification answers; if it does recur, that's a genuinely
+  # separate bug to diagnose fresh, not evidence this revert was wrong.
   supportedProtocolVersions:
+    - "2025-11-25"
     - "2026-07-28"

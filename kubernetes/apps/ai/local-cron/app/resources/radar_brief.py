@@ -67,6 +67,7 @@ import re
 import sys
 
 import a2a_client
+from english_gate import is_non_english
 
 AGENT_URL = os.environ["AGENT_URL"]
 # The real kagent Agent CR name (namespace `ai`) to invoke via AGENT_URL's MCP
@@ -295,6 +296,15 @@ def main():
     # F2 — narrow backstop: normalize the wording ONLY if the model's own
     # reply already shows Vikunja failed this run. A no-op otherwise.
     text = _ensure_gap_line(text)
+
+    # English-only send-gate (shared english_gate; home-ops#15899). A CJK-drifted brief
+    # is unreadable to Rob; suppress it as a silent skipped run (the daily cadence
+    # retries). An adherence miss, not an infra failure — return 0, never page.
+    if is_non_english(text):
+        log("non-English reply (CJK detected) — English-only contract violated; "
+            "suppressing brief (silent skipped run)")
+        log("RADAR_BRIEF_RESULT=skipped-non-english agent=%s state=%s" % (AGENT_NAME, state))
+        return 0
 
     log("----- %s (state=%s) -----" % (TITLE, state))
     log(text)

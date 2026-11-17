@@ -44,6 +44,7 @@ import sys
 import urllib.request
 
 import a2a_client
+from english_gate import is_non_english
 
 AGENT_URL = os.environ["AGENT_URL"]
 # The real kagent Agent CR name (namespace `ai`) to invoke via AGENT_URL's MCP
@@ -106,6 +107,15 @@ def main():
         log("no FYI: tag -- malformed agent output, not notifying")
         log(t[:300])
         log("HYGIENE_RESULT=malformed agent=%s" % AGENT_NAME)
+        return 0
+
+    # English-only send-gate (shared english_gate; home-ops#15899). A mixed-language reply
+    # can carry a valid FYI: tag yet a CJK body; that must never reach the mail sink. Treat
+    # as malformed -- log a snippet and exit clean so the daily cadence retries.
+    if is_non_english(t):
+        log("non-English reply (CJK detected) -- English-only contract violated, not notifying")
+        log(t[:300])
+        log("HYGIENE_RESULT=non-english agent=%s" % AGENT_NAME)
         return 0
 
     # 3800-char cap keeps the email terse (same ceiling as the original).

@@ -39,6 +39,7 @@ import time
 import urllib.request
 
 import a2a_client
+from english_gate import is_non_english
 
 AGENT_URL = os.environ["AGENT_URL"]
 # The real kagent Agent CR name (namespace `ai`) to invoke via AGENT_URL's MCP
@@ -131,8 +132,16 @@ def main():
         # Fail SAFE: a write job whose outcome we cannot parse is surfaced,
         # never silently swallowed.
         log("CRUSHER_WEIGHT_SYNC_RESULT=no-sentinel")
+        # English-only send-gate (shared english_gate; home-ops#15899). The subject carries
+        # the signal (a write job whose outcome we could not parse), so email it — but
+        # withhold a CJK-drifted body behind an ASCII notice; never leak CJK to Rob's inbox.
+        body = text
+        if is_non_english(text):
+            body = ("Agent reply was non-English (CJK) and has been withheld; the sync "
+                    "outcome could not be parsed. See the Job logs for the raw reply.")
+            log("non-English reply (CJK detected) — body withheld from unparsed-result email")
         try:
-            notify_email("%s — unparsed result %s" % (TITLE, day), text)
+            notify_email("%s — unparsed result %s" % (TITLE, day), body)
         except Exception as e:  # noqa: BLE001
             log("WARN: notify-mcp delivery failed: %r" % e)
         return 0
@@ -179,8 +188,18 @@ def main():
     # A routine run (new weigh-in added and/or everything already aligned) is
     # silent.
     if updates > 0 or errors > 0:
+        # English-only send-gate (shared english_gate; home-ops#15899). The parsed counts
+        # ARE the signal and are ASCII, so on CJK drift email a reconstructed ASCII summary
+        # rather than suppress — Rob still sees the correction/error, just never CJK.
+        body = text
+        if is_non_english(text):
+            body = ("Agent reply was non-English (CJK) and has been withheld. Parsed "
+                    "outcome: dry_run=%s creates=%d updates=%d skips=%d errors=%d. "
+                    "See the Job logs for the raw reply."
+                    % (dry_run, creates, updates, skips, errors))
+            log("non-English reply (CJK detected) — body replaced with ASCII summary")
         try:
-            code = notify_email("%s — %s" % (TITLE, day), text)
+            code = notify_email("%s — %s" % (TITLE, day), body)
             log("notified via notify-mcp (HTTP %s)" % code)
             log("CRUSHER_WEIGHT_SYNC_RESULT=sent updates=%d errors=%d" % (updates, errors))
         except Exception as e:  # noqa: BLE001

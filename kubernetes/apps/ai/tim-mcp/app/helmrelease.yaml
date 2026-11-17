@@ -130,11 +130,29 @@ spec:
           # mcp-gateway federation: the Kuadrant broker (mcp-gateway app pod,
           # mcp-system) dials this backend directly over Service DNS to serve the
           # federated tools. ai is default-deny; backend-ingress half of the
-          # cross-ns pattern (#15826). No istio-egress (dead, #15834).
+          # cross-ns pattern (#15826).
+          #
+          # SECOND selector (2026-11-17): the "No istio-egress (dead, #15834)"
+          # note above was wrong — every HTTPRoute tool call is actually
+          # dispatched by mcp-gateway-istio (the Gateway's own Envoy data-plane
+          # pod, labeled gateway.networking.k8s.io/gateway-name=mcp-gateway), not
+          # proxied through the broker pod. tools/list (served from the broker's
+          # own discovery cache) never touches that pod, which is why federation
+          # looked healthy while every tools/call connect-failed. Same root cause
+          # #15904 already fixed on calendar-mcp + 6 siblings 2026-11-14; this
+          # backend was scaffolded afterward from a template that both predated
+          # that generalization and carried the stale "dead" note. Confirmed live
+          # on vikunja-mcp (home-ops#16050/#16051): mcp-gateway-istio's own Envoy
+          # stats (:15000/clusters) showed cx_connect_fail == cx_total until both
+          # this ingress selector AND the mcp-gateway-istio-allow egress entry
+          # were added.
           - fromEndpoints:
               - matchLabels:
                   io.kubernetes.pod.namespace: mcp-system
                   app.kubernetes.io/name: mcp-gateway
+              - matchLabels:
+                  io.kubernetes.pod.namespace: mcp-system
+                  gateway.networking.k8s.io/gateway-name: mcp-gateway
             toPorts:
               - ports:
                   - port: "8080"

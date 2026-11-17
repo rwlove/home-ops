@@ -173,3 +173,22 @@ spec:
               - ports:
                   - port: "9696"
                     protocol: TCP
+          # TRaSH-Guides quality-profile data (raw.githubusercontent.com +
+          # api.github.com) -- the upstream `search` tool unconditionally
+          # fetches this on every call (src/trash-client.ts,
+          # TRASH_BASE_URL/GITHUB_API_URL), independent of which internal
+          # *arr services are configured. No egress to either host existed
+          # here, so every search silently TCP-timed-out against Cilium's
+          # default-deny and surfaced to MCP clients as a generic
+          # "Error: fetch failed" (confirmed 2026-11-17: zero HTTP access-log
+          # activity on sonarr/radarr/lidarr/prowlarr during a failing call --
+          # the request never got that far). Both hosts are A-only/canonical
+          # GitHub infrastructure; matches the wardrowbe open-meteo toFQDNs
+          # pattern.
+          - toFQDNs:
+              - matchName: "raw.githubusercontent.com"
+              - matchName: "api.github.com"
+            toPorts:
+              - ports:
+                  - port: "443"
+                    protocol: TCP

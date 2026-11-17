@@ -183,6 +183,22 @@ spec:
               - ports:
                   - port: "8080"
                     protocol: TCP
+          # ai/cooter-mcp (2026-11-17): the federated cooter_ tools (MCP
+          # gateway → cooter-mcp → here) need their own ingress entry — the
+          # dual-CNP gateway fix (home-ops#16050/#16051/#16053) only covers
+          # the gateway→cooter-mcp hop; this is the next hop, cooter-mcp's
+          # own egress to the real LubeLogger app. Confirmed live: a raw
+          # socket connect from the cooter-mcp pod to this Service timed out
+          # (Cilium silent-drop) until this selector was added. Same
+          # root-cause class as the gateway bug, one layer deeper.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: ai
+                  app.kubernetes.io/name: cooter-mcp
+            toPorts:
+              - ports:
+                  - port: "8080"
+                    protocol: TCP
         egress:
           # CNPG cluster postgres-lubelogger in databases ns (Pattern B).
           - toEndpoints:

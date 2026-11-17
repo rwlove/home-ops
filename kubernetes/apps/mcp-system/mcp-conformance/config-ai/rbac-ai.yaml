@@ -1,0 +1,35 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/role-rbac-v1.json
+#
+# Read-only, 1 CRD type, get+list only -- Check C (kagent controller
+# discovery-staleness) reading remotemcpservers.api.kagent.dev, which
+# lives in `ai`. Cross-namespace subject: the mcp-conformance SA lives
+# in mcp-system (../app/rbac.yaml), this Role lives here. A RoleBinding
+# grants access to resources IN ITS OWN namespace to a subject in ANY
+# namespace -- the subject's namespace field below is explicit and must
+# NOT be omitted. Mirrors
+# longhorn-system/longhorn/config/rbac-storage-triage-read.yaml's shape;
+# tightened 2026-11-17 from the original ClusterRole+ClusterRoleBinding
+# (see the mcp-system Role for why that existed first).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mcp-conformance-read
+rules:
+  - apiGroups: ["api.kagent.dev"]
+    resources: ["remotemcpservers"]
+    verbs: ["get", "list"]
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/rolebinding-rbac-v1.json
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mcp-conformance-read
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mcp-conformance-read
+subjects:
+  - kind: ServiceAccount
+    name: mcp-conformance
+    namespace: mcp-system

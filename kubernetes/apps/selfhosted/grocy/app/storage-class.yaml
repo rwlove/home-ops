@@ -1,21 +1,17 @@
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/storageclass-storage-v1.json
 #
-# Per-app Longhorn StorageClass for grocy's durable /config (SQLite + uploads).
-# Dynamic provisioning (the PVC in longhorn-pvc.yaml carries no volumeName), so
-# Longhorn creates a fresh volume on first bind; it auto-joins the `default`
-# recurring-job group (daily snapshot + weekly + monthly backup). numberOfReplicas
-# 2 → a single node loss is not data loss.
+# Binding-only StorageClass for the static Longhorn PV/PVC pair in
+# longhorn-pvc.yaml. Never used for dynamic provisioning -- the PV already
+# carries the real csi.volumeAttributes (fsType, numberOfReplicas,
+# staleReplicaTimeout) and binds via volumeName. Replaces the old dynamic
+# `grocy-config` StorageClass during the 2026-11 rename-via-copy migration.
+# Mirrors lubelogger-data-storage-class / medikeep-uploads-storage-class.
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
-  name: grocy-config
+  name: grocy-config-storage-class
 provisioner: driver.longhorn.io
 reclaimPolicy: Retain
+volumeBindingMode: Immediate
 allowVolumeExpansion: true
-parameters:
-  numberOfReplicas: "2"
-  staleReplicaTimeout: "2880"
-  fsType: ext4
-  dataLocality: disabled
-  unmapMarkSnapChainRemoved: ignored

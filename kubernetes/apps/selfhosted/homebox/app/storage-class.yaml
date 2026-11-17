@@ -1,24 +1,17 @@
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/storageclass-storage-v1.json
 #
-# Per-app Longhorn StorageClass for homebox's durable data (SQLite + uploaded
-# attachments). Unlike the static-PV apps (lubelogger/forgejo) this provisions
-# DYNAMICALLY — the PVC in longhorn-pvc.yaml carries no volumeName, so Longhorn
-# creates a fresh volume (opaque pvc-<uuid> name) on first bind. The volume
-# auto-joins the `default` recurring-job group (daily snapshot + weekly +
-# monthly backup to the NFS target) because its Volume CR has no recurring-job
-# labels. numberOfReplicas 2 → a single node loss is not data loss. Can be
-# migrated to a readable static-named volume later (as the others were).
+# Binding-only StorageClass for the static Longhorn PV/PVC pair in
+# longhorn-pvc.yaml. Never used for dynamic provisioning -- the PV already
+# carries the real csi.volumeAttributes (fsType, numberOfReplicas,
+# staleReplicaTimeout) and binds via volumeName. Replaces the old dynamic
+# `homebox-data` StorageClass during the 2026-11 rename-via-copy migration.
+# Mirrors lubelogger-data-storage-class / medikeep-uploads-storage-class.
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
-  name: homebox-data
+  name: homebox-data-storage-class
 provisioner: driver.longhorn.io
 reclaimPolicy: Retain
+volumeBindingMode: Immediate
 allowVolumeExpansion: true
-parameters:
-  numberOfReplicas: "2"
-  staleReplicaTimeout: "2880"
-  fsType: ext4
-  dataLocality: disabled
-  unmapMarkSnapChainRemoved: ignored

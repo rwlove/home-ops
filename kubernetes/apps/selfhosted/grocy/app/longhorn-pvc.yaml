@@ -1,16 +1,10 @@
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/persistentvolumeclaim-v1.json
-#
-# Dynamic Longhorn PVC (no volumeName) — Longhorn provisions a fresh volume via
-# the grocy-config StorageClass on first bind. See storage-class.yaml for the
-# durability rationale (2 replicas, auto `default` recurring-job group).
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   namespace: selfhosted
   name: grocy-config-pvc
-  labels:
-    type: longhorn
 spec:
   accessModes:
     - ReadWriteOnce
@@ -18,4 +12,49 @@ spec:
   resources:
     requests:
       storage: 3Gi
-  storageClassName: grocy-config
+  volumeName: grocy-config-pv
+  storageClassName: grocy-config-storage-class
+
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/persistentvolume-v1.json
+#
+# Static provisioning (the repo's static-PV+volumeHandle pattern), mirroring the
+# lubelogger-data / medikeep-uploads static cutovers. The PV pins PVC
+# grocy-config-pvc to the readable-named Longhorn volume `grocy-config-ext4` --
+# an independent copy restored from a fresh full backup of the original volume
+# (pvc-74fd280a-...) during the 2026-11 rename-via-copy migration (volumeHandle
+# was an opaque pvc-<uuid>). The old Longhorn volume is Retain and kept as
+# rollback; the fresh backup taken immediately before cutover is a second
+# fallback.
+#
+# Grocy's SQLite DB + uploaded files (chores/equipment/consumables records) --
+# hand-entered and irreplaceable, so Longhorn (survives cluster loss via the
+# NFS backup target) at 2 replicas, ext4. Backups are automatic via Longhorn's
+# `default` recurring-job group (daily snapshot + weekly + monthly backup) plus
+# weekly-filesystem-trim; those recurring-job-group labels live on the Longhorn
+# Volume CR, not this PV. Static binding via volumeName means the provisioner is
+# not invoked.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: grocy-config-pv
+  labels:
+    type: longhorn
+    recurring-job-group.longhorn.io/weekly-backup: enabled
+    recurring-job-group.longhorn.io/daily-snapshot: enabled
+    recurring-job-group.longhorn.io/weekly-filesystem-trim: enabled
+spec:
+  capacity:
+    storage: 3Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: grocy-config-storage-class
+  csi:
+    driver: driver.longhorn.io
+    fsType: ext4
+    volumeAttributes:
+      numberOfReplicas: "2"
+      staleReplicaTimeout: "2880"
+    volumeHandle: grocy-config-ext4

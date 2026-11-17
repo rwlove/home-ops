@@ -1,16 +1,10 @@
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/persistentvolumeclaim-v1.json
-#
-# Dynamic Longhorn PVC (no volumeName) — Longhorn provisions a fresh volume via
-# the homebox-data StorageClass on first bind. See storage-class.yaml for the
-# durability rationale (2 replicas, auto `default` recurring-job group).
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   namespace: selfhosted
   name: homebox-data-pvc
-  labels:
-    type: longhorn
 spec:
   accessModes:
     - ReadWriteOnce
@@ -18,4 +12,49 @@ spec:
   resources:
     requests:
       storage: 5Gi
-  storageClassName: homebox-data
+  volumeName: homebox-data-pv
+  storageClassName: homebox-data-storage-class
+
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/persistentvolume-v1.json
+#
+# Static provisioning (the repo's static-PV+volumeHandle pattern), mirroring the
+# lubelogger-data / medikeep-uploads static cutovers. The PV pins PVC
+# homebox-data-pvc to the readable-named Longhorn volume `homebox-data-ext4` --
+# an independent copy restored from a fresh full backup of the original volume
+# (pvc-0427eb74-...) during the 2026-11 rename-via-copy migration (volumeHandle
+# was an opaque pvc-<uuid>). The old Longhorn volume is Retain and kept as
+# rollback; the fresh backup taken immediately before cutover is a second
+# fallback.
+#
+# HomeBox's SQLite DB + uploaded attachments (receipts, warranty PDFs, nameplate
+# photos) -- hand-entered and irreplaceable, so Longhorn (survives cluster loss
+# via the NFS backup target) at 2 replicas, ext4. Backups are automatic via
+# Longhorn's `default` recurring-job group (daily snapshot + weekly + monthly
+# backup) plus weekly-filesystem-trim; those recurring-job-group labels live on
+# the Longhorn Volume CR, not this PV. Static binding via volumeName means the
+# provisioner is not invoked.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: homebox-data-pv
+  labels:
+    type: longhorn
+    recurring-job-group.longhorn.io/weekly-backup: enabled
+    recurring-job-group.longhorn.io/daily-snapshot: enabled
+    recurring-job-group.longhorn.io/weekly-filesystem-trim: enabled
+spec:
+  capacity:
+    storage: 5Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: homebox-data-storage-class
+  csi:
+    driver: driver.longhorn.io
+    fsType: ext4
+    volumeAttributes:
+      numberOfReplicas: "2"
+      staleReplicaTimeout: "2880"
+    volumeHandle: homebox-data-ext4

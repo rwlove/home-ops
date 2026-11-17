@@ -75,9 +75,27 @@ The cluster-destruction-survivable tier. Used for **irreplaceable**
 state. The chart's `backupTarget` points at
 `nfs://beast:/mnt/mass_storage/longhorn-backups`, and
 `recurring-jobs.yaml` defines `weekly-backups` + `monthly-backups`
-(plus `daily-snapshots`, `weekly-filesystem-trim`). The repo
-convention is to declare a named StorageClass and matching PV per
-app — see `media/jellyfin/app/longhorn-pvc.yaml` for the pattern.
+(plus `daily-snapshots`, `weekly-filesystem-trim`).
+
+> **RULE — Longhorn is static-named ONLY. Dynamic Longhorn is prohibited.**
+> Every Longhorn PVC MUST pin a readable-named volume: a Longhorn `Volume`
+> CR under `longhorn/volumes/`, a static PV binding it via
+> `csi.volumeHandle`, and a PVC with an explicit `volumeName`. A PVC on a
+> Longhorn-provisioner StorageClass **without** `volumeName` (dynamic
+> provisioning → opaque `pvc-<uuid>` volume) is NOT allowed — it is neither
+> greppable nor restorable by name, and it is the anti-pattern homebox +
+> grocy shipped with (#15538) and had to be migrated out of (#16045). CI
+> enforces this via `tools/lint-longhorn-static.py`. If the data is
+> regenerable / in-cluster-durable, it belongs on **ceph-block** (the
+> dynamic durable default), not Longhorn. See
+> `media/jellyfin/app/longhorn-pvc.yaml` / `selfhosted/lubelogger/app/` for
+> the static pattern, and
+> [[reference_longhorn_dynamic_to_static_rename_via_copy]] for the migration.
+>
+> **ROUTE storage config to the storage-operator.** Any change to a PVC,
+> PV, StorageClass, or Longhorn `Volume` CR — in a feature PR or otherwise —
+> is a storage-operator decision, not a side-effect of an app add. The
+> storage-operator owns the durability tier + static-volume call.
 
 New Longhorn volumes need:
 

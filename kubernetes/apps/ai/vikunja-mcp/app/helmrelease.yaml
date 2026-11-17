@@ -132,10 +132,27 @@ spec:
           # mcp-system) dials this backend directly over Service DNS to serve the
           # federated tools. ai is default-deny; backend-ingress half of the
           # cross-ns pattern (#15826).
+          #
+          # SECOND selector (2026-11-17): every HTTPRoute tool call is actually
+          # dispatched by mcp-gateway-istio (the Gateway's own Envoy data-plane
+          # pod, labeled gateway.networking.k8s.io/gateway-name=mcp-gateway), not
+          # proxied through the broker pod — only tools/list (served from the
+          # broker's own discovery cache) went through the broker identity above,
+          # which is why federation looked healthy while every tools/call failed
+          # with a connect-timeout EOF. Same root cause #15904 already fixed on
+          # calendar-mcp + 6 siblings on 2026-11-14 (see calendar-mcp-allow); this
+          # backend was scaffolded after that generalization from a template that
+          # predated it and never got the second selector. Confirmed live:
+          # mcp-gateway-istio's own Envoy stats (:15000/clusters) showed
+          # cx_connect_fail == cx_total, rq_total == 0 for vikunja-mcp, while
+          # calendar-mcp (dual-selector) showed clean rq_success.
           - fromEndpoints:
               - matchLabels:
                   io.kubernetes.pod.namespace: mcp-system
                   app.kubernetes.io/name: mcp-gateway
+              - matchLabels:
+                  io.kubernetes.pod.namespace: mcp-system
+                  gateway.networking.k8s.io/gateway-name: mcp-gateway
             toPorts:
               - ports:
                   - port: "8080"

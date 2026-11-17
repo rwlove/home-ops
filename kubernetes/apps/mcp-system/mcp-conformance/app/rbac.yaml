@@ -8,44 +8,33 @@ metadata:
 # (Check C genuinely needs the k8s API, unlike local-cron's zero-RBAC SAs).
 automountServiceAccountToken: false
 ---
-# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/clusterrole-rbac-v1.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/role-rbac-v1.json
 #
-# Read-only, 3 CRD types, get+list only -- Check C (kagent controller
-# discovery-staleness). A ClusterRole+ClusterRoleBinding (rather than a
-# namespaced Role+RoleBinding, which is the usual cross-namespace pattern --
-# see longhorn-system/longhorn/config/rbac-storage-triage-read.yaml for that
-# shape) is a deliberate scope tradeoff for THIS PR specifically: Check C
-# reads remotemcpservers.api.kagent.dev in `ai` and
-# mcpvirtualservers.mcp.kuadrant.io / mcpserverregistrations.mcp.kuadrant.io
-# in `mcp-system`, and a sibling agent is concurrently editing files under
-# kubernetes/apps/ai/*-mcp in this same window -- a namespaced Role living
-# in `ai`'s tree would risk a worktree collision outside this PR's bounded
-# scope (kubernetes/apps/mcp-system/mcp-conformance/ + one CI lint file).
-# Net effect: read-only access to these 3 resource *types* cluster-wide
-# (today they only exist in ai/mcp-system) rather than scoped to just those
-# two namespaces. If that tradeoff doesn't sit well, tighten to matching
-# namespaced Role+RoleBinding pairs in a follow-up PR -- propose, don't
-# silently narrow it here.
+# Read-only, 2 CRD types, get+list only -- Check C (kagent controller
+# discovery-staleness) reading mcpvirtualservers.mcp.kuadrant.io /
+# mcpserverregistrations.mcp.kuadrant.io, which both live in THIS
+# namespace. Tightened from the original ClusterRole+ClusterRoleBinding
+# (2026-11-17 follow-up) to a namespaced Role, matching
+# longhorn-system/longhorn/config/rbac-storage-triage-read.yaml's shape --
+# the mate for the api.kagent.dev/remotemcpservers half lives in `ai`,
+# see ../config-ai/rbac-ai.yaml.
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
+kind: Role
 metadata:
   name: mcp-conformance-read
 rules:
-  - apiGroups: ["api.kagent.dev"]
-    resources: ["remotemcpservers"]
-    verbs: ["get", "list"]
   - apiGroups: ["mcp.kuadrant.io"]
     resources: ["mcpvirtualservers", "mcpserverregistrations"]
     verbs: ["get", "list"]
 ---
-# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/clusterrolebinding-rbac-v1.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/rolebinding-rbac-v1.json
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: RoleBinding
 metadata:
   name: mcp-conformance-read
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
+  kind: Role
   name: mcp-conformance-read
 subjects:
   - kind: ServiceAccount

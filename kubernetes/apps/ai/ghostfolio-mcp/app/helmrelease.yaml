@@ -37,6 +37,29 @@ spec:
               # Full read+write surface for warren (advisory model + population).
               READ_ONLY_MODE: "false"
               TZ: America/New_York
+              # Root-caused 2026-11-17 (mcp-conformance Check B:
+              # ghostfolio_get_accounts 404 "Session not found"): this was
+              # the only MCP backend where the broker's Router202511 hairpin
+              # session mint (initializeMCPServerSession -> InitForClient,
+              # a re-entrant gateway-loopback initialize — see the broker's
+              # own router_202511.go comment on patch 0003) never lands its
+              # minted session onto the real forwarded tools/call. Every
+              # failing request reached ghostfolio bearing the CONSUMER's
+              # own gateway-issued session token verbatim instead, which
+              # ghostfolio correctly rejected as unrecognized. Every other
+              # dual-protocol backend in this fleet is session-less already
+              # (no Mcp-Session-Id issued at initialize at all), which is
+              # what makes Router202511 skip the hairpin mint entirely —
+              # ghostfolio-mcp is genuinely stateful (FastMCP's http
+              # transport default) and was the one backend that actually
+              # exercised the fragile mint path. FASTMCP_STATELESS_HTTP
+              # flips FastMCP to the same per-request-stateless mode
+              # esphome-mcp and health-mcp already run in (see their
+              # Dockerfile / server.py) — verified live: a throwaway pod
+              # running this exact image+env returns no Mcp-Session-Id on
+              # initialize, matching the already-working backends' shape.
+              # Zero broker touch.
+              FASTMCP_STATELESS_HTTP: "true"
             # GHOSTFOLIO_TOKEN (the Ghostfolio admin security token) from 1P.
             envFrom:
               - secretRef:

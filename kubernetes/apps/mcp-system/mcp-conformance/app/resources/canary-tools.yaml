@@ -1,0 +1,62 @@
+{
+  "_readme": "Phase 1 MCP federation conformance manifest (mcp-platform). Valid JSON, kept as *.yaml for human skimmability (parsed with Python's stdlib json module — no PyYAML dependency). consumer_profiles are the real, live wiring of the three probed consumers (kagent RemoteMCPServer url+header, the lovenet-gateway laptop entry, the Open WebUI TOOL_SERVER_CONNECTIONS seed) — keep them in lockstep with those resources, not the other way around. Each backends[] entry mirrors one live MCPServerRegistration (36 total). HARD RULE: every canary.tool MUST be read-only/idempotent — verified against each tool's real inputSchema (required args) and description before being added here; a backend with no safe canary carries canary:null and a canary_exclude_reason instead of a guess. Check A (catalog+schema-dialect) runs for every backend regardless of canary; Check B (tools/call) runs only where canary is non-null, and only against a consumer profile whose live tools/list (from that same run's Check A) actually contains the canary tool — scoping is read live, never assumed from this file.",
+  "consumer_profiles": [
+    {
+      "name": "kagent",
+      "path": "/mcp/stateful",
+      "virtualserver": "mcp-system/kagent",
+      "_mirrors": "kubernetes/apps/ai/kagent/app/remotemcpserver-mcp-gateway.yaml"
+    },
+    {
+      "name": "laptop",
+      "path": "/mcp",
+      "virtualserver": "mcp-system/laptop",
+      "_mirrors": "~/.local/bin/mcp-gateway-header (lovenet-gateway client entry)"
+    },
+    {
+      "name": "open-webui",
+      "path": "/mcp",
+      "virtualserver": null,
+      "_mirrors": "kubernetes/apps/collab/open-webui/app/helmrelease.yaml TOOL_SERVER_CONNECTIONS",
+      "_full_aggregate_check": "the ONE profile with no VirtualServer scoping — Check A's prefix-presence sub-check (did a whole backend vanish from the catalog) only runs here, since kagent/laptop intentionally curate a subset and an absent prefix there is by design, not a finding"
+    }
+  ],
+  "backends": [
+    {"registration": "arr-tools", "prefix": "arr_", "canary": {"tool": "arr_search", "args": {"query": "test"}}},
+    {"registration": "calendar-tools", "prefix": "calendar_", "canary": {"tool": "calendar_list_events", "args": {}}},
+    {"registration": "chrome-tools", "prefix": "chrome_", "canary": null, "canary_exclude_reason": "every tool is a live browser action (navigate/click/fill/...); no read-only no-op exists"},
+    {"registration": "cilium-hubble-tools", "prefix": "cilium_", "canary": null, "canary_exclude_reason": "generic command-wrapper tools (cilium_call_cilium/_hubble/_kubectl) whose mutation risk depends entirely on the args passed; not safe to call with a fixed canary arg set"},
+    {"registration": "comfyui-tools", "prefix": "comfyui_", "canary": {"tool": "comfyui_get_system_stats", "args": {"action": "stats"}}},
+    {"registration": "cooter-tools", "prefix": "cooter_", "canary": {"tool": "cooter_get_vehicles", "args": {}}},
+    {"registration": "esphome-tools", "prefix": "esphome_", "canary": {"tool": "esphome_list_devices", "args": {}}},
+    {"registration": "ghidra-tools", "prefix": "ghidra_", "canary": null, "canary_exclude_reason": "stateful/interactive RE session tools; 'no program currently open' is a normal idle state that would false-positive as a federation failure"},
+    {"registration": "ghostfolio-tools", "prefix": "ghostfolio_", "canary": {"tool": "ghostfolio_get_accounts", "args": {}}},
+    {"registration": "github-tools", "prefix": "github_", "canary": {"tool": "github_get_me", "args": {}}},
+    {"registration": "gonic-tools", "prefix": "gonic_", "canary": {"tool": "gonic_search_library", "args": {"query": "a"}}},
+    {"registration": "gordon-tools", "prefix": "gordon_", "canary": {"tool": "gordon_get_household", "args": {}}},
+    {"registration": "grafana-tools", "prefix": "grafana_", "canary": {"tool": "grafana_check_datasources_health", "args": {}}},
+    {"registration": "grocy-tools", "prefix": "grocy_", "canary": {"tool": "grocy_get_chores", "args": {}}},
+    {"registration": "ha-tools", "prefix": "ha_", "canary": {"tool": "ha_ha_list_floors_areas", "args": {}}},
+    {"registration": "health-tools", "prefix": "health_", "canary": {"tool": "health_bp", "args": {}}},
+    {"registration": "healthrw-tools", "prefix": "health_rw_", "canary": {"tool": "health_rw_bp", "args": {}}, "canary_note": "the READ twin on the read-write backend — health_rw_upsert_weight (the one mutating tool) is never a canary"},
+    {"registration": "homebox-tools", "prefix": "homebox_", "canary": {"tool": "homebox_get_v1_entities", "args": {}}},
+    {"registration": "kubectl-tools", "prefix": "kubectl_", "canary": {"tool": "kubectl_list_contexts", "args": {}}},
+    {"registration": "lloyd-tools", "prefix": "lloyd_", "canary": {"tool": "lloyd_get_v2_meta_bases", "args": {}}},
+    {"registration": "memory-tools", "prefix": "memory_", "canary": {"tool": "memory_list_entities", "args": {"limit": 1}}},
+    {"registration": "music-assistant-tools", "prefix": "music_assistant_", "canary": {"tool": "music_assistant_config_list_targets", "args": {}}},
+    {"registration": "netbox-tools", "prefix": "netbox_", "canary": {"tool": "netbox_netbox_get_objects", "args": {"object_type": "dcim.site", "filters": {}, "limit": 1}}},
+    {"registration": "notify-tools", "prefix": "notify_", "canary": null, "canary_exclude_reason": "notify_notify_rob SENDS an alert — inherently side-effecting, never a canary (hard rule)"},
+    {"registration": "omada-tools", "prefix": "omada_", "canary": {"tool": "omada_getControllerStatus", "args": {}}},
+    {"registration": "owl-tools", "prefix": "owl_", "canary": {"tool": "owl_list_cases", "args": {}}},
+    {"registration": "paperless-tools", "prefix": "paperless_", "canary": {"tool": "paperless_list_tags", "args": {}}},
+    {"registration": "pr-tools", "prefix": "pr_", "canary": null, "canary_exclude_reason": "pr_propose_pr opens a pull request — inherently mutating, never a canary (hard rule)"},
+    {"registration": "prometheus-tools", "prefix": "prom_", "canary": {"tool": "prom_health_check", "args": {}}},
+    {"registration": "pump-tools", "prefix": "pump_", "canary": {"tool": "pump_search_objects", "args": {"object_type": "exercise"}}},
+    {"registration": "ricklibrary-tools", "prefix": "ricklibrary_", "canary": {"tool": "ricklibrary_history", "args": {}}},
+    {"registration": "searxng-tools", "prefix": "search_", "canary": {"tool": "search_searxng_instance_info", "args": {}}},
+    {"registration": "tim-tools", "prefix": "tim_", "canary": {"tool": "tim_get_v1_items", "args": {}}},
+    {"registration": "time-tools", "prefix": "time_", "canary": {"tool": "time_get_timestamp", "args": {}}},
+    {"registration": "vikunja-tools", "prefix": "vikunja_", "canary": {"tool": "vikunja_get_v1_projects", "args": {}}},
+    {"registration": "windmill-tools", "prefix": "windmill_", "canary": {"tool": "windmill_listScripts", "args": {}}}
+  ]
+}

@@ -1,0 +1,36 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: mcp-conformance-allow
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: mcp-conformance
+  # Additive -- apiserver (Check C) + DNS covered by baseline; notify-mcp
+  # is intra-namespace (mcp-system), also baseline. The only hole this
+  # punches is the external envoy hop for auth.${SECRET_DOMAIN} (token
+  # mint) and mcp.${SECRET_DOMAIN} (the broker calls themselves) -- this
+  # probe deliberately goes OUT and back IN through the same enforced
+  # public ingress every real consumer uses, never a cluster-internal
+  # shortcut to the broker (Decision 1b). Identical shape to
+  # mcp-gateway-jwt-rotator-allow (same two hostnames, same envoy hop).
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "10443"
+              protocol: TCP
+            # HTTP/3: envoy advertises Alt-Svc on :10443; allow the QUIC
+            # (UDP) sibling so a client upgrade isn't default-denied.
+            - port: "10443"
+              protocol: UDP
+            - port: "443"
+              protocol: TCP

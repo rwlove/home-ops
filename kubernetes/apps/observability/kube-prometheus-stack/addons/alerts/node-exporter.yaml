@@ -386,3 +386,34 @@ spec:
           annotations:
             summary: node-exporter target down (instance {{ $labels.instance }})
             description: "node-exporter on {{ $labels.instance }} has been unreachable for 15m+ — every host metric from this node (CPU, memory, disk, network, temperature) is blind until it recovers. Check `kubectl get pod -n observability -o wide | grep node-exporter` and the node itself.\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+
+    - name: node-io-saturation.rules
+      rules:
+        # 2026-11-18: zot's nightly scrub pinned master1's 1GbE NIC (osd.1,
+        # mon, RBD clients and the control plane all share it) for ~35 min →
+        # Ceph slow ops, apiserver/kube-vip restarts, cluster DNS timeouts.
+        # Nothing alerted. Backtest (7d): fires only on that event. Nodes
+        # reporting no link speed (virtio VMs, speed=-1) are excluded.
+        - alert: HostNetworkReceiveSaturated
+          expr: |
+            max by (instance, device) (
+              rate(node_network_receive_bytes_total{device=~"en.*|eth.*"}[5m])
+              / (node_network_speed_bytes{device=~"en.*|eth.*"} > 0)
+            ) > 0.8
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: NIC receive saturated on {{ $labels.instance }} ({{ $labels.device }})
+            description: "Receive is at {{ $value | humanizePercentage }} of link speed for 5m+. On a node hosting Ceph OSD/mon or the control plane this starves storage and the API server. Find the heavy RBD reader: rate(node_disk_read_bytes_total{device=~\"rbd.*\"}[5m])."
+
+        # Sustained (20m+) fully-busy RBD device. Short busy blips are
+        # normal; the backtest's 10-20 min single-sample spikes don't fire.
+        - alert: CephRbdDeviceSaturated
+          expr: rate(node_disk_io_time_seconds_total{device=~"rbd.*"}[10m]) > 0.95
+          for: 20m
+          labels:
+            severity: warning
+          annotations:
+            summary: RBD device {{ $labels.device }} pinned busy on {{ $labels.instance }}
+            description: "{{ $labels.device }} has been >95% busy for 20m+. Map device → PVC via /sys/bus/rbd/devices/<n>/name in the node's csi-rbdplugin pod, then the csi-vol image → PV."

@@ -267,9 +267,9 @@ flake, not PR content.
 **Prevention.** The in-cluster patch in
 "Recovery phase 1" is a hotfix. The durable fix is in Git:
 
-1. Add a `startupProbe` to the ZOT HelmRelease in
-   `kubernetes/apps/kube-system/zot/app/helmrelease.yaml` so
-   liveness/readiness don't apply until startup completes:
+1. *(Applied 2026-11-18.)* A `startupProbe` on the ZOT HelmRelease in
+   `kubernetes/apps/kube-system/zot/app/helmrelease.yaml` keeps
+   liveness/readiness from applying until startup completes:
 
    ```yaml
    probes:
@@ -302,6 +302,36 @@ takes a brief connection flap during PG re-peering, Django's
 ADMINS hook fires. The Postgres process itself doesn't
 restart; reconnect is automatic; data is intact. See the
 2026-05-21 incident notes for the exact timing.
+
+## ZOT scrub saturating a node NIC — cluster-wide stall
+
+**Symptom.** For ~35 min at a time (one night apart, start time drifting
+~20 min/day), several things fail at once: Ceph `HEALTH_WARN` with slow
+ops, apiserver / controller-manager / scheduler / kube-vip restarts on
+one master, cluster-DNS lookup timeouts in CronJobs, MCP conformance
+timeouts. `HostNetworkReceiveSaturated` and `CephRbdDeviceSaturated`
+fire for the same node.
+
+**Root cause.** ZOT's `scrub` extension verifies every cached image:
+for each manifest it re-reads every referenced blob and checks it
+against its digest. That is a full read of the 500Gi `zot-data-ceph`
+RBD volume. Its interval timer restarts after each run (and on every
+pod restart), so the start time drifts. When zot ran on master1, the
+read (~120 MB/s) saturated master1's single 1GbE NIC, which also carries
+osd.1, a mon, other RBD clients and the control plane (2026-11-18).
+
+**How to confirm.**
+
+```sh
+kubectl logs -n kube-system zot-0 | grep -m1 'executing scrub'
+# start timestamp lines up with the stall
+kubectl get pod -n kube-system zot-0 -o wide   # which node?
+```
+
+**Prevention (in Git).** zot is kept off control-plane nodes, preferring
+the beast-hosted workers (10GbE uplink), and the scrub interval is
+`168h`. Any restart still triggers one immediate scrub, so expect one
+heavy read pass after each rollout.
 
 ## Stalled HelmRelease with `MissingRollbackTarget`
 

@@ -20,6 +20,29 @@ spec:
     controllers:
       zot:
         pod:
+          # Keep zot OFF control-plane nodes. Its integrity scrub reads the
+          # whole 500Gi data PVC (rbd); on master1 that saturated the single
+          # 1GbE NIC shared with osd.1/mon/control plane for ~35 min nightly
+          # → Ceph slow ops, apiserver/kube-vip restarts, cluster DNS
+          # timeouts (2026-11-18). Prefer the beast-hosted workers (10GbE
+          # uplink, Ceph OSDs local); worker8 is left out (P40 node).
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: node-role.kubernetes.io/control-plane
+                        operator: DoesNotExist
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  preference:
+                    matchExpressions:
+                      - key: kubernetes.io/hostname
+                        operator: In
+                        values:
+                          - worker5.thesteamedcrab.com
+                          - worker6.thesteamedcrab.com
+                          - worker7.thesteamedcrab.com
           securityContext:
             fsGroup: 568
             fsGroupChangePolicy: OnRootMismatch
@@ -52,8 +75,20 @@ spec:
                     port: &httpPort 5000
                   initialDelaySeconds: 5
               readiness: *probe
+              # Cold start walks every cached repo before /v2/ answers; with
+              # the 3×10s liveness default that crash-loops (see
+              # docs/src/failure_mode_runbooks.md "ZOT cold-start recovery").
+              # Gate liveness/readiness behind a 30-min startup budget.
               startup:
-                enabled: false
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /v2/
+                    port: *httpPort
+                  initialDelaySeconds: 30
+                  periodSeconds: 30
+                  failureThreshold: 60
             resources:
               requests:
                 cpu: 50m

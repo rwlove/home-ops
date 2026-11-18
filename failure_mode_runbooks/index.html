@@ -2156,6 +2156,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#zot-scrub-saturating-a-node-nic--cluster-wide-stall" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ZOT scrub saturating a node NIC — cluster-wide stall
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#stalled-helmrelease-with-missingrollbacktarget" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2330,6 +2341,17 @@
     <span class="md-ellipsis">
       
         ZOT cold-start recovery — the secondary failure mode
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#zot-scrub-saturating-a-node-nic--cluster-wide-stall" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ZOT scrub saturating a node NIC — cluster-wide stall
       
     </span>
   </a>
@@ -2610,9 +2632,9 @@ flake, not PR content.</p>
 <p><strong>Prevention.</strong> The in-cluster patch in
 "Recovery phase 1" is a hotfix. The durable fix is in Git:</p>
 <ol>
-<li>Add a <code>startupProbe</code> to the ZOT HelmRelease in
-   <code>kubernetes/apps/kube-system/zot/app/helmrelease.yaml</code> so
-   liveness/readiness don't apply until startup completes:</li>
+<li><em>(Applied 2026-11-18.)</em> A <code>startupProbe</code> on the ZOT HelmRelease in
+   <code>kubernetes/apps/kube-system/zot/app/helmrelease.yaml</code> keeps
+   liveness/readiness from applying until startup completes:</li>
 </ol>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nt">probes</span><span class="p">:</span>
 </span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span><span class="nt">startup</span><span class="p">:</span>
@@ -2647,6 +2669,29 @@ takes a brief connection flap during PG re-peering, Django's
 ADMINS hook fires. The Postgres process itself doesn't
 restart; reconnect is automatic; data is intact. See the
 2026-05-21 incident notes for the exact timing.</p>
+<h2 id="zot-scrub-saturating-a-node-nic--cluster-wide-stall">ZOT scrub saturating a node NIC — cluster-wide stall<a class="headerlink" href="#zot-scrub-saturating-a-node-nic--cluster-wide-stall" title="Permanent link">&para;</a></h2>
+<p><strong>Symptom.</strong> For ~35 min at a time (one night apart, start time drifting
+~20 min/day), several things fail at once: Ceph <code>HEALTH_WARN</code> with slow
+ops, apiserver / controller-manager / scheduler / kube-vip restarts on
+one master, cluster-DNS lookup timeouts in CronJobs, MCP conformance
+timeouts. <code>HostNetworkReceiveSaturated</code> and <code>CephRbdDeviceSaturated</code>
+fire for the same node.</p>
+<p><strong>Root cause.</strong> ZOT's <code>scrub</code> extension verifies every cached image:
+for each manifest it re-reads every referenced blob and checks it
+against its digest. That is a full read of the 500Gi <code>zot-data-ceph</code>
+RBD volume. Its interval timer restarts after each run (and on every
+pod restart), so the start time drifts. When zot ran on master1, the
+read (~120 MB/s) saturated master1's single 1GbE NIC, which also carries
+osd.1, a mon, other RBD clients and the control plane (2026-11-18).</p>
+<p><strong>How to confirm.</strong></p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span>zot-0<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-m1<span class="w"> </span><span class="s1">'executing scrub'</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="c1"># start timestamp lines up with the stall</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>kubectl<span class="w"> </span>get<span class="w"> </span>pod<span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span>zot-0<span class="w"> </span>-o<span class="w"> </span>wide<span class="w">   </span><span class="c1"># which node?</span>
+</span></code></pre></div>
+<p><strong>Prevention (in Git).</strong> zot is kept off control-plane nodes, preferring
+the beast-hosted workers (10GbE uplink), and the scrub interval is
+<code>168h</code>. Any restart still triggers one immediate scrub, so expect one
+heavy read pass after each rollout.</p>
 <h2 id="stalled-helmrelease-with-missingrollbacktarget">Stalled HelmRelease with <code>MissingRollbackTarget</code><a class="headerlink" href="#stalled-helmrelease-with-missingrollbacktarget" title="Permanent link">&para;</a></h2>
 <p><strong>Symptom.</strong> A HelmRelease shows <code>Ready=False</code> with condition
 <code>Stalled / MissingRollbackTarget</code>: "Failed to perform remediation:
@@ -2656,9 +2701,9 @@ in <code>failed</code> state — there is no successful version to roll back
 to. Underlying resources (Deployment, Service, etc.) may
 nevertheless be live and serving traffic.</p>
 <p><strong>How to confirm.</strong></p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>helmrelease<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-o<span class="w"> </span>json<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">'.status.conditions[] | select(.type=="Stalled")'</span>
-</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>helm<span class="w"> </span><span class="nb">history</span><span class="w"> </span>&lt;release&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>helmrelease<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-o<span class="w"> </span>json<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">'.status.conditions[] | select(.type=="Stalled")'</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>helm<span class="w"> </span><span class="nb">history</span><span class="w"> </span>&lt;release&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;
 </span></code></pre></div>
 <p>If all release versions are <code>failed</code> and the underlying
 Deployment is <code>Available</code>, the chart's resources have converged
@@ -2683,35 +2728,35 @@ storage agree.</p>
 <ol>
 <li>Suspend Flux reconciliation so it doesn't fight the cleanup:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>flux<span class="w"> </span><span class="nb">suspend</span><span class="w"> </span>hr<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>flux<span class="w"> </span><span class="nb">suspend</span><span class="w"> </span>hr<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;
 </span></code></pre></div>
 <ol>
 <li>Verify the underlying Deployment is healthy:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>deploy,svc,sa,httproute<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span>-l<span class="w"> </span>app.kubernetes.io/instance<span class="o">=</span>&lt;name&gt;
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>deploy,svc,sa,httproute<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span>-l<span class="w"> </span>app.kubernetes.io/instance<span class="o">=</span>&lt;name&gt;
 </span></code></pre></div>
 <ol>
 <li>Delete the chart resources and the failed Helm history
    secrets together — Helm won't adopt resources it doesn't own,
    so a brief downtime is unavoidable:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>deployment,svc,sa,httproute<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>-l<span class="w"> </span>app.kubernetes.io/instance<span class="o">=</span>&lt;name&gt;
-</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>secret<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>-l<span class="w"> </span><span class="nv">owner</span><span class="o">=</span>helm,name<span class="o">=</span>&lt;name&gt;
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>deployment,svc,sa,httproute<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">  </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>-l<span class="w"> </span>app.kubernetes.io/instance<span class="o">=</span>&lt;name&gt;
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>secret<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>-l<span class="w"> </span><span class="nv">owner</span><span class="o">=</span>helm,name<span class="o">=</span>&lt;name&gt;
 </span></code></pre></div>
 <ol>
 <li>Resume Flux and force reconcile; the HR will do a clean
    <code>helm install</code>:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>flux<span class="w"> </span>resume<span class="w"> </span>hr<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;
-</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>flux<span class="w"> </span>reconcile<span class="w"> </span>hr<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>--force
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>flux<span class="w"> </span>resume<span class="w"> </span>hr<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>flux<span class="w"> </span>reconcile<span class="w"> </span>hr<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>--force
 </span></code></pre></div>
 <ol>
 <li>Verify the HR becomes <code>Ready=True</code> within the new
    <code>spec.timeout</code> window:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>hr<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-w
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>hr<span class="w"> </span>-n<span class="w"> </span>&lt;ns&gt;<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-w
 </span></code></pre></div>
 <p>Time budget: 2–3 m of downtime per HR. Pick a maintenance
 window per <code>CLAUDE.md</code> if the component is operator- or
@@ -2725,9 +2770,9 @@ historical digests of the same large image (an ML-serving image,
 a workflow-runner image, etc.), only the newest of which is actually
 referenced by a running pod.</p>
 <p><strong>How to confirm.</strong></p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>ssh<span class="w"> </span>root@&lt;node&gt;<span class="w"> </span><span class="s2">"df -h /var/lib/containers; \</span>
-</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="s2">  du -sh /var/lib/containers/storage/overlay; \</span>
-</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="s2">  crictl images | grep -c '&lt;none&gt;'"</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>ssh<span class="w"> </span>root@&lt;node&gt;<span class="w"> </span><span class="s2">"df -h /var/lib/containers; \</span>
+</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="s2">  du -sh /var/lib/containers/storage/overlay; \</span>
+</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="s2">  crictl images | grep -c '&lt;none&gt;'"</span>
 </span></code></pre></div>
 <p>A high <code>&lt;none&gt;</code> count with a mostly-full image-store partition and
 a node percent-used sitting <em>below</em> <code>imageGCHighThresholdPercent</code>
@@ -2767,9 +2812,9 @@ rarely-scheduled workload (a CronJob, a seldom-restarted
 Deployment) needs an image again after it's aged out.</p>
 <p>Applied cluster-wide 2026-11-16 via the <code>kube-system/kubelet-config</code>
 ConfigMap:</p>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="nt">imageGCHighThresholdPercent</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">72</span><span class="w">   </span><span class="c1"># was 75</span>
-</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="nt">imageGCLowThresholdPercent</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">62</span><span class="w">    </span><span class="c1"># was 65</span>
-</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="nt">imageMaximumGCAge</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">48h0m0s</span><span class="w">        </span><span class="c1"># was 0s (disabled)</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="nt">imageGCHighThresholdPercent</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">72</span><span class="w">   </span><span class="c1"># was 75</span>
+</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="nt">imageGCLowThresholdPercent</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">62</span><span class="w">    </span><span class="c1"># was 65</span>
+</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="nt">imageMaximumGCAge</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">48h0m0s</span><span class="w">        </span><span class="c1"># was 0s (disabled)</span>
 </span></code></pre></div>
 <p>The tightened thresholds are a disk-pressure backstop independent
 of the age-based mechanism (worker8's volume group has zero free
@@ -2802,8 +2847,8 @@ each node's kubelet restart, or sooner on any node that crosses the
 <p><strong>Rollout — propagating to already-joined nodes.</strong> Editing the
 ConfigMap alone changes nothing until a node re-syncs. Per node,
 one at a time:</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>ssh<span class="w"> </span>root@&lt;node&gt;<span class="w"> </span><span class="s2">"kubeadm upgrade node phase kubelet-config &amp;&amp; \</span>
-</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="s2">  systemctl restart kubelet"</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>ssh<span class="w"> </span>root@&lt;node&gt;<span class="w"> </span><span class="s2">"kubeadm upgrade node phase kubelet-config &amp;&amp; \</span>
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="s2">  systemctl restart kubelet"</span>
 </span></code></pre></div>
 <p>This is the upstream-supported "re-render
 <code>/var/lib/kubelet/config.yaml</code> from the ConfigMap without a version
@@ -2814,7 +2859,7 @@ flashes <code>NotReady</code> for a few seconds during the kubelet restart,
 then returns <code>Ready</code> with the same containers still running.</p>
 <p>Order mon-hosting workers last, and confirm Ceph quorum before and
 after each:</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>ceph<span class="w"> </span>-s<span class="w">   </span><span class="c1"># via a mon pod / toolbox — confirm quorum before and after</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>ceph<span class="w"> </span>-s<span class="w">   </span><span class="c1"># via a mon pod / toolbox — confirm quorum before and after</span>
 </span></code></pre></div>
 <p>Applied 2026-11-16 to all 8 worker-class nodes
 (<code>worker2</code>–<code>worker8</code>, <code>spark</code>), mon-hosting <code>worker2</code> (<code>mon.l</code>) and
@@ -2824,15 +2869,15 @@ rolled this pass</strong> — they'll pick up the new values on their next
 <code>kubeadm upgrade</code>/config re-sync; follow-up if fleet-wide
 consistency on the control plane matters.</p>
 <p><strong>Verification.</strong></p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="c1"># immediately per node:</span>
-</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a>ssh<span class="w"> </span>root@&lt;node&gt;<span class="w"> </span><span class="s2">"grep imageMaximumGCAge /var/lib/kubelet/config.yaml"</span>
-</span><span id="__span-20-3"><a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a>kubectl<span class="w"> </span>get<span class="w"> </span>node<span class="w"> </span>&lt;node&gt;<span class="w">   </span><span class="c1"># Ready, container counts unchanged</span>
-</span><span id="__span-20-4"><a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a>
-</span><span id="__span-20-5"><a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a><span class="c1"># ~48h after that node's kubelet restart:</span>
-</span><span id="__span-20-6"><a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a>ssh<span class="w"> </span>root@&lt;node&gt;<span class="w"> </span><span class="s2">"du -sh /var/lib/containers/storage/overlay; \</span>
-</span><span id="__span-20-7"><a id="__codelineno-20-7" name="__codelineno-20-7" href="#__codelineno-20-7"></a><span class="s2">  crictl images | grep -c '&lt;none&gt;'"</span>
-</span><span id="__span-20-8"><a id="__codelineno-20-8" name="__codelineno-20-8" href="#__codelineno-20-8"></a>ssh<span class="w"> </span>root@&lt;node&gt;<span class="w"> </span><span class="s2">"journalctl -u kubelet | grep -i \</span>
-</span><span id="__span-20-9"><a id="__codelineno-20-9" name="__codelineno-20-9" href="#__codelineno-20-9"></a><span class="s2">  'garbage collect\|removing image'"</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="c1"># immediately per node:</span>
+</span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a>ssh<span class="w"> </span>root@&lt;node&gt;<span class="w"> </span><span class="s2">"grep imageMaximumGCAge /var/lib/kubelet/config.yaml"</span>
+</span><span id="__span-21-3"><a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a>kubectl<span class="w"> </span>get<span class="w"> </span>node<span class="w"> </span>&lt;node&gt;<span class="w">   </span><span class="c1"># Ready, container counts unchanged</span>
+</span><span id="__span-21-4"><a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a>
+</span><span id="__span-21-5"><a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a><span class="c1"># ~48h after that node's kubelet restart:</span>
+</span><span id="__span-21-6"><a id="__codelineno-21-6" name="__codelineno-21-6" href="#__codelineno-21-6"></a>ssh<span class="w"> </span>root@&lt;node&gt;<span class="w"> </span><span class="s2">"du -sh /var/lib/containers/storage/overlay; \</span>
+</span><span id="__span-21-7"><a id="__codelineno-21-7" name="__codelineno-21-7" href="#__codelineno-21-7"></a><span class="s2">  crictl images | grep -c '&lt;none&gt;'"</span>
+</span><span id="__span-21-8"><a id="__codelineno-21-8" name="__codelineno-21-8" href="#__codelineno-21-8"></a>ssh<span class="w"> </span>root@&lt;node&gt;<span class="w"> </span><span class="s2">"journalctl -u kubelet | grep -i \</span>
+</span><span id="__span-21-9"><a id="__codelineno-21-9" name="__codelineno-21-9" href="#__codelineno-21-9"></a><span class="s2">  'garbage collect\|removing image'"</span>
 </span></code></pre></div>
 <p><strong>Recovery if the ConfigMap is ever reset.</strong> Because this isn't
 Git-tracked, a future <code>kubeadm upgrade apply</code> to a new control-plane

@@ -23,11 +23,10 @@ spec:
     # today) so the tag can't drift under us. Renovate tracks
     # docker.io/library/monica and will bump beta.N → GA when it lands.
     #
-    # NOT digest-pinned: this chart stamps image.tag verbatim into the
-    # `app.kubernetes.io/version` label (_helpers.tpl), and a
-    # `<tag>@sha256:...` value is both >63 bytes and contains illegal
-    # label characters, which fails server-side apply. Immutable tag is
-    # the best available substitute for a digest here.
+    # Digest-pinned (Renovate pinDigests). The chart stamps image.tag
+    # verbatim into the `app.kubernetes.io/version` label (_helpers.tpl),
+    # and `<tag>@sha256:...` is >63 bytes with an illegal `@`, which fails
+    # server-side apply — so postRenderers (below) strip that label.
     image:
       repository: docker.io/library/monica
       tag: 5.0.0-beta.5-apache@sha256:63c8a87793622365e0126687a165baabedaf167ab19f710f2988d82c6b5834ad
@@ -124,6 +123,12 @@ spec:
         memory: 93Mi
       limits:
         memory: 1Gi
+  # 0. version label — strip the chart's `app.kubernetes.io/version`
+  #    label (see image comment above): with a digest-pinned tag its
+  #    value is an invalid label and every upgrade fails SSA. Removed
+  #    rather than rewritten so it can't go stale on Renovate bumps; no
+  #    selector uses it.
+  #
   # The chart hardcodes the cron jobTemplate pod spec, so two things it
   # needs are missing and there are no chart values for either. Inject
   # both via post-render:
@@ -145,6 +150,11 @@ spec:
   postRenderers:
     - kustomize:
         patches:
+          - target:
+              labelSelector: app.kubernetes.io/version
+            patch: |
+              - op: remove
+                path: /metadata/labels/app.kubernetes.io~1version
           - target:
               kind: CronJob
               name: monica-cron

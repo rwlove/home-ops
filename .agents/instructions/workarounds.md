@@ -42,6 +42,14 @@ Every workaround in code also has a tracking issue with the
 - The label name is exactly `workaround` — do not invent variants.
 - The issue links to the upstream issue/PR and the file(s) containing
   the annotation.
+- The issue body carries one machine-readable gate line for the Windmill
+  `workaround-watcher`: `Watch: <github issue/PR URL>` — the single item
+  whose resolution retires the workaround — or `Watch: none` when no
+  upstream item gates it (no upstream issue exists, or the exit is a local
+  migration). Without it the watcher falls back to an `Upstream: <url>`
+  line, then the first GitHub link under an `## …Upstream…` heading, which
+  misfires on bodies that cite a closed "closest match". An upstream issue
+  closed NOT_PLANNED is never treated as retireable — re-point `Watch:`.
 - One issue per upstream item, not per occurrence. One upstream bug
   touching three files → one `workaround`-labeled issue.
 

@@ -8,7 +8,8 @@ spec:
   groups:
     - name: dcgm-exporter
       rules:
-        # DCGM_FI_DEV_GPU_UTIL is a gauge (0-100 %), not a counter — `rate()`
+        # DCGM_FI_DEV_GPU_UTIL_RATIO is a gauge (0-1 ratio; dcgm-exporter
+        # 4.7 renamed GPU_UTIL 0-100 % to this), not a counter — `rate()`
         # on it is undefined. Original rule has been silenced forever in
         # silence-operator because of this. Scoped to Tesla P40 because
         # GPU_UTIL/MEM_COPY_UTIL/FB_USED are broken on GB10 (Spark uses a
@@ -20,10 +21,28 @@ spec:
         # genuinely stuck job still fires; an ordinary kagent burst does not.
         - alert: HighGpuUsage
           expr: |
-            avg_over_time(DCGM_FI_DEV_GPU_UTIL{modelName="Tesla P40"}[15m]) > 85
+            avg_over_time(DCGM_FI_DEV_GPU_UTIL_RATIO{modelName="Tesla P40"}[15m]) > 0.85
           for: 2h
           labels:
             severity: warning
           annotations:
-            summary: "High GPU usage on {{ $labels.Hostname }} ({{ $labels.modelName }}) for 2+ hours"
-            description: "GPU usage on {{ $labels.Hostname }} for {{ $labels.modelName }} has averaged over 85% for the past 2 hours."
+            summary: "High GPU usage on {{ $labels.hostname }} ({{ $labels.modelName }}) for 2+ hours"
+            description: "GPU usage on {{ $labels.hostname }} for {{ $labels.modelName }} has averaged over 85% for the past 2 hours."
+        # Guard against a silent metric-family rename. dcgm-exporter 4.7
+        # (gpu-operator v26.7.3) renamed every DCGM_FI_DEV_* series to
+        # unit-suffixed names; every consumer went dark for ~3 days with
+        # no alert because the exporter itself stayed `up`. Fires when the
+        # exporter is scraped but a series the rules depend on is gone.
+        - alert: DcgmExpectedMetricsMissing
+          expr: |
+            (
+              absent(DCGM_FI_DEV_GPU_UTIL_RATIO{modelName="Tesla P40"})
+              or absent(DCGM_FI_DEV_BOARD_POWER_WATTS{modelName="Tesla P40"})
+            )
+            and on() (sum(up{job="nvidia-dcgm-exporter"}) > 0)
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "dcgm-exporter is up but expected DCGM series are missing"
+            description: "DCGM_FI_DEV_GPU_UTIL_RATIO or DCGM_FI_DEV_BOARD_POWER_WATTS for the P40 is absent while the exporter is scraped. Likely an exporter metric rename — check the gpu-operator/dcgm-exporter release notes and update every consumer (PrometheusRules, HA gpu_utilization package, kagent prompts)."

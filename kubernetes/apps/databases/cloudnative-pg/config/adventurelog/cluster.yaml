@@ -8,8 +8,13 @@ spec:
   instances: 3
 
   # PostGIS-enabled CNPG operand image — AdventureLog is a GeoDjango app.
-  # PG16 matches AdventureLog's shipped/tested postgis baseline (postgis/postgis:16-3.5).
-  imageName: ghcr.io/cloudnative-pg/postgis:16.16-3.7.0-standard-bookworm
+  # PG 18 MAJOR upgrade from 16 (one-way once the pg_upgrade job swaps
+  # directories). Same distro (bookworm) and same PostGIS minor (3.7.0), so a
+  # direct 16 -> 18 hop is allowed. Rollback BEFORE the swap / on job failure:
+  # revert imageName + serverName. After success: restore the pre-upgrade
+  # physical backup (old serverName archive) into a new PG16 cluster, or
+  # pg_restore the off-cluster dump.
+  imageName: ghcr.io/cloudnative-pg/postgis:18.7-3.7.0-standard-bookworm@sha256:b4e37c903a215a2b8d888f532ad20a16f0fb0cd359f08ffbe194f2e094653ed9
 
   primaryUpdateStrategy: unsupervised
 
@@ -73,7 +78,14 @@ spec:
       name: barman-cloud.cloudnative-pg.io
       parameters:
         barmanObjectName: garage-adventurelog
-        serverName: postgres-adventurelog-backup
+        # Bumped from postgres-adventurelog-backup for the 16->18 major
+        # upgrade: pg_upgrade resets the timeline / system ID, so post-upgrade
+        # WAL and base backups must land under a fresh serverName. The old
+        # archive stays intact at postgres-adventurelog-backup as the
+        # pre-upgrade restore point (PG16 data: restore it onto a PG16 image);
+        # externalClusters below still points at it. A fresh base backup must
+        # be taken into the new path right after.
+        serverName: postgres-adventurelog-backup-v18
 
   externalClusters:
     - name: postgres-adventurelog-backup

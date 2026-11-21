@@ -65,13 +65,23 @@ spec:
             description: Port {{ $labels.ifName }} on {{ $labels.target }} is now linked at {{ $value }} Mbps, below its speed an hour ago. A link renegotiated to a lower rate (marginal cable/optic) can inflate latency across the fabric.
             summary: Switch port {{ $labels.target }}/{{ $labels.ifName }} renegotiated to a lower link speed.
           # ifHighSpeed is in Mbps. Fire when an up port's speed dropped
-          # versus 1h ago; ignore down ports (speed 0).
+          # versus 1h ago; ignore down ports (speed 0). Also require the
+          # port to be carrying traffic (>100 kbps): NICs that sleep drop
+          # to 100 Mbps for Wake-on-LAN/power saving, which is expected
+          # on an idle link. A downshift under load is the cable/optic signal.
+          # Current speed on the left so {{ $value }} is the new (lower) rate.
           expr: |
             (
-              ifHighSpeed{job=~".*snmp-exporter-omada-switches.*"} offset 1h
-              > ifHighSpeed{job=~".*snmp-exporter-omada-switches.*"}
+              ifHighSpeed{job=~".*snmp-exporter-omada-switches.*"}
+              < ifHighSpeed{job=~".*snmp-exporter-omada-switches.*"} offset 1h
             )
             and ifHighSpeed{job=~".*snmp-exporter-omada-switches.*"} > 0
+            and (
+              (
+                rate(ifHCInOctets{job=~".*snmp-exporter-omada-switches.*"}[15m])
+                + rate(ifHCOutOctets{job=~".*snmp-exporter-omada-switches.*"}[15m])
+              ) * 8 > 1e5
+            )
           for: 10m
           labels:
             severity: warning

@@ -63,7 +63,8 @@ persona):
   runner (not the model) creates any follow-up todos, notes the review on the
   completed task and labels it `followup-reviewed`; laptop-only owners get
   `followup-laptop` for `whats-next`. Emails Robert only when follow-ups were
-  created. Reaches Vikunja intra-cluster (its CNP already admits the `ai` ns).
+  created. Reaches Vikunja on `collab` :3456 (egress rule in `cnp-allow.yaml`;
+  Vikunja's own CNP already admits the `ai` ns).
 - `warren-plan-refresh` — finance plan refresh
 
 **Infra** — cluster-wide housekeeping:

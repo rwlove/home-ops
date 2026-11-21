@@ -371,6 +371,24 @@ kubectl -n databases get backups.postgresql.cnpg.io <app>-seed \
 `BackupStale` (no successful backup in 8 days) is the backstop if this
 is forgotten; `BackupFailed` catches a genuinely failing backup.
 
+### Extra login roles — `spec.managed.roles` + hand-applied GRANTs
+
+CNPG can declare a login role (and its password, from a
+`kubernetes.io/basic-auth` Secret) under `spec.managed.roles`, but it
+does **not** manage `GRANT`s. Pattern (live example: the `arnold` role on
+`postgres-pump`, which backs `pump-mcp-arnold`):
+
+1. Password in a new 1Password item in the Kubernetes vault, pulled by an
+   `ExternalSecret` into a basic-auth Secret labelled `cnpg.io/reload: "true"`.
+2. Role declared in the cluster's `cluster.yaml`.
+3. Privileges live in a checked-in, idempotent `grants-<role>.sql` next to
+   the cluster config (not a kustomize resource); apply it once as
+   superuser on the primary, and again after any rebuild from backup.
+
+Pre-existing hand-created roles (e.g. `health_ro`) are not declared and
+must not be added to `managed.roles` without first reconciling their
+attributes.
+
 ### Scaling instances
 
 ```yaml

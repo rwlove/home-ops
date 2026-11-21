@@ -113,6 +113,27 @@ Benchmarks aggregator: <https://spark-arena.com>.
 - Rule of thumb: ≤8b → P40; larger → Spark. Both are permanent — this
   is a stable capacity split, not a transition.
 
+## Model tiers (litellm)
+
+Consumers do not point at a GPU backend directly. They call a **model
+group** on `litellm` (`ai/litellm`), which fronts both GPUs with
+automatic failover. Source of truth: `kubernetes/apps/ai/litellm/app/config.yaml`.
+
+| Group | Primary | Fallback | Used by |
+|---|---|---|---|
+| `strong` | Spark vLLM `qwen3.6-35b-a3b` (`vllm-driver-spark`) | P40 Ollama `qwen2.5:7b` (32k input cap, pre-call checked) | all 18 kagent agents (`ModelConfig` `strong`) |
+| `fast` | P40 Ollama `qwen2.5:7b` | Spark vLLM `qwen3.6-35b-a3b` | `ModelConfig` `fast` exists; no agent uses it today |
+| `decompile` | Spark vLLM `llm4decompile-9b-v2` (4096 ctx) | **none, deliberately** — a general model is not a safe substitute | re-toolbox |
+
+- New agents/consumers pick a **group**, not a backend. Default to
+  `strong`; use `fast` only for short mechanical work.
+- Changing a group's model is a one-line `litellm` config edit; check
+  the Spark memory budget against ComfyUI (shared GB10) before pinning
+  anything bigger.
+- The fallback leg is the degraded path: an over-window prompt to the
+  7B fallback is rejected (`ContextWindowExceededError`), not silently
+  truncated.
+
 ## What this is NOT
 
 - Not a snapshot of every node's hardware — `kubectl get nodes -o yaml

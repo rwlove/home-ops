@@ -211,6 +211,33 @@ Garage substrate loss (see `garage_restore.md` for that layer, and
 `offsite_recovery.md` for the small subset of apps — Immich, Paperless
 — with an additional offsite copy).
 
+### PG17-era archives (pre-2026-11-21 major upgrade)
+
+The PG17 -> PG18 major upgrade (2026-11-21) reset each cluster's timeline
+and system ID, so post-upgrade WAL and base backups land under a new
+`serverName` suffixed `-v18`. The pre-upgrade archives were left in place:
+
+- **Where they live.** Same Garage bucket and `ObjectStore` as the live
+  archive (`s3://postgres-<app>-backup/`), under the old server-name
+  prefix: `postgres-<app>-backup/` (and `postgres-<app>-backup-v17/` for
+  nametag, which was also upgraded 16 -> 17). The live PG18 archive is
+  `postgres-<app>-backup-v18/`. `externalClusters.source` in each cluster
+  manifest now points at `-v18`.
+- **They restore only onto a PG17 image.** A physical (Barman) archive is
+  bound to its major version. To use one, recover into a *new* cluster
+  with `imageName: ghcr.io/cloudnative-pg/postgresql:17.x-standard-trixie`
+  and `externalClusters.source.serverName` set to the old prefix. It will
+  not restore onto a PG18 image; going forward from PG17 data means
+  restoring on 17 and re-running the major upgrade.
+- **Retention.** 30 days (`retentionPolicy: 30d` on the `ObjectStore`);
+  Home Assistant is capped at 7 days. Barman applies retention only to the
+  *active* `serverName`, so these orphaned archives do **not** self-expire.
+- **Cleanup is propose-first.** They are the only pre-upgrade restore
+  points. Do not delete or prune them (bucket objects, prefixes, or
+  retention changes) until the old retention window has passed, and then
+  only after a listed inventory (cluster, prefix, size, age) has been
+  reviewed and approved. Never bulk-delete.
+
 ### Checking backup recency
 
 ```sh

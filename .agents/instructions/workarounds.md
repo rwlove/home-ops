@@ -34,6 +34,25 @@ catches up. Per HOMELAB-SPEC Layer 5 Workaround tracking.
 - Disabling default behavior that's known-broken (e.g., gpu-operator
   NFD override for CRI-O nodes).
 
+## Upstream filings are always tracked
+
+Every issue or PR we file in a third-party / upstream project gets a
+tracking issue here, opened in the same session as the filing (standing
+rule — applies to every agent and persona). This holds even when nothing in
+this repo compensates for the gap: an adoption we're holding back, a bug we
+only avoid by convention, or a fix we're contributing upstream.
+
+- Same label, `Watch:` line, and retire flow as below, so the
+  `workaround-watcher` flags it when upstream resolves.
+- When there's no in-code annotation, the issue body says so ("nothing in
+  code; adoption gate" / "avoid X until fixed") instead of linking a file.
+- One tracking issue per upstream problem. An upstream issue and the PR
+  that fixes it share one: link both, and `Watch:` the item whose
+  resolution retires it.
+- Body sections: *Upstream*, *Impact here*, *Until fixed*, *Retire when*.
+  Examples: #16250, #16251.
+- This repo is public: run the data-classification check before posting.
+
 ## GitHub label
 
 Every workaround in code also has a tracking issue with the

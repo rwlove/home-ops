@@ -28,6 +28,23 @@ spec:
           annotations:
             summary: "High GPU usage on {{ $labels.hostname }} ({{ $labels.modelName }}) for 2+ hours"
             description: "GPU usage on {{ $labels.hostname }} for {{ $labels.modelName }} has averaged over 85% for the past 2 hours."
+        # P40 VRAM headroom. The P40 is time-sliced with no memory
+        # isolation (Ollama, Immich-ML, pet-tagger, whisper, Frigate GenAI
+        # all share its 24 GiB), so a concurrent burst can OOM every
+        # tenant at once. 30-day peak was ~70% (2026-11-21); 90% for 5m
+        # is outside normal load but leaves time to act before the OOM.
+        # P40 only: the GB10 is unified memory and emits no FB_* fields.
+        - alert: P40VramNearlyFull
+          expr: |
+            max by (hostname) (DCGM_FI_DEV_FB_USED_BYTES{modelName="Tesla P40"})
+              / max by (hostname) (DCGM_FI_DEV_FB_CAPACITY_BYTES{modelName="Tesla P40"})
+              > 0.90
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "P40 VRAM above 90% on {{ $labels.hostname }}"
+            description: "P40 framebuffer is {{ $value | humanizePercentage }} full. Shared-GPU tenants (ollama, immich-ml, pet-tagger, whisper) risk OOM. Check which models Ollama has loaded (`ollama ps`) and for a concurrent Immich ML re-index or bulk tagging run."
         # Guard against a silent metric-family rename. dcgm-exporter 4.7
         # (gpu-operator v26.7.3) renamed every DCGM_FI_DEV_* series to
         # unit-suffixed names; every consumer went dark for ~3 days with

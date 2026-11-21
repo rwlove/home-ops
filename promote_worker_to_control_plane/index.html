@@ -986,6 +986,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#phase-0--move-the-ceph-mon-off-the-worker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 0 — Move the Ceph mon off the worker
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#phase-1--retire-the-outgoing-control-plane" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2458,6 +2469,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#phase-0--move-the-ceph-mon-off-the-worker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 0 — Move the Ceph mon off the worker
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#phase-1--retire-the-outgoing-control-plane" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2680,36 +2702,79 @@ single-replica:</p>
   tool calls.</li>
 <li><strong>Ceph OSD on the worker</strong> — needs <code>ceph osd out N</code> and rebalance
   before drain.</li>
-<li><strong>Ceph mon on the worker</strong> — Rook will recreate it on a different
-  node automatically, but cluster runs at 2/3 mons in the gap.</li>
+<li><strong>Ceph mon on the worker</strong> — move it off <strong>before</strong> Phase 1; see
+  <a href="#phase-0--move-the-ceph-mon-off-the-worker">Phase 0</a>. The rook-ceph
+  CephCluster forbids mons on control-plane nodes (<code>placement.mon</code>,
+  #16216), so a mon left on the worker can never come back after the
+  rejoin — Rook strands it and fails it over on its own schedule.</li>
 </ul>
 <p>Capture the worker's labels:</p>
 <div class="language-sh highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>node<span class="w"> </span>worker2.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span>-o<span class="w"> </span>yaml<span class="w"> </span>&gt;<span class="w"> </span>/tmp/worker2-pre-drain.yaml
 </span></code></pre></div>
+<h2 id="phase-0--move-the-ceph-mon-off-the-worker">Phase 0 — Move the Ceph mon off the worker<a class="headerlink" href="#phase-0--move-the-ceph-mon-off-the-worker" title="Permanent link">&para;</a></h2>
+<p>Skip if <code>kubectl -n rook-ceph get pods -l app=rook-ceph-mon -o wide</code>
+shows no mon on the worker.</p>
+<p>Why first: once the worker joins as a control plane it carries
+<code>node-role.kubernetes.io/control-plane</code>, which the CephCluster's
+required <code>placement.mon</code> affinity excludes. Rook pins an existing mon to
+its node, so that mon goes Pending and Ceph runs on 2/3 mons until Rook
+fails it over — and because the pod is <em>unschedulable</em>, Rook waits <strong>two</strong>
+<code>mon</code> health timeouts (2 × 10m) before doing so (rook
+<code>pkg/operator/ceph/cluster/mon/health.go</code>, "retry only once before the
+mon failover if the mon pod is not scheduled"). Observed 2026-11-21 when
+the placement rule first stranded a mon on master1: ~38 min on 2/3 mons,
+and the operator's mon rollout held the <code>rook-ceph-cluster</code> HelmRelease
+(and every Flux Kustomization depending on it) not-ready for ~25 min.
+Doing it now, deliberately, keeps that 2/3 window away from the 2/2 etcd
+window in Phase 1.</p>
+<ol>
+<li>Confirm Ceph is <code>HEALTH_OK</code> with all 3 mons in quorum (<code>ceph -s</code>).</li>
+<li>Cordon the worker so the replacement mon can't be placed back on it:</li>
+</ol>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>kubectl<span class="w"> </span>cordon<span class="w"> </span>worker2.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span>
+</span></code></pre></div>
+<ol>
+<li>Stop the worker's mon (<code>&lt;id&gt;</code> from the pod list above):</li>
+</ol>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>rook-ceph<span class="w"> </span>scale<span class="w"> </span>deploy<span class="w"> </span>rook-ceph-mon-&lt;id&gt;<span class="w"> </span>--replicas<span class="o">=</span><span class="m">0</span>
+</span></code></pre></div>
+<ol>
+<li>Wait for the operator to fail it over (10–20 min). Watch for
+   <code>mon "&lt;id&gt;" NOT found in quorum and timeout exceeded, mon will be
+   failed over</code> in the operator log, then a new <code>rook-ceph-mon-&lt;next&gt;</code>
+   pod on another worker:</li>
+</ol>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>rook-ceph<span class="w"> </span>logs<span class="w"> </span>deploy/rook-ceph-operator<span class="w"> </span>-f<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>op-mon
+</span></code></pre></div>
+<ol>
+<li>Verify 3/3 mons in quorum, none on the worker, <code>HEALTH_OK</code>, before
+   starting Phase 1. Leave the worker cordoned — Phase 2 cordons it
+   anyway.</li>
+</ol>
 <h2 id="phase-1--retire-the-outgoing-control-plane">Phase 1 — Retire the outgoing control plane<a class="headerlink" href="#phase-1--retire-the-outgoing-control-plane" title="Permanent link">&para;</a></h2>
 <p>Skip this phase if you're adding a 4th control plane and removing the
 old one later.</p>
 <ol>
 <li>Drain the outgoing master:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>kubectl<span class="w"> </span>drain<span class="w"> </span>master2.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span>--ignore-daemonsets<span class="w"> </span>--delete-emptydir-data
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>kubectl<span class="w"> </span>drain<span class="w"> </span>master2.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span>--ignore-daemonsets<span class="w"> </span>--delete-emptydir-data
 </span></code></pre></div>
 <ol>
 <li>Reset kubeadm state on the host:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>ssh<span class="w"> </span>master2<span class="w"> </span><span class="s1">'kubeadm reset --force &amp;&amp; systemctl stop kubelet'</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>ssh<span class="w"> </span>master2<span class="w"> </span><span class="s1">'kubeadm reset --force &amp;&amp; systemctl stop kubelet'</span>
 </span></code></pre></div>
 <p>Do <strong>not</strong> wipe <code>/var/lib/etcd</code> yet — it's your in-place rollback
    if the new control plane fails to join.
 3. Remove the etcd member (run from a remaining control plane):</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>etcdctl<span class="w"> </span>...<span class="w"> </span>member<span class="w"> </span>list<span class="w">                    </span><span class="c1"># find master2's member ID</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>etcdctl<span class="w"> </span>...<span class="w"> </span>member<span class="w"> </span>remove<span class="w"> </span>&lt;member-id&gt;
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>etcdctl<span class="w"> </span>...<span class="w"> </span>member<span class="w"> </span>list<span class="w">                    </span><span class="c1"># find master2's member ID</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>etcdctl<span class="w"> </span>...<span class="w"> </span>member<span class="w"> </span>remove<span class="w"> </span>&lt;member-id&gt;
 </span></code></pre></div>
 <ol>
 <li>Update kubeadm bookkeeping:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span>edit<span class="w"> </span>cm<span class="w"> </span>kubeadm-config<span class="w">   </span><span class="c1"># drop master2 endpoint</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>node<span class="w"> </span>master2.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span>edit<span class="w"> </span>cm<span class="w"> </span>kubeadm-config<span class="w">   </span><span class="c1"># drop master2 endpoint</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>node<span class="w"> </span>master2.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span>
 </span></code></pre></div>
 <ol>
 <li>Power down the VM. Keep the VM image around for 24h as rollback.</li>
@@ -2721,59 +2786,59 @@ fails writes. Don't dawdle.</p>
 <li>Optionally suspend Flux for noisy releases that you don't want
    re-reconciling mid-drain:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>flux<span class="w"> </span><span class="nb">suspend</span><span class="w"> </span>kustomization<span class="w"> </span>&lt;name&gt;
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>flux<span class="w"> </span><span class="nb">suspend</span><span class="w"> </span>kustomization<span class="w"> </span>&lt;name&gt;
 </span></code></pre></div>
 <ol>
 <li>Cordon: <code>kubectl cordon worker2.${SECRET_DOMAIN}</code></li>
 <li>Out the OSD and wait for Ceph to rebalance:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>rook-ceph<span class="w"> </span>patch<span class="w"> </span>deploy<span class="w"> </span>rook-ceph-osd-N<span class="w"> </span>--replicas<span class="o">=</span><span class="m">0</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span>--type<span class="o">=</span>merge<span class="w"> </span>-p<span class="w"> </span><span class="s1">'{"spec":{"replicas":0}}'</span>
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="c1"># from a working ceph CLI (e.g. rook-ceph-tools pod):</span>
-</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>ceph<span class="w"> </span>osd<span class="w"> </span>out<span class="w"> </span>N
-</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>ceph<span class="w"> </span>-w<span class="w">   </span><span class="c1"># wait for HEALTH_OK and PGs active+clean</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>rook-ceph<span class="w"> </span>patch<span class="w"> </span>deploy<span class="w"> </span>rook-ceph-osd-N<span class="w"> </span>--replicas<span class="o">=</span><span class="m">0</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span>--type<span class="o">=</span>merge<span class="w"> </span>-p<span class="w"> </span><span class="s1">'{"spec":{"replicas":0}}'</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="c1"># from a working ceph CLI (e.g. rook-ceph-tools pod):</span>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>ceph<span class="w"> </span>osd<span class="w"> </span>out<span class="w"> </span>N
+</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>ceph<span class="w"> </span>-w<span class="w">   </span><span class="c1"># wait for HEALTH_OK and PGs active+clean</span>
 </span></code></pre></div>
 <ol>
 <li>Move CNPG primaries off the worker:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>kubectl<span class="w"> </span>cnpg<span class="w"> </span>promote<span class="w"> </span>&lt;cluster&gt;<span class="w"> </span>&lt;healthy-replica-instance&gt;
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>kubectl<span class="w"> </span>cnpg<span class="w"> </span>promote<span class="w"> </span>&lt;cluster&gt;<span class="w"> </span>&lt;healthy-replica-instance&gt;
 </span></code></pre></div>
 <p>Or accept the brief failover window during drain.
 5. Drain:</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>kubectl<span class="w"> </span>drain<span class="w"> </span>worker2.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span>--ignore-daemonsets<span class="w"> </span>--delete-emptydir-data<span class="w"> </span>--force
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>kubectl<span class="w"> </span>drain<span class="w"> </span>worker2.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span>--ignore-daemonsets<span class="w"> </span>--delete-emptydir-data<span class="w"> </span>--force
 </span></code></pre></div>
 <ol>
 <li>Remove from the cluster:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>node<span class="w"> </span>worker2.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>node<span class="w"> </span>worker2.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span>
 </span></code></pre></div>
 <ol>
 <li>On the host, reset kubeadm state but <strong>preserve Longhorn data</strong>:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>kubeadm<span class="w"> </span>reset<span class="w"> </span>--force
-</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>rm<span class="w"> </span>-rf<span class="w"> </span>/etc/kubernetes<span class="w"> </span>/var/lib/etcd<span class="w"> </span>/var/lib/kubelet
-</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="c1"># leave /var/lib/longhorn alone — replicas re-attach after rejoin</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>kubeadm<span class="w"> </span>reset<span class="w"> </span>--force
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>rm<span class="w"> </span>-rf<span class="w"> </span>/etc/kubernetes<span class="w"> </span>/var/lib/etcd<span class="w"> </span>/var/lib/kubelet
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="c1"># leave /var/lib/longhorn alone — replicas re-attach after rejoin</span>
 </span></code></pre></div>
 <h2 id="phase-3--rejoin-as-a-control-plane">Phase 3 — Rejoin as a control plane<a class="headerlink" href="#phase-3--rejoin-as-a-control-plane" title="Permanent link">&para;</a></h2>
 <ol>
 <li>From an existing control plane, generate fresh join material:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="nv">CERT_KEY</span><span class="o">=</span><span class="k">$(</span>kubeadm<span class="w"> </span>init<span class="w"> </span>phase<span class="w"> </span>upload-certs<span class="w"> </span>--upload-certs<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span>--config<span class="w"> </span>/path/to/init/clusterconfiguration.yaml<span class="w"> </span><span class="p">|</span><span class="w"> </span>tail<span class="w"> </span>-1<span class="k">)</span>
-</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="nv">JOIN</span><span class="o">=</span><span class="k">$(</span>kubeadm<span class="w"> </span>token<span class="w"> </span>create<span class="w"> </span>--print-join-command<span class="k">)</span>
-</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">"</span><span class="nv">$JOIN</span><span class="s2"> --control-plane --certificate-key </span><span class="nv">$CERT_KEY</span><span class="s2">"</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="nv">CERT_KEY</span><span class="o">=</span><span class="k">$(</span>kubeadm<span class="w"> </span>init<span class="w"> </span>phase<span class="w"> </span>upload-certs<span class="w"> </span>--upload-certs<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="w">  </span>--config<span class="w"> </span>/path/to/init/clusterconfiguration.yaml<span class="w"> </span><span class="p">|</span><span class="w"> </span>tail<span class="w"> </span>-1<span class="k">)</span>
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="nv">JOIN</span><span class="o">=</span><span class="k">$(</span>kubeadm<span class="w"> </span>token<span class="w"> </span>create<span class="w"> </span>--print-join-command<span class="k">)</span>
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">"</span><span class="nv">$JOIN</span><span class="s2"> --control-plane --certificate-key </span><span class="nv">$CERT_KEY</span><span class="s2">"</span>
 </span></code></pre></div>
 <ol>
 <li>On the worker (still its original hostname), preflight the kernel:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>modprobe<span class="w"> </span>br_netfilter
-</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="nb">echo</span><span class="w"> </span><span class="m">1</span><span class="w"> </span>&gt;<span class="w"> </span>/proc/sys/net/ipv4/ip_forward
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>modprobe<span class="w"> </span>br_netfilter
+</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="nb">echo</span><span class="w"> </span><span class="m">1</span><span class="w"> </span>&gt;<span class="w"> </span>/proc/sys/net/ipv4/ip_forward
 </span></code></pre></div>
 <ol>
 <li>Run the printed join command. After it completes:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>mkdir<span class="w"> </span>-p<span class="w"> </span>/etc/kubernetes/manifests
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>mkdir<span class="w"> </span>-p<span class="w"> </span>/etc/kubernetes/manifests
 </span></code></pre></div>
 <ol>
 <li><strong>Drop a kube-vip static pod manifest</strong> into
@@ -2786,15 +2851,15 @@ fails writes. Don't dawdle.</p>
 <li>Approve any pending CSRs (kubelet-csr-approver should auto-approve;
    check anyway):</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>csr<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>Pending
-</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>./init/approve-csrs.sh<span class="w">   </span><span class="c1"># if needed</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>csr<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>Pending
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>./init/approve-csrs.sh<span class="w">   </span><span class="c1"># if needed</span>
 </span></code></pre></div>
 <h2 id="phase-4--make-it-schedulable--restore-roles">Phase 4 — Make it schedulable + restore roles<a class="headerlink" href="#phase-4--make-it-schedulable--restore-roles" title="Permanent link">&para;</a></h2>
 <ol>
 <li>Remove the control-plane NoSchedule taint:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>kubectl<span class="w"> </span>taint<span class="w"> </span>nodes<span class="w"> </span>worker2.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="w">  </span>node-role.kubernetes.io/control-plane:NoSchedule-
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>kubectl<span class="w"> </span>taint<span class="w"> </span>nodes<span class="w"> </span>worker2.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="w">  </span>node-role.kubernetes.io/control-plane:NoSchedule-
 </span></code></pre></div>
 <ol>
 <li>Re-apply node labels you captured in
@@ -2802,10 +2867,10 @@ fails writes. Don't dawdle.</p>
    hardware feature labels on its own; you only need to re-apply the
    manual ones:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>kubectl<span class="w"> </span>label<span class="w"> </span>nodes<span class="w"> </span>worker2.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="w">  </span>node.longhorn.io/create-default-disk<span class="o">=</span><span class="nb">true</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="w">  </span>node.network/vlan-iot<span class="o">=</span><span class="nb">true</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-18-4"><a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="w">  </span>node.network/vlan-security<span class="o">=</span><span class="nb">true</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>kubectl<span class="w"> </span>label<span class="w"> </span>nodes<span class="w"> </span>worker2.<span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="w">  </span>node.longhorn.io/create-default-disk<span class="o">=</span><span class="nb">true</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-21-3"><a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a><span class="w">  </span>node.network/vlan-iot<span class="o">=</span><span class="nb">true</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-21-4"><a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a><span class="w">  </span>node.network/vlan-security<span class="o">=</span><span class="nb">true</span>
 </span></code></pre></div>
 <ol>
 <li>Recreate Ceph OSD. With <code>useAllNodes</code>/<code>useAllDevices</code> enabled, Rook
@@ -2821,14 +2886,14 @@ fails writes. Don't dawdle.</p>
   entries).</li>
 <li>Etcd shows three members:</li>
 </ul>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>etcdctl<span class="w"> </span>...<span class="w"> </span>member<span class="w"> </span>list
-</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>etcdctl<span class="w"> </span>...<span class="w"> </span>endpoint<span class="w"> </span>status<span class="w"> </span>--cluster<span class="w"> </span>-w<span class="w"> </span>table
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>etcdctl<span class="w"> </span>...<span class="w"> </span>member<span class="w"> </span>list
+</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>etcdctl<span class="w"> </span>...<span class="w"> </span>endpoint<span class="w"> </span>status<span class="w"> </span>--cluster<span class="w"> </span>-w<span class="w"> </span>table
 </span></code></pre></div>
 <ul>
 <li>Ceph: <code>ceph -s</code> HEALTH_OK, all OSDs in/up, all PGs <code>active+clean</code>.</li>
 <li>VIP serving from the new node too:</li>
 </ul>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>curl<span class="w"> </span>-k<span class="w"> </span>https://192.168.6.1:6443/healthz
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>curl<span class="w"> </span>-k<span class="w"> </span>https://192.168.6.1:6443/healthz
 </span></code></pre></div>
 <ul>
 <li>Hardware-pinned pods returned (e.g. <code>zwave-js-ui-0</code>, GPU

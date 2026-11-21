@@ -20,7 +20,6 @@ spec:
         - ups-1500-mgmt
         - ups-3000-mgmt
         - idrac
-        - ecowitt
         - thermostat
         - master1-iot
         - worker2-iot
@@ -59,12 +58,13 @@ spec:
         - droplet
         - shelly-radon
         - elfin-salt
-        - pool-light
         - deck-lights
-        # pool-controller (pool temperature sensor) is powered down for
-        # the off-season (pool winterized 2026-10-12). Re-enable in spring
-        # when the pool comes back online.
+        # pool-controller (pool temperature sensor) and pool-light are
+        # powered down for the off-season (pool winterized 2026-10-12).
+        # Re-enable both in spring when the pool comes back online
+        # (tracked in the fleet todo for pool de-winterization).
         # - pool-controller
+        # - pool-light
 
 ---
 # yaml-language-server: $schema=https://k8s-schemas.home-operations.com/monitoring.coreos.com/probe_v1.json
@@ -105,6 +105,34 @@ spec:
         - bluetooth-proxy-gym-poe:6053
         - konnected:6053
         - bathroom-mmwave:6053
+
+---
+# yaml-language-server: $schema=https://k8s-schemas.home-operations.com/monitoring.coreos.com/probe_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: devices-http
+spec:
+  # Strict-tier devices probed over their local HTTP API instead of ICMP.
+  # ecowitt (weather-station gateway) is quiet on the wire, so its neighbor
+  # entry on the probing node goes cold between 2m scrapes; blackbox's
+  # single-packet, no-retry ICMP then times out on the ARP lookup nearly
+  # every scrape (~5% success over 14d) while the gateway pushes data to
+  # Home Assistant continuously. TCP SYN retries keep re-triggering ARP
+  # until the power-saving radio answers (measured 19.6s cold, 40ms warm),
+  # so http_2xx_slow_arp (40s) reflects real liveness where 5s did not.
+  # scrapeTimeout 45s > the module's 40s so the module times out first.
+  # Alerts via BlackboxIoTDeviceUnreachable (for:15m); rules in
+  # helmrelease.yaml.
+  interval: 2m
+  scrapeTimeout: 45s
+  module: http_2xx_slow_arp
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - http://ecowitt/get_livedata_info
 
 ---
 # yaml-language-server: $schema=https://k8s-schemas.home-operations.com/monitoring.coreos.com/probe_v1.json

@@ -26,6 +26,20 @@ the tier before you emit. Per HOMELAB-SPEC Layer 5.
   mdBook output, or any artifact a third party could see** (per
   HOMELAB-SPEC Layer 2 #2). They exist in `kubernetes/apps/media/`
   but narrative artifacts treat them as "the media stack."
+  - **Applies to issues too**: titles, bodies and comments. An upstream
+    link whose own URL names one of these apps can't appear either. Write
+    "upstream link tracked privately" and keep the link in a Vikunja todo;
+    for a tracking issue use `Watch: none`.
+  - **Accepted exception: machine-generated dependency metadata.**
+    Renovate PR titles, its Dependency Dashboard, and old bot-authored
+    dashboard issues carry image names derived from the public manifests.
+    They can't be scrubbed meaningfully (PRs can't be deleted, the
+    dashboard regenerates every run), and they reveal nothing the public
+    manifests don't. Don't edit or mass-delete them. The rule targets
+    narrative we write. Audited 2026-11-21: every human-authored issue,
+    title and comment was scrubbed. Old body and comment revisions need
+    the owner to delete them in the GitHub UI ("edited" → revision → ⋯ →
+    "Delete revision from history"), since the API can't.
 - **Media file names are restricted** (per HOMELAB-SPEC Layer 2 #10).
   Track / album / artist filenames and library paths never appear in
   commit messages, PR titles/descriptions, public code, code comments,

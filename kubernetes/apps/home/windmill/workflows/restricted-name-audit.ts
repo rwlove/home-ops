@@ -13,18 +13,27 @@
 //    `f/lovenet/restricted_name_regex`. The pattern never lives in this
 //    public repo.
 // 2. List items created or updated since the last scan: issues and PRs
-//    (`/issues?since=`), issue comments, and PR review comments.
-// 3. Skip bot authors. Renovate titles and dashboards are the documented
-//    accepted exception (machine-generated dependency metadata).
+//    (`/issues?since=`), issue comments, PR review comments, and commits on
+//    the default branch. Squash merges copy PR text into commit messages,
+//    so a PR-body leak becomes permanent history on merge.
+//    Not scanned: PR review *bodies* (`gh pr review -b`). They have no
+//    repo-wide list endpoint, and one call per PR would blow the anonymous
+//    60 req/hr budget at agent PR volume.
+// 3. Skip Renovate only. Its PR titles, commits and dashboards are the
+//    documented accepted exception (machine-generated dependency
+//    metadata); every other author, including other bots, is scanned.
 // 4. Email one itemized list of findings (links and where the match is,
 //    never the matched text: the mail relays out via Mailgun). No findings
 //    means no email.
 // 5. Advance the cursor only after a successful scan and send.
 //
-// The first run only records a cursor: the 2026-11-21 audit already
-// covered everything before it. Pass `since_override` (ISO time) with
-// `dry_run: true` to test detection against a past window without emailing
-// or moving the cursor.
+// This is the weekly backstop. The merge-time gate on PR titles/bodies is
+// a separate CI job (Vikunja #147).
+//
+// With no stored cursor (first run, or state lost) it scans from
+// FIRST_RUN_SINCE rather than silently baselining, so nothing is skipped.
+// Pass `since_override` (ISO time) with `dry_run: true` to test detection
+// against a past window without emailing or moving the cursor.
 //
 // Anonymous GitHub API access (60 req/hr) covers a weekly window; a
 // rate-limit or HTTP error fails the job, which windmill-failure-watcher
@@ -37,17 +46,30 @@ const GH_BASE = "https://api.github.com";
 const REPO = "rwlove/home-ops";
 const PATTERN_VAR = "f/lovenet/restricted_name_regex";
 const MAX_PAGES = 20;
+const FIRST_RUN_SINCE = "2026-11-01T00:00:00Z";
+const SKEW_MS = 10 * 60 * 1000;
+// More than this many findings in one run most likely means a broken
+// pattern (e.g. a stray `|` matching everything), not a real leak wave.
+const MAX_SANE_FINDINGS = 75;
 
 type AuditState = { last_scan_at?: string };
 
 type Finding = { url: string; where: string; author: string };
 
-type GhUser = { login: string; type?: string } | null;
+// Renovate in all its forms (GitHub app, self-hosted operator, the old
+// rosey bot). Deliberately narrow: other bots are audited.
+function isRenovate(login: string | undefined | null): boolean {
+    const l = (login ?? "").toLowerCase();
+    return l.includes("renovat");
+}
 
-function isBot(user: GhUser): boolean {
-    if (!user) return true;
-    const l = user.login.toLowerCase();
-    return user.type === "Bot" || l.endsWith("[bot]") || l.endsWith("-bot") || l.includes("renovat");
+async function ghGet(url: string): Promise<any> {
+    const res = await fetch(url, {
+        headers: { Accept: "application/vnd.github+json", "User-Agent": "lovenet-restricted-name-audit" },
+        signal: AbortSignal.timeout(30_000),
+    });
+    if (!res.ok) throw new Error(`GitHub ${res.status} on ${url.replace(GH_BASE, "")}`);
+    return res.json();
 }
 
 async function ghList(path: string, since: string): Promise<any[]> {
@@ -55,16 +77,14 @@ async function ghList(path: string, since: string): Promise<any[]> {
     for (let page = 1; page <= MAX_PAGES; page++) {
         const sep = path.includes("?") ? "&" : "?";
         const url = `${GH_BASE}/repos/${REPO}/${path}${sep}since=${encodeURIComponent(since)}&per_page=100&page=${page}`;
-        const res = await fetch(url, {
-            headers: { Accept: "application/vnd.github+json", "User-Agent": "lovenet-restricted-name-audit" },
-            signal: AbortSignal.timeout(30_000),
-        });
-        if (!res.ok) throw new Error(`GitHub ${res.status} on ${path} page ${page}`);
-        const items = (await res.json()) as any[];
+        const items = (await ghGet(url)) as any[];
         out.push(...items);
         if (items.length < 100) return out;
     }
-    throw new Error(`GitHub ${path}: more than ${MAX_PAGES} pages since ${since}; widen MAX_PAGES or shorten the window`);
+    throw new Error(
+        `GitHub ${path}: more than ${MAX_PAGES} pages since ${since} (the cursor fell behind). ` +
+            `Recover by running once manually with dry_run=false and since_override set to a recent ISO time.`,
+    );
 }
 
 export async function main(dry_run: boolean = false, since_override: string = "") {
@@ -74,36 +94,52 @@ export async function main(dry_run: boolean = false, since_override: string = ""
 
     const state = ((await wmill.getState()) as AuditState | null) ?? {};
     const scanStartedAt = new Date().toISOString();
-    const since = since_override || state.last_scan_at;
+    const since = since_override ||
+        (state.last_scan_at ? new Date(Date.parse(state.last_scan_at) - SKEW_MS).toISOString() : FIRST_RUN_SINCE);
 
-    if (!since) {
-        if (!dry_run) await wmill.setState({ last_scan_at: scanStartedAt });
-        return { baseline: true, cursor: scanStartedAt, findings: [] };
-    }
-
-    const [issues, issueComments, reviewComments] = await Promise.all([
+    const [issues, issueComments, reviewComments, commits] = await Promise.all([
         ghList("issues?state=all", since),
         ghList("issues/comments", since),
         ghList("pulls/comments", since),
+        ghList("commits", since),
     ]);
 
     const findings: Finding[] = [];
     for (const i of issues) {
-        if (isBot(i.user)) continue;
+        const author = i.user?.login;
+        if (isRenovate(author)) continue;
         const kind = i.pull_request ? "PR" : "issue";
-        if (re.test(i.title ?? "")) findings.push({ url: i.html_url, where: `${kind} title`, author: i.user.login });
-        if (re.test(i.body ?? "")) findings.push({ url: i.html_url, where: `${kind} body`, author: i.user.login });
+        if (re.test(i.title ?? "")) findings.push({ url: i.html_url, where: `${kind} title`, author });
+        if (re.test(i.body ?? "")) findings.push({ url: i.html_url, where: `${kind} body`, author });
     }
     for (const c of issueComments) {
-        if (isBot(c.user)) continue;
-        if (re.test(c.body ?? "")) findings.push({ url: c.html_url, where: "comment", author: c.user.login });
+        if (isRenovate(c.user?.login)) continue;
+        if (re.test(c.body ?? "")) findings.push({ url: c.html_url, where: "comment", author: c.user?.login });
     }
     for (const c of reviewComments) {
-        if (isBot(c.user)) continue;
-        if (re.test(c.body ?? "")) findings.push({ url: c.html_url, where: "PR review comment", author: c.user.login });
+        if (isRenovate(c.user?.login)) continue;
+        if (re.test(c.body ?? "")) findings.push({ url: c.html_url, where: "PR review comment", author: c.user?.login });
+    }
+    for (const c of commits) {
+        const author = c.author?.login ?? c.commit?.author?.name;
+        if (isRenovate(author) || isRenovate(c.commit?.author?.name)) continue;
+        if (re.test(c.commit?.message ?? "")) {
+            findings.push({ url: c.html_url, where: "commit message (main history; fixing needs a rewrite)", author });
+        }
     }
 
-    const scanned = { issues_and_prs: issues.length, issue_comments: issueComments.length, review_comments: reviewComments.length };
+    if (findings.length > MAX_SANE_FINDINGS) {
+        throw new Error(
+            `${findings.length} findings exceeds ${MAX_SANE_FINDINGS}: the pattern in ${PATTERN_VAR} is probably broken`,
+        );
+    }
+
+    const scanned = {
+        issues_and_prs: issues.length,
+        issue_comments: issueComments.length,
+        review_comments: reviewComments.length,
+        commits: commits.length,
+    };
 
     if (findings.length > 0 && !dry_run) {
         const lines = findings.map((f) => `• ${f.where} (${f.author}): ${f.url}`);
@@ -124,7 +160,7 @@ export async function main(dry_run: boolean = false, since_override: string = ""
     }
 
     if (!dry_run) await wmill.setState({ last_scan_at: scanStartedAt });
-    return { baseline: false, since, scanned, findings };
+    return { since, scanned, findings };
 }
 
 // ---------- Email (in-cluster smtp-relay -> Mailgun) ----------

@@ -43,6 +43,10 @@ Chart version **1.0.1** (pinned, CRDs + controller; Renovate bumps the
   `observability-agent` / `promql-agent` / `cilium-*` / bundled `grafana-mcp`
   subcharts; the fleet is the in-repo `Agent` CRDs instead, and operator agents
   consume the shared `mcp-system/grafana-mcp` through the gateway.
+- **Sessions expire after 48h idle.** Every A2A cron run and e2e-watchdog probe
+  opens a fresh Session; the controller's built-in expiration worker
+  (`config.sessions.idleTtl`, chart default 7d) deletes them, so clients never
+  delete sessions themselves. Failed runs stay inspectable for 48h.
 
 See `app/values.yaml` for the full 1.0 schema notes (what changed vs the 0.10.x
 trial) and the local-model wiring.

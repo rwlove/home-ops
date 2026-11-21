@@ -33,6 +33,7 @@ Stdlib only. Config via env:
   MAX_ALERTS_PER_GROUP      default 8
   PROM_URL                  Prometheus base URL for pre-gather; unset -> pre-gather off
   PREGATHER_TIMEOUT_SECONDS default 8 (per Prometheus query)
+  RECHECK_DELAY_SECONDS     default 60; settle time before the resolved-before-send recheck
   NOTIFY_URL                default http://notify-mcp.mcp-system:8060/send (no auth)
   AGENT_NAME                default observability-operator (notify-mcp theme + sender)
 """
@@ -41,6 +42,7 @@ import os
 import re
 import sys
 import threading
+import time
 import urllib.parse
 import urllib.request
 import uuid
@@ -61,6 +63,7 @@ MAX_INFLIGHT = int(os.environ.get("MAX_INFLIGHT", "2"))
 MAX_ALERTS = int(os.environ.get("MAX_ALERTS_PER_GROUP", "8"))
 PROM_URL = os.environ.get("PROM_URL", "")
 PREGATHER_TIMEOUT = int(os.environ.get("PREGATHER_TIMEOUT_SECONDS", "8"))
+RECHECK_DELAY = int(os.environ.get("RECHECK_DELAY_SECONDS", "60"))
 NOTIFY_URL = os.environ.get("NOTIFY_URL", "http://notify-mcp.mcp-system:8060/send")
 AGENT_NAME = os.environ.get("AGENT_NAME", "observability-operator")
 
@@ -117,6 +120,15 @@ def _firing(payload):
         lbl = a.get("labels", {}) or {}
         ann = a.get("annotations", {}) or {}
         text = ann.get("description") or ann.get("summary") or ann.get("message") or ""
+        # A kube-state-metrics series with no container label of its own (e.g.
+        # kube_pod_status_ready) inherits the SCRAPE TARGET's container label —
+        # container="kube-state-metrics". Passed through, the model reads the exporter as
+        # the failing workload (2026-11-21 SparkVllmDriverPodDown) and the memory
+        # pre-gather scopes to the wrong container. A container named after the series'
+        # own job/service is the exporter's identity, never the workload's: drop it.
+        container = lbl.get("container", "")
+        if container and container in (lbl.get("job"), lbl.get("service")):
+            container = ""
         out.append({
             "alertname": lbl.get("alertname", "?"),
             "namespace": lbl.get("namespace", ""),
@@ -124,9 +136,57 @@ def _firing(payload):
             "text": text,
             "pod": lbl.get("pod", ""),
             "node": lbl.get("node", ""),
-            "container": lbl.get("container", ""),
+            "container": container,
+            "labels": lbl,
+            "expr": _generator_expr(a.get("generatorURL", "")),
         })
     return out
+
+
+def _generator_expr(url):
+    """The alert rule's PromQL, recovered from AlertManager's generatorURL
+    (…/graph?g0.expr=<expr>&g0.tab=1). '' when absent or unparseable."""
+    try:
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+        return (q.get("g0.expr") or [""])[0]
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _still_active(alerts):
+    """Re-evaluate each alert's own rule expression NOW and report whether any alert
+    in the group still matches. Returns True / False, or None when it can't tell (no
+    Prometheus, no expr, a query failure) — callers fail OPEN on None.
+
+    Why re-evaluate the expr rather than read ALERTS: ALERTS lags the underlying series
+    by a rule-evaluation interval, and the race here is seconds wide (2026-11-21: the pod
+    went Ready 48s before the email, the series flipped ~10s AFTER it, ALERTS later still).
+    The alert's labels are the series' labels plus rule labels, so a result series whose
+    labels all match the alert's means that alert is still active (the rule's `for:` is
+    not re-applied — a still-true condition counts as active)."""
+    if not PROM_URL:
+        return None
+    known = False
+    for a in alerts[:MAX_ALERTS]:
+        expr = a.get("expr")
+        if not expr:
+            continue
+        try:
+            url = PROM_URL.rstrip("/") + "/api/v1/query?" + urllib.parse.urlencode({"query": expr})
+            with urllib.request.urlopen(url, timeout=PREGATHER_TIMEOUT) as r:
+                d = json.loads(r.read().decode())
+            if d.get("status") != "success":
+                continue
+        except Exception as e:  # noqa: BLE001
+            log("recheck query failed for %s: %r" % (a["alertname"], e))
+            continue
+        known = True
+        lbl = a.get("labels") or {}
+        for x in (d.get("data", {}) or {}).get("result", []):
+            m = x.get("metric", {}) or {}
+            if all(lbl.get(k) == v for k, v in m.items() if k != "__name__"):
+                return True
+    return False if known else None
 
 
 def _prom(query):
@@ -432,6 +492,16 @@ def _handle(payload):
                 log("reply still non-English after re-ask for [%s] — enrichment "
                     "suppressed (English-only; AlertManager paged independently)" % names)
                 return
+        # Resolved-before-send gate. The agent call takes minutes; an alert that cleared
+        # meanwhile (a slow cold start, a self-healing blip) would otherwise get an email
+        # calling it "real signal" after it is already gone (2026-11-21
+        # SparkVllmDriverPodDown: pod Ready 10:17:16, enrichment sent 10:18:04).
+        # Settle first so the exporter scrape catches up, then re-evaluate. Suppressing
+        # loses only supplemental context — AlertManager sends its own resolved notice.
+        time.sleep(RECHECK_DELAY)
+        if _still_active(alerts) is False:
+            log("all alerts in [%s] resolved before send — enrichment suppressed" % names)
+            return
         _notify("kagent enrichment: %s" % names, text)
         log("enrichment sent for [%s]" % names)
     finally:

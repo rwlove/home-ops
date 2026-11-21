@@ -71,6 +71,50 @@ def _post(url, payload, timeout):
     return _parse_jsonrpc(raw)
 
 
+def _task_dump_text(s):
+    """kagent falls back to serializing the WHOLE A2A task into the content part when
+    the agent ends without a final text answer (e.g. the strong tier failed over to the
+    7B model mid-run and it stopped on a tool call). Passing that verbatim downstream emailed Rob a
+    wall of function_call/function_response JSON (2026-11-21 SparkVllmDriverPodDown).
+    If `s` is such a dump, return only the agent's prose text parts (status message
+    first, else the last artifact carrying text); '' when there is none. Anything
+    that is not an A2A task dump is returned unchanged."""
+    st = (s or "").strip()
+    if not st.startswith("{"):
+        return s or ""
+    try:
+        task = json.loads(st)
+    except ValueError:
+        return s
+    # Only an A2A Task shape counts as a dump; any other JSON object is a legitimate
+    # reply (the doer accepts a bare {...} intent proposal) and passes through.
+    if not isinstance(task, dict) or not ({"artifacts", "history"} & set(task)
+                                          or task.get("kind") == "task"):
+        return s
+
+    def texts(parts):
+        out = []
+        for p in parts or []:
+            if not isinstance(p, dict):
+                continue
+            ptype = ((p.get("metadata") or {}).get("kagent.dev/a2a/part-type") or "")
+            if ptype.startswith("function_") or "data" in p:
+                continue
+            t = p.get("text")
+            if isinstance(t, str) and t.strip():
+                out.append(t.strip())
+        return out
+
+    msg = (task.get("status") or {}).get("message") or {}
+    found = texts(msg.get("parts"))
+    if not found:
+        for art in reversed(task.get("artifacts") or []):
+            found = texts((art or {}).get("parts"))
+            if found:
+                break
+    return "\n\n".join(found)
+
+
 def _extract_text(tool_result):
     """kagent's invoke_agent MCP tool returns {"content":[{"type":"text",
     "text":...}], "structuredContent":{...,"text":...}, "isError":bool}. Prefer
@@ -78,10 +122,10 @@ def _extract_text(tool_result):
     parts kagent always also populates."""
     sc = tool_result.get("structuredContent") or {}
     if sc.get("text"):
-        return sc["text"]
+        return _task_dump_text(sc["text"])
     parts = [p.get("text", "") for p in (tool_result.get("content") or [])
              if p.get("type") == "text"]
-    return parts[-1] if parts else ""
+    return _task_dump_text(parts[-1]) if parts else ""
 
 
 def _state_of(tool_result):

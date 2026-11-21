@@ -48,9 +48,16 @@ with "Deno is not installed on this worker". Keep new scripts on Bun:
 | `LIGHTRAG_API_KEY` | `lightrag.api_key` (shared with the ai-ns lightrag ExternalSecret) |
 | `WINDMILL_TOKEN` | `windmill.windmill_api_token` (failure-watcher self-introspection) |
 
+`restricted-name-audit` reads its pattern from the Windmill **secret
+variable** `f/lovenet/restricted_name_regex` (a JS RegExp source,
+compiled case-insensitive), not from env. It lives only in Windmill so the
+restricted-tier name list never lands in this public repo; edit it in the
+Windmill UI / API.
+
 ## Notifications
 
-The watcher workflows (`windmill-failure-watcher`, `workaround-watcher`)
+The watcher workflows (`windmill-failure-watcher`, `workaround-watcher`,
+`restricted-name-audit`)
 notify by **email**. Each speaks plaintext
 SMTP to the in-cluster `smtp-relay` (home ns, maddy) on port 2525,
 which relays out via Mailgun. The small SMTP helper is duplicated inline

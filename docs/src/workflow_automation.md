@@ -30,6 +30,10 @@
   - `windmill-failure-watcher.ts` — Windmill self-introspection.
   - `workaround-watcher.ts` — GitHub `workaround`-labeled issue discovery;
     backs the upstream-watcher convention.
+  - `restricted-name-audit.ts` — weekly scan of human/agent-authored issue
+    and PR titles, bodies and comments for restricted-tier app names
+    (HOMELAB-SPEC L2 #2). Emails links only; the name list lives in a
+    Windmill secret variable, never in this repo.
 - **The approval flow no longer exists** — no Zulip `#approvals` stream, no
   ntfy/Pushover tap-to-approve loop, because there is no automated task
   pipeline producing anything to approve.

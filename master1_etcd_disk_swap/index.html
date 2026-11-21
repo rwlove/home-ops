@@ -2506,15 +2506,34 @@ apiserver timeouts on this cluster. Confirmed via Prometheus:</p>
 </table>
 <p>Read latency on the same NVMe is sub-millisecond. The slowness is on
 the <strong>sync-write path</strong> (page cache doesn't help <code>fdatasync</code>). The
-suspected drive is <code>nvme1n1</code> — a budget HS1TBNVME M2 1TB at 41% wear,
-hosting the LVM root that contains <code>/var/lib/etcd</code>.</p>
+suspected drive is the budget <strong>HS1TBNVME M2 1TB</strong> (41% wear at the
+time), hosting the LVM root that contains <code>/var/lib/etcd</code>.</p>
+<blockquote>
+<p><strong>DANGER — identify drives by model/serial, never by <code>nvmeXn1</code>.</strong>
+master1's NVMe kernel names <strong>swap between boots</strong>. When this page was
+written the HS1TBNVME was <code>nvme1n1</code> and the WD Blue SN570 was
+<code>nvme0n1</code>; on 2026-11-21 it was the reverse. The WD Blue carries the
+Ceph OSD (partition 1) and <code>/var/lib/longhorn</code> (partition 2) — pointing
+a <code>dd</code>/<code>pvmove</code>/wipe at the wrong name destroys production data. Always
+resolve by stable path first — <code>ls -l /dev/disk/by-id/ | grep -E 'HS1TB|SN570'</code>
+and <code>pvs -o pv_name,vg_name</code> (<code>cs_master1</code> must sit on the HS1TBNVME).</p>
+<ul>
+<li><strong>Replace:</strong> HS1TBNVME 1TB, serial <code>110101000500</code> (root LVM <code>cs_master1</code>, etcd)</li>
+<li><strong>Keep:</strong> WD Blue SN570 2TB, serial <code>23172Q802011</code> (Ceph OSD by-id
+  <code>nvme-WD_Blue_SN570_2TB_23172Q802011_1-part1</code>, Longhorn on part2)</li>
+</ul>
+<p>2026-11-21: this drive is also the root cause of the API-VIP flaps —
+master1's etcd member had 11k slow read-index/14 d vs ~200 on peers
+(see the kube-vip lease-timing change, #16215).</p>
+</blockquote>
 <p>Cluster has a leader, zero leader changes/hr, no failed proposals —
 etcd is stable but degraded. Apiserver-master1 takes the brunt
 because it always reads from local etcd.</p>
 <p>Unrelated note: <code>/dev/sdb</code> on master1 is in <code>XfsShutdown</code> state — a
 secondary SATA disk that fell off the bus. <strong>Does not affect etcd</strong>
 (verified: nothing on sdb is mounted; etcd lives on <code>/</code>, OSD-1 lives
-on <code>nvme0n1p1</code>, Longhorn lives on <code>nvme0n1p2</code>). Investigate on its
+on the WD Blue's partition 1, Longhorn on its partition 2 — kernel name
+was <code>nvme0n1</code> at the time, see the warning above). Investigate on its
 own schedule.</p>
 <h2 id="drive-recommendation">Drive recommendation<a class="headerlink" href="#drive-recommendation" title="Permanent link">&para;</a></h2>
 <p><strong>Micron 7450 PRO 480 GB M.2 2280</strong> (MTFDKBA480TFR-1BC1ZABYYR), ~$200 USD.</p>
@@ -2540,8 +2559,9 @@ own schedule.</p>
 </ol>
 <div class="language-sh highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pvs<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>vgs<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>lvs<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>lsblk
 </span></code></pre></div>
-<p>This is to verify the hypothesis that <code>/var/lib/etcd</code> is on
-   <code>nvme1n1</code>. If it turns out to be on <code>nvme0n1</code> (the WD Blue), the
+<p>This is to verify the hypothesis that <code>/var/lib/etcd</code> is on the
+   HS1TBNVME (resolve the name via <code>/dev/disk/by-id</code> — kernel names
+   swap between boots). If it turns out to be on the WD Blue, the
    diagnosis changes — the issue would be NVMe contention with
    Longhorn/Ceph rather than a slow drive. The fix would then be
    different (move workloads, not the drive).
@@ -2565,7 +2585,9 @@ documented procedure.</p>
 <p>Cons: more downtime, more steps.</p>
 <h3 id="option-b--clone-lvm-offline">Option B — Clone LVM offline<a class="headerlink" href="#option-b--clone-lvm-offline" title="Permanent link">&para;</a></h3>
 <p>Boot master1 into rescue/live media, <code>dd</code> or <code>pvmove</code> the existing
-root LVM from <code>nvme1n1</code> to the new drive, update bootloader, reboot.</p>
+root LVM from the HS1TBNVME (resolve its current <code>/dev/nvmeXn1</code> via
+<code>/dev/disk/by-id/*HS1TB*</code> immediately before running anything) to the
+new drive, update bootloader, reboot.</p>
 <p>Pros: faster, preserves config exactly.</p>
 <p>Cons: carries forward whatever cruft is on <code>/</code>; bootloader fiddling;
 no validation that the cluster's join procedure works.</p>
@@ -2591,7 +2613,7 @@ no validation that the cluster's join procedure works.</p>
    should grow at the same rate as the other voters over a 10-minute
    window. If yes, the disk swap solved the etcd problem.</li>
 <li><strong>Investigate <code>BLUESTORE_SLOW_OP_ALERT</code> on OSD-1.</strong> Separate
-   issue, on <code>nvme0n1</code>. Likely Longhorn ↔ Ceph contention on the same
+   issue, on the WD Blue SN570. Likely Longhorn ↔ Ceph contention on the same
    drive. Quantify with <code>iostat</code> and Ceph perf counters before
    deciding what to do.</li>
 <li><strong>Then promote worker2 as a control plane</strong> per

@@ -45,6 +45,19 @@ spec:
             valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
           prober: http
           timeout: 5s
+        # http_2xx with a long budget for low-traffic WiFi devices (ecowitt)
+        # whose neighbor entry goes cold between scrapes and which miss the
+        # first ARP broadcasts while in power-save: a cold request measured
+        # 19.6s (TCP SYN retries re-trigger ARP until one lands), a warm one
+        # 40ms. 40s gives ~2x margin. Probe CR `devices-http` in probes.yaml.
+        http_2xx_slow_arp:
+          http:
+            follow_redirects: true
+            ip_protocol_fallback: false
+            preferred_ip_protocol: "ip4"
+            valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+          prober: http
+          timeout: 40s
         icmp:
           icmp:
             ip_protocol_fallback: false
@@ -257,7 +270,8 @@ spec:
         #
         #   strict  — infra that must page fast: UPS/iDRAC/workers, cameras,
         #             ratgdo, konnected, pool/radon/salt ESP devices,
-        #             hass-voice, printer. `devices` probe, for:15m.
+        #             hass-voice, printer, weather gateway. `devices`,
+        #             `devices-esphome`, `devices-http` probes, for:15m.
         #   sleepy  — nap-prone by design: Aqara WiFi presence (radio
         #             power-save), Kodi, Frameo, WiiM, roborock, WLED strips.
         #             `devices-sleepy` + `http` probes, for:12h — long enough
@@ -274,14 +288,13 @@ spec:
           annotations:
             description: |-
               IoT/device {{ $labels.instance }} has been unreachable for 15m
-          # avg_over_time < 0.5 (not a strict ==0) because the strict form
-          # false-fired on ecowitt: blackbox's single-packet/no-retry ICMP
-          # probe plus ecowitt's ARP neighbor cache aging out cold between
-          # 2-min scrapes reads as "down" on an isolated missed probe even
-          # though the device is healthy. A sustained-rate check tolerates
-          # one missed sample inside the window while still catching a
-          # genuinely dead device.
-          expr: avg_over_time(probe_success{job=~"probe/observability/(devices|devices-esphome)"}[15m]) < 0.5
+          # avg_over_time < 0.5 (not a strict ==0) so an isolated missed
+          # probe (WiFi jitter, a dropped connect) inside the window does
+          # not page, while a genuinely dead device still does. Devices
+          # whose ICMP fails *most* of the time while healthy (ESPHome,
+          # ecowitt) are probed on their real service port instead — see
+          # devices-esphome / devices-http in probes.yaml.
+          expr: avg_over_time(probe_success{job=~"probe/observability/(devices|devices-esphome|devices-http)"}[15m]) < 0.5
           for: 15m
           labels:
             severity: warning

@@ -203,7 +203,11 @@ other routes sit above the `pushover` fallthrough:
   is *also* fanned to the in-cluster kagent observability-operator via
   the `alert-agent-bridge` webhook for root-cause enrichment. `continue`
   keeps evaluation going so the raw page still reaches `pushover` exactly
-  as before — enrichment is additive, not a replacement.
+  as before — enrichment is additive, not a replacement. The enrichment
+  email is suppressed (log-only) if every alert in the group has
+  cleared by send time — the bridge waits 60s, then re-evaluates each
+  rule's own expression — so a self-resolved alert never gets a
+  stale "real signal" note.
 - **`email`** — a small, explicit set of `alertname`s (a `=~` regex;
   five warning alertnames + `CPUThrottlingHigh`) routes to the `email`
   receiver *instead of* `pushover`, to de-noise the pager.

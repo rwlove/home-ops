@@ -113,19 +113,25 @@ kind: Probe
 metadata:
   name: devices-http
 spec:
-  # Strict-tier devices probed over their local HTTP API instead of ICMP.
-  # ecowitt (weather-station gateway) is quiet on the wire, so its neighbor
-  # entry on the probing node goes cold between 2m scrapes; blackbox's
-  # single-packet, no-retry ICMP then times out on the ARP lookup nearly
-  # every scrape (~5% success over 14d) while the gateway pushes data to
-  # Home Assistant continuously. TCP SYN retries keep re-triggering ARP
-  # until the power-saving radio answers (measured 19.6s cold, 40ms warm),
-  # so http_2xx_slow_arp (40s) reflects real liveness where 5s did not.
-  # scrapeTimeout 45s > the module's 40s so the module times out first.
+  # Strict-tier (for:15m) devices probed over their local HTTP API.
+  # - wled-hyperion: family-room bias-light WLED, wired ethernet and
+  #   always powered (not switched with the TV), so unlike the WiFi WLED
+  #   strips in the sleepy `http` job below it should page fast.
+  # - ecowitt (weather-station gateway) is quiet on the wire, so its neighbor
+  #   entry on the probing node goes cold between 2m scrapes; blackbox's
+  #   single-packet, no-retry ICMP then times out on the ARP lookup nearly
+  #   every scrape (~5% success over 14d) while the gateway pushes data to
+  #   Home Assistant continuously. TCP SYN retries keep re-triggering ARP
+  #   until the power-saving radio answers, so http_2xx_slow_arp reflects
+  #   real liveness where 5s did not. Cold scrapes land on the SYN retry at
+  #   t=31s and complete at a steady ~36s (warm: 40ms); the next retry is at
+  #   t=63s, so the module budget is 75s to cover it, not a nudge past 36s.
+  # scrapeTimeout 80s > the module's 75s so the module times out first, and
+  # stays under the 2m interval.
   # Alerts via BlackboxIoTDeviceUnreachable (for:15m); rules in
   # helmrelease.yaml.
   interval: 2m
-  scrapeTimeout: 45s
+  scrapeTimeout: 80s
   module: http_2xx_slow_arp
   prober:
     url: blackbox-exporter.observability.svc.cluster.local:9115
@@ -133,6 +139,7 @@ spec:
     staticConfig:
       static:
         - http://ecowitt/get_livedata_info
+        - wled-hyperion
 
 ---
 # yaml-language-server: $schema=https://k8s-schemas.home-operations.com/monitoring.coreos.com/probe_v1.json
@@ -201,7 +208,8 @@ spec:
   # 2m cadence — same rationale as the `devices` probe above.
   # WLED strips get switched off in normal use, so this whole job rides the
   # sleepy alert tier (BlackboxSleepyDeviceUnreachable, for:12h), not the
-  # strict 15m one. See helmrelease.yaml alert rules.
+  # strict 15m one. See helmrelease.yaml alert rules. (wled-hyperion is
+  # wired + always-on, so it lives in the strict `devices-http` job above.)
   interval: 2m
   module: http_2xx
   prober:
@@ -214,7 +222,6 @@ spec:
         - wled-gym-3
         - wled-gym-4
         - wled-gym-5
-        - wled-hyperion
         - wled-wallcontrol-left
         - wled-wallcontrol-right
         - wled-cabinet-1

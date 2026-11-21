@@ -20,7 +20,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/nodes.sh"
 # standalone generator used by promote_worker_to_control_plane.md.
 VIP="192.168.6.1"
 VIP_INTERFACE="enp0s31f6"
-KUBE_VIP_VERSION="v1.0.2"
+# renovate: datasource=docker depName=ghcr.io/kube-vip/kube-vip
+KUBE_VIP_VERSION="v1.3.2"
 
 m1="root@${MASTER_INIT}.${SECRET_DOMAIN}"
 

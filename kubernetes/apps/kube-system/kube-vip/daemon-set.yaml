@@ -43,22 +43,34 @@ spec:
               value: "true"
             - name: cp_namespace
               value: kube-system
-            # LeaderElection tuning. The API VIP failover window was ~15s
-            # (kube-vip default leaseDuration), which strands the VIP when the
-            # owning master hangs ungracefully (bit us during the 1.36 upgrade
-            # when master1's cri-o froze). 5/3/1 shortens the lease-driven
-            # failover to ~5s. The VIP intentionally stays on L2/ARP so brain
-            # remains OUT of the control-plane datapath — BGP-advertising the
-            # /32 would route it through brain and make brain a control-plane
-            # SPOF, which ARP (flat 192.168.0.0/16 L2) avoids today.
+            # LeaderElection tuning: upstream default 15/10/2 (same as
+            # kube-controller-manager / kube-scheduler). Takeover after a hard
+            # hang of the leader is ~17s (lease + retry).
+            #
+            # History: #13727 (2026-08-22) cut this to 5/3/1 (~5s failover)
+            # after master1's cri-o froze during the 1.36 upgrade and stranded
+            # the VIP. That traded a rare stranded-VIP window for constant
+            # false failovers: kube-vip renews through the in-cluster
+            # `kubernetes` Service (all three apiservers), and a 3s renew
+            # deadline loses the lease whenever one apiserver stalls on etcd —
+            # 448 lease transitions, ~3 VIP moves/day (2026-11-21 research:
+            # master1's etcd shares a contended budget NVMe with the Ceph mon;
+            # renew GETs timed out at 10s). kube-vip restarts on a lost lease
+            # by design, so each loss is a brief API-VIP outage.
+            # KubeVipLeaderChurn (kube-prometheus-stack addons/alerts) watches it.
+            #
+            # The VIP intentionally stays on L2/ARP so brain remains OUT of the
+            # control-plane datapath — BGP-advertising the /32 would route it
+            # through brain and make brain a control-plane SPOF, which ARP
+            # (flat 192.168.0.0/16 L2) avoids today.
             - name: vip_leaderelection
               value: "true"
             - name: vip_leaseduration
-              value: "5"
+              value: "15"
             - name: vip_renewdeadline
-              value: "3"
+              value: "10"
             - name: vip_retryperiod
-              value: "1"
+              value: "2"
             - name: svc_enable
               value: "false"
             - name: address

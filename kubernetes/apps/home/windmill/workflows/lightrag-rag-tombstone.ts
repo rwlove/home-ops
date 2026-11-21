@@ -5,9 +5,9 @@
 // The ingest flow keys every doc on file_source "paperless:<id>"; this
 // sweep removes any LightRAG doc whose <id> is gone from Paperless.
 
-const LIGHTRAG = Deno.env.get("LIGHTRAG_URL") ??
+const LIGHTRAG = process.env.LIGHTRAG_URL ??
     "http://lightrag.ai.svc.cluster.local:9621";
-const PAPERLESS = Deno.env.get("PAPERLESS_URL") ??
+const PAPERLESS = process.env.PAPERLESS_URL ??
     "http://paperless.collab.svc.cluster.local:8000";
 const PAGE_SIZE = 100;
 const SOURCE_PREFIX = "paperless:";
@@ -20,9 +20,9 @@ type PaginatedDocsResponse = {
 };
 
 export async function main() {
-    const token = Deno.env.get("PAPERLESS_TOKEN");
+    const token = process.env.PAPERLESS_TOKEN;
     if (!token) throw new Error("PAPERLESS_TOKEN env not set");
-    const apiKey = Deno.env.get("LIGHTRAG_API_KEY");
+    const apiKey = process.env.LIGHTRAG_API_KEY;
     if (!apiKey) throw new Error("LIGHTRAG_API_KEY env not set");
 
     const started = new Date().toISOString();

@@ -12,6 +12,8 @@
 // Anonymous GitHub API access (60 req/hr) is sufficient for the weekly
 // cadence + the small number of workarounds expected.
 
+import * as net from "node:net";
+
 type GhIssue = {
     number: number;
     title: string;
@@ -173,33 +175,63 @@ async function notifyRemovable(removable: WorkaroundCheckResult[]) {
 // self-contained per the workflows "no shared modules" convention.
 
 async function sendEmail(subject: string, body: string) {
-    const host = Deno.env.get("SMTP_HOST") ?? "smtp-relay.home.svc.cluster.local";
-    const port = parseInt(Deno.env.get("SMTP_PORT") ?? "2525", 10);
-    const from = Deno.env.get("NOTIFY_EMAIL_FROM");
-    const to = Deno.env.get("NOTIFY_EMAIL_TO");
+    const host = process.env.SMTP_HOST ?? "smtp-relay.home.svc.cluster.local";
+    const port = parseInt(process.env.SMTP_PORT ?? "2525", 10);
+    const from = process.env.NOTIFY_EMAIL_FROM;
+    const to = process.env.NOTIFY_EMAIL_TO;
     if (!from) throw new Error("NOTIFY_EMAIL_FROM env not set");
     if (!to) throw new Error("NOTIFY_EMAIL_TO env not set");
 
-    const conn = await Deno.connect({ hostname: host, port });
-    const enc = new TextEncoder();
-    const dec = new TextDecoder();
-    const rbuf = new Uint8Array(4096);
+    // node:net (Bun implements it natively) in place of the old
+    // Deno.connect. Incoming bytes are buffered by the "data" handler;
+    // reply() waits until the buffer holds one complete SMTP reply.
+    const sock = net.createConnection({ host, port });
+    sock.setEncoding("utf8");
+    let rbuf = "";
+    let closed = false;
+    let sockErr: Error | undefined;
+    let wake: (() => void) | undefined;
+    const poke = () => {
+        const w = wake;
+        wake = undefined;
+        w?.();
+    };
+    sock.on("data", (chunk: string) => {
+        rbuf += chunk;
+        poke();
+    });
+    sock.on("close", () => {
+        closed = true;
+        poke();
+    });
+    sock.on("error", (e: Error) => {
+        sockErr = e;
+        closed = true;
+        poke();
+    });
 
     // Read one full SMTP reply. Multi-line replies use "NNN-" for
     // continuation lines and "NNN " (space) on the final line.
     async function reply(): Promise<{ code: number; text: string }> {
-        let acc = "";
         while (true) {
-            const n = await conn.read(rbuf);
-            if (n === null) break;
-            acc += dec.decode(rbuf.subarray(0, n));
-            const last = acc.split(/\r?\n/).filter((l) => l.length > 0).at(-1) ?? "";
+            const last = rbuf.split(/\r?\n/).filter((l) => l.length > 0).at(-1) ?? "";
             if (/^\d{3} /.test(last)) break;
+            if (closed) {
+                if (sockErr) throw sockErr;
+                break;
+            }
+            await new Promise<void>((r) => {
+                wake = r;
+            });
         }
+        const acc = rbuf;
+        rbuf = "";
         return { code: parseInt(acc.slice(0, 3), 10) || 0, text: acc.trim() };
     }
     async function cmd(line: string, expect: number) {
-        await conn.write(enc.encode(line + "\r\n"));
+        await new Promise<void>((resolve, reject) => {
+            sock.write(line + "\r\n", (err) => (err ? reject(err) : resolve()));
+        });
         const { code, text } = await reply();
         if (code !== expect) {
             throw new Error(`SMTP ${line.split(/\s/)[0]}: expected ${expect}, got ${text}`);
@@ -224,6 +256,6 @@ async function sendEmail(subject: string, body: string) {
         await cmd(msg, 250);
         await cmd(`QUIT`, 221);
     } finally {
-        conn.close();
+        sock.destroy();
     }
 }

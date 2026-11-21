@@ -1,0 +1,57 @@
+esphome:
+  name: bluetooth-proxy-gym-poe
+  friendly_name: bluetooth-proxy-gym-poe
+  project:
+    name: esphome.bluetooth-proxy-gym-poe
+    version: "1.0"
+
+# Wired PoE ESP32 (re-purposed from the retired poe-bluetooth-proxy-1). Intended
+# replacement for the WiFi M5Stack ATOM bluetooth-proxy-gym: on the ATOM, WiFi and
+# BLE share one radio and the coexistence contention drops TCP sessions mid-GATT.
+# Ethernet removes WiFi from the radio entirely. No wifi: block on purpose.
+esp32:
+  board: m5stack-core-esp32
+  framework:
+    type: esp-idf
+
+# Enable logging
+logger:
+
+# Wired PHY pinout carried over verbatim from the archived poe-bluetooth-proxy
+# config (IP101 on an M5Stack-style core ESP32 PoE board).
+ethernet:
+  type: IP101
+  mdc_pin: GPIO23
+  mdio_pin: GPIO18
+  clk_mode: GPIO0_IN
+  power_pin: GPIO5
+  phy_addr: 1
+
+# Native API. Encrypted for the same reason as bluetooth-proxy-gym: this proxy is
+# an active-connection path to the Voltra, which can command its motor.
+# Deliberately REUSES the gym ATOM's key so the pump-voltra cutover is only a
+# host/IP change with no secret rotation. Not adopted into Home Assistant (single
+# GATT client path to the Voltra).
+api:
+  encryption:
+    key: !secret bluetooth_proxy_gym_api_key
+
+ota:
+  platform: esphome
+  # Require encrypted OTA (reuses the api encryption key); refuse plaintext pushes.
+  encryption:
+
+esp32_ble_tracker:
+  scan_parameters:
+    active: true
+    # Continuous scan (100% duty). Safe here because there is no WiFi sharing the
+    # radio; on the WiFi proxies this must stay at defaults for coexistence.
+    interval: 1100ms
+    window: 1100ms
+
+# Active connections required: pump-voltra opens a GATT session to the Voltra
+# through this proxy. Passive scanning alone is not sufficient.
+# NOTE: no BLE-advert reboot watchdog (unlike bluetooth-proxy-wifi-*): an active
+# GATT session can suppress adverts and would trigger a spurious reboot mid-set.
+bluetooth_proxy:
+  active: true

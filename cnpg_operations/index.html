@@ -1335,6 +1335,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pg17-era-archives-pre-2026-11-21-major-upgrade" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PG17-era archives (pre-2026-11-21 major upgrade)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#checking-backup-recency" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2560,6 +2571,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pg17-era-archives-pre-2026-11-21-major-upgrade" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PG17-era archives (pre-2026-11-21 major upgrade)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#checking-backup-recency" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2921,6 +2943,32 @@ is the <strong>on-cluster-loss</strong> recovery path; it does not protect again
 Garage substrate loss (see <code>garage_restore.md</code> for that layer, and
 <code>offsite_recovery.md</code> for the small subset of apps — Immich, Paperless
 — with an additional offsite copy).</p>
+<h3 id="pg17-era-archives-pre-2026-11-21-major-upgrade">PG17-era archives (pre-2026-11-21 major upgrade)<a class="headerlink" href="#pg17-era-archives-pre-2026-11-21-major-upgrade" title="Permanent link">&para;</a></h3>
+<p>The PG17 -&gt; PG18 major upgrade (2026-11-21) reset each cluster's timeline
+and system ID, so post-upgrade WAL and base backups land under a new
+<code>serverName</code> suffixed <code>-v18</code>. The pre-upgrade archives were left in place:</p>
+<ul>
+<li><strong>Where they live.</strong> Same Garage bucket and <code>ObjectStore</code> as the live
+  archive (<code>s3://postgres-&lt;app&gt;-backup/</code>), under the old server-name
+  prefix: <code>postgres-&lt;app&gt;-backup/</code> (and <code>postgres-&lt;app&gt;-backup-v17/</code> for
+  nametag, which was also upgraded 16 -&gt; 17). The live PG18 archive is
+  <code>postgres-&lt;app&gt;-backup-v18/</code>. <code>externalClusters.source</code> in each cluster
+  manifest now points at <code>-v18</code>.</li>
+<li><strong>They restore only onto a PG17 image.</strong> A physical (Barman) archive is
+  bound to its major version. To use one, recover into a <em>new</em> cluster
+  with <code>imageName: ghcr.io/cloudnative-pg/postgresql:17.x-standard-trixie</code>
+  and <code>externalClusters.source.serverName</code> set to the old prefix. It will
+  not restore onto a PG18 image; going forward from PG17 data means
+  restoring on 17 and re-running the major upgrade.</li>
+<li><strong>Retention.</strong> 30 days (<code>retentionPolicy: 30d</code> on the <code>ObjectStore</code>);
+  Home Assistant is capped at 7 days. Barman applies retention only to the
+  <em>active</em> <code>serverName</code>, so these orphaned archives do <strong>not</strong> self-expire.</li>
+<li><strong>Cleanup is propose-first.</strong> They are the only pre-upgrade restore
+  points. Do not delete or prune them (bucket objects, prefixes, or
+  retention changes) until the old retention window has passed, and then
+  only after a listed inventory (cluster, prefix, size, age) has been
+  reviewed and approved. Never bulk-delete.</li>
+</ul>
 <h3 id="checking-backup-recency">Checking backup recency<a class="headerlink" href="#checking-backup-recency" title="Permanent link">&para;</a></h3>
 <div class="language-sh highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Fleet-wide: LAST BACKUP column is time-since-last-successful-run</span>
 </span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>databases<span class="w"> </span>get<span class="w"> </span>scheduledbackups.postgresql.cnpg.io

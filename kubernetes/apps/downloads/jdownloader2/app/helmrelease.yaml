@@ -10,8 +10,8 @@ spec:
     name: app-template
   interval: 30m
 
-  # disableWait — pod-gateway-routed pods need the gateway-init VPN
-  # handshake before the app starts, which can outlast helm-controller's
+  # disableWait — the gluetun sidecar must finish its WireGuard handshake
+  # (startupProbe) before the app starts, which can outlast helm-controller's
   # 5-min default wait. Without this, the timed-out upgrade is marked
   # Failed and helm-controller rolls back; the rollback ALSO waits for
   # Ready and ALSO times out, leaving the release stuck and silently
@@ -31,6 +31,17 @@ spec:
     controllers:
       jdownloader2:
         pod:
+          # All DNS goes to gluetun's DoT resolver on the shared pod loopback,
+          # i.e. through the tunnel. This app needs no cluster DNS names.
+          dnsConfig:
+            nameservers:
+              - 127.0.0.1
+          dnsPolicy: None
+          # Opt out of the pod-gateway admission webhook (gatewayDefault:
+          # true for the namespace); gluetun below owns this pod's egress.
+          # Drop once the namespace loses its routed-gateway label.
+          labels:
+            setGateway: "false"
           securityContext:
             fsGroup: 1001
             fsGroupChangePolicy: OnRootMismatch
@@ -40,6 +51,75 @@ spec:
         annotations:
           reloader.stakater.com/auto: "true"
         type: statefulset
+        initContainers:
+          # Native sidecar (restartPolicy: Always): starts before the app,
+          # gates it on a healthy tunnel via startupProbe, and stays up for
+          # the pod's lifetime. gluetun's firewall is the primary
+          # kill-switch; the CNP below (egress default-deny, world UDP/51820
+          # only) is the second.
+          gluetun:
+            image:
+              repository: ghcr.io/qdm12/gluetun
+              tag: v3.41.3@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027
+            # A sidecar restart keeps the pod netns, so policy rules from the
+            # previous run survive and gluetun fails with "file exists".
+            # Clear them before exec (gluetun-wiki setup/advanced/kubernetes).
+            command:
+              - /bin/sh
+              - -c
+              - |
+                while ip rule del table 51820 2>/dev/null; do :; done
+                while ip -6 rule del table 51820 2>/dev/null; do :; done
+                exec /gluetun-entrypoint
+            env:
+              # Inbound on eth0 is dropped unless listed: the web UI port
+              # (envoy route + kubelet probes).
+              FIREWALL_INPUT_PORTS: "5800"
+              # Pod + service CIDRs and the LAN stay off-tunnel so replies to
+              # envoy and kubelet route via eth0. Does not overlap Mullvad's
+              # 10.64.0.0/10 tunnel range.
+              FIREWALL_OUTBOUND_SUBNETS: 10.42.0.0/16,10.43.0.0/16,192.168.0.0/16
+              VPN_INTERFACE: wg0
+              # SERVER_HOSTNAMES comes from this app's own 1P field (see
+              # externalsecret.yaml) — a relay distinct from every other pod
+              # sharing the Mullvad key.
+            envFrom:
+              - secretRef:
+                  name: jdownloader2-vpn
+            probes:
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  exec:
+                    command:
+                      - /gluetun-entrypoint
+                      - healthcheck
+                  failureThreshold: 30
+                  periodSeconds: 5
+                  timeoutSeconds: 5
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  exec:
+                    command:
+                      - /gluetun-entrypoint
+                      - healthcheck
+                  failureThreshold: 6
+                  periodSeconds: 30
+                  timeoutSeconds: 5
+            resources:
+              requests:
+                cpu: 10m
+                memory: 64Mi
+              limits:
+                memory: 256Mi
+            restartPolicy: Always
+            securityContext:
+              capabilities:
+                add:
+                  - NET_ADMIN
         containers:
           app:
             image:
@@ -131,10 +211,12 @@ spec:
         endpointSelector:
           matchLabels:
             app.kubernetes.io/name: jdownloader2
-        # Additive — default-deny is what triggers the lockdown; these rules
-        # punch holes through it.
+        # Ingress stays additive (namespace default-deny comes in a later
+        # phase). Egress is deny-by-default for this endpoint: the only
+        # allowed egress is the WireGuard handshake, so a gluetun firewall
+        # failure cannot leak cleartext.
         enableDefaultDeny:
-          egress: false
+          egress: true
           ingress: false
         ingress:
           # Internal gateway (envoy) → jdownloader2:5800. Auth is enforced at the
@@ -149,37 +231,12 @@ spec:
                   - port: "5800"
                     protocol: TCP
         egress:
-          # VPN egress. The pod-gateway webhook injected `setGateway=true`
-          # routing into this pod's iptables, so ALL non-cluster traffic
-          # exits via the VXLAN tunnel (UDP/4789) to the gateway pod, which
-          # in turn forwards via WireGuard. From Cilium's perspective the
-          # only egress packet is the encapsulated VXLAN UDP/4789 to the
-          # gateway pod's endpoint identity. DNS (172.16.1.1) and ALL
-          # external connectivity (hoster HTTPS, etc.) are tunneled inside
-          # this single VXLAN flow.
-          - toEndpoints:
-              - matchLabels:
-                  io.kubernetes.pod.namespace: vpn
-                  app.kubernetes.io/instance: downloads-gateway
-                  app.kubernetes.io/name: pod-gateway
-                  app.kubernetes.io/controller: main
+          # WireGuard handshake + tunnel to the Mullvad relay. Every other
+          # external flow (DNS via gluetun DoT, hoster HTTPS) is inside this
+          # tunnel. Replaces the pod-gateway VXLAN/4789 + ICMP allows.
+          - toEntities:
+              - world
             toPorts:
               - ports:
-                  - port: "4789"
+                  - port: "51820"
                     protocol: UDP
-          # workaround: https://github.com/angelnu/helm-charts/issues/414 — drop this ICMP-echo allow when pod-gateway liveness mechanic changes or pod-gateway is replaced
-          # Tracking: home-ops#11829
-          # The gateway-sidecar init container (angelnu/pod-gateway
-          # client_init.sh v7+) runs an ICMP liveness check against the
-          # gateway pod IP before declaring the tunnel up. Without this,
-          # init fails → CrashLoopBackOff under default-deny.
-          - toEndpoints:
-              - matchLabels:
-                  io.kubernetes.pod.namespace: vpn
-                  app.kubernetes.io/instance: downloads-gateway
-                  app.kubernetes.io/name: pod-gateway
-                  app.kubernetes.io/controller: main
-            icmps:
-              - fields:
-                  - type: 8  # echo request
-                    family: IPv4

@@ -56,6 +56,7 @@ import time
 import urllib.request
 
 import a2a_client
+import cilium_verify
 import longhorn_verify
 from english_gate import is_non_english
 
@@ -389,6 +390,8 @@ def main():
                 body = strip_roster(text)
                 if os.environ.get("LONGHORN_VERIFY_BACKUPS") == "true":
                     body = longhorn_verify.suppress_confirmed(body, log=log)
+                if os.environ.get("CILIUM_VERIFY_FLOWS") == "true":
+                    body = cilium_verify.suppress_false_exhaustion(body, log=log)
                 if is_empty_finding(body):
                     # Nothing but a roster under a bare tag → nothing actionable.
                     result = "allclear"

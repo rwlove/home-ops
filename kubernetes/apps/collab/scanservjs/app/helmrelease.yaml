@@ -15,6 +15,9 @@ spec:
         annotations:
           reloader.stakater.com/auto: "true"
 
+        # RWO output PVC — a rolling update would deadlock on the attach.
+        strategy: Recreate
+
         pod:
           # Run as the image's own scanservjs user (uid 102), which owns
           # /var/lib/scanservjs (the writable data dir: device cache, temp,
@@ -65,6 +68,17 @@ spec:
             port: 8080
 
     persistence:
+      # Scan output dir. Holds failed-<ts>.pdf scans whose paperless upload
+      # failed (retried on every later scan, see upload-to-paperless.js) plus
+      # scanservjs' own copies of successful scans (pruned after 7 days).
+      # Persistent so a pod restart can't drop an unfiled scan.
+      output:
+        type: persistentVolumeClaim
+        accessMode: ReadWriteOnce
+        size: 2Gi
+        storageClass: ceph-block
+        globalMounts:
+          - path: /var/lib/scanservjs/output
       # In-container scratch for the SANE scan + pipeline (imagemagick,
       # curl). Ephemeral: the assembled PDF is POSTed to paperless and
       # dropped.

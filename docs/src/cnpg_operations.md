@@ -325,6 +325,13 @@ kubectl -n databases get pods -l cnpg.io/cluster=postgres-<app> -w
 kubectl cnpg -n databases status postgres-<app> | grep 'PostgreSQL Image'
 ```
 
+Renovate only offers a cluster updates **within its current Postgres
+major** (per-current-major rules in `.github/renovate/packageRules.json5`:
+`cnpg-postgresql-17` / `cnpg-postgresql-18`, both `automerge: false`).
+A major (17 -> 18) or a distro change (bullseye bare tag ->
+`-standard-trixie`) is always a manual, planned PR; CNPG does not allow
+changing OS distro and major in the same hop.
+
 Remember the version outliers noted above (the three
 `cloudnative-vectorchord` **PG14** clusters) before assuming a
 fleet-wide bump PR covers every cluster — check each `cluster.yaml`'s

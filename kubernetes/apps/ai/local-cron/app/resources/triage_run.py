@@ -58,6 +58,7 @@ import urllib.request
 import a2a_client
 import cilium_verify
 import longhorn_verify
+import observability_verify
 from english_gate import is_non_english
 
 # The tag must LEAD a line, but tolerate the light markdown the CONTRACT permits
@@ -213,6 +214,30 @@ def is_empty_finding(body):
     if len(substance) < 12:
         return True
     return not (_FINDING_MARK.search(stripped) or _TAG_RE.search(stripped))
+
+# DETERMINISTIC PREAMBLE / NARRATION STRIP. The tag regex finds the FIRST leading
+# tag anywhere, so everything the model wrote BEFORE it -- an alert roster, its
+# own "Let me investigate ..." working notes -- used to ship verbatim. Confirmed
+# live 2026-11-21 12:02 (observability-triage): the email opened with the firing
+# roster plus two "Let me check ..." paragraphs ahead of the first PROBLEM:.
+# The body now starts AT the first tag line, and any remaining line that is the
+# model narrating its next tool call is removed. Narration markers are anchored
+# to a line start and kept tight (first-person "let me / I'll / I will / now I /
+# next I") so a finding line is never cut; every cut is logged.
+_NARRATION = re.compile(
+    r"(?im)^[ \t>*_]*(?:let me|let's|i'll|i will|i need to|now i|next,? i)\b.*(?:\n|$)"
+)
+
+
+def strip_preamble(text):
+    """Drop everything before the first leading tag line, then drop
+    first-person tool-call narration lines. No tag -> text unchanged."""
+    m = _TAG_RE.search(text)
+    if not m:
+        return text
+    body = text[m.start():]
+    return re.sub(r"\n{3,}", "\n\n", _NARRATION.sub("", body)).strip()
+
 
 AGENT_URL = os.environ["AGENT_URL"]
 # The real kagent Agent CR name (namespace `ai`) to invoke via AGENT_URL's MCP
@@ -387,11 +412,13 @@ def main():
             elif tag == "problem":
                 # Deterministic backstop: drop any trailing healthy/"not actionable"
                 # roster the model appended despite the contract (adherence wall).
-                body = strip_roster(text)
+                body = strip_roster(strip_preamble(text))
                 if os.environ.get("LONGHORN_VERIFY_BACKUPS") == "true":
                     body = longhorn_verify.suppress_confirmed(body, log=log)
                 if os.environ.get("CILIUM_VERIFY_FLOWS") == "true":
                     body = cilium_verify.suppress_false_exhaustion(body, log=log)
+                if os.environ.get("OBS_VERIFY") == "true":
+                    body = observability_verify.verify(body, log=log)
                 if is_empty_finding(body):
                     # Nothing but a roster under a bare tag → nothing actionable.
                     result = "allclear"
@@ -400,7 +427,7 @@ def main():
                 else:
                     result = "sent"
                     if body != text:
-                        log("stripped trailing benign roster (%d -> %d chars)"
+                        log("stripped preamble/narration/roster (%d -> %d chars)"
                             % (len(text), len(body)))
                     notify_email("%s — %s" % (TITLE, day), body)
             else:

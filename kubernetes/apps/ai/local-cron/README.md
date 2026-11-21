@@ -43,9 +43,16 @@ persona):
   map-insertion drops) by `resources/cilium_verify.py` and dropped when
   contradicted. The `hubble status` "65,535/65,535 flows" figure is the
   observer ring buffer and always reads 100%.
-- `observability-triage` / `observability-doer`
+- `observability-triage` / `observability-doer` — `resources/observability_verify.py`
+  rewrites a "Kustomizations failing/pending" claim to its real root(s) when
+  Prometheus shows a `DependencyNotReady` cascade, and corrects any
+  "<node>: N GB free" figure that disagrees with `node_filesystem_avail_bytes`.
 - `smart-home-triage` / `smart-home-doer`
 - `storage-triage` / `storage-doer`
+
+Every triage email body starts at the first `PROBLEM:` line: anything the
+model wrote before it (alert rosters, "Let me check …" working notes) and any
+later first-person narration lines are stripped by `triage_run.strip_preamble`.
 
 **Concierge digests** — scheduled per-persona life-admin jobs:
 

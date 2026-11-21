@@ -19,10 +19,10 @@
       // ~25 CNPG clusters — the engine froze at 17.7 for months and only ever
       // moved by hand (dfe1a157ac). #13792's versioning fix was inert because
       // nothing fed it a dependency to version. This manager is the missing
-      // detection half. Scoped to the cloudnative-pg/postgresql repo only, so
-      // the vectorchord clusters (immich/khoj/langgraph-memory) keep their
-      // deliberate 14.x digest pin untracked. Grouping + manual-merge gating
-      // live in packageRules.json5 (fleet-wide blast radius).
+      // detection half. Scoped to the cloudnative-pg/postgresql repo only; the
+      // PostGIS and VectorChord images have their own manager below.
+      // Grouping + manual-merge gating live in packageRules.json5
+      // (fleet-wide blast radius).
       customType: "regex",
       description: "Process CNPG cluster engine imageName",
       managerFilePatterns: [
@@ -30,6 +30,26 @@
       ],
       matchStrings: [
         "imageName:\\s+(?<depName>ghcr\\.io/cloudnative-pg/postgresql):(?<currentValue>\\S+)",
+      ],
+      datasourceTemplate: "docker",
+    },
+    {
+      // The PostGIS (adventurelog) and VectorChord (immich, khoj,
+      // langgraph-memory) CNPG engine images live in the same `imageName:`
+      // field but in different repos, and were deliberately left untracked:
+      // digest-pinned by hand, so nothing ever flagged them. That is how the
+      // three vectorchord clusters ended up on PG 14 past its community EOL
+      // (2026-11-12) and adventurelog stayed on PG 16. This manager tracks
+      // them. Unlike the postgresql manager above it captures the optional
+      // `@sha256:` digest so Renovate can keep tag+digest paired. Versioning,
+      // per-major caps and manual-merge gating live in packageRules.json5.
+      customType: "regex",
+      description: "Process CNPG PostGIS / VectorChord engine imageName (tag + digest)",
+      managerFilePatterns: [
+        "/^kubernetes/apps/databases/cloudnative-pg/config/.+/cluster\\.yaml$/",
+      ],
+      matchStrings: [
+        "imageName:\\s+(?<depName>ghcr\\.io/(?:cloudnative-pg/postgis|tensorchord/cloudnative-vectorchord)):(?<currentValue>[^@\\s]+)(?:@(?<currentDigest>sha256:[a-f0-9]{64}))?",
       ],
       datasourceTemplate: "docker",
     },

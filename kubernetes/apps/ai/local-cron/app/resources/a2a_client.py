@@ -122,7 +122,8 @@ def call_agent(agent_mcp_url, agent_name, prompt, budget=600, poll_interval=10,
     # resolves the CURRENT config, which is the correct semantics for these
     # stateless, independent cron runs (they carry no cross-run conversation).
     # The caller's string stays as a human-readable prefix. (Trade-off: a new
-    # Session per run — Session GC is tracked separately.)
+    # Session per run; the kagent controller's sessions.idleTtl (48h,
+    # home-ops #16135) expires them, so they don't accumulate.)
     run_message_id = "%s-%s" % (message_id, uuid.uuid4().hex)
     call = {
         "jsonrpc": "2.0", "id": 1, "method": "tools/call",

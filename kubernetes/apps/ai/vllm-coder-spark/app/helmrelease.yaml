@@ -60,14 +60,24 @@ spec:
         containers:
           app:
             image:
-              # workaround: https://github.com/vllm-project/vllm/issues/36821
-              #   — remove when upstream vLLM publishes an official sm_121
-              #   (GB10) arm64 image (#36821 / #31128). Same community image
-              #   + pinning rationale as vllm-driver-spark; keep the two
-              #   instances on the same digest so they upgrade in lockstep.
-              # Base image has no entrypoint (Cmd=bash) → `command` below.
-              repository: ghcr.io/timothystewart6/vllm-gb10
-              tag: v0.25.1-cu13.2-torch2.11-gb10.3@sha256:30e70a376ff076f4dc3e1e5fd5ee5f99f36a8ba274f6f590fa1d7894045a66d8
+              # Official upstream image (arm64 manifest published since
+              # v0.30.0; vllm-project/vllm#36821 closed COMPLETED 2026-11-02,
+              # so the community-image workaround is retired for this app).
+              # Moved from the community v0.25.1 build to official v0.30.0 —
+              # the first official release with an arm64 manifest, and the
+              # same source commit as the (validated) driver's build. Image
+              # ENTRYPOINT is already `vllm serve`; `command` is kept
+              # explicit. Digest is the multi-arch index digest.
+              #
+              # UNTESTED ON-BOX: this app is parked at replicas:0 and a
+              # 34 GiB co-resident start is not safe beside the driver on
+              # the shared unified pool (see the PARKED note above), so the
+              # flags below were checked against v0.30.0's CLI but the
+              # Qwen3.6-27B-FP8 + fp8 KV path has NOT been served on GB10
+              # with this image. Validate on unpark; fall back to the
+              # driver's proven image/flags if it fails.
+              repository: docker.io/vllm/vllm-openai
+              tag: v0.30.0@sha256:8a69ffad015f138d7170c4ddc429e230a3bc1c1719f67e14324749df200a4b90
 
             command: ["vllm", "serve"]
             args:

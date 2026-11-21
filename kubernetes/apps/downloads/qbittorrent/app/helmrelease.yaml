@@ -22,7 +22,17 @@ spec:
                         operator: In
                         values: ["sabnzbd"]
                   topologyKey: kubernetes.io/hostname
-
+          # All DNS goes to gluetun's DoT resolver on the shared pod loopback,
+          # i.e. through the tunnel. This app needs no cluster DNS names.
+          dnsConfig:
+            nameservers:
+              - 127.0.0.1
+          dnsPolicy: None
+          # Opt out of the pod-gateway admission webhook (gatewayDefault:
+          # true for the namespace); gluetun owns this pod's egress.
+          # Drop once the namespace loses its routed-gateway label.
+          labels:
+            setGateway: "false"
           securityContext:
             fsGroup: 1001
             fsGroupChangePolicy: OnRootMismatch
@@ -33,6 +43,112 @@ spec:
         annotations:
           reloader.stakater.com/auto: "true"
         type: statefulset
+        initContainers:
+          # Pin the BitTorrent session to gluetun's tunnel interface on every
+          # start (third leak guard: with wg0 down the session has nothing to
+          # use). Declarative rather than a one-off API write, so a WebUI change
+          # cannot silently re-bind it to eth0. Empty address = all wg0 addrs.
+          bind-wg0:
+            image:
+              repository: ghcr.io/home-operations/qbittorrent
+              tag: 5.3.0@sha256:5a858e61f94cf2712391db32ed03556576c700858f3e62c4c6fcde262443ebd8
+            command:
+              - /bin/sh
+              - -c
+              - |
+                conf=/config/qBittorrent/qBittorrent.conf
+                [ -f "$$conf" ] || exit 0
+                sed -i \
+                  -e 's/^Session\\Interface=.*/Session\\Interface=wg0/' \
+                  -e 's/^Session\\InterfaceName=.*/Session\\InterfaceName=wg0/' \
+                  -e 's/^Session\\InterfaceAddress=.*/Session\\InterfaceAddress=/' \
+                  "$$conf"
+                grep '^Session\\Interface' "$$conf"
+            resources:
+              requests:
+                cpu: 5m
+                memory: 16Mi
+              limits:
+                memory: 64Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities: {drop: ["ALL"]}
+              readOnlyRootFilesystem: true
+              seccompProfile:
+                type: RuntimeDefault
+          # Native sidecar (restartPolicy: Always): starts before the app,
+          # gates it on a healthy tunnel via startupProbe, and stays up for
+          # the pod's lifetime. gluetun's firewall is the primary
+          # kill-switch; the CNP below (egress default-deny, world UDP/51820
+          # only, CoreDNS denied) is the second.
+          gluetun:
+            image:
+              repository: ghcr.io/qdm12/gluetun
+              tag: v3.41.3@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027
+            # A sidecar restart keeps the pod netns, so policy rules from the
+            # previous run survive and gluetun fails with "file exists".
+            # Clear them before exec (gluetun-wiki setup/advanced/kubernetes).
+            command:
+              - /bin/sh
+              - -c
+              - |
+                while ip rule del table 51820 2>/dev/null; do :; done
+                while ip -6 rule del table 51820 2>/dev/null; do :; done
+                exec /gluetun-entrypoint
+            env:
+              # Inbound on eth0 is dropped unless listed: the web UI/API port
+              # (envoy route, in-cluster callers, metrics scrape, probes).
+              FIREWALL_INPUT_PORTS: "8080"
+              # Pod + service CIDRs and the LAN stay off-tunnel so replies to
+              # envoy and kubelet route via eth0. Does not overlap Mullvad's
+              # 10.64.0.0/10 tunnel range.
+              FIREWALL_OUTBOUND_SUBNETS: 10.42.0.0/16,10.43.0.0/16,192.168.0.0/16
+              VPN_INTERFACE: wg0
+              # SERVER_HOSTNAMES comes from this app's own 1P field (see
+              # externalsecret.yaml) — a relay distinct from every other pod
+              # sharing the Mullvad key, and present in gluetun's baked list.
+            envFrom:
+              - secretRef:
+                  name: qbittorrent-vpn
+            probes:
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  exec:
+                    command:
+                      - /gluetun-entrypoint
+                      - healthcheck
+                  failureThreshold: 30
+                  periodSeconds: 5
+                  timeoutSeconds: 5
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  exec:
+                    command:
+                      - /gluetun-entrypoint
+                      - healthcheck
+                  failureThreshold: 6
+                  periodSeconds: 30
+                  timeoutSeconds: 5
+            resources:
+              requests:
+                cpu: 10m
+                memory: 64Mi
+              limits:
+                memory: 256Mi
+            restartPolicy: Always
+            # gluetun must run as root to manage routes/iptables; overrides the
+            # pod-level non-root default for this container only.
+            securityContext:
+              capabilities:
+                add:
+                  - NET_ADMIN
+              runAsGroup: 0
+              runAsNonRoot: false
+              runAsUser: 0
         containers:
           app:
             image:
@@ -40,21 +156,18 @@ spec:
               tag: 5.3.0@sha256:5a858e61f94cf2712391db32ed03556576c700858f3e62c4c6fcde262443ebd8
 
             env:
-              QBT_BitTorrent__Session__Interface: vxlan0
-              QBT_BitTorrent__Session__InterfaceAddress:
-                valueFrom:
-                  fieldRef:
-                    fieldPath: status.podIP
-              QBT_BitTorrent__Session__InterfaceName: vxlan0
               # WebUI settings (alternative UI, auth subnet whitelist,
               # localhost auth bypass) live in the qBittorrent.conf file in
               # the PVC — this image's entrypoint doesn't translate
               # QBT_Preferences__WebUI__* env vars at runtime. Manage them
               # via the WebUI or POST /api/v2/app/setPreferences.
-              # Mullvad's WireGuard port-forward, sourced from the 1P 'vpn'
-              # item via the qbittorrent-secret (Flux postBuild substitution).
-              # downloads-gateway reads the same field — both must agree, so
-              # source from one place.
+              # Network interface binding is NOT env-driven (this image's
+              # entrypoint doesn't translate QBT_BitTorrent__* vars): it lives
+              # in qBittorrent.conf, set via the WebUI/API to wg0 (gluetun's
+              # tunnel) with an empty interface address — a third leak guard:
+              # with the tunnel down, the session has no interface to use.
+              # Listen port only: Mullvad dropped port forwarding in 2023, so
+              # nothing reaches it from outside.
               QBT_TORRENTING_PORT: ${WIREGUARD_FORWARD_PORT:-24589}
               QBT_WEBUI_PORT: &httpPort 8080
 
@@ -100,15 +213,6 @@ spec:
             port: *httpPort
         primary: true
 
-      bittorrent:
-        type: LoadBalancer
-        annotations:
-          lbipam.cilium.io/ips: 10.45.0.14 # SVC_QBITTORRENT_ADDR
-        externalTrafficPolicy: Local
-        ports:
-          bittorrent:
-            port: ${WIREGUARD_FORWARD_PORT:-24589}
-            protocol: TCP
     route:
       app:
         annotations:
@@ -150,10 +254,12 @@ spec:
         endpointSelector:
           matchLabels:
             app.kubernetes.io/name: qbittorrent
-        # Additive — default-deny is what triggers the lockdown; these rules
-        # punch holes through it.
+        # Ingress stays additive (namespace default-deny comes in a later
+        # phase). Egress is deny-by-default for this endpoint: the only
+        # allowed egress is the WireGuard handshake, so a gluetun firewall
+        # failure cannot leak cleartext.
         enableDefaultDeny:
-          egress: false
+          egress: true
           ingress: false
         ingress:
           # Internal gateway (envoy) → qbittorrent:8080. Auth is enforced at the
@@ -184,41 +290,22 @@ spec:
               - ports:
                   - port: "8080"
                     protocol: TCP
-        egress:
-          # VPN egress. ALL torrent traffic (peer connections, tracker
-          # announces, DHT) routes through the VXLAN tunnel to the gateway
-          # pod, then out via WireGuard. The Mullvad port-forward delivers
-          # inbound BT peer connections through the same WireGuard tunnel,
-          # which arrives at vxlan0 on this pod (so it's the same flow's
-          # return path — no separate ingress rule needed).
-          #
-          # The qbittorrent-bittorrent LoadBalancer Service (10.45.0.14:24589)
-          # exists in the chart for legacy reasons but has no endpoints
-          # because the pod listens on vxlan0, not eth0 (verified
-          # 2026-05-17). External BT ingress flows via VPN, NOT via LB.
+        # The namespace baseline allow-dns lets every pod reach CoreDNS, which
+        # resolves outside the tunnel. This pod resolves via gluetun DoT on
+        # 127.0.0.1 and needs no cluster DNS, so deny CoreDNS outright (deny
+        # beats any allow) — no plaintext lookup can leave off-tunnel.
+        egressDeny:
           - toEndpoints:
               - matchLabels:
-                  io.kubernetes.pod.namespace: vpn
-                  app.kubernetes.io/instance: downloads-gateway
-                  app.kubernetes.io/name: pod-gateway
-                  app.kubernetes.io/controller: main
+                  io.kubernetes.pod.namespace: kube-system
+                  k8s-app: kube-dns
+        egress:
+          # WireGuard handshake + tunnel to the Mullvad relay. Every other
+          # external flow is inside this tunnel. Replaces the pod-gateway
+          # VXLAN/4789 + ICMP allows.
+          - toEntities:
+              - world
             toPorts:
               - ports:
-                  - port: "4789"
+                  - port: "51820"
                     protocol: UDP
-          # workaround: https://github.com/angelnu/helm-charts/issues/414 — drop this ICMP-echo allow when pod-gateway liveness mechanic changes or pod-gateway is replaced
-          # Tracking: home-ops#11829
-          # The gateway-sidecar init container (angelnu/pod-gateway
-          # client_init.sh v7+) runs an ICMP liveness check against the
-          # gateway pod IP before declaring the tunnel up. Without this,
-          # init fails → CrashLoopBackOff under default-deny.
-          - toEndpoints:
-              - matchLabels:
-                  io.kubernetes.pod.namespace: vpn
-                  app.kubernetes.io/instance: downloads-gateway
-                  app.kubernetes.io/name: pod-gateway
-                  app.kubernetes.io/controller: main
-            icmps:
-              - fields:
-                  - type: 8  # echo request
-                    family: IPv4

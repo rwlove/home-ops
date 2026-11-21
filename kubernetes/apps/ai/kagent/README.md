@@ -67,6 +67,17 @@ invoke a canary agent and confirm it reaches both the LLM and a tool
 (`TASK_STATE_COMPLETED`); `ResolvedRefs`/`Ready`/flux-green alone do not prove it.
 See `.agents/skills/kagent-e2e-verify.md`.
 
+## Session lifecycle (GC)
+
+Unattended callers (the `local-cron` jobs via `a2a_client.py`, and the
+`kagent-e2e-watchdog` probe) each create a fresh Session per run (unique
+`message_id`, so a Session never pins stale tool wiring). kagent 1.0 has no
+Session TTL/retention setting, so these callers delete their own Session after
+the run through the controller's `delete_session` MCP tool (best-effort: a
+failed delete is logged and never fails the run). `a2a_client` keeps Sessions
+that ended non-`completed` for post-mortems (`A2A_KEEP_FAILED_SESSIONS=0` to
+delete those too). Unit tests: `tools/tests/test_kagent_session_gc.py`.
+
 ## Revert
 
 Drop `./kagent/ks.yaml` from `kubernetes/apps/ai/kustomization.yaml` and delete this

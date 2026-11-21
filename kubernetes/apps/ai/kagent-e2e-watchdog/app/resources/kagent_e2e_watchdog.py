@@ -44,6 +44,14 @@ PROMPT = os.environ.get(
     "exactly the single word DONE and nothing else.",
 )
 
+# Session GC (Vikunja #99): every probe creates a fresh kagent Session (unique
+# messageId) and this exporter is the single biggest producer (48/day). Delete it
+# once the verdict is computed, via the controller's own `delete_session` MCP tool
+# (kagent 1.0 has no Session TTL). Strictly best-effort -- never affects the probe
+# verdict or the metrics.
+MCP_URL = os.environ.get("CONTROLLER_MCP_URL", CONTROLLER_URL + "/mcp")
+DELETE_SESSIONS = os.environ.get("DELETE_PROBE_SESSIONS", "1") != "0"
+
 LOCK = threading.Lock()
 STATE = {"last_success": 0.0, "up": 0, "duration": 0.0}
 
@@ -82,6 +90,35 @@ def _invoke(msg_id):
         return json.loads(resp.read().decode())
 
 
+def _delete_session(resp):
+    """Best-effort delete of the probe's Session (task.contextId == session id).
+    Returns True/False; never raises, logs only ids/booleans."""
+    if not DELETE_SESSIONS:
+        return False
+    try:
+        task = ((resp or {}).get("result") or {}).get("task") or {}
+        sid = task.get("contextId") or ""
+        if not sid:
+            return False
+        body = json.dumps({
+            "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+            "params": {"name": "delete_session", "arguments": {"session_id": sid}},
+        }).encode()
+        req = urllib.request.Request(MCP_URL, data=body, headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        })
+        with urllib.request.urlopen(req, timeout=30) as r:
+            raw = r.read().decode()
+        failed = '"isError":true' in raw.replace(" ", "") or '"error"' in raw[:40]
+        if failed:
+            print("session-gc: delete_session %s reported an error" % sid, flush=True)
+        return not failed
+    except Exception as exc:  # noqa: BLE001 -- label by type only, never payload
+        print("session-gc: delete failed: %s" % type(exc).__name__, flush=True)
+        return False
+
+
 def _evaluate(resp):
     """Return (state_string, tool_called_bool). Reads only structure."""
     task = ((resp or {}).get("result") or {}).get("task") or {}
@@ -107,7 +144,9 @@ def run_cycle():
     for attempt in range(2):
         msg_id = "kagent-e2e-watchdog-%d-%d" % (int(time.time()), attempt)
         try:
-            state, tool_called = _evaluate(_invoke(msg_id))
+            resp = _invoke(msg_id)
+            state, tool_called = _evaluate(resp)
+            _delete_session(resp)
             label = state or "empty-response"
             if state == "TASK_STATE_COMPLETED" and tool_called:
                 ok = True

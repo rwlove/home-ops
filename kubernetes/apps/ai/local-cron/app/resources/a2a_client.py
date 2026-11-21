@@ -28,6 +28,9 @@ KubeJobFailed page. Stdlib only — runs on the doer's python image and the
 triage python image with nothing to pip-install.
 """
 import json
+import os
+import sys
+import time
 import urllib.request
 import uuid
 
@@ -96,6 +99,57 @@ def _state_of(tool_result):
     return "failed" if tool_result.get("isError") else "?"
 
 
+# Session GC (Vikunja #99). Since #15934 every call is a FRESH kagent Session
+# (unique message_id) and nothing ever deleted them, so Sessions + their runtime
+# snapshots accumulated without bound. kagent 1.0 exposes no Session TTL/retention
+# setting, so the client cleans up after itself via the controller's own
+# `delete_session` MCP tool. Best-effort: NEVER raises, NEVER changes the
+# (text, state) the caller gets — a failed delete is logged and the run still
+# succeeds. By default Sessions that ended FAILED/CANCELED/etc. are KEPT (logged
+# by id) because they are the only record available for post-mortems (#96 was
+# diagnosed from one); set A2A_KEEP_FAILED_SESSIONS=0 to delete those too.
+_DELETE_RETRIES = 3  # delete_session returns a conflict while another op is in flight
+
+
+def _keep_failed():
+    return os.environ.get("A2A_KEEP_FAILED_SESSIONS", "1") != "0"
+
+
+def delete_session(agent_mcp_url, session_id, retries=_DELETE_RETRIES, sleep=time.sleep):
+    """Best-effort `delete_session` over the controller MCP endpoint. Returns True
+    on success; never raises."""
+    call = {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+            "params": {"name": "delete_session",
+                       "arguments": {"session_id": session_id}}}
+    err = None
+    for attempt in range(max(1, retries)):
+        try:
+            d = _post(agent_mcp_url, call, timeout=30)
+            res = d.get("result") or {}
+            if d.get("error") or res.get("isError"):
+                err = d.get("error") or _extract_text(res) or "isError"
+            else:
+                return True
+        except Exception as e:  # noqa: BLE001 - best effort
+            err = repr(e)
+        if attempt + 1 < retries:
+            sleep(2 * (attempt + 1))
+    print("a2a_client: session-gc: delete_session %s failed: %s" % (session_id, err),
+          file=sys.stderr)
+    return False
+
+
+def _gc_session(agent_mcp_url, result, state):
+    sid = ((result.get("structuredContent") or {}).get("session_id") or "")
+    if not sid:
+        return
+    if state != "completed" and _keep_failed():
+        print("a2a_client: session-gc: keeping session %s (state=%s) for debugging"
+              % (sid, state), file=sys.stderr)
+        return
+    delete_session(agent_mcp_url, sid)
+
+
 def call_agent(agent_mcp_url, agent_name, prompt, budget=600, poll_interval=10,
                 message_id="local-cron", agent_namespace="ai"):
     """Send `prompt` to the kagent Agent `agent_name` (namespace `agent_namespace`)
@@ -122,7 +176,7 @@ def call_agent(agent_mcp_url, agent_name, prompt, budget=600, poll_interval=10,
     # resolves the CURRENT config, which is the correct semantics for these
     # stateless, independent cron runs (they carry no cross-run conversation).
     # The caller's string stays as a human-readable prefix. (Trade-off: a new
-    # Session per run — Session GC is tracked separately.)
+    # Session per run — deleted again after the run, see _gc_session.)
     run_message_id = "%s-%s" % (message_id, uuid.uuid4().hex)
     call = {
         "jsonrpc": "2.0", "id": 1, "method": "tools/call",
@@ -148,6 +202,7 @@ def call_agent(agent_mcp_url, agent_name, prompt, budget=600, poll_interval=10,
     result = d.get("result") or {}
     text = _extract_text(result)
     state = _state_of(result)
+    _gc_session(agent_mcp_url, result, state)
     return text, state
 
 

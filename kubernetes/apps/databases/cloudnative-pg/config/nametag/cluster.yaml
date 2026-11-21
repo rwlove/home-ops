@@ -7,14 +7,13 @@ metadata:
 spec:
   instances: 3
 
-  # Declarative offline in-place major upgrade 16 -> 17 (fleet standard).
-  # Both tags are debian:bullseye-slim (CNPG requires same OS distro across a
-  # major upgrade); 17.7 >= 17.6 avoids the 17.0-17.5 max_slot_wal_keep_size
-  # pg_upgrade bug. The operator stops the cluster, runs pg_upgrade --link into
-  # a new PGDATA, then re-clones replicas from the upgraded primary (full
-  # outage during the job). Rollback: revert this tag to 16.11 and the operator
-  # discards the failed job and restarts on 16 (no data is modified on failure).
-  imageName: ghcr.io/cloudnative-pg/postgresql:17.12-standard-trixie
+  # History: 16 -> 17.7 via declarative offline in-place pg_upgrade --link
+  # (#15806), then 17.11 -> 17.12-standard-trixie (distro hop).
+  # Now: PG 18 MAJOR upgrade, same procedure (one-way once the pg_upgrade job swaps directories).
+  # Rollback BEFORE the swap / on job failure: revert imageName + serverName.
+  # After success: restore the pre-upgrade physical backup (the -v17 archive)
+  # into a new PG17 cluster, or pg_restore the off-cluster dump.
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.7-standard-trixie
 
   primaryUpdateStrategy: unsupervised
 
@@ -62,7 +61,14 @@ spec:
         # archive stays intact at postgres-nametag-backup as the pre-upgrade
         # restore point; `source` below still points at it. A fresh base backup
         # must be taken into this new path immediately after the upgrade.
-        serverName: postgres-nametag-backup-v17
+        #
+        # Bumped again (-v17 -> -v18) for the 17->18 major upgrade, same reason
+        # (timeline/system-ID reset). `source` below now points at -v17: the
+        # PG17 archive is the pre-upgrade restore point (the old
+        # postgres-nametag-backup archive is PG16 data from before the 16->17
+        # upgrade). A fresh base backup must be taken into -v18 immediately
+        # after the upgrade.
+        serverName: postgres-nametag-backup-v18
 
   externalClusters:
     - name: source
@@ -70,4 +76,4 @@ spec:
         name: barman-cloud.cloudnative-pg.io
         parameters:
           barmanObjectName: garage-nametag
-          serverName: postgres-nametag-backup
+          serverName: postgres-nametag-backup-v17

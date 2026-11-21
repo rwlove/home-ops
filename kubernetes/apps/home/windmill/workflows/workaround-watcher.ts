@@ -4,9 +4,16 @@
 // `.agents/skills/upstream-watcher.md` + `.agents/instructions/workarounds.md`).
 //
 // 1. Fetch open `workaround`-labeled issues on rwlove/home-ops.
-// 2. For each tracking issue, parse `Upstream: <url>` from the body.
+// 2. For each tracking issue, find the upstream item to watch, in order:
+//    a. an explicit `Watch: <url>` / `Watch: none` line (override — use it
+//       when the body cites several links, a closed "closest match", or
+//       has no upstream at all);
+//    b. an `Upstream: <url>` line;
+//    c. the first GitHub issue/PR link under a `## …Upstream…` heading.
 // 3. Fetch the upstream issue/PR state via the GitHub REST API.
-// 4. If upstream is closed/merged → flag for removal.
+// 4. Flag for removal only when the gate is genuinely met: a merged PR, or
+//    an issue closed as COMPLETED. An issue closed NOT_PLANNED means the fix
+//    is never coming — the workaround is permanent, not retireable.
 // 5. Email a summary (via in-cluster smtp-relay) if any removals are due.
 //
 // Anonymous GitHub API access (60 req/hr) is sufficient for the weekly
@@ -29,7 +36,14 @@ type WorkaroundCheckResult = {
     tracking_title: string;
     tracking_url: string;
     upstream_url: string | null;
-    upstream_state: "open" | "closed" | "merged" | "unknown" | "unparseable";
+    upstream_state:
+        | "open"
+        | "closed"
+        | "merged"
+        | "not_planned"
+        | "none"
+        | "unknown"
+        | "unparseable";
     removable: boolean;
     note?: string;
 };
@@ -37,9 +51,14 @@ type WorkaroundCheckResult = {
 const HOME_OPS = "rwlove/home-ops";
 const GH_BASE = "https://api.github.com";
 const TIMEOUT_MS = 30_000;
-const UPSTREAM_RE = /^[Uu]pstream:\s*(https?:\/\/[^\s]+)/m;
+const WATCH_RE = /^\s*[Ww]atch:\s*(none|https?:\/\/[^\s)>\]]+)/m;
+const UPSTREAM_RE = /^\s*[Uu]pstream:\s*(https?:\/\/[^\s)>\]]+)/m;
+const GH_ITEM_RE =
+    /https?:\/\/github\.com\/[^/\s]+\/[^/\s]+\/(?:issues|pull)\/\d+/;
 
-export async function main() {
+// dry_run: check and return results but never send the email (for testing;
+// the weekly schedule passes no args, so it always notifies).
+export async function main(dry_run: boolean = false) {
     // 1. List tracking issues.
     const trackingResp = await fetch(
         `${GH_BASE}/repos/${HOME_OPS}/issues?labels=workaround&state=open&per_page=100`,
@@ -68,7 +87,7 @@ export async function main() {
     const removable = results.filter((r) => r.removable);
 
     // 5. Notify if any removable.
-    if (removable.length > 0) {
+    if (removable.length > 0 && !dry_run) {
         await notifyRemovable(removable);
     }
 
@@ -87,16 +106,24 @@ async function checkOne(tracking: GhIssue): Promise<WorkaroundCheckResult> {
         upstream_url: null,
     };
 
-    const m = (tracking.body ?? "").match(UPSTREAM_RE);
-    if (!m) {
+    const found = findUpstream(tracking.body ?? "");
+    if (found === "none") {
+        return {
+            ...base,
+            upstream_state: "none",
+            removable: false,
+            note: "`Watch: none` — no upstream item gates this workaround",
+        };
+    }
+    if (!found) {
         return {
             ...base,
             upstream_state: "unparseable",
             removable: false,
-            note: "no `Upstream: <url>` line in tracking issue body",
+            note: "no `Watch:`/`Upstream:` line and no GitHub link under an Upstream heading",
         };
     }
-    const upstreamUrl = m[1];
+    const upstreamUrl = found;
 
     const parsed = parseGhUrl(upstreamUrl);
     if (!parsed) {
@@ -132,7 +159,19 @@ async function checkOne(tracking: GhIssue): Promise<WorkaroundCheckResult> {
             upstream_url: upstreamUrl,
             upstream_state: merged ? "merged" : (upstream.state as "open" | "closed"),
             removable: merged,
-            note: merged ? "upstream PR merged" : undefined,
+            note: merged
+                ? "upstream PR merged — confirm it is in a release we deploy before removing"
+                : undefined,
+        };
+    }
+
+    if (upstream.state === "closed" && upstream.state_reason === "not_planned") {
+        return {
+            ...base,
+            upstream_url: upstreamUrl,
+            upstream_state: "not_planned",
+            removable: false,
+            note: "upstream closed NOT_PLANNED — fix is not coming; re-anchor or set `Watch:`",
         };
     }
 
@@ -143,6 +182,25 @@ async function checkOne(tracking: GhIssue): Promise<WorkaroundCheckResult> {
         removable: upstream.state === "closed",
         note: upstream.state === "closed" ? "upstream issue closed" : undefined,
     };
+}
+
+// Returns the URL to watch, "none" for an explicit `Watch: none`, or null.
+function findUpstream(body: string): string | "none" | null {
+    const w = body.match(WATCH_RE);
+    if (w) return w[1].toLowerCase() === "none" ? "none" : w[1];
+    const u = body.match(UPSTREAM_RE);
+    if (u) return u[1];
+    // First GitHub issue/PR link inside a markdown section whose heading
+    // mentions "upstream", up to the next heading.
+    const lines = body.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+        if (!/^#{1,6}\s.*upstream/i.test(lines[i])) continue;
+        for (let j = i + 1; j < lines.length && !/^#{1,6}\s/.test(lines[j]); j++) {
+            const m = lines[j].match(GH_ITEM_RE);
+            if (m) return m[0];
+        }
+    }
+    return null;
 }
 
 function parseGhUrl(

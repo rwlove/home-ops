@@ -76,8 +76,14 @@ spec:
                   recompile graphs — do NOT thrash the pod);
               (4) silence SparkVllmDriverPodDown for the restart window only,
                   never this alert.
+          # Gated on pod Ready: this alert owns "Ready but not serving".
+          # Ungated, a rollout's cold start (probe fails while not-Ready)
+          # paged it alongside SparkVllmDriverPodDown (2026-11-21, twice);
+          # not-Ready is PodDown's job.
           expr: |-
             probe_success{job=~"probe/observability/vllm-driver-spark-completion"} == 0
+            and on()
+            max(kube_pod_status_ready{namespace="ai",pod=~"vllm-driver-spark-.*",condition="true"}) == 1
           for: 5m
           labels:
             severity: critical

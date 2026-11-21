@@ -113,7 +113,9 @@ interval delays detection past what the alert's `for:` assumes. See
 `kubernetes/apps/observability/exporters/blackbox-exporter/app/probes.yaml`
 for the live pairing conventions (interval vs `scrapeTimeout` vs the
 alert's `for:`), including the "devices" / "devices-sleepy" split for
-targets with legitimate radio/power-save downtime.
+targets with legitimate radio/power-save downtime, and the
+"devices-esphome" probe, which checks ESPHome devices with a TCP connect
+to the native API port (6053) because ESP32s drop ICMP while healthy.
 
 ### ScrapeConfig example (static, non-k8s target)
 

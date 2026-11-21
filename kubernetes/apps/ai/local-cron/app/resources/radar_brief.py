@@ -181,6 +181,54 @@ def _ensure_gap_line(text):
     return s.rstrip() + _CANNED_UNREACHABLE_NOTE
 
 
+def awaiting_review_line():
+    """One deterministic line: how many Fleet Todos were completed since
+    REVIEW_SINCE without the `followup-reviewed` label, i.e. still owed the
+    Claude-persona follow-up review that runs in a laptop session (whats-next).
+    The RUNNER computes this from Vikunja; the model never counts it. Returns ""
+    when nothing is waiting, when Vikunja isn't configured, or on any error
+    (logged), so the brief never fails over this line."""
+    url = os.environ.get("VIKUNJA_URL", "").rstrip("/")
+    token = os.environ.get("VIKUNJA_TOKEN", "")
+    since = os.environ.get("REVIEW_SINCE", "")
+    if not (url and token and since):
+        return ""
+    import json
+    import urllib.request
+    try:
+        cutoff = datetime.datetime.fromisoformat(since.replace("Z", "+00:00"))
+
+        def get(path):
+            req = urllib.request.Request(url + path, headers={"Authorization": "Bearer " + token})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return json.loads(r.read().decode() or "null")
+
+        pid = next(p["id"] for p in get("/projects?per_page=50") if p.get("title") == "Fleet Todos")
+        count, page = 0, 1
+        while True:
+            chunk = get("/projects/%d/tasks?page=%d&per_page=50" % (pid, page)) or []
+            for t in chunk:
+                done_at = t.get("done_at") or ""
+                if not t.get("done") or not done_at or done_at.startswith("0001"):
+                    continue
+                if datetime.datetime.fromisoformat(done_at.replace("Z", "+00:00")) < cutoff:
+                    continue
+                if "followup-reviewed" in {lb.get("title") for lb in (t.get("labels") or [])}:
+                    continue
+                count += 1
+            if len(chunk) < 50:
+                break
+            page += 1
+    except Exception as e:
+        log("WARN: awaiting-review count failed: %r" % e)
+        return ""
+    log("RADAR_BRIEF_AWAITING_REVIEW=%d" % count)
+    if not count:
+        return ""
+    return ("**Completed todos awaiting follow-up review:** %d (run `whats-next` "
+            "in a Claude session)" % count)
+
+
 def log(m):
     print(m, flush=True)
 
@@ -305,6 +353,10 @@ def main():
             "suppressing brief (silent skipped run)")
         log("RADAR_BRIEF_RESULT=skipped-non-english agent=%s state=%s" % (AGENT_NAME, state))
         return 0
+
+    review = awaiting_review_line()
+    if review:
+        text = text.rstrip() + "\n\n" + review
 
     log("----- %s (state=%s) -----" % (TITLE, state))
     log(text)

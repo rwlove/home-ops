@@ -38,7 +38,11 @@ proposals on the local models (paired with the matching kagent operator
 persona):
 
 - `ml-triage` / `ml-doer`
-- `network-triage`
+- `network-triage` — a claimed flow-table / conntrack / BPF-map exhaustion is
+  checked against Prometheus (CT/NAT map pressure, Hubble lost events,
+  map-insertion drops) by `resources/cilium_verify.py` and dropped when
+  contradicted. The `hubble status` "65,535/65,535 flows" figure is the
+  observer ring buffer and always reads 100%.
 - `observability-triage` / `observability-doer`
 - `smart-home-triage` / `smart-home-doer`
 - `storage-triage` / `storage-doer`

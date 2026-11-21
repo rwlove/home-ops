@@ -27,9 +27,11 @@ Stream. Relevant facts:
 
 - Control-plane VIP is `192.168.6.1:6443` (kube-vip). Clients keep
   their kubeconfigs unchanged through this whole procedure.
-- kube-vip is a static pod under `/etc/kubernetes/manifests/kube-vip.yaml`
-  on every control-plane node. New control planes need this file
-  themselves; see `init/kube-vip.sh` for the canonical generator.
+- kube-vip runs as a **DaemonSet** on control-plane nodes
+  (`kubernetes/apps/kube-system/kube-vip/`), so a newly joined control
+  plane gets it automatically. Static-pod kube-vip (`init/kube-vip.sh`)
+  is only for cluster bootstrap, before Flux exists — don't add one to a
+  joining node, it would fight the DaemonSet for the VIP.
 - kubelet-csr-approver is running, so node CSRs auto-approve. Manual
   approval (`init/approve-csrs.sh`) is the fallback.
 - `kubeadm-config` ConfigMap in `kube-system` carries the list of
@@ -303,13 +305,10 @@ fails writes. Don't dawdle.
    mkdir -p /etc/kubernetes/manifests
    ```
 
-4. **Drop a kube-vip static pod manifest** into
-   `/etc/kubernetes/manifests/kube-vip.yaml`. Mirror what
-   `init/kube-vip.sh` produces — but verify the `INTERFACE` env var
-   matches *this* host's NIC (master1 uses `enp0s31f6`; the new
-   control plane may differ). Without kube-vip on the new master, the
-   VIP just stays put on the survivors — non-fatal, but you lose the
-   new node from leader election.
+4. **Don't add a kube-vip static pod.** The kube-vip DaemonSet schedules
+   onto the new control plane by itself once it has the
+   `node-role.kubernetes.io/control-plane` label; confirm with
+   `kubectl -n kube-system get pods -l app.kubernetes.io/name=kube-vip -o wide`.
 5. Approve any pending CSRs (kubelet-csr-approver should auto-approve;
    check anyway):
 

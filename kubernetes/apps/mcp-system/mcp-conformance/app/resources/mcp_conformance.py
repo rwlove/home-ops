@@ -12,17 +12,17 @@ automates that watch.
 
 Three check types:
 
-  Check A -- catalog + schema-dialect scan (one tools/list per consumer
-    profile). The prefix-presence sub-check (did a whole backend silently
+  Check A -- catalog scan (one tools/list per consumer profile). The prefix-presence sub-check (did a whole backend silently
     vanish from the served catalog -- the single-version
     supportedProtocolVersions regression class, home-ops#15975/#16001) only
     runs against the 'open-webui' profile, since it is the one profile with
     no VirtualServer scoping -- every registered backend's prefix MUST
     appear there. kagent/laptop intentionally curate a subset, so an absent
-    prefix on those profiles is by design, not a finding. The
-    schema-dialect sub-check (every inputSchema/outputSchema's `$schema`,
-    if present, must not be a pre-2020-12 dialect -- Claude Code silently
-    drops those tools, anthropics/claude-code#88882) runs on every profile.
+    prefix on those profiles is by design, not a finding. (A former
+    schema-dialect sub-check -- flag any pre-2020-12 `$schema` because
+    Claude Code dropped such tools, anthropics/claude-code#88882 -- was
+    removed 2026-11-21: Claude Code 2.1.296 registers and calls draft-07
+    tools, and the broker no longer strips the label.)
 
   Check B -- a real tools/call, one canary tool per backend (from
     canary-tools.yaml), against every consumer profile whose OWN live
@@ -198,28 +198,8 @@ def call_tool(token, path, vs_header, session_id, tool, args):
 
 
 # --------------------------------------------------------------------------
-# Check A -- schema-dialect scan (every profile) + prefix-presence
-# (full-aggregate profile only).
+# Check A -- prefix-presence (full-aggregate profile only).
 # --------------------------------------------------------------------------
-PRE_2020_12 = ("draft-07", "draft-06", "draft-05", "draft-04", "draft-03")
-
-
-def schema_dialect_findings(profile_name, tools):
-    findings = []
-    for t in tools:
-        for schema_kind in ("inputSchema", "outputSchema"):
-            schema = t.get(schema_kind) or {}
-            dialect = schema.get("$schema")
-            if dialect and any(d in dialect for d in PRE_2020_12):
-                findings.append(
-                    "Check A [%s]: tool '%s' %s declares pre-2020-12 $schema (%s) -- "
-                    "Claude Code silently drops tools like this (anthropics/claude-code#88882). "
-                    "known regression class: see reference_kuadrant_mcp_gateway_broker_fork."
-                    % (profile_name, t.get("name"), schema_kind, dialect)
-                )
-    return findings
-
-
 def prefix_presence_findings(profile_name, tools, backends):
     live_names = [t.get("name", "") for t in tools]
     findings = []
@@ -369,7 +349,6 @@ def main():
             continue
 
         log("Check A [%s]: session established, %d tools live" % (profile["name"], len(tools)))
-        findings += schema_dialect_findings(profile["name"], tools)
         if profile["name"] == FULL_AGGREGATE_PROFILE:
             findings += prefix_presence_findings(profile["name"], tools, backends)
 

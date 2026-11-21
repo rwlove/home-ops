@@ -250,11 +250,12 @@ precedent. Base image has no entrypoint
 > **UPDATE 2026-11-21 — official image now available.** vllm-project/vllm#36821
 > was closed COMPLETED on 2026-11-02: the official `docker.io/vllm/vllm-openai`
 > image has published arm64 + CUDA 13 manifests since v0.30.0. The Spark vLLM apps
-> are being moved off the community image onto `vllm/vllm-openai:v0.30.0`
-> (same source commit as the community `v0.30.0-gb10.2` build), one app at a time
-> — `vllm-llm4decompile-spark` first, then `vllm-coder-spark`, then
-> `vllm-driver-spark`. Each app's `# workaround:` annotation is retired in the
-> PR that migrates it; the `D6` text above is the historical decision record.
+> were moved off the community image onto `vllm/vllm-openai:v0.30.0`
+> (same source commit as the community `v0.30.0-gb10.2` build), one app at a time:
+> `vllm-llm4decompile-spark`, `vllm-coder-spark` (parked, so not served on-box with
+> the new image), then `vllm-driver-spark`. All three `# workaround:` annotations
+> are retired; the `D6` text above is the historical decision record. Known
+> upstream gap: QuTLASS (quip) checkpoints still fail on GB10.
 
 ### D7 — GPU time-slicing (VERIFIED: no change needed)
 

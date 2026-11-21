@@ -46,26 +46,26 @@ spec:
         containers:
           app:
             image:
-              # workaround: https://github.com/vllm-project/vllm/issues/36821
-              #   — remove when upstream vLLM publishes an official sm_121
-              #   (GB10) arm64 image. Tracked upstream in #36821 / #31128;
-              #   until then this community image (Techno Tim, built via
-              #   GitHub Actions on a Spark runner, every input SHA-pinned)
-              #   tracks upstream vLLM releases directly. Renovate-held —
-              #   bump deliberately, validate on-box before merging.
-              # Base image has no entrypoint (Cmd=bash), so `command`
-              # below invokes vLLM explicitly.
-              #
-              # NOTE: the tag says v0.25.1 but the engine inside reports
-              # v0.25.2.dev0+g752a3a504 — the community image ships a dev
-              # build, not the tagged release. The digest below is the real
-              # pin; treat the tag as a label, not a version. Confirmed
-              # 2026-07-31 from the running EngineCore banner. Relevant when
-              # correlating behaviour against upstream issues: match on the
-              # dev SHA, not on v0.25.1.
-              # NVFP4 needs vLLM >=0.28. Renovate-held — it re-pins the digest.
-              repository: ghcr.io/timothystewart6/vllm-gb10
-              tag: v0.30.0-gb10.2@sha256:82d63cb43e7641b8a84ebf131d5dc7581d46cd99ff91872d81820f65e82d5348
+              # Official upstream image (arm64 + CUDA 13 manifests published
+              # since v0.30.0; vllm-project/vllm#36821 closed COMPLETED
+              # 2026-11-02, so the community-image workaround is retired).
+              # v0.30.0 is built from the SAME source commit (ced6857af) as
+              # the community v0.30.0-gb10.2 build it replaces, so engine
+              # behaviour and every flag below are unchanged. Differences:
+              # torch 2.13+cu130 (vs cu13.2) and the official build's
+              # TORCH_CUDA_ARCH_LIST has no 12.1a, so the env block below
+              # keeps CUTE_DSL_ARCH / TORCH_CUDA_ARCH_LIST=sm_121a for the
+              # runtime JIT kernels (b12x / cutedsl). The image ENTRYPOINT is
+              # already `vllm serve`; `command` is kept explicit. Digest is
+              # the multi-arch index digest. Known upstream gap: QuTLASS
+              # (quip) checkpoints still fail on GB10 - not used here.
+              # Renovate-held - bump deliberately, validate on-box.
+              # NVFP4 needs vLLM >=0.28.
+              # ROLLBACK (inference path): revert this commit. The previous
+              # pin was ghcr.io/timothystewart6/vllm-gb10:
+              # v0.30.0-gb10.2@sha256:82d63cb43e7641b8a84ebf131d5dc7581d46cd99ff91872d81820f65e82d5348
+              repository: docker.io/vllm/vllm-openai
+              tag: v0.30.0@sha256:8a69ffad015f138d7170c4ddc429e230a3bc1c1719f67e14324749df200a4b90
 
             command: ["vllm", "serve"]
             args:

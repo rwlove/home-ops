@@ -2603,9 +2603,11 @@ Stream. Relevant facts:</p>
 <ul>
 <li>Control-plane VIP is <code>192.168.6.1:6443</code> (kube-vip). Clients keep
   their kubeconfigs unchanged through this whole procedure.</li>
-<li>kube-vip is a static pod under <code>/etc/kubernetes/manifests/kube-vip.yaml</code>
-  on every control-plane node. New control planes need this file
-  themselves; see <code>init/kube-vip.sh</code> for the canonical generator.</li>
+<li>kube-vip runs as a <strong>DaemonSet</strong> on control-plane nodes
+  (<code>kubernetes/apps/kube-system/kube-vip/</code>), so a newly joined control
+  plane gets it automatically. Static-pod kube-vip (<code>init/kube-vip.sh</code>)
+  is only for cluster bootstrap, before Flux exists — don't add one to a
+  joining node, it would fight the DaemonSet for the VIP.</li>
 <li>kubelet-csr-approver is running, so node CSRs auto-approve. Manual
   approval (<code>init/approve-csrs.sh</code>) is the fallback.</li>
 <li><code>kubeadm-config</code> ConfigMap in <code>kube-system</code> carries the list of
@@ -2841,13 +2843,10 @@ fails writes. Don't dawdle.</p>
 <div class="language-sh highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>mkdir<span class="w"> </span>-p<span class="w"> </span>/etc/kubernetes/manifests
 </span></code></pre></div>
 <ol>
-<li><strong>Drop a kube-vip static pod manifest</strong> into
-   <code>/etc/kubernetes/manifests/kube-vip.yaml</code>. Mirror what
-   <code>init/kube-vip.sh</code> produces — but verify the <code>INTERFACE</code> env var
-   matches <em>this</em> host's NIC (master1 uses <code>enp0s31f6</code>; the new
-   control plane may differ). Without kube-vip on the new master, the
-   VIP just stays put on the survivors — non-fatal, but you lose the
-   new node from leader election.</li>
+<li><strong>Don't add a kube-vip static pod.</strong> The kube-vip DaemonSet schedules
+   onto the new control plane by itself once it has the
+   <code>node-role.kubernetes.io/control-plane</code> label; confirm with
+   <code>kubectl -n kube-system get pods -l app.kubernetes.io/name=kube-vip -o wide</code>.</li>
 <li>Approve any pending CSRs (kubelet-csr-approver should auto-approve;
    check anyway):</li>
 </ol>

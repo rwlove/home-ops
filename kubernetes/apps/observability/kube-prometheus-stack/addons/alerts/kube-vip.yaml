@@ -1,0 +1,36 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: kube-vip-rules
+spec:
+  groups:
+    - name: kube-vip.rules
+      rules:
+        # kube-vip (control-plane mode) exits and restarts every time its
+        # leader loses the plndr-cp-lock lease, and the API VIP moves with
+        # it — each restart is a brief API-VIP outage. Its own leadership
+        # metrics (kube_vip_leader_election_transitions_total /
+        # kube_vip_is_leader) are only updated by the services election, so
+        # with svc_enable=false they stay flat; container restarts are the
+        # reliable signal. Threshold >=2 in 1h = sustained churn, not a single
+        # deliberate handover (a DaemonSet roll moves the VIP once).
+        # Backtest (14d, at the old 5/3/1 timings): ~6 episodes, all real
+        # churn clusters (2026-11-13..17).
+        - alert: KubeVipLeaderChurn
+          expr: |
+            sum(increase(kube_pod_container_status_restarts_total{namespace="kube-system", container="kube-vip"}[1h])) >= 2
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: kube-vip lost the API-VIP lease {{ $value | humanize }} times in the last hour
+            description: >-
+              The control-plane VIP is flapping between masters. kube-vip renews
+              through the in-cluster `kubernetes` Service, so this usually means
+              an apiserver is stalling on etcd. Check etcd slow read-index /
+              slow applies per member (etcd_server_slow_read_indexes_total,
+              etcd_server_slow_apply_total), apiserver Lease latency per
+              instance, and `kubectl -n kube-system logs <kube-vip pod> --previous`
+              for "Failed to renew lease".

@@ -292,6 +292,50 @@ def _parse_jsonrpc(raw):
     return obj
 
 
+def _task_dump_text(s):
+    """kagent falls back to serializing the WHOLE A2A task into the content part when
+    the agent ends without a final text answer (e.g. the strong tier failed over to the
+    7B model mid-run and it stopped on a tool call). Emailing that verbatim sent Rob a
+    wall of function_call/function_response JSON (2026-11-21 SparkVllmDriverPodDown).
+    If `s` is such a dump, return only the agent's prose text parts (status message
+    first, else the last artifact carrying text); '' when there is none. Anything
+    that is not an A2A task dump is returned unchanged."""
+    st = (s or "").strip()
+    if not st.startswith("{"):
+        return s or ""
+    try:
+        task = json.loads(st)
+    except ValueError:
+        return s
+    # Only an A2A Task shape counts as a dump; any other JSON object is a legitimate
+    # reply (the doer accepts a bare {...} intent proposal) and passes through.
+    if not isinstance(task, dict) or not ({"artifacts", "history"} & set(task)
+                                          or task.get("kind") == "task"):
+        return s
+
+    def texts(parts):
+        out = []
+        for p in parts or []:
+            if not isinstance(p, dict):
+                continue
+            ptype = ((p.get("metadata") or {}).get("kagent.dev/a2a/part-type") or "")
+            if ptype.startswith("function_") or "data" in p:
+                continue
+            t = p.get("text")
+            if isinstance(t, str) and t.strip():
+                out.append(t.strip())
+        return out
+
+    msg = (task.get("status") or {}).get("message") or {}
+    found = texts(msg.get("parts"))
+    if not found:
+        for art in reversed(task.get("artifacts") or []):
+            found = texts((art or {}).get("parts"))
+            if found:
+                break
+    return "\n\n".join(found)
+
+
 def _call_agent(prompt):
     body = json.dumps({
         "jsonrpc": "2.0", "id": 1, "method": "tools/call",
@@ -321,10 +365,10 @@ def _call_agent(prompt):
     result = resp.get("result", {}) or {}
     sc = result.get("structuredContent") or {}
     if sc.get("text"):
-        return sc["text"]
+        return _task_dump_text(sc["text"])
     parts = [p.get("text", "") for p in (result.get("content") or [])
              if p.get("type") == "text"]
-    return parts[-1] if parts else ""
+    return _task_dump_text(parts[-1]) if parts else ""
 
 
 def _notify(subject, body):

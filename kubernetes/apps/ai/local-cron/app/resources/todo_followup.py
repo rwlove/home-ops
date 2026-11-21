@@ -213,20 +213,32 @@ def build_prompt(task, owner, open_titles):
 
 
 def parse_verdict(text):
-    """Return (followups, note) or None when the reply is unusable."""
-    if not text or _START not in text:
-        return None
-    start = text.rfind(_START) + len(_START)
-    end = text.find(_END, start)
-    blob = (text[start:end] if end != -1 else text[start:]).strip()
-    blob = re.sub(r"^```(?:json)?|```$", "", blob, flags=re.M).strip()
+    """Return (followups, note), or (None, reason) when the reply is unusable.
+
+    Tolerant of the local model's habits: narration before the block, a code
+    fence around the JSON, trailing text after it, or a missing <<<END>>>.
+    The JSON object is read with raw_decode from the first "{" after the
+    start marker (or from a bare '{"followups"' when the marker is missing).
+    `reason` is a short code safe to log: it never contains reply text,
+    because a concierge persona's reply can carry Restricted detail.
+    """
+    if not text:
+        return None, "empty"
+    if _START in text:
+        at = text.find("{", text.rfind(_START) + len(_START))
+    else:
+        at = text.find('{"followups"')
+    if at == -1:
+        return None, "no-json-start"
     try:
-        obj = json.loads(blob)
-    except ValueError:
-        return None
+        obj, _ = json.JSONDecoder().raw_decode(text, at)
+    except ValueError as e:
+        return None, "json-error:%s" % e.msg
+    if not isinstance(obj, dict):
+        return None, "json-not-object"
     fus = obj.get("followups")
     if not isinstance(fus, list):
-        return None
+        return None, "no-followups-list"
     clean = []
     for f in fus[:MAX_FOLLOWUPS]:
         if not isinstance(f, dict):
@@ -266,12 +278,11 @@ def review_kagent(pid, task, owner, open_titles):
         log("#%d: no usable reply from %s (state=%s), retry next run"
             % (task["id"], owner, state))
         return None
-    verdict = parse_verdict(text)
-    if verdict is None:
-        log("#%d: %s reply broke the contract (state=%s), retry next run"
-            % (task["id"], owner, state))
+    followups, note = parse_verdict(text)
+    if followups is None:
+        log("#%d: %s reply broke the contract (%s, state=%s, len=%d), retry next run"
+            % (task["id"], owner, note, state, len(text)))
         return None
-    followups, note = verdict
 
     existing = {_norm(t) for t in open_titles}
     created = []

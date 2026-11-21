@@ -75,7 +75,13 @@ kernel cmdline is host-managed, not GitOps.
 | --- | --- |
 | NFD label `intel.feature.node.kubernetes.io/gpu` | [`node-feature-discovery/rules/intel-gpu.yaml`](https://github.com/rwlove/home-ops/blob/main/kubernetes/apps/kube-system/node-feature-discovery/rules/intel-gpu.yaml) — matches Intel display-class PCI devices |
 | Device plugin (`gpu.intel.com/i915`, `sharedDevNum: 3`) | [`intel-device-plugin/gpu/helmrelease.yaml`](https://github.com/rwlove/home-ops/blob/main/kubernetes/apps/kube-system/intel-device-plugin/gpu/helmrelease.yaml) |
-| Metrics exporter (`ServiceMonitor`) | [`intel-device-plugin/exporter/helmrelease.yaml`](https://github.com/rwlove/home-ops/blob/main/kubernetes/apps/kube-system/intel-device-plugin/exporter/helmrelease.yaml) |
+| Metrics exporter ([drm-exporter](https://github.com/home-operations/drm-exporter): `ServiceMonitor` + Grafana dashboard, `drm_*` metrics) | [`intel-device-plugin/exporter/helmrelease.yaml`](https://github.com/rwlove/home-ops/blob/main/kubernetes/apps/kube-system/intel-device-plugin/exporter/helmrelease.yaml) |
+
+The exporter runs non-privileged (`PERFMON` only, read-only rootfs). It reaches
+the GPU through a `gpu.intel.com/i915` share from the device plugin rather than a
+hostPath `/dev/dri` mount, because CRI-O's device cgroup only admits device nodes
+the plugin injects. That share counts against `sharedDevNum: 3` on every Intel node.
+`/dev/cpu` (MSR) is not mounted, so iGPU package temperature is not exported.
 
 The NFD rule is a pure hardware-presence match (Intel vendor + display class), so
 it correctly labels any node with an Intel iGPU — it is **not** the place to fix

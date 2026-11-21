@@ -115,6 +115,39 @@ spec:
           # app/mgr-recycle-*), and dashboard (ceph#48792) was ruled out entirely.
           - enabled: false
             name: restful
+
+      # Never schedule a mon on a control-plane node. A mon store is a
+      # write-heavy RocksDB (~2 MB/s here); on a master it shares the root disk
+      # with /var/lib/etcd and was the largest single writer on the slowest etcd
+      # member's disk (slow read-index / apply, API-VIP flaps). Scoped to `mon`
+      # only — `placement.all` would also move the OSDs and mgr.
+      #
+      # Placement alone does NOT move an already-running mon: Rook pins an
+      # existing mon to its recorded node with a hostname nodeSelector and only
+      # re-runs node selection on a mon FAILOVER (rook pkg/operator/ceph/cluster/
+      # mon: scheduleMonitor / failoverMon). A mon stranded on a now-excluded
+      # node goes Pending, drops out of quorum, and is failed over after
+      # healthCheck.daemonHealth.mon.timeout (default 10m); the replacement is
+      # scheduled under these rules. The preferred worker4 term only biases
+      # where that replacement lands (independent bare metal, not a second beast
+      # VM, not worker3 which is slated for a control-plane role); it is a
+      # preference, not a requirement, and can be dropped once the mons settle.
+      placement:
+        mon:
+          nodeAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - preference:
+                  matchExpressions:
+                    - key: kubernetes.io/hostname
+                      operator: In
+                      values:
+                        - worker4.thesteamedcrab.com
+                weight: 100
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: node-role.kubernetes.io/control-plane
+                      operator: DoesNotExist
       resources:
         mgr:
           limits:

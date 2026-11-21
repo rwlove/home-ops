@@ -3,7 +3,14 @@
 
 Reads two Google Sheets (read-only service account) and writes to Medikeep via
 its REST API, authenticating as the patient's own account (single-patient model
-=> patient_id 1). Idempotent, additive, read-back-verified. Dry-run by default.
+=> patient_id 1). Idempotent and read-back-verified. Dry-run by default.
+
+Vitals are additive. Dose periods are RECONCILED against the sheet: a period
+the importer created (notes tagged `source:<DOSE_SOURCE>`) is added, updated
+(dose amount / end date / status), or deleted to match what the sheet now
+derives. Rows the importer did not create are never touched. Deletes are
+guarded: none when the sheet yields no dose rows, and none (job exits non-zero)
+when more than MAX_DOSE_DELETES would go in one run.
 
 The importer is generic: a "readings" sheet maps to Medikeep vitals, and a
 "dose" sheet maps to Medikeep treatment periods. ALL subject-specific values
@@ -51,6 +58,7 @@ class Config:
     patient_id: int
     weight_source_url: str  # base URL of the read-only weight view; "" => off
     device_default: str     # default device_used for home readings; "" => unset
+    max_dose_deletes: int   # safety cap on stale dose periods deleted per run
     dry_run: bool
 
     @staticmethod
@@ -75,6 +83,7 @@ class Config:
             patient_id=int(os.environ.get("PATIENT_ID", "1")),
             weight_source_url=os.environ.get("WEIGHT_SOURCE_URL", "").rstrip("/"),
             device_default=os.environ.get("DEVICE_DEFAULT", "").strip(),
+            max_dose_deletes=int(os.environ.get("MAX_DOSE_DELETES", "2")),
             # Default TRUE: a misconfigured job must not write medical rows.
             dry_run=os.environ.get("DRY_RUN", "true").lower() != "false",
         )
@@ -304,13 +313,17 @@ class Medikeep:
         r.raise_for_status()
         return r.json()
 
+    def delete(self, path: str) -> None:
+        r = self.s.delete(f"{self.cfg.medikeep_url}{path}", timeout=30)
+        r.raise_for_status()
+
 
 # --------------------------------------------------------------------------- #
 # sync
 # --------------------------------------------------------------------------- #
 def sync_readings(mk: Medikeep, cfg: Config, readings: list[Reading],
                   weights: list[tuple[date, float]]) -> None:
-    existing = set() if cfg.dry_run else mk.existing_vitals_keys()
+    existing = mk.existing_vitals_keys()
     new = [r for r in readings if r.key() not in existing]
     log.info("readings: %d parsed, %d present, %d to add", len(readings), len(readings) - len(new), len(new))
     for r in new:
@@ -353,48 +366,134 @@ def sync_readings(mk: Medikeep, cfg: Config, readings: list[Reading],
             log.warning("readings: device read-back mismatch for %s", r.key())
 
 
-def sync_dose(mk: Medikeep, cfg: Config, periods: list[DosePeriod]) -> None:
-    existing = [] if cfg.dry_run else mk.existing_treatments()
+def _norm_date(s: str | None) -> str | None:
+    # normalize the API's date strings (may carry time/tz) to a plain date key
+    try:
+        return dtparse.parse(s).date().isoformat() if s else None
+    except (ValueError, TypeError):
+        return s
 
-    def _norm(s: str | None) -> str | None:
-        # normalize the API's start_date (may carry time/tz) to a plain date key
-        try:
-            return dtparse.parse(s).date().isoformat() if s else None
-        except (ValueError, TypeError):
-            return s
 
-    by_start = {_norm(t.get("start_date")): t for t in existing}
-    log.info("dose: %d periods derived, %d existing rows", len(periods), len(existing))
-    for p in periods:
-        body = {
-            "patient_id": cfg.patient_id,
-            "treatment_name": cfg.treatment_name,
-            "mode": "simple",
-            "treatment_type": cfg.treatment_type or None,
-            "dosage": f"{p.amount} mg/week",
-            "frequency": "weekly",
-            "start_date": p.start_date.isoformat(),
-            "end_date": p.end_date.isoformat() if p.end_date else None,
-            "status": p.status,
-            "notes": f"source:{cfg.dose_source}",
-        }
-        match = by_start.get(p.start_date.isoformat())
-        if match is None:
-            if cfg.dry_run:
-                log.info("[dry-run] POST treatment %s", {k: v for k, v in body.items() if v is not None})
-                continue
-            mk.post("/api/v1/treatments/", body)
-            log.info("dose: added period start=%s status=%s", p.start_date, p.status)
+def dose_body(cfg: Config, p: DosePeriod) -> dict:
+    return {
+        "patient_id": cfg.patient_id,
+        "treatment_name": cfg.treatment_name,
+        "mode": "simple",
+        "treatment_type": cfg.treatment_type or None,
+        "dosage": f"{p.amount} mg/week",
+        "frequency": "weekly",
+        "start_date": p.start_date.isoformat(),
+        "end_date": p.end_date.isoformat() if p.end_date else None,
+        "status": p.status,
+        "notes": f"source:{cfg.dose_source}",
+    }
+
+
+def owned_by_importer(t: dict, cfg: Config) -> bool:
+    """A treatment row the importer created (and so may change or delete)."""
+    return str(t.get("notes") or "").startswith(f"source:{cfg.dose_source}")
+
+
+@dataclass
+class DosePlan:
+    add: list[dict]                    # bodies to POST
+    update: list[tuple[int, dict]]     # (treatment id, body) to PUT
+    delete: list[dict]                 # owned rows no longer in the sheet
+    skipped: list[str]                 # human-readable notes (unowned collisions)
+
+
+def plan_dose_sync(cfg: Config, periods: list[DosePeriod], existing: list[dict]) -> DosePlan:
+    """Pure reconcile: sheet-derived periods vs existing treatment rows.
+
+    Only importer-owned rows are ever updated or deleted. A derived period whose
+    start date collides with a row the importer did NOT create is skipped (never
+    duplicated, never overwritten) and reported."""
+    owned: dict[str | None, dict] = {}
+    duplicates: list[dict] = []  # extra importer rows sharing a start date
+    for t in sorted((t for t in existing if owned_by_importer(t, cfg)), key=lambda t: t.get("id") or 0):
+        key = _norm_date(t.get("start_date"))
+        if key in owned:
+            duplicates.append(t)
         else:
-            # period exists; only close it (set end_date/status) when it changes.
-            if match.get("end_date") == body["end_date"] and match.get("status") == p.status:
+            owned[key] = t
+    unowned = {_norm_date(t.get("start_date")) for t in existing if not owned_by_importer(t, cfg)}
+    plan = DosePlan(add=[], update=[], delete=[], skipped=[])
+    derived_starts = set()
+    for p in periods:
+        start = p.start_date.isoformat()
+        derived_starts.add(start)
+        body = dose_body(cfg, p)
+        match = owned.get(start)
+        if match is None:
+            if start in unowned:
+                plan.skipped.append(f"start={start}: a non-importer row already has this start date")
                 continue
-            if cfg.dry_run:
-                log.info("[dry-run] PUT treatment id=%s end_date=%s status=%s",
-                         match.get("id"), body["end_date"], p.status)
-                continue
-            mk.put(f"/api/v1/treatments/{match['id']}", body)
-            log.info("dose: closed period start=%s", p.start_date)
+            plan.add.append(body)
+            continue
+        same = (
+            str(match.get("dosage") or "") == body["dosage"]
+            and _norm_date(match.get("end_date")) == body["end_date"]
+            and str(match.get("status") or "").lower() == p.status
+        )
+        if not same:
+            plan.update.append((match["id"], body))
+    plan.delete = [t for s, t in sorted(owned.items(), key=lambda kv: kv[0] or "") if s not in derived_starts]
+    plan.delete.extend(duplicates)
+    return plan
+
+
+def sync_dose(mk: Medikeep, cfg: Config, periods: list[DosePeriod]) -> bool:
+    """Apply the reconcile plan, then read back and verify. Returns False when the
+    run needs attention (a delete guard tripped or the read-back disagrees)."""
+    existing = mk.existing_treatments()
+    plan = plan_dose_sync(cfg, periods, existing)
+    log.info("dose: %d periods derived, %d existing rows (%d importer-owned); plan add=%d update=%d delete=%d",
+             len(periods), len(existing), sum(owned_by_importer(t, cfg) for t in existing),
+             len(plan.add), len(plan.update), len(plan.delete))
+    for note in plan.skipped:
+        log.warning("dose: skipped %s", note)
+
+    ok = True
+    deletes = plan.delete
+    if deletes and not periods:
+        log.error("dose: sheet yielded no dose rows; refusing to delete %d periods", len(deletes))
+        deletes, ok = [], False
+    elif len(deletes) > cfg.max_dose_deletes:
+        log.error("dose: %d stale periods exceeds MAX_DOSE_DELETES=%d; deleting none (starts: %s)",
+                  len(deletes), cfg.max_dose_deletes,
+                  ", ".join(str(_norm_date(t.get("start_date"))) for t in deletes))
+        deletes, ok = [], False
+
+    if cfg.dry_run:
+        for body in plan.add:
+            log.info("[dry-run] POST treatment %s", {k: v for k, v in body.items() if v is not None})
+        for tid, body in plan.update:
+            log.info("[dry-run] PUT treatment id=%s dosage=%s end_date=%s status=%s",
+                     tid, body["dosage"], body["end_date"], body["status"])
+        for t in deletes:
+            log.info("[dry-run] DELETE treatment id=%s start=%s", t.get("id"), _norm_date(t.get("start_date")))
+        return ok
+
+    for body in plan.add:
+        mk.post("/api/v1/treatments/", body)
+        log.info("dose: added period start=%s status=%s", body["start_date"], body["status"])
+    for tid, body in plan.update:
+        mk.put(f"/api/v1/treatments/{tid}", body)
+        log.info("dose: updated period id=%s start=%s", tid, body["start_date"])
+    for t in deletes:
+        mk.delete(f"/api/v1/treatments/{t['id']}")
+        log.info("dose: deleted stale period id=%s start=%s", t.get("id"), _norm_date(t.get("start_date")))
+
+    # Read back: after a clean apply the plan must be empty (except any delete a
+    # guard deliberately held back, and any skipped unowned collision).
+    after = plan_dose_sync(cfg, periods, mk.existing_treatments())
+    if after.add or after.update or len(after.delete) != len(plan.delete) - len(deletes):
+        log.error("dose: read-back MISMATCH after apply: add=%d update=%d delete=%d",
+                  len(after.add), len(after.update), len(after.delete))
+        ok = False
+    else:
+        log.info("dose: read-back verified")
+    return ok
 
 
 def main() -> int:
@@ -432,12 +531,13 @@ def main() -> int:
     weights = fetch_weights(cfg.weight_source_url)
 
     mk = Medikeep(cfg)
-    if not cfg.dry_run:
-        mk.login()
+    # Log in even on a dry run: reads are safe, and a dry run that cannot see the
+    # existing rows cannot show the real plan.
+    mk.login()
     sync_readings(mk, cfg, readings, weights)
-    sync_dose(mk, cfg, periods)
-    log.info("medikeep-ingest done")
-    return 0
+    dose_ok = sync_dose(mk, cfg, periods)
+    log.info("medikeep-ingest done%s", "" if dose_ok else " (dose sync needs attention)")
+    return 0 if dose_ok else 1
 
 
 if __name__ == "__main__":

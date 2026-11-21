@@ -15,7 +15,13 @@ spec:
   #
   # LIVE: DRY_RUN=false and unsuspended. Validated 2026-10-14 — a clean import
   # (57 vitals + 18 dose periods, read-back-verified) followed by an idempotent
-  # re-run (0 added). Weekly Monday 06:00 ET; writes are idempotent + additive.
+  # re-run (0 added). Weekly Monday 06:00 ET; writes are idempotent.
+  #
+  # Vitals are additive. Dose periods are RECONCILED to the sheet (2026-11-21):
+  # importer-owned rows (notes `source:<DOSE_SOURCE>`) are added, updated when a
+  # past dose amount is corrected, and deleted when their sheet rows are removed.
+  # Rows not created by the importer are never touched. Deletes are guarded (none
+  # on an empty sheet parse; none + non-zero exit above MAX_DOSE_DELETES).
   suspend: false
   schedule: "0 6 * * 1"
   timeZone: America/New_York
@@ -68,6 +74,11 @@ spec:
                   value: sheet-vitals
                 - name: DOSE_SOURCE
                   value: sheet-dose
+                # Safety cap on stale dose periods deleted in one run. Above it
+                # the run deletes nothing and exits non-zero (a failed Job), so a
+                # bad sheet read can never wipe the dose timeline.
+                - name: MAX_DOSE_DELETES
+                  value: "2"
                 # Read-only PUMP weight view (health svc, /api/pump/) for
                 # per-reading bodyweight enrichment. Unset => weight left null.
                 - name: WEIGHT_SOURCE_URL

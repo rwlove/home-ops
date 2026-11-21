@@ -25,7 +25,7 @@ spec:
             summary: vllm-driver-spark Pod not Ready (reasoning/driver LLM unavailable)
             description: |
               Pod {{ $labels.namespace }}/{{ $labels.pod }} on Spark
-              has been not-Ready for >5 minutes. Inspect with
+              has been not-Ready for >15 minutes. Inspect with
               `kubectl -n ai describe pod {{ $labels.pod }}` and
               `kubectl -n ai logs {{ $labels.pod }} --previous`.
               Post-cutover impact: Open WebUI chat, LightRAG, and opencode
@@ -34,7 +34,12 @@ spec:
               recovery; do not thrash the pod.
           expr: |-
             kube_pod_status_ready{namespace="ai",pod=~"vllm-driver-spark-.*",condition="true"} == 0
-          for: 5m
+          # 15m, not 5m: a planned rollout of this single-replica StatefulSet
+          # cold-loads ~35 GB and took ~9m to go Ready (2026-11-21, v0.30 and
+          # v0.34 bumps) — 5m paged critical on every image bump. A real
+          # crash-loop/image-pull failure still pages; litellm falls back to
+          # the P40 meanwhile. Serving wedges are SparkVllmDriverWedged's job.
+          for: 15m
           labels:
             severity: critical
         # Synthetic-probe wedge detector — the sister of SparkTeiEmbedWedged

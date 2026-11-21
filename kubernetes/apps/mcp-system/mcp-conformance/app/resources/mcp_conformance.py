@@ -45,9 +45,18 @@ client-credentials flow the mcp-gateway-jwt-rotator CronJob uses (client_id/
 secret from the mcp-gateway-authelia-client secret, scope mcp-gateway) --
 authenticates as itself, never borrows a live consumer's token.
 
+Confirm-before-report: a failed Check B canary is retried ONCE in-run, after
+CONFIRM_DELAY_S on a FRESH session, and only becomes a finding if the retry
+also fails (per feedback_alert_only_on_sustained_not_transient). A single
+pooled-connection reset (503 "connection termination" in ~0.1s), a one-off
+upstream 504, or a momentary timeout self-heals and stays silent; a real
+outage fails both attempts and still reports on the same run. Safe because
+every canary is read-only by manifest rule.
+
 Reporting: SILENT (exit 0, no email) on a full pass. Any finding sends ONE
-notify-mcp email naming the exact (profile, backend, tool) tuple + failure
-signature, per feedback_agent_notifications_must_be_actionable. A
+notify-mcp email, one plain-English block per broken backend (what's broken,
+who's affected, likely cause, where to look, raw error last), per
+feedback_agent_notifications_must_be_actionable. A
 probe-infrastructure failure (can't mint a token, can't reach the broker at
 all) is reported as its own distinct category so "the harness broke" never
 reads as "the fleet is down."
@@ -75,10 +84,62 @@ AGENT_NAME = "mcp-platform"
 HTTP_TIMEOUT = 15
 INIT_TIMEOUT = 20
 FULL_AGGREGATE_PROFILE = "open-webui"  # the one profile with no VS header
+CONFIRM_DELAY_S = 5  # wait before the one in-run confirm retry of a failed canary
+# Cap on confirm retries per run: each costs up to ~CONFIRM_DELAY_S + INIT_TIMEOUT
+# + HTTP_TIMEOUT, and a multi-backend outage must still report inside the
+# Job's activeDeadlineSeconds (360; a clean run is ~2m). Past the cap, failures report unconfirmed.
+MAX_CONFIRM_RETRIES = 4
+_confirm_budget = [MAX_CONFIRM_RETRIES]
 
 
 def log(msg):
     print(msg, flush=True)
+
+
+# --------------------------------------------------------------------------
+# Plain-English rendering. Robert reads these emails cold, on a phone: every
+# finding says WHAT is broken, WHO loses it, the LIKELY CAUSE, and WHERE TO
+# LOOK -- the raw protocol error goes last, as reference only.
+# --------------------------------------------------------------------------
+CONSUMER_LABELS = {
+    "kagent": "the kagent agents",
+    "laptop": "Claude Code on the laptop",
+    "open-webui": "Open WebUI chats",
+}
+
+
+def consumer_label(profile_name):
+    return CONSUMER_LABELS.get(profile_name, profile_name)
+
+
+def join_and(items):
+    return items[0] if len(items) == 1 else "%s and %s" % (", ".join(items[:-1]), items[-1])
+
+
+def backend_label(registration):
+    return registration[:-len("-tools")] if registration.endswith("-tools") else registration
+
+
+def explain_call_error(name, err):
+    """(likely cause, where to look) for a failed canary call, by error class."""
+    e = (err or "").lower()
+    pods = "kubectl get pods -A | grep %s-mcp   (then: kubectl logs on that pod)" % name
+    if "tool-reported error" in e:
+        if "rate limit" in e:
+            return ("the %s MCP server is up, but the service behind it is rate-limiting us." % name,
+                    "usually clears on its own; only act if it repeats for hours.")
+        return ("the %s MCP server is up, but the app behind it returned an error." % name,
+                "check that the %s app itself is healthy and its API credentials still work; %s" % (name, pods))
+    if "jsonrpc error" in e:
+        return ("the gateway rejected the call -- a registration or tool-scoping problem, not the app.",
+                "kubectl -n mcp-system get mcpserverregistration %s-tools -o yaml   (status/conditions)" % name)
+    if "504" in e or "timed out" in e or "timeout" in e:
+        return ("the %s MCP server did not answer in time -- usually the app behind it is slow or down." % name,
+                pods)
+    if "503" in e or "reset" in e or "connection" in e or "refused" in e:
+        return ("the gateway could not reach the %s MCP server -- pod down/restarting, or a network "
+                "policy blocking the gateway." % name, pods)
+    return ("unclassified failure -- see the raw error below.", pods)
 
 
 # --------------------------------------------------------------------------
@@ -206,12 +267,16 @@ def prefix_presence_findings(profile_name, tools, backends):
     for b in backends:
         prefix = b["prefix"]
         if not any(n.startswith(prefix) for n in live_names):
+            name = backend_label(b["registration"])
             findings.append(
-                "Check A [%s]: backend '%s' (prefix '%s') has ZERO tools in the full-aggregate "
-                "catalog -- it has silently vanished from tools/list entirely (not a call failure, "
-                "a discovery failure). Known regression class: a single-entry "
-                "supportedProtocolVersions on the MCPServerRegistration (home-ops#15975/#16001)."
-                % (profile_name, b["registration"], prefix)
+                "%s TOOLS HAVE DISAPPEARED\n"
+                "  What's broken: none of the %s tools (%s*) show up in the gateway's tool list, "
+                "so no consumer can see or call them.\n"
+                "  Likely cause: the gateway dropped the registration during discovery -- known cause "
+                "is a single-entry supportedProtocolVersions on the MCPServerRegistration "
+                "(home-ops#15975/#16001).\n"
+                "  Where to look: kubectl -n mcp-system get mcpserverregistration %s -o yaml"
+                % (name.upper(), name, prefix, b["registration"])
             )
     return findings
 
@@ -220,9 +285,30 @@ def prefix_presence_findings(profile_name, tools, backends):
 # Check B -- real tools/call, scoped to what the profile's OWN live
 # tools/list actually contains.
 # --------------------------------------------------------------------------
-def canary_call_findings(token, profile, tools, backends, last_known_good):
+def confirm_retry(token, profile, tool, args, first_err):
+    """One in-run confirm retry of a failed canary, on a fresh session so a
+    stale pooled connection or wedged session can't fail it twice. Returns
+    call_tool's (ok, elapsed, err); on a second failure err carries both."""
+    if _confirm_budget[0] <= 0:
+        return False, None, "%s (unconfirmed: confirm-retry budget for this run exhausted)" % first_err
+    _confirm_budget[0] -= 1
+    log("Check B [%s] %s first attempt failed (%s) -- confirming in %ds on a fresh session"
+        % (profile["name"], tool, first_err, CONFIRM_DELAY_S))
+    time.sleep(CONFIRM_DELAY_S)
+    session_id, _, serr = mcp_session(token, profile["path"], profile.get("virtualserver"))
+    if not session_id:
+        return False, None, "%s; confirm retry could not open a session: %s" % (first_err, serr)
+    ok, elapsed, err = call_tool(
+        token, profile["path"], profile.get("virtualserver"), session_id, tool, args,
+    )
+    if ok:
+        log("Check B [%s] %s recovered on confirm retry -- transient, not reported" % (profile["name"], tool))
+        return True, elapsed, None
+    return False, elapsed, "%s; confirm retry also failed: %s" % (first_err, err)
+
+
+def canary_call_findings(token, profile, tools, backends, call_failures):
     live_names = {t.get("name", "") for t in tools}
-    findings = []
     for b in backends:
         canary = b.get("canary")
         if not canary:
@@ -234,19 +320,34 @@ def canary_call_findings(token, profile, tools, backends, last_known_good):
             token, profile["path"], profile.get("virtualserver"),
             profile["_session_id"], tool, canary.get("args", {}),
         )
-        key = (profile["name"], b["registration"], tool)
+        if not ok and b["registration"] not in call_failures:
+            # Already confirmed broken via another consumer -- don't spend a retry re-proving it.
+            ok, elapsed, err = confirm_retry(token, profile, tool, canary.get("args", {}), err)
         if ok:
-            last_known_good[key] = elapsed
             log("Check B [%s] %-24s %-35s OK  %.2fs" % (profile["name"], b["registration"], tool, elapsed))
         else:
-            lkg = last_known_good.get(key)
-            lkg_str = ("%.2fs" % lkg) if lkg is not None else "never observed this run-set"
-            findings.append(
-                "Check B [%s] backend=%s tool=%s FAILED after %.1fs -- %s "
-                "(last-known-good this run-set: %s)"
-                % (profile["name"], b["registration"], tool, elapsed or 0.0, err, lkg_str)
-            )
+            entry = call_failures.setdefault(b["registration"], {"tool": tool, "consumers": [], "errors": []})
+            entry["consumers"].append(profile["name"])
+            entry["errors"].append("[%s] after %.1fs: %s" % (profile["name"], elapsed or 0.0, err))
             log("Check B [%s] %-24s %-35s FAIL %s" % (profile["name"], b["registration"], tool, err))
+
+
+def render_call_failures(call_failures):
+    """One plain-English block per broken backend (not per consumer)."""
+    findings = []
+    for registration, f in sorted(call_failures.items()):
+        name = backend_label(registration)
+        cause, look = explain_call_error(name, f["errors"][0])
+        findings.append(
+            "%s TOOLS ARE FAILING\n"
+            "  Who's affected: %s can't use the %s tools.\n"
+            "  How we know: a read-only test call (%s) failed twice, %ds apart.\n"
+            "  Likely cause: %s\n"
+            "  Where to look: %s\n"
+            "  Raw error: %s"
+            % (name.upper(), join_and([consumer_label(c) for c in f["consumers"]]), name,
+               f["tool"], CONFIRM_DELAY_S, cause, look, " | ".join(f["errors"]))
+        )
     return findings
 
 
@@ -276,7 +377,7 @@ def check_c_kagent_discovery_staleness():
     except Exception as e:
         return ["Check C: could not read RemoteMCPServer(ai/mcp-gateway) or "
                 "MCPVirtualServer(mcp-system/kagent) via the k8s API: %r "
-                "(RBAC/connectivity issue, not a federation finding -- investigate separately)" % e]
+                "(RBAC/connectivity issue in this checker, not a tool outage)" % e]
 
     declared = len((vs.get("spec") or {}).get("tools") or [])
     conditions = (rms.get("status") or {}).get("conditions") or []
@@ -297,12 +398,14 @@ def check_c_kagent_discovery_staleness():
                 "have changed, update check_c_kagent_discovery_staleness()" % message[:200]]
     if discovered_count < declared:
         return [
-            "Check C: kagent controller discovery is STALE -- RemoteMCPServer(ai/mcp-gateway) "
-            "reports %d discovered tools but MCPVirtualServer(mcp-system/kagent) declares %d. "
-            "The broker and virtualserver are fine; the controller's one-shot discovery cache "
-            "froze at an earlier generation (known bug, home-ops#15962 saga). Workaround: bump "
-            "remotemcpserver-mcp-gateway.yaml's spec.description to force metadata.generation and "
-            "re-trigger discovery." % (discovered_count, declared)
+            "KAGENT AGENTS HAVE A STALE TOOL LIST\n"
+            "  What's broken: the kagent agents only know about %d of the %d tools they should "
+            "have, so the missing ones are invisible to them (everything else keeps working).\n"
+            "  Likely cause: the kagent controller's tool-discovery cache froze (known bug, "
+            "home-ops#15962).\n"
+            "  Fix: bump spec.description in "
+            "kubernetes/apps/ai/kagent/app/remotemcpserver-mcp-gateway.yaml and merge -- that "
+            "forces re-discovery." % (discovered_count, declared)
         ]
     return []
 
@@ -335,15 +438,20 @@ def main():
         sys.exit(1)
 
     findings = []
-    last_known_good = {}  # (profile, backend, tool) -> last successful latency this run-set
+    call_failures = {}  # registration -> {tool, consumers, errors}; rendered once per backend
 
     for profile in profiles:
         session_id, tools, err = mcp_session(token, profile["path"], profile.get("virtualserver"))
         if err or tools is None:
             findings.append(
-                "Check A [%s]: could not establish a session / list tools at all -- %s "
-                "(path=%s virtualserver=%s)"
-                % (profile["name"], err, profile["path"], profile.get("virtualserver"))
+                "%s CAN'T REACH THE TOOL GATEWAY\n"
+                "  What's broken: every gateway tool is unavailable to %s.\n"
+                "  Likely cause: the MCP gateway (or its virtual server for this consumer) is down "
+                "or rejecting the login.\n"
+                "  Where to look: kubectl -n mcp-system get pods | grep mcp-gateway\n"
+                "  Raw error: %s (path=%s virtualserver=%s)"
+                % (consumer_label(profile["name"]).upper(), consumer_label(profile["name"]), err,
+                   profile["path"], profile.get("virtualserver"))
             )
             log("Check A [%s] SESSION FAILED: %s" % (profile["name"], err))
             continue
@@ -353,19 +461,21 @@ def main():
             findings += prefix_presence_findings(profile["name"], tools, backends)
 
         profile["_session_id"] = session_id
-        findings += canary_call_findings(token, profile, tools, backends, last_known_good)
+        canary_call_findings(token, profile, tools, backends, call_failures)
 
+    findings += render_call_failures(call_failures)
     findings += check_c_kagent_discovery_staleness()
 
     if findings:
-        body = "%d finding(s):\n\n%s" % (len(findings), "\n\n".join(findings))
+        body = "\n\n".join(findings)
         log("FAIL -- %d finding(s)" % len(findings))
         log(body)
+        if call_failures and len(findings) == len(call_failures):
+            subject = "MCP tools failing: %s" % ", ".join(backend_label(r) for r in sorted(call_failures))
+        else:
+            subject = "MCP tool gateway: %d problem(s) need a look" % len(findings)
         try:
-            notify_email(
-                "mcp-conformance: %d finding(s) -- federation may be partially broken" % len(findings),
-                body,
-            )
+            notify_email(subject, body)
         except Exception as e:
             log("WARN: notify-mcp delivery failed: %r" % e)
         sys.exit(1)

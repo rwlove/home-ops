@@ -62,19 +62,11 @@ spec:
       baseDomain: "windmill.${SECRET_DOMAIN}"
       baseProtocol: https
 
-      # Use the *-full image, which bundles the Deno runtime. Upstream
-      # moved Deno out of the standard worker/app image into the -full
-      # variants (Deno's own end-of-development), so every `deno`-language
-      # workflow script (./workflows/*.ts) fails on the standard image
-      # with "Deno is not installed on this worker". `image` is the name
-      # WITHOUT tag; the tag falls back to the chart appVersion (1.832.0,
-      # verified ghcr.io/windmill-labs/windmill-full:1.832.0 = 200).
-      # workaround: https://github.com/windmill-labs/windmill/pull/11648 — remove when ./workflows/*.ts are migrated from the deno language to bun
-      # Bare name ONLY — no `@sha256:` digest: the chart appends `:<tag>`
-      # itself, so a digest here renders an invalid ref (InvalidImageName).
-      # Renovate digest-pinning is disabled for this image in
-      # .github/renovate/packageRules.json5.
-      image: ghcr.io/windmill-labs/windmill-full
+      # No `image` override: the chart default (CE) is
+      # ghcr.io/windmill-labs/windmill:<appVersion>, which bundles Bun.
+      # The workflows (./workflows/*.ts) are `bun` scripts (#16200); Deno
+      # ships only on the -full images, so do not add `deno` scripts
+      # (#14945 retired the windmill-full override).
 
       # CNPG provisions a per-app `<cluster>-app` Secret with full DB
       # credentials. The Secret has fields: username, password, host,
@@ -110,7 +102,7 @@ spec:
           # Workflow secrets — single 1P source materialized by the
           # windmill-workflows ExternalSecret. WHITELIST_ENVS tells the
           # Windmill worker which pod-env keys to pass through to the
-          # spawned Deno/Python/Bash subprocesses (default is none for
+          # spawned Bun/Python/Bash subprocesses (default is none for
           # nsjail-style isolation; Windmill strips parent env without
           # an explicit allowlist).
           extraEnv: &workflow_secrets

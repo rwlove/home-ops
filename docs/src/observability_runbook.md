@@ -117,7 +117,7 @@ targets with legitimate radio/power-save downtime, and the
 "devices-esphome" probe, which checks ESPHome devices with a TCP connect
 to the native API port (6053) because ESP32s drop ICMP while healthy, and
 the "devices-http" probe, which checks low-traffic devices (the weather
-gateway) over their local HTTP API with a 40s budget, because a cold
+gateway) over their local HTTP API with a 75s budget, because a cold
 neighbor entry (missed ARP broadcasts in WiFi power-save) makes
 blackbox's single-packet ICMP probe time out on nearly every scrape.
 

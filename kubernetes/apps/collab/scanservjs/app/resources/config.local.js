@@ -26,7 +26,9 @@ module.exports = {
       // command must emit the file list scanservjs finalises, so `ls`
       // runs last after the upload.
       commands: [
-        'convert @- paperless.pdf',
+        // JPEG-compress: the default is an uncompressed image PDF (~33MB
+        // per 300dpi colour page), slow to upload and store.
+        'convert @- -compress jpeg -quality 85 paperless.pdf',
         'node /etc/scanservjs/upload-to-paperless.js paperless.pdf',
         'ls paperless.pdf'
       ]

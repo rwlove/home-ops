@@ -44,6 +44,38 @@ spec:
           reloader.stakater.com/auto: "true"
         type: statefulset
         initContainers:
+          # Pin the BitTorrent session to gluetun's tunnel interface on every
+          # start (third leak guard: with wg0 down the session has nothing to
+          # use). Declarative rather than a one-off API write, so a WebUI change
+          # cannot silently re-bind it to eth0. Empty address = all wg0 addrs.
+          bind-wg0:
+            image:
+              repository: ghcr.io/home-operations/qbittorrent
+              tag: 5.3.0@sha256:5a858e61f94cf2712391db32ed03556576c700858f3e62c4c6fcde262443ebd8
+            command:
+              - /bin/sh
+              - -c
+              - |
+                conf=/config/qBittorrent/qBittorrent.conf
+                [ -f "$$conf" ] || exit 0
+                sed -i \
+                  -e 's/^Session\\Interface=.*/Session\\Interface=wg0/' \
+                  -e 's/^Session\\InterfaceName=.*/Session\\InterfaceName=wg0/' \
+                  -e 's/^Session\\InterfaceAddress=.*/Session\\InterfaceAddress=/' \
+                  "$$conf"
+                grep '^Session\\Interface' "$$conf"
+            resources:
+              requests:
+                cpu: 5m
+                memory: 16Mi
+              limits:
+                memory: 64Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities: {drop: ["ALL"]}
+              readOnlyRootFilesystem: true
+              seccompProfile:
+                type: RuntimeDefault
           # Native sidecar (restartPolicy: Always): starts before the app,
           # gates it on a healthy tunnel via startupProbe, and stays up for
           # the pod's lifetime. gluetun's firewall is the primary

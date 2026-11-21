@@ -43,6 +43,11 @@ esp32_ble_tracker:
     active: true
     #interval: 1100ms
     #window: 1100ms
+  # Watchdog: record time of most recent BLE advertisement (cheap lambda only)
+  on_ble_advertise:
+    - lambda: |-
+        id(last_ble_adv_ms) = millis();
+        id(ble_adv_seen) = true;
 
 bluetooth_proxy:
   active: true
@@ -54,3 +59,45 @@ bluetooth_proxy:
 #  - platform: safe_mode
 #    name: Safe Mode Boot
 #    entity_category: diagnostic
+
+# --- BLE advertisement watchdog ---
+# Catches "online in HA but BLE scanner silently stopped" (esphome#5119),
+# which api/wifi reboot_timeout do not detect.
+globals:
+  - id: last_ble_adv_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+  - id: ble_adv_seen
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+interval:
+  - interval: 60s
+    then:
+      - lambda: |-
+          const uint32_t now = millis();
+          if (id(ble_adv_seen)) {
+            const uint32_t age = now - id(last_ble_adv_ms);  // wrap-safe
+            if (age > 600000UL) {
+              ESP_LOGW("ble_watchdog", "No BLE advert for %u s (>600 s); rebooting", (unsigned) (age / 1000));
+              App.safe_reboot();
+            }
+          } else if (now > 900000UL) {
+            ESP_LOGW("ble_watchdog", "No BLE advert since boot after %u s (>900 s); rebooting", (unsigned) (now / 1000));
+            App.safe_reboot();
+          }
+
+sensor:
+  - platform: template
+    name: "Seconds Since Last BLE Advert"
+    id: ble_seconds_since_advert
+    unit_of_measurement: "s"
+    accuracy_decimals: 0
+    state_class: measurement
+    entity_category: diagnostic
+    update_interval: 30s
+    lambda: |-
+      if (!id(ble_adv_seen)) return NAN;
+      return (float) ((millis() - id(last_ble_adv_ms)) / 1000);

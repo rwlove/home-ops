@@ -29,13 +29,35 @@ spec:
           for: 10m
           labels:
             severity: critical
+        # DependencyNotReady is excluded: a waiter behind a not-ready root is not
+        # itself failing, and one slow root (a 30m HelmRelease upgrade) would
+        # otherwise page critical once per dependent -- 32 were pending on
+        # 2026-11-21 behind a single Progressing rook-ceph-cluster. The root
+        # still alerts here (failed Kustomization) or via FluxHelmReleaseStalled
+        # (HelmRelease Ready=False, incl. after its upgrade timeout).
         - alert: FluxReconciliationFailure
           annotations:
             summary: >-
               {{ $labels.kind }} {{ $labels.exported_namespace }}/{{ $labels.name }}
               reconciliation has been failing for more than 15 minutes.
           expr: |
-            max(flux_resource_info{ready="False",suspended="False",kind!="HelmRelease"}) by (exported_namespace, name, kind) == 1
+            max(flux_resource_info{ready="False",suspended="False",kind!="HelmRelease",reason!="DependencyNotReady"}) by (exported_namespace, name, kind) == 1
           for: 15m
           labels:
             severity: critical
+        # The one case with NO root alert: a dependsOn naming a Kustomization that
+        # no longer exists (renamed / deleted / dropped from its parent) leaves
+        # its dependents DependencyNotReady forever. 2h outlasts every
+        # HelmRelease timeout in the repo (max 30m), so a reconcile wave never
+        # reaches it.
+        - alert: FluxDependencyBlocked
+          annotations:
+            summary: >-
+              {{ $labels.kind }} {{ $labels.exported_namespace }}/{{ $labels.name }}
+              has been waiting on a not-ready dependency for more than 2 hours.
+              Check its dependsOn targets exist and find the not-ready root.
+          expr: |
+            max(flux_resource_info{ready="False",suspended="False",kind!="HelmRelease",reason="DependencyNotReady"}) by (exported_namespace, name, kind) == 1
+          for: 2h
+          labels:
+            severity: warning

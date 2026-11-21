@@ -3,67 +3,55 @@
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
-  name: &app intel-gpu-exporter
+  name: drm-exporter
 spec:
   chartRef:
     kind: OCIRepository
-    name: app-template
-  interval: 30m
-
+    name: drm-exporter
+  interval: 1h
   values:
-    controllers:
-      intel-gpu-exporter:
-        pod:
-          affinity:
-            nodeAffinity:
-              requiredDuringSchedulingIgnoredDuringExecution:
-                nodeSelectorTerms:
-                  - matchExpressions:
-                      - key: intel.feature.node.kubernetes.io/gpu
-                        operator: In
-                        values:
-                          - "true"
-          nodeSelector:
-            intel.feature.node.kubernetes.io/gpu: "true"
+    fullnameOverride: drm-exporter
 
-        type: daemonset
+    # GPU device nodes come from the Intel device plugin (the
+    # gpu.intel.com/i915 request below), not a hostPath /dev/dri: CRI-O's
+    # device cgroup only admits nodes the plugin injects, so a hostPath mount
+    # in a non-privileged container is unreadable. /sys stays (chart default).
+    # /dev/cpu (MSR package temperature) is not mounted, so SYS_RAWIO is
+    # dropped from the chart's capability set — PERFMON alone covers i915
+    # engine utilization and RAPL power.
+    hostAccess:
+      devDri: ""
+      devCpu: ""
 
-        containers:
-          app:
-            image:
-              repository: ghcr.io/onedr0p/intel-gpu-exporter
-              tag: rolling@sha256:90a95483bf5d3752f4db2ab2e1663f19bba307fd832bf53557cbdc38c3701f84
+    # Runs as root (chart default): /dev/dri nodes are root:video 0660 and
+    # the perf PMU read needs CAP_PERFMON. Non-privileged, read-only rootfs,
+    # ALL dropped except PERFMON.
+    securityContext:
+      privileged: false
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop:
+          - ALL
+        add:
+          - PERFMON
 
-            resources:
-              requests:
-                gpu.intel.com/i915: 1
-                cpu: 100m
-                # Request right-sized per Goldilocks VPA upperBound / 14d
-                # peak — PR-sweep
-                memory: 61Mi
-              limits:
-                gpu.intel.com/i915: 1
-                memory: 200Mi
+    nodeSelector:
+      intel.feature.node.kubernetes.io/gpu: "true"
 
-            securityContext:
-              privileged: true
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+        gpu.intel.com/i915: 1
+      limits:
+        memory: 128Mi
+        gpu.intel.com/i915: 1
 
-    service:
-      app:
-        controller: intel-gpu-exporter
-        ports:
-          http:
-            port: &httpPort 8080
-
-    serviceMonitor:
-      app:
-        endpoints:
-          - interval: 1m
-            path: /metrics
-            port: http
-            relabelings:
-              - sourceLabels: [__meta_kubernetes_pod_node_name]
-                targetLabel: node
-            scheme: http
-            scrapeTimeout: 10s
-        serviceName: *app
+    monitoring:
+      serviceMonitor:
+        enabled: true
+      dashboards:
+        enabled: true
+        annotations:
+          grafana_folder: Kubernetes

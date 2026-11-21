@@ -5,10 +5,17 @@ esphome:
     name: esphome.bluetooth-proxy-gym-poe
     version: "1.0"
 
-# Wired PoE ESP32 (re-purposed from the retired poe-bluetooth-proxy-1). Intended
-# replacement for the WiFi M5Stack ATOM bluetooth-proxy-gym: on the ATOM, WiFi and
-# BLE share one radio and the coexistence contention drops TCP sessions mid-GATT.
-# Ethernet removes WiFi from the radio entirely. No wifi: block on purpose.
+# Wired PoE ESP32 (re-purposed from the retired poe-bluetooth-proxy-1). Replaced
+# the WiFi M5Stack ATOM bluetooth-proxy-gym: on the ATOM, WiFi and BLE share one
+# radio and the coexistence contention drops TCP sessions mid-GATT. Ethernet
+# removes WiFi from the radio entirely. No wifi: block on purpose.
+#
+# This device ALSO hosts the bathroom-scale ingest that used to live on the
+# WiFi M5 Atom bt-scale (retired): a passive xiaomi_miscale parse of the scale's
+# BLE adverts and a direct HTTP POST to PUMP, HA out of the data path. Because a
+# crash here reboots the Voltra proxy path, the scale logic is built to be
+# non-blocking-ish and failure-tolerant: single-flight deferred script, short
+# timeout, no scan pausing, no reboot tied to http_request results.
 esp32:
   board: m5stack-core-esp32
   framework:
@@ -23,7 +30,10 @@ ethernet:
   type: IP101
   mdc_pin: GPIO23
   mdio_pin: GPIO18
-  clk_mode: GPIO0_IN
+  # clk_mode: GPIO0_IN was removed in ESPHome 2026.11.0; this is the equivalent.
+  clk:
+    mode: CLK_EXT_IN
+    pin: GPIO0
   power_pin: GPIO5
   phy_addr: 1
 
@@ -55,3 +65,88 @@ esp32_ble_tracker:
 # GATT session can suppress adverts and would trigger a spurious reboot mid-set.
 bluetooth_proxy:
   active: true
+
+# Time from SNTP, not HA, so the weigh-in ingest path is HA-independent.
+time:
+  - platform: sntp
+    id: esptime
+    timezone: America/New_York
+
+# Plain HTTP to PUMP ingest (the internal Gateway's http listener lets the
+# pump-ingest HTTPRoute bind port 80, bypassing the catch-all 301). verify_ssl
+# is irrelevant over http. Short per-operation timeout: a dead ingest must not
+# stall the main loop (and with it the Voltra proxy) for long. ESPHome derives
+# the ESP32 http watchdog_timeout from this (3x timeout + 1s, never below the
+# platform watchdog), so a hung server cannot trip the task WDT; no manual
+# sdkconfig watchdog raise is needed. A failed request only fires on_error /
+# logs; it never reboots the device.
+http_request:
+  id: pump_http
+  timeout: 4s
+  useragent: bluetooth-proxy-gym-poe-pump-ingest
+
+# Deferred POST, run off the BLE callback (its stack is too small for the HTTP
+# client). mode: single: a burst of Mi Scale readings (on_value fires several
+# times per weigh) cannot stack overlapping POSTs; PUMP also dedups identical
+# same-day readings. Scanning is deliberately NOT paused around the POST (the
+# bt-scale did stop_scan/start_scan for WiFi/BLE coexistence): that would blind
+# the Voltra proxy mid-session, and with ethernet there is no shared radio to
+# relieve. The INT/task watchdog raises the bt-scale needed were also WiFi+BLE
+# starvation workarounds and are not carried over.
+script:
+  - id: post_weight_to_pump
+    mode: single
+    then:
+      - http_request.post:
+          url: $${pump_ingest_url}
+          capture_response: false
+          request_headers:
+            Content-Type: application/json
+            X-Api-Key: !secret pump_weight_ingest_key
+          json: |-
+            char date_buf[11];
+            char ts_buf[26];
+            auto now = id(esptime).now();
+            now.strftime(date_buf, sizeof(date_buf), "%Y-%m-%d");
+            now.strftime(ts_buf, sizeof(ts_buf), "%Y-%m-%dT%H:%M:%S%z");
+            root["Date"] = std::string(date_buf);
+            root["RecordedAt"] = std::string(ts_buf);
+            root["Weight"] = id(xiaomi_weight).state * 2.20462;
+          on_response:
+            then:
+              - lambda: |-
+                  ESP_LOGI("pump", "POST /api/weight status=%d", response->status_code);
+          on_error:
+            then:
+              - lambda: |-
+                  ESP_LOGW("pump", "POST /api/weight failed (dropped, not retried)");
+
+substitutions:
+  mac_address: "88:22:B2:EC:C4:E4"
+  weight_user1_min: "90.72"   # 200 lb
+  weight_user1_max: "136.08"  # 300 lb
+  pump_ingest_url: "http://pump-ingest.thesteamedcrab.com/api/weight"
+
+# Passive parse of the scale's advertisements via the shared esp32_ble_tracker;
+# co-exists with bluetooth_proxy (the proxy only adds connection handling on
+# the same tracker; advertisement-only sensors are not limited by connection
+# slots, per the ESPHome bluetooth_proxy docs). No HA entities are consumed
+# anywhere (checked home-assistant-config), so the old template number/sensor
+# mirrors and impedance are dropped.
+sensor:
+  - platform: xiaomi_miscale
+    mac_address: $${mac_address}
+    weight:
+      name: "Xiaomi Mi Scale Weight"
+      id: xiaomi_weight
+      on_value:
+        then:
+          - if:
+              condition:
+                lambda: 'return (id(xiaomi_weight).state >= atof("$${weight_user1_min}")) && (id(xiaomi_weight).state <= atof("$${weight_user1_max}"));'
+              then:
+                - script.execute: post_weight_to_pump
+              else:
+                # Outside the 200-300 lb band: dropped, not POSTed.
+                - lambda: |-
+                    ESP_LOGW("pump", "rejected out-of-band weight: %.1f kg", id(xiaomi_weight).state);

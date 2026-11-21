@@ -223,20 +223,17 @@ spec:
       # App-side auth is WEIGHT_INGEST_KEY / HEALTH_INGEST_KEY (env from
       # pump-secret), enforced by the weightIngestAuth / healthIngestAuth
       # middleware on the respective POST routes (pump v0.0.91+ / v0.0.93+).
-      # Callers: the bt-scale ESPHome device (weight) and the Android
+      # Callers: the bluetooth-proxy-gym-poe ESPHome device (weight; it took over
+      # from the retired bt-scale M5 Atom) and the Android
       # Health Connect HC Webhook bridge on Rob's S26 (health).
       ingest:
         hostnames:
           - "pump-ingest.${SECRET_DOMAIN}"
         # Attached to BOTH http:80 and https:443 on the internal Gateway.
-        # NOTE: the Gateway's http listener redirects to HTTPS (301), so in
-        # practice only HTTPS is served. The bt-scale ESPHome firmware was
-        # originally HTTP-only because MbedTLS crashed on the M5 Atom (320 KB
-        # RAM / ~4 KB BLE task stack). The firmware was fixed in 2026-05-26:
-        #   - sram1_as_iram: true (+40 KB IRAM headroom)
-        #   - deferred post_weight_to_pump script (handshake runs on main loop)
-        # The device now posts to https:// without crashing. Auth enforced at
-        # the app layer via WEIGHT_INGEST_KEY.
+        # NOTE: the scale device (bluetooth-proxy-gym-poe, formerly the bt-scale
+        # M5 Atom) POSTs plain http to the Gateway http listener, which this
+        # route binds to directly (no 301). Auth enforced at the app layer via
+        # WEIGHT_INGEST_KEY.
         parentRefs:
           - name: internal
             namespace: network
@@ -290,7 +287,7 @@ spec:
               POSTGRES_DSN: postgres://{{ .PUMP_DB_USER }}:{{ .PUMP_DB_PASS }}@postgres-pump-rw.databases.svc.cluster.local:5432/pump
               API_KEY: "{{ .API_KEY }}"
               # Required header value for off-cluster POST /api/weight (e.g. the
-              # bt-scale ESPHome device reaching pump-ingest.${SECRET_DOMAIN}).
+              # bluetooth-proxy-gym-poe ESPHome device reaching pump-ingest.${SECRET_DOMAIN}).
               # Add a "WEIGHT_INGEST_KEY" field to the 1Password "pump" item.
               WEIGHT_INGEST_KEY: "{{ .WEIGHT_INGEST_KEY }}"
               # Required header value for off-cluster POST /api/health (the Android

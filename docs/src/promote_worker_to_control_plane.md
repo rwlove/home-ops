@@ -136,14 +136,62 @@ single-replica:
   tool calls.
 - **Ceph OSD on the worker** — needs `ceph osd out N` and rebalance
   before drain.
-- **Ceph mon on the worker** — Rook will recreate it on a different
-  node automatically, but cluster runs at 2/3 mons in the gap.
+- **Ceph mon on the worker** — move it off **before** Phase 1; see
+  [Phase 0](#phase-0--move-the-ceph-mon-off-the-worker). The rook-ceph
+  CephCluster forbids mons on control-plane nodes (`placement.mon`,
+  #16216), so a mon left on the worker can never come back after the
+  rejoin — Rook strands it and fails it over on its own schedule.
 
 Capture the worker's labels:
 
 ```sh
 kubectl get node worker2.${SECRET_DOMAIN} -o yaml > /tmp/worker2-pre-drain.yaml
 ```
+
+## Phase 0 — Move the Ceph mon off the worker
+
+Skip if `kubectl -n rook-ceph get pods -l app=rook-ceph-mon -o wide`
+shows no mon on the worker.
+
+Why first: once the worker joins as a control plane it carries
+`node-role.kubernetes.io/control-plane`, which the CephCluster's
+required `placement.mon` affinity excludes. Rook pins an existing mon to
+its node, so that mon goes Pending and Ceph runs on 2/3 mons until Rook
+fails it over — and because the pod is *unschedulable*, Rook waits **two**
+`mon` health timeouts (2 × 10m) before doing so (rook
+`pkg/operator/ceph/cluster/mon/health.go`, "retry only once before the
+mon failover if the mon pod is not scheduled"). Observed 2026-11-21 when
+the placement rule first stranded a mon on master1: ~38 min on 2/3 mons,
+and the operator's mon rollout held the `rook-ceph-cluster` HelmRelease
+(and every Flux Kustomization depending on it) not-ready for ~25 min.
+Doing it now, deliberately, keeps that 2/3 window away from the 2/2 etcd
+window in Phase 1.
+
+1. Confirm Ceph is `HEALTH_OK` with all 3 mons in quorum (`ceph -s`).
+2. Cordon the worker so the replacement mon can't be placed back on it:
+
+   ```sh
+   kubectl cordon worker2.${SECRET_DOMAIN}
+   ```
+
+3. Stop the worker's mon (`<id>` from the pod list above):
+
+   ```sh
+   kubectl -n rook-ceph scale deploy rook-ceph-mon-<id> --replicas=0
+   ```
+
+4. Wait for the operator to fail it over (10–20 min). Watch for
+   `mon "<id>" NOT found in quorum and timeout exceeded, mon will be
+   failed over` in the operator log, then a new `rook-ceph-mon-<next>`
+   pod on another worker:
+
+   ```sh
+   kubectl -n rook-ceph logs deploy/rook-ceph-operator -f | grep op-mon
+   ```
+
+5. Verify 3/3 mons in quorum, none on the worker, `HEALTH_OK`, before
+   starting Phase 1. Leave the worker cordoned — Phase 2 cordons it
+   anyway.
 
 ## Phase 1 — Retire the outgoing control plane
 

@@ -1,0 +1,170 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/helmrelease-helm-v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app pump-mcp-arnold
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  interval: 1h
+  values:
+    defaultPodOptions:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+    controllers:
+      pump-mcp-arnold:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        type: deployment
+        replicas: 1
+        containers:
+          app:
+            image:
+              repository: docker.io/bytebase/dbhub
+              tag: 2.0.2@sha256:5ba883eb3cf6026fb7bdaa77c82e21a68315a7330fb83c9b09880f7b28861e59
+            # Laptop Arnold's read-all / write-plan Postgres MCP: the `arnold` DB
+            # role (SELECT everywhere, INSERT/UPDATE/DELETE only on programs /
+            # prescribed_sessions / prescribed_items) on the PRIMARY is the real
+            # guard — see databases/cloudnative-pg/config/pump/grants-arnold.sql.
+            # Federated ONLY to the laptop virtualserver (prefix pumparnold_); the
+            # read-only pump-mcp instance is untouched. Serves streamable-HTTP at
+            # /mcp on 0.0.0.0:8000 (same dbhub build as pump-mcp).
+            args:
+              - --transport=http
+              - --port=8000
+            env:
+              TZ: America/New_York
+              # dbhub's DNS-rebinding guard 403s a Service-DNS caller unless the Host
+              # is allow-listed. The pump-mcp-arnold-allow CNP (ingress from the
+              # mcp-gateway pods only) plus the scoped DB role are the real guards
+              # here, so disable the check.
+              DBHUB_ALLOWED_HOSTS: "*"
+            # DSN (arnold → postgres-pump-rw) from 1P via the ExternalSecret.
+            envFrom:
+              - secretRef:
+                  name: pump-mcp-arnold-secret
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  # dbhub serves /healthz (200 "OK") on the MCP port — an HTTP
+                  # probe catches a wedged process that still holds the socket.
+                  httpGet:
+                    path: /healthz
+                    port: &port 8000
+                  initialDelaySeconds: 20
+                  periodSeconds: 30
+                  failureThreshold: 5
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /healthz
+                    port: *port
+                  initialDelaySeconds: 10
+                  periodSeconds: 15
+                  failureThreshold: 3
+            resources:
+              requests:
+                cpu: 15m
+                memory: 128Mi
+              limits:
+                memory: 512Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              # readOnlyRootFilesystem left OFF for bring-up: the Python image's
+              # cache/write paths are unverified (same caution as ghostfolio-mcp).
+              # /tmp is an emptyDir below; tighten to true after soak.
+              readOnlyRootFilesystem: false
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+    service:
+      app:
+        controller: pump-mcp-arnold
+        ports:
+          http:
+            port: *port
+    persistence:
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          pump-mcp-arnold:
+            app:
+              - path: /tmp
+    externalSecrets:
+      pump-mcp-arnold:
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: onepassword-connect
+        target:
+          name: pump-mcp-arnold-secret
+          template:
+            data:
+              # dbhub reads the connection string from env `DSN` (resolveDSN order:
+              # --dsn flag → DSN env → DB_* parts). Env DSN alone is the clean path.
+              DSN: "postgresql://arnold:{{ .password }}@postgres-pump-rw.databases.svc.cluster.local:5432/pump"
+        dataFrom:
+          - extract:
+              key: pump-arnold-db
+    networkpolicies:
+      allow:
+        type: cilium
+        forceRename: pump-mcp-arnold-allow
+        endpointSelector:
+          matchLabels:
+            app.kubernetes.io/name: pump-mcp-arnold
+        enableDefaultDeny:
+          egress: false
+          ingress: false
+        ingress:
+          # mcp-gateway federation: the Kuadrant broker (the mcp-gateway APP pod in
+          # mcp-system) dials this backend DIRECTLY over Service DNS to serve the
+          # federated pump_ tools. ai is default-deny, so without this ingress the
+          # broker->backend SYN is dropped ("context deadline exceeded") and the
+          # broker removes the tools.
+          #
+          # SECOND selector added 2026-11-14 — CORRECTS the claim above. The
+          # .mcp.local HTTPRoute is NOT just declarative config the broker reads;
+          # every backend's HTTPRoute (the mcp-gateway `mcps` listener) is
+          # actually dispatched per tool call by the Istio data-plane pod
+          # itself. The "verified via Hubble, mcp-system has no sidecars" check
+          # only ever observed the broker's own health-ping/registration dial,
+          # not the real per-call data path. home-ops#15904 fixed that pod's
+          # egress side; this adds the matching ingress half here (destination
+          # side), mirroring the two-selector shape already proven in
+          # media/music-assistant-allow. Root-caused on health-mcp-rw via Tempo
+          # trace 51dc161b71ac0d3e8c8ddef903f4c9f5 (3x 10s connect-timeout/UF) +
+          # a live `Policy denied` drop spike on the backend's own node during
+          # the incident window. Full rationale:
+          # kubernetes/apps/ai/calendar-mcp/app/cnp-allow.yaml.
+          - fromEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: mcp-system
+                  app.kubernetes.io/name: mcp-gateway
+              - matchLabels:
+                  io.kubernetes.pod.namespace: mcp-system
+                  gateway.networking.k8s.io/gateway-name: mcp-gateway
+            toPorts:
+              - ports:
+                  - port: "8000"
+                    protocol: TCP
+        egress:
+          # → PUMP CNPG PRIMARY only (arnold writes the prescription layer).
+          - toEndpoints:
+              - matchLabels:
+                  io.kubernetes.pod.namespace: databases
+                  cnpg.io/cluster: postgres-pump
+                  cnpg.io/instanceRole: primary
+            toPorts:
+              - ports:
+                  - port: "5432"
+                    protocol: TCP

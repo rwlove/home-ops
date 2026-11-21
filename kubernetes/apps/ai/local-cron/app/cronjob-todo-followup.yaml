@@ -1,0 +1,121 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/cronjob-batch-v1.json
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: local-cron-todo-followup
+  labels:
+    app.kubernetes.io/name: local-cron
+spec:
+  # Fleet-todo completion follow-up (kagent tier). Every 15 minutes, offset to
+  # :07/:22/:37/:52 so it never lands on the :00/:15/:30/:45 triage block or
+  # the 06:50 radar brief on the shared kagent-controller MCP endpoint. Each run
+  # polls the Vikunja "Fleet Todos" project for tasks completed since the last
+  # review (no `followup-reviewed` label), invokes the OWNING persona's kagent
+  # Agent (its owner label) and asks whether the completion implies follow-up
+  # work. The runner (todo_followup.py), not the model, creates the follow-up
+  # todos, notes the review on the completed task, and labels it
+  # `followup-reviewed` (the idempotency key, applied last). Owners with no
+  # in-cluster agent get `followup-laptop`, which the laptop `whats-next` skill
+  # surfaces. Robert is emailed via notify-mcp ONLY when follow-ups were created.
+  #
+  # Polling, not a Vikunja webhook: same result within 15 minutes with no new
+  # inbound endpoint, no webhook secret and no new network path (Vikunja's CNP
+  # already admits the whole `ai` namespace on :3456, and the kagent controller
+  # is intra-namespace). An idle run is two Vikunja GETs and no agent call.
+  #
+  # FOLLOWUP_SINCE stops the first run from back-filling completions made
+  # before this shipped. KAGENT_PERSONAS lists the personas that run as
+  # in-cluster Agents (kubernetes/apps/ai/kagent/app/agent-*.yaml); keep it in
+  # sync when an agent is added. homeops-operator and triage-router are not
+  # todo owners, so they are not listed.
+  #
+  # Manual test after merge:
+  #   kubectl -n ai create job --from=cronjob/local-cron-todo-followup todo-followup-test
+  # and check the TODO_FOLLOWUP_RESULT= log line.
+  suspend: false
+  schedule: "7,22,37,52 * * * *"
+  timeZone: America/New_York
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      # MAX_TASKS (5) x BUDGET_SECONDS (600) worst case is 3000s; the deadline
+      # leaves headroom. Unreviewed tasks simply retry on the next run.
+      activeDeadlineSeconds: 3300
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: local-cron
+          annotations:
+            k8tz.io/inject: "false"
+        spec:
+          nodeSelector:
+            kubernetes.io/arch: amd64
+          serviceAccountName: local-cron
+          automountServiceAccountToken: false
+          restartPolicy: OnFailure
+          containers:
+            - name: followup
+              image: docker.io/library/python:3.15@sha256:46837ed3105db0029b6d656816185c6258e3b39690532fb782428e0a5fd76182
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -ceu
+                - exec python3 /app/todo_followup.py
+              env:
+                - name: HOME
+                  value: /tmp
+                - name: TZ
+                  value: America/New_York
+                - name: AGENT_URL
+                  value: http://kagent-controller.ai:8083/mcp
+                - name: VIKUNJA_URL
+                  value: http://vikunja.collab.svc.cluster.local:3456/api/v1
+                - name: VIKUNJA_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: todo-followup-secret
+                      key: VIKUNJA_TOKEN
+                - name: KAGENT_PERSONAS
+                  value: arnold,cooter,crusher,dali,gordon,lloyd,ml-operator,network-operator,observability-operator,radar,rick,smart-home-operator,storage-operator,tim,vila,warren
+                - name: FOLLOWUP_SINCE
+                  value: "2026-11-21T00:00:00Z"
+                - name: BUDGET_SECONDS
+                  value: "600"
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: script
+                  mountPath: /app
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: script
+              configMap:
+                name: local-cron-scripts
+                defaultMode: 0o555
+            - name: tmp
+              emptyDir:
+                medium: Memory
+                sizeLimit: 64Mi

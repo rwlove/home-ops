@@ -30,7 +30,7 @@ The load-bearing design points:
 
 ## Workflows
 
-19 CronJobs today (`cronjob-*.yaml`; the files are authoritative for exact
+20 CronJobs today (`cronjob-*.yaml`; the files are authoritative for exact
 schedules). They fall into three groups:
 
 **Operator triage / doer** — per-domain health surfacing and remediation
@@ -58,6 +58,12 @@ persona):
   see `cronjob-radar-morning-brief.yaml`'s header comment). Live on merge
   (Robert approved shipping directly, 2026-11-16).
 - `vila-warranty-digest` — property warranty/expiry surfacing
+- `todo-followup` (every 15 min) — when a Vikunja Fleet Todo is marked done,
+  asks the owning persona's kagent Agent whether it implies follow-up work. The
+  runner (not the model) creates any follow-up todos, notes the review on the
+  completed task and labels it `followup-reviewed`; laptop-only owners get
+  `followup-laptop` for `whats-next`. Emails Robert only when follow-ups were
+  created. Reaches Vikunja intra-cluster (its CNP already admits the `ai` ns).
 - `warren-plan-refresh` — finance plan refresh
 
 **Infra** — cluster-wide housekeeping:

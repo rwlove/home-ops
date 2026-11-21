@@ -247,6 +247,15 @@ build input, and is transparent (public GH + CI). Digest-pinned,
 precedent. Base image has no entrypoint
 (`Cmd=bash`) so the HR sets `command: ["vllm","serve"]`.
 
+> **UPDATE 2026-11-21 — official image now available.** vllm-project/vllm#36821
+> was closed COMPLETED on 2026-11-02: the official `docker.io/vllm/vllm-openai`
+> image has published arm64 + CUDA 13 manifests since v0.30.0. The Spark vLLM apps
+> are being moved off the community image onto `vllm/vllm-openai:v0.30.0`
+> (same source commit as the community `v0.30.0-gb10.2` build), one app at a time
+> — `vllm-llm4decompile-spark` first, then `vllm-coder-spark`, then
+> `vllm-driver-spark`. Each app's `# workaround:` annotation is retired in the
+> PR that migrates it; the `D6` text above is the historical decision record.
+
 ### D7 — GPU time-slicing (VERIFIED: no change needed)
 
 The gpu-operator advertises **8 time-slices**; **5 are in use** (comfyui-spark,

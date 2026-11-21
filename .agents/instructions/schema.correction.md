@@ -123,6 +123,7 @@ Whenever requested to fix or correct schemas, follow these instructions:
 | `postgresql.cnpg.io/v1` | `ScheduledBackup` | `https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/postgresql.cnpg.io/scheduledbackup_v1.json` |
 | `barmancloud.cnpg.io/v1` | `ObjectStore` | `https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/barmancloud.cnpg.io/objectstore_v1.json` |
 | `longhorn.io/v1beta2` | `RecurringJob` | `https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/longhorn.io/recurringjob_v1beta2.json` |
+| `longhorn.io/v1beta2` | `Volume` | `https://k8s-schemas.home-operations.com/longhorn.io/volume_v1beta2.json` (the datreeio copy is stale — it lacks `backupTargetName`, which every static Volume CR here sets) |
 | `dragonflydb.io/v1alpha1` | `Dragonfly` | `https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/dragonflydb.io/dragonfly_v1alpha1.json` |
 | `objectbucket.io/v1alpha1` | `ObjectBucketClaim` | `https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/objectbucket.io/objectbucketclaim_v1alpha1.json` |
 

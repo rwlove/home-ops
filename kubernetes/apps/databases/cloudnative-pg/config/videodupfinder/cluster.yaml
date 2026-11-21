@@ -7,7 +7,11 @@ metadata:
 spec:
   instances: 3
 
-  imageName: ghcr.io/cloudnative-pg/postgresql:17.12-standard-trixie
+  # PG 18 MAJOR upgrade (one-way once the pg_upgrade job swaps directories).
+  # Rollback BEFORE the swap / on job failure: revert imageName + serverName.
+  # After success: restore the pre-upgrade physical backup (old serverName
+  # archive) into a new PG17 cluster, or pg_restore the off-cluster dump.
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.7-standard-trixie
 
   primaryUpdateStrategy: unsupervised
 
@@ -46,12 +50,21 @@ spec:
   plugins:
     - name: barman-cloud.cloudnative-pg.io
       isWALArchiver: true
-      parameters: &params
+      parameters:
         barmanObjectName: garage-videodupfinder
-        serverName: postgres-videodupfinder-backup
+        # Bumped from postgres-videodupfinder-backup for the 17->18 major
+        # upgrade: pg_upgrade resets the timeline / system ID, so post-upgrade
+        # WAL and base backups must land under a fresh serverName. The old
+        # archive stays intact at postgres-videodupfinder-backup as the
+        # pre-upgrade restore point (PG17 data: restore it onto a PG17 image);
+        # `source` below still points at it. A fresh base backup must be taken
+        # into this new path immediately after the upgrade.
+        serverName: postgres-videodupfinder-backup-v18
 
   externalClusters:
     - name: source
       plugin:
         name: barman-cloud.cloudnative-pg.io
-        parameters: *params
+        parameters:
+          barmanObjectName: garage-videodupfinder
+          serverName: postgres-videodupfinder-backup

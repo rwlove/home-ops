@@ -62,6 +62,43 @@ spec:
           for: 15m
           labels:
             severity: warning
+        # Per-schedule liveness (./schedule-watchdog-cronjob.yaml). The
+        # CronJob fails while ANY scheduled script is stale (schedule
+        # disabled/paused/missing, or no successful run within its
+        # max_age), so its last-successful time ages. 2h + for:30m keeps one
+        # missed hourly run from alerting; it self-clears on the next pass.
+        - alert: WindmillScheduleStale
+          annotations:
+            summary: A scheduled Windmill script has not succeeded on time (watchdog stale {{ $value | humanizeDuration }})
+            description: |
+              windmill-schedule-watchdog has been failing: at least one scheduled
+              Windmill script is disabled, paused, missing its schedule, or has
+              no successful run within its expected interval. Problems-only
+              watchers (e.g. restricted-name-audit) go silent in this state, so
+              "no email" does not mean "clean".
+
+              The failing Job's log names each stale script:
+                kubectl -n home get jobs --sort-by=.metadata.creationTimestamp | grep windmill-schedule-watchdog
+                kubectl -n home logs job/<newest-windmill-schedule-watchdog-job>
+          expr: |
+            time() - kube_cronjob_status_last_successful_time{namespace="home",cronjob="windmill-schedule-watchdog"} > 7200
+          for: 30m
+          labels:
+            severity: warning
+        - alert: WindmillScheduleWatchdogMissing
+          annotations:
+            summary: windmill-schedule-watchdog CronJob is not reporting to kube-state-metrics
+            description: |
+              No kube_cronjob_status_last_successful_time series exists for
+              home/windmill-schedule-watchdog, so WindmillScheduleStale cannot
+              fire. Verify the CronJob exists and has completed successfully at
+              least once:
+                kubectl -n home get cronjob windmill-schedule-watchdog
+          expr: |
+            absent(kube_cronjob_status_last_successful_time{namespace="home",cronjob="windmill-schedule-watchdog"})
+          for: 2h
+          labels:
+            severity: warning
     - name: windmill.pool
       rules:
         # Fast, direct detector for the sqlx connection-pool wedge that took

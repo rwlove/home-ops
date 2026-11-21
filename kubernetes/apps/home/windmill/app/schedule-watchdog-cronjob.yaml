@@ -1,0 +1,141 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/cronjob-batch-v1.json
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: windmill-schedule-watchdog
+spec:
+  # Dead-man's switch for every scheduled Windmill script, the counterpart of
+  # ./watchdog-cronjob.yaml (which covers only windmill-failure-watcher).
+  #
+  # windmill-failure-watcher reports FAILED jobs, so a schedule that was
+  # disabled or paused, wedged workers, or a job that simply never fires
+  # produce no signal at all. Problems-only watchers make that worse: for
+  # f/lovenet/restricted-name-audit, "no email" means either "clean" or
+  # "never ran". This job asserts presence-of-success per script instead.
+  #
+  # A script is healthy when BOTH hold:
+  #   1. its schedule exists, is enabled, and is not paused, and
+  #   2. it has a successful run (job_kind script, any trigger) within
+  #      max_age. Counting manual runs lets a just-deployed weekly script
+  #      pass before its first scheduled run; check 1 is what catches a
+  #      disabled schedule, so manual runs cannot mask one.
+  #
+  # Runs outside Windmill on purpose: Windmill's own error dispatch was found
+  # silently inert on 2026-07-26 (see ./watchdog-cronjob.yaml).
+  #
+  # Hourly is plenty: the tightest threshold below is 2h.
+  schedule: "17 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      # One shot, pass or fail; a retry would let a blip refresh
+      # last_successful_time. TTL keeps KubeJobFailed from latching (same
+      # reasoning as ./watchdog-cronjob.yaml).
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 86400
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: watchdog
+              # Same image as ./watchdog-cronjob.yaml (curl + jq; busybox
+              # `date`, hence the `-d @<epoch>` arithmetic).
+              image: docker.io/alpine/k8s:1.37.2@sha256:7a82aeefea3d554a43a8676b137f2b88bae6c1fe11c13862b191b3a086cc28c0
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              env:
+                - name: WINDMILL_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: windmill-workflows-secret
+                      key: WINDMILL_TOKEN
+              command:
+                - /bin/sh
+                - -c
+                # Every `$` is doubled for Flux postBuild envsubst (strict
+                # mode); see ./watchdog-cronjob.yaml.
+                - |
+                  set -eu
+
+                  BASE="http://windmill-app.home.svc.cluster.local:8000"
+                  WS="lovenet"
+                  NOW="$$(date -u +%s)"
+                  NOW_ISO="$$(date -u -d "@$$NOW" +%Y-%m-%dT%H:%M:%SZ)"
+                  BAD=0
+
+                  api() {
+                    curl -sSf --max-time 20 \
+                      -H "Authorization: Bearer $${WINDMILL_TOKEN}" "$$1"
+                  }
+
+                  # script_path|schedule_path|max_age_seconds
+                  # Paused-by-design schedules (the superseded split RAG
+                  # ingests) are deliberately absent. windmill-failure-watcher
+                  # is covered by ./watchdog-cronjob.yaml.
+                  while IFS='|' read -r SCRIPT SCHED MAX; do
+                    [ -n "$$SCRIPT" ] || continue
+
+                    SINCE="$$(date -u -d "@$$((NOW - MAX))" +%Y-%m-%dT%H:%M:%SZ)"
+                    case "$$SINCE" in
+                      ????-??-??T??:??:??Z) ;;
+                      *) echo "FATAL: bad window start '$$SINCE' for $$SCRIPT"; exit 1 ;;
+                    esac
+
+                    # 1. Schedule present, enabled, not paused. ISO-8601 UTC
+                    # strings compare correctly as text in jq.
+                    S="$$(api "$${BASE}/api/w/$${WS}/schedules/get/$${SCHED}")" || {
+                      echo "STALE: $$SCRIPT: schedule $$SCHED missing or unreadable"; BAD=1; continue
+                    }
+                    ACTIVE="$$(printf '%s' "$$S" | jq -r --arg now "$$NOW_ISO" \
+                      '(.enabled == true) and ((.paused_until // "") <= $$now)')" || {
+                      echo "FATAL: could not parse schedule $$SCHED"; exit 1
+                    }
+                    if [ "$$ACTIVE" != "true" ]; then
+                      echo "STALE: $$SCRIPT: schedule $$SCHED is disabled or paused"; BAD=1; continue
+                    fi
+
+                    # 2. A successful run within max_age. Checked step by step
+                    # (not one piped assignment) so a failed curl cannot turn
+                    # into a silent pass; see ./watchdog-cronjob.yaml.
+                    R="$$(api "$${BASE}/api/w/$${WS}/jobs/list?script_path_exact=$${SCRIPT}&success=true&job_kinds=script&started_after=$${SINCE}&per_page=1")" || {
+                      echo "FATAL: Windmill API query failed for $$SCRIPT"; exit 1
+                    }
+                    N="$$(printf '%s' "$$R" | jq 'length')" || {
+                      echo "FATAL: could not parse jobs response for $$SCRIPT"; exit 1
+                    }
+                    case "$$N" in
+                      ''|*[!0-9]*) echo "FATAL: non-numeric run count '$$N' for $$SCRIPT"; exit 1 ;;
+                    esac
+                    if [ "$$N" -lt 1 ]; then
+                      echo "STALE: $$SCRIPT: no successful run since $$SINCE"; BAD=1; continue
+                    fi
+                    echo "OK: $$SCRIPT"
+                  done <<'TABLE'
+                  f/lovenet/paperless-rag-fanout|f/lovenet/paperless-rag-fanout|7200
+                  f/lovenet/paperless-rag-tombstone|f/lovenet/paperless-rag-tombstone|93600
+                  f/lovenet/lightrag-rag-tombstone|f/lovenet/lightrag-rag-tombstone|93600
+                  f/lovenet/workaround-watcher|f/lovenet/workaround-watcher-monday-09|691200
+                  f/lovenet/restricted-name-audit|f/lovenet/restricted-name-audit-monday-0915|691200
+                  TABLE
+
+                  [ "$$BAD" -eq 0 ] || exit 1
+                  echo "ALL OK"
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 128Mi

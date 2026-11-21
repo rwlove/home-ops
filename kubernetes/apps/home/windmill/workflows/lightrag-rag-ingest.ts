@@ -30,11 +30,11 @@
 // LightRAG's doc status — the stable key for clean updates AND the
 // tombstone sweep (lightrag-rag-tombstone).
 
-import * as wmill from "npm:windmill-client@1.527.0";
+import * as wmill from "windmill-client@1.527.0";
 
-const LIGHTRAG = Deno.env.get("LIGHTRAG_URL") ??
+const LIGHTRAG = process.env.LIGHTRAG_URL ??
     "http://lightrag.ai.svc.cluster.local:9621";
-const PAPERLESS = Deno.env.get("PAPERLESS_URL") ??
+const PAPERLESS = process.env.PAPERLESS_URL ??
     "http://paperless.collab.svc.cluster.local:8000";
 const PAGE_SIZE = 50;
 const MAX_DOCS_PER_RUN = 20; // pace the LLM-heavy extraction pipeline
@@ -64,9 +64,9 @@ type PipelineStatus = { busy?: boolean; request_pending?: boolean; destructive_b
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function main() {
-    const token = Deno.env.get("PAPERLESS_TOKEN");
+    const token = process.env.PAPERLESS_TOKEN;
     if (!token) throw new Error("PAPERLESS_TOKEN env not set");
-    const apiKey = Deno.env.get("LIGHTRAG_API_KEY");
+    const apiKey = process.env.LIGHTRAG_API_KEY;
     if (!apiKey) throw new Error("LIGHTRAG_API_KEY env not set");
 
     const started = new Date().toISOString();

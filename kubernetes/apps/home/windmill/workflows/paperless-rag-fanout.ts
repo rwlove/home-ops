@@ -35,17 +35,17 @@
 // in doc status — the stable key for clean updates AND the tombstone sweeps
 // (paperless-rag-tombstone + lightrag-rag-tombstone, both still separate).
 
-import * as wmill from "npm:windmill-client@1.527.0";
+import * as wmill from "windmill-client@1.527.0";
 
-const QDRANT = Deno.env.get("QDRANT_URL") ??
+const QDRANT = process.env.QDRANT_URL ??
     "http://qdrant.databases.svc.cluster.local:6333";
-const EMBED_URL = Deno.env.get("EMBED_URL") ??
+const EMBED_URL = process.env.EMBED_URL ??
     "http://tei-embed-spark.ai.svc.cluster.local:3000";
-const PAPERLESS = Deno.env.get("PAPERLESS_URL") ??
+const PAPERLESS = process.env.PAPERLESS_URL ??
     "http://paperless.collab.svc.cluster.local:8000";
-const LIGHTRAG = Deno.env.get("LIGHTRAG_URL") ??
+const LIGHTRAG = process.env.LIGHTRAG_URL ??
     "http://lightrag.ai.svc.cluster.local:9621";
-const EMBED_MODEL = Deno.env.get("EMBED_MODEL") ?? "bge-m3";
+const EMBED_MODEL = process.env.EMBED_MODEL ?? "bge-m3";
 const COLLECTION = "paperless";
 const EMBED_DIM = 1024;
 const CHUNK_CHARS = 1500;
@@ -78,9 +78,9 @@ type PipelineStatus = { busy?: boolean; request_pending?: boolean; destructive_b
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function main(since?: string) {
-    const token = Deno.env.get("PAPERLESS_TOKEN");
+    const token = process.env.PAPERLESS_TOKEN;
     if (!token) throw new Error("PAPERLESS_TOKEN env not set");
-    const apiKey = Deno.env.get("LIGHTRAG_API_KEY");
+    const apiKey = process.env.LIGHTRAG_API_KEY;
     if (!apiKey) throw new Error("LIGHTRAG_API_KEY env not set");
 
     const started = new Date().toISOString();

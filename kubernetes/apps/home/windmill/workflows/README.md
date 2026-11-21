@@ -4,8 +4,27 @@ These TypeScript scripts are the source-of-truth for the Windmill
 flows in the `lovenet` workspace.
 
 Runtime lives in the Windmill DB; this directory is the *checked-in
-canonical text*. Push to Windmill via the `wmill` CLI from inside the
-pod, or the inline curl in the README two levels up.
+canonical text*. There is **no automatic git → Windmill sync**: after a
+change merges, deploy each edited file as a new version of its script
+(Windmill MCP `updateScript`, or `POST /api/w/lovenet/scripts/create`
+with `parent_hash` set to the current hash) with **`language: bun`**.
+Test first as a preview (`jobs/run/preview`, `language: bun`), and
+confirm the deployed version's lock is non-null before relying on it.
+
+## Language: Bun (not Deno)
+
+All scripts are Windmill **`bun`** TypeScript (migrated from `deno`
+2026-11, home-ops#14945). Upstream ships the Deno runtime only on the
+`windmill-full` images, so a `deno` script fails on the standard image
+with "Deno is not installed on this worker". Keep new scripts on Bun:
+
+- Env: `process.env.NAME` — never `Deno.env.get`.
+- HTTP: the global `fetch` + `AbortSignal.timeout`.
+- Raw TCP (the SMTP helper): `node:net`, not `Deno.connect`.
+- npm packages: bare specifier with a pinned version, e.g.
+  `import * as wmill from "windmill-client@1.527.0"` (no `npm:`
+  prefix — that is Deno syntax). Windmill resolves it and writes the
+  script lock at deploy time.
 
 ## Convention
 

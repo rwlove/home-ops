@@ -16,7 +16,7 @@
 // if failures keep accumulating, to avoid notification floods. The
 // per-hour dedup is in-memory (script invocation state — Windmill
 // persists `state` across invocations of the same script when
-// invoked via setState/getState helpers from npm:windmill-client).
+// invoked via setState/getState helpers from windmill-client).
 //
 // Self-recursion risk: if this watcher itself fails, no one knows.
 // Partial mitigation: the BlackboxProbe on windmill /api/version
@@ -25,7 +25,8 @@
 // that used to cover that was removed with the fleet (2026-07-06), so
 // today that case surfaces only on manual `wmill flows runs` inspection.
 
-import * as wmill from "npm:windmill-client@1.527.0";
+import * as net from "node:net";
+import * as wmill from "windmill-client@1.527.0";
 
 type CompletedJob = {
     id: string;
@@ -57,7 +58,7 @@ type WatcherState = {
 };
 
 export async function main() {
-    const token = Deno.env.get("WINDMILL_TOKEN");
+    const token = process.env.WINDMILL_TOKEN;
     if (!token) throw new Error("WINDMILL_TOKEN env not set");
 
     const sinceMs = Date.now() - LOOKBACK_MIN * 60 * 1000;
@@ -185,33 +186,63 @@ async function notify(groups: Grouped[]) {
 // self-contained per the workflows "no shared modules" convention.
 
 async function sendEmail(subject: string, body: string) {
-    const host = Deno.env.get("SMTP_HOST") ?? "smtp-relay.home.svc.cluster.local";
-    const port = parseInt(Deno.env.get("SMTP_PORT") ?? "2525", 10);
-    const from = Deno.env.get("NOTIFY_EMAIL_FROM");
-    const to = Deno.env.get("NOTIFY_EMAIL_TO");
+    const host = process.env.SMTP_HOST ?? "smtp-relay.home.svc.cluster.local";
+    const port = parseInt(process.env.SMTP_PORT ?? "2525", 10);
+    const from = process.env.NOTIFY_EMAIL_FROM;
+    const to = process.env.NOTIFY_EMAIL_TO;
     if (!from) throw new Error("NOTIFY_EMAIL_FROM env not set");
     if (!to) throw new Error("NOTIFY_EMAIL_TO env not set");
 
-    const conn = await Deno.connect({ hostname: host, port });
-    const enc = new TextEncoder();
-    const dec = new TextDecoder();
-    const rbuf = new Uint8Array(4096);
+    // node:net (Bun implements it natively) in place of the old
+    // Deno.connect. Incoming bytes are buffered by the "data" handler;
+    // reply() waits until the buffer holds one complete SMTP reply.
+    const sock = net.createConnection({ host, port });
+    sock.setEncoding("utf8");
+    let rbuf = "";
+    let closed = false;
+    let sockErr: Error | undefined;
+    let wake: (() => void) | undefined;
+    const poke = () => {
+        const w = wake;
+        wake = undefined;
+        w?.();
+    };
+    sock.on("data", (chunk: string) => {
+        rbuf += chunk;
+        poke();
+    });
+    sock.on("close", () => {
+        closed = true;
+        poke();
+    });
+    sock.on("error", (e: Error) => {
+        sockErr = e;
+        closed = true;
+        poke();
+    });
 
     // Read one full SMTP reply. Multi-line replies use "NNN-" for
     // continuation lines and "NNN " (space) on the final line.
     async function reply(): Promise<{ code: number; text: string }> {
-        let acc = "";
         while (true) {
-            const n = await conn.read(rbuf);
-            if (n === null) break;
-            acc += dec.decode(rbuf.subarray(0, n));
-            const last = acc.split(/\r?\n/).filter((l) => l.length > 0).at(-1) ?? "";
+            const last = rbuf.split(/\r?\n/).filter((l) => l.length > 0).at(-1) ?? "";
             if (/^\d{3} /.test(last)) break;
+            if (closed) {
+                if (sockErr) throw sockErr;
+                break;
+            }
+            await new Promise<void>((r) => {
+                wake = r;
+            });
         }
+        const acc = rbuf;
+        rbuf = "";
         return { code: parseInt(acc.slice(0, 3), 10) || 0, text: acc.trim() };
     }
     async function cmd(line: string, expect: number) {
-        await conn.write(enc.encode(line + "\r\n"));
+        await new Promise<void>((resolve, reject) => {
+            sock.write(line + "\r\n", (err) => (err ? reject(err) : resolve()));
+        });
         const { code, text } = await reply();
         if (code !== expect) {
             throw new Error(`SMTP ${line.split(/\s/)[0]}: expected ${expect}, got ${text}`);
@@ -236,6 +267,6 @@ async function sendEmail(subject: string, body: string) {
         await cmd(msg, 250);
         await cmd(`QUIT`, 221);
     } finally {
-        conn.close();
+        sock.destroy();
     }
 }

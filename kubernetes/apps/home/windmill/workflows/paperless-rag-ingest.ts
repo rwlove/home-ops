@@ -56,13 +56,13 @@ type QdrantPoint = {
     payload: Record<string, unknown>;
 };
 
-const QDRANT = Deno.env.get("QDRANT_URL") ??
+const QDRANT = process.env.QDRANT_URL ??
     "http://qdrant.databases.svc.cluster.local:6333";
-const OLLAMA = Deno.env.get("OLLAMA_URL") ??
+const OLLAMA = process.env.OLLAMA_URL ??
     "http://ollama-spark.ai.svc.cluster.local:11434";
-const PAPERLESS = Deno.env.get("PAPERLESS_URL") ??
+const PAPERLESS = process.env.PAPERLESS_URL ??
     "http://paperless.collab.svc.cluster.local:8000";
-const EMBED_MODEL = Deno.env.get("EMBED_MODEL") ?? "bge-m3";
+const EMBED_MODEL = process.env.EMBED_MODEL ?? "bge-m3";
 const COLLECTION = "paperless";
 const EMBED_DIM = 1024;
 const CHUNK_CHARS = 1500;
@@ -71,7 +71,7 @@ const PAGE_SIZE = 50;
 const MAX_DOC_CHARS = 200_000; // safety: refuse runaway PDFs
 
 export async function main() {
-    const token = Deno.env.get("PAPERLESS_TOKEN");
+    const token = process.env.PAPERLESS_TOKEN;
     if (!token) throw new Error("PAPERLESS_TOKEN env not set");
 
     const started = new Date().toISOString();

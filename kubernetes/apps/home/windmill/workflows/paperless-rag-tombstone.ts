@@ -4,16 +4,16 @@
 // authoritative Paperless doc set. For every paperless_id present in
 // Qdrant but absent from Paperless, deletes all chunks. Idempotent.
 
-const QDRANT = Deno.env.get("QDRANT_URL") ??
+const QDRANT = process.env.QDRANT_URL ??
     "http://qdrant.databases.svc.cluster.local:6333";
-const PAPERLESS = Deno.env.get("PAPERLESS_URL") ??
+const PAPERLESS = process.env.PAPERLESS_URL ??
     "http://paperless.collab.svc.cluster.local:8000";
 const COLLECTION = "paperless";
 const PAGE_SIZE = 200;
 const SCROLL_LIMIT = 10_000;
 
 export async function main() {
-    const token = Deno.env.get("PAPERLESS_TOKEN");
+    const token = process.env.PAPERLESS_TOKEN;
     if (!token) throw new Error("PAPERLESS_TOKEN env not set");
 
     const started = new Date().toISOString();

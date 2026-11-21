@@ -45,6 +45,7 @@ flowchart TB
         WLightrag[lightrag-rag-ingest.ts<br/>lightrag-rag-tombstone.ts]
         WFail[windmill-failure-watcher.ts]
         WWork[workaround-watcher.ts]
+        WAudit[restricted-name-audit.ts]
     end
 
     subgraph Inference[Inference]

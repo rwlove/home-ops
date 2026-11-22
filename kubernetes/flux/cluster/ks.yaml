@@ -65,8 +65,10 @@ spec:
     # patch sets can no longer be overridden per-KS, so keep the list
     # minimal and add an explicit exclusion below when a KS must differ.
     # wait/interval/timeout are deliberately NOT set here — they vary
-    # per-KS (79 KSes have wait:true, interval splits 30m/1h, timeout
-    # 3m/5m) and would all be flattened.
+    # per-KS (wait true/false, interval 10m/30m/1h, timeout 3m..15m) and
+    # would all be flattened. retryInterval IS set: one uniform 2m retry
+    # after a failure. Before this, 191 children had none, so they fell
+    # back to their 30m/1h interval.
     - patch: |-
         apiVersion: kustomize.toolkit.fluxcd.io/v1
         kind: Kustomization
@@ -74,6 +76,7 @@ spec:
           name: _
         spec:
           prune: true
+          retryInterval: 2m
           sourceRef:
             kind: GitRepository
             name: home-ops-kubernetes
@@ -87,6 +90,9 @@ spec:
     # leaving cluster DNS and CSR approval exposed to garbage collection
     # if a refactor ever dropped a resource from their path. Patches
     # apply in order, so this one wins.
+    # Selected by the label home-ops.io/child-prune: disabled on the KS
+    # itself (literal in its ks.yaml), not by a name regex: KS names repeat
+    # across namespaces, and the opt-out should sit next to the object.
     - patch: |-
         apiVersion: kustomize.toolkit.fluxcd.io/v1
         kind: Kustomization
@@ -97,7 +103,7 @@ spec:
       target:
         group: kustomize.toolkit.fluxcd.io
         kind: Kustomization
-        name: (coredns|kubelet-csr-approver)
+        labelSelector: home-ops.io/child-prune=disabled
     # Add Kustomization defaults for all child Kustomizations
     - patch: |-
         apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -151,7 +157,10 @@ spec:
               target:
                 group: helm.toolkit.fluxcd.io
                 kind: HelmRelease
-                name: (romm|open-webui|home-assistant)
+                # Opt in with the label home-ops.io/forward-only-migrations: "true"
+                # on the HelmRelease itself (literal in helmrelease.yaml;
+                # commonMetadata is applied after the build, so it can't be used).
+                labelSelector: home-ops.io/forward-only-migrations=true
       target:
         group: kustomize.toolkit.fluxcd.io
         kind: Kustomization

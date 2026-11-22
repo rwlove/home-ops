@@ -1,0 +1,33 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  labels:
+    prometheus: k8s
+    role: alert-rules
+  name: coredns-rules
+spec:
+  groups:
+    - name: coredns.rules
+      rules:
+        # Sustained SERVFAIL share from CoreDNS. Baseline is ~0 (2 SERVFAILs
+        # in 24h on 2026-11-21), so 5% for 10m is a real fault -- broken
+        # upstreams, a bad Corefile, or the kubernetes plugin losing the API --
+        # not noise. Functional probes (CoreDNSClusterResolutionDown /
+        # CoreDNSForwardingDown in the blackbox-exporter HelmRelease) cover a
+        # total outage; this catches partial failure the probes' two fixed
+        # names can miss.
+        - alert: CoreDNSServfailHigh
+          annotations:
+            description: |-
+              {{ $value | humanizePercentage }} of CoreDNS responses over the
+              last 5m are SERVFAIL. Check `kubectl -n kube-system logs -l
+              k8s-app=kube-dns` and coredns_proxy_healthcheck_failures_total
+              (upstream health). See docs/src/cluster_dns.md.
+          expr: |-
+            sum(rate(coredns_dns_responses_total{rcode="SERVFAIL"}[5m]))
+              / sum(rate(coredns_dns_responses_total[5m])) > 0.05
+          for: 10m
+          labels:
+            severity: warning

@@ -88,6 +88,27 @@ spec:
                 - "IN\\s+A\\s+"
           prober: dns
           timeout: 5s
+        # Functional prober for in-cluster DNS (CoreDNS behind the kube-dns
+        # Service). Asks for the apiserver Service's A record, which only the
+        # kubernetes plugin can answer, and requires an actual A answer -- so
+        # a CoreDNS that is Ready but answering wrong (e.g. a bad Corefile
+        # reload, which hits every replica at once) still fails. Probe CR
+        # `dns-coredns-cluster`, alert CoreDNSClusterResolutionDown. The
+        # forward path is probed with the dns_brain module (`dns-coredns-forward`).
+        dns_cluster:
+          dns:
+            ip_protocol_fallback: false
+            preferred_ip_protocol: "ip4"
+            query_name: "kubernetes.default.svc.cluster.local"
+            query_type: "A"
+            transport_protocol: "udp"
+            valid_rcodes:
+              - "NOERROR"
+            validate_answer_rrs:
+              fail_if_not_matches_regexp:
+                - "IN\\s+A\\s+"
+          prober: dns
+          timeout: 5s
         # Synthetic embed prober module. POSTs a small input against
         # bge-m3 and validates a 200 with an "embeddings" key in the
         # body. 30 s timeout accommodates cold model load (bge-m3
@@ -340,6 +361,44 @@ spec:
         # brain-local DNS fault. Warning, not critical: BrainDnsDown already
         # carries the house-visible critical page, and one root event shouldn't
         # double-page. See reference_blackbox_single_replica_false_fires_fleet.
+        # In-cluster DNS (CoreDNS). Every pod resolves through it, and the
+        # GitOps revert path (source-controller -> github.com) needs it too,
+        # so a broken CoreDNS cannot be fixed by reverting a commit. Critical:
+        # cluster-name resolution failing means every app is failing. for:3m
+        # rides out a CoreDNS rolling restart (PDB keeps 2 of 3 serving).
+        - alert: CoreDNSClusterResolutionDown
+          annotations:
+            description: |-
+              In-cluster DNS ({{ $labels.instance }}, the kube-dns Service) is
+              not answering kubernetes.default.svc.cluster.local -- every pod
+              loses Service-name resolution. TRIAGE: if other unrelated probes
+              also went 0, suspect the blackbox prober, not DNS. Otherwise check
+              `kubectl -n kube-system get pods -l k8s-app=kube-dns` and the
+              CoreDNS logs; a recent Corefile change is the prime suspect. A git
+              revert may not land while DNS is broken -- break-glass is
+              `flux suspend helmrelease coredns -n kube-system` + `helm -n
+              kube-system rollback coredns <last good revision>` (needs Rob's OK).
+          expr: probe_success{job="probe/observability/dns-coredns-cluster"} == 0
+          for: 3m
+          labels:
+            severity: critical
+        # CoreDNS's forward block (everything outside cluster.local) failing
+        # while brain itself answers -- i.e. the problem is CoreDNS's upstream
+        # config or path, not brain. Suppressed when BrainDnsDown's probe is
+        # failing so one root event doesn't page twice.
+        - alert: CoreDNSForwardingDown
+          annotations:
+            description: |-
+              CoreDNS ({{ $labels.instance }}) cannot resolve LAN/external names
+              although brain's DNS answers directly -- pods lose every
+              non-cluster lookup. Check the CoreDNS forward block upstreams and
+              coredns_proxy_healthcheck_failures_total.
+          expr: |-
+            probe_success{job="probe/observability/dns-coredns-forward"} == 0
+            unless on() (probe_success{job="probe/observability/dns-brain"} == 0)
+          for: 5m
+          labels:
+            severity: warning
         - alert: ForwarderDnsDown
           annotations:
             description: |-

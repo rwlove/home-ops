@@ -448,3 +448,39 @@ spec:
     staticConfig:
       static:
         - 192.168.6.66:53
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/probe_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: dns-coredns-cluster
+spec:
+  # Functional probe of in-cluster DNS (kube-dns Service -> CoreDNS): asserts
+  # an A answer for the apiserver Service. Catches a CoreDNS that is Ready
+  # but answering wrong. Alerts via CoreDNSClusterResolutionDown.
+  interval: 1m
+  module: dns_cluster
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - 10.43.0.10:53
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/probe_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: dns-coredns-forward
+spec:
+  # CoreDNS's forward path: asks the kube-dns Service for brain's A record,
+  # which CoreDNS must forward upstream. Paired with dns-brain (direct) so
+  # CoreDNSForwardingDown fires only when CoreDNS, not brain, is the fault.
+  interval: 1m
+  module: dns_brain
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - 10.43.0.10:53

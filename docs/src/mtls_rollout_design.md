@@ -188,7 +188,7 @@ For any pod with `sidecar.istio.io/inject: "true"`:
 |---|---|---|
 | `hostNetwork: true` | `kube-vip` (daemonset), `etcd-defrag` (cronjob) | Sidecar's iptables redirect doesn't work in host net namespace |
 | Daemonsets serving node-level data | `cilium-agent`, `node-exporter`, `node-problem-detector`, `node-tuning` | Same reason; many also need raw socket / capability access incompatible with sidecar UID |
-| Multi-interface pods | `vpn/pod-gateway`, `downloads/*` clients (VXLAN to gateway) | Sidecar redirect interferes with VXLAN tunnel; verified-incompatible by the netpol rollout's pod-gateway carve-out |
+| VPN-sidecar pods | `downloads/*` (per-app gluetun sidecar owns the pod's routing + iptables) | Istio's iptables redirect would conflict with gluetun's firewall and policy routing; keep out of the mesh |
 | Bare TCP non-HTTP that's deeply protocol-coupled | EMQX MQTT brokers, Zigbee2MQTT, Z-Wave-JS, EsphomeAPI | Istio supports TCP-only services, but loses L7 features (AuthorizationPolicy reduces to L4 source identity only) |
 | Pods that read `/proc` or use host PID/network | `node-tuning`, `gpu-operator` driver daemons | Same as daemonset bucket |
 | Operators that talk to apiserver only | `cnpg-controller`, `external-secrets`, `cert-manager`, `flux-system/*` | Adds latency + complexity for ~zero security benefit; apiserver traffic is already mTLS via SA tokens |

@@ -33,11 +33,6 @@ spec:
             nameservers:
               - 127.0.0.1
           dnsPolicy: None
-          # Opt out of the pod-gateway admission webhook (gatewayDefault:
-          # true for the namespace); gluetun owns this pod's egress.
-          # Drop once the namespace loses its routed-gateway label.
-          labels:
-            setGateway: "false"
         annotations:
           reloader.stakater.com/auto: "true"
         type: statefulset
@@ -169,7 +164,7 @@ spec:
                   timeoutSeconds: 3
               # Liveness goes beyond /health (which only checks slskd's API) and asserts
               # that slskd's Soulseek server connection is making forward progress.
-              # When the downloads-gateway VXLAN tunnel flaps, slskd loses its server
+              # When the VPN tunnel (gluetun sidecar) flaps, slskd loses its server
               # session and — without VPN integration — sits in "Disconnecting" forever
               # because connectionWatchdog never engages. The exec probe catches that
               # state and restarts the pod, which is the only path back to a
@@ -208,7 +203,7 @@ spec:
               # spare probe cycles of tolerance for a single transient wget/jq
               # hiccup across the three checks now bundled into one exec, since a
               # false restart here is a full slskd restart (re-scan + reconnect), not
-              # free. If the downloads-gateway VPN tunnel itself is down (not just
+              # free. If the VPN tunnel itself is down (not just
               # flapped), this restart-loops at ~6min cadence rather than thrashing
               # faster — bounded by failureThreshold, not unbounded — until the
               # tunnel recovers; SlskdServerSessionStale (prometheusrule.yaml) is the

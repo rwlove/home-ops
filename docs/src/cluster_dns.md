@@ -34,6 +34,11 @@ CoreDNS answers from three server blocks; the most specific zone wins.
      zone), with the LAN Pi-hole as a fallback (`policy sequential`). The
      upstreams are explicit, not inherited from each control-plane node's
      DHCP-written `/etc/resolv.conf`.
+   - **The fallback covers internet names only.** The Pi-hole answers the
+     LAN zone by forwarding back to the gateway, so while the gateway's DNS
+     is down, external lookups keep working but LAN names and LAN reverse
+     lookups fail. CoreDNS fails over on connection errors and failed health
+     checks, not on a SERVFAIL from a gateway that is still reachable.
 
 ## Why `ndots` is not tuned
 

@@ -11,6 +11,10 @@ spec:
   interval: 1h
   prune: true
   wait: true
+  # Orphan: if this object is ever removed from kubernetes/flux/cluster/, the
+  # sync Kustomization deletes it. With the default (MirrorPrune + prune: true)
+  # that would also delete the substitution sources every app reads.
+  deletionPolicy: Orphan
   sourceRef:
     kind: GitRepository
     name: home-ops-kubernetes
@@ -25,6 +29,12 @@ metadata:
 spec:
   path: ./kubernetes/apps
   interval: 1h
+  # retryInterval defaults to interval (1h). A failed render (e.g. an admission
+  # webhook 429) then waits up to an hour unless a new commit lands. 2026-11-21
+  # 15:27 sat failed for 51 min this way.
+  retryInterval: 2m
+  # timeout also defaults to interval; a hung apply would hold the parent 1h.
+  timeout: 10m
   prune: true
   wait: false
   sourceRef:
@@ -40,7 +50,12 @@ spec:
         name: cluster-config
       - kind: Secret
         name: cluster-secrets
-  deletionPolicy: WaitForTermination
+  # Orphan, not WaitForTermination: if this parent object is ever removed from
+  # kubernetes/flux/cluster/ (a rename, a bad revert), the sync Kustomization
+  # deletes it, and WaitForTermination would then delete every child
+  # Kustomization it owns, and through them every app. Orphan leaves them
+  # in place. Children keep their own WaitForTermination via the patch below.
+  deletionPolicy: Orphan
   patches:
     # Inject sourceRef and prune defaults into every child Kustomization.
     #

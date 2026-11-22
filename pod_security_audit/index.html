@@ -3034,8 +3034,8 @@ mirroring <code>arc-runner-set-home-ops-allow</code>'s egress shape.</p>
    workload; deferred as net-new hardening rather than done in this pass.</li>
 </ol>
 <p><code>home</code>, <code>network</code>, <code>downloads</code>, <code>observability</code>, <code>storage</code>, <code>kube-system</code>,
-<code>longhorn-system</code>, <code>rook-ceph</code>, <code>vpn</code> are <strong>terminal at privileged</strong> — architectural
-(USB passthrough, pod-gateway, CSI, hostPID/hostPath); PSS cannot carve out their
+<code>longhorn-system</code>, <code>rook-ceph</code> are <strong>terminal at privileged</strong> — architectural
+(USB passthrough, per-app VPN sidecars, CSI, hostPID/hostPath); PSS cannot carve out their
 privileged pods without a per-pod exception model (Kyverno, out of scope).</p>
 <p>Audits running pods against the baseline defined in
 <a href="https://github.com/rwlove/home-ops/blob/main/.agents/instructions/helmrelease.security.md"><code>.agents/instructions/helmrelease.security.md</code></a>.</p>
@@ -3236,8 +3236,8 @@ have a structural reason:</p>
 <li><code>observability/smartctl-exporter</code> — needs SMART ioctls. <strong>Keep.</strong></li>
 <li><code>home/matter-server</code> — Matter SDK requires root for bluetooth/IPv6
   multicast. <strong>Likely keep — confirm.</strong></li>
-<li><code>downloads/*/gateway-sidecar</code> (all 5 *arr + jd2) — pod-gateway
-  sidecar runs as root by design. <strong>Keep, document.</strong></li>
+<li><code>downloads/*/gluetun</code> (one per download app) — the gluetun VPN
+  sidecar runs as root to manage routes/iptables by design. <strong>Keep, document.</strong></li>
 <li><code>collab/zulip</code> — Zulip image expects root entrypoint that drops to
   <code>zulip</code> user internally. <strong>Verify drop-privs is real, then keep.</strong></li>
 <li><code>home/home-assistant-code</code> — code-server images start
@@ -3260,8 +3260,8 @@ namespace. This is inherent to the CSI architecture.</p>
 <p><strong>Action</strong>: document as accepted deviation. No PR.</p>
 <h3 id="c2-network-path-containers">C2. Network path containers<a class="headerlink" href="#c2-network-path-containers" title="Permanent link">&para;</a></h3>
 <ul>
-<li><code>vpn/downloads-gateway-pod-gateway-main</code> — needs <code>NET_ADMIN</code> +
-  <code>NET_RAW</code> to set up the gluetun tunnel and route table.</li>
+<li><code>downloads/*/gluetun</code> — needs <code>NET_ADMIN</code> to set up the WireGuard
+  tunnel, firewall and route table in each pod (not <code>privileged</code>).</li>
 <li><code>network/multus</code> — CNI plugin, needs <code>NET_ADMIN</code>.</li>
 <li><code>network/wg-easy</code> — wireguard kernel ops need <code>NET_ADMIN</code>. Already
   privileged; could potentially be reduced to <code>NET_ADMIN</code> cap-only.</li>
@@ -3315,9 +3315,10 @@ namespace. This is inherent to the CSI architecture.</p>
    no userspace cap exposes.</p>
 </li>
 <li>
-<p><strong><code>vpn/downloads-gateway-pod-gateway-main</code></strong> (NET_ADMIN, NET_RAW,
-   UID 0 on sidecars). Pod-gateway architecture; sidecars need to
-   manipulate the netns. Already isolated to one namespace.</p>
+<p><strong><code>downloads/*/gluetun</code></strong> (NET_ADMIN, UID 0, one sidecar per app).
+   The VPN sidecar must manipulate its pod's netns; the shared
+   pod-gateway it replaced (2026-11-21) is gone, along with the <code>vpn</code>
+   namespace.</p>
 </li>
 </ol>
 <h2 id="psa-enforcement-plan">PSA enforcement plan<a class="headerlink" href="#psa-enforcement-plan" title="Permanent link">&para;</a></h2>
@@ -3404,8 +3405,8 @@ labeled too (previously out of scope); <code>cilium-secrets</code> (never schedu
 </tr>
 <tr>
 <td><code>downloads</code></td>
-<td><code>baseline</code></td>
-<td>pod-gateway-sidecar root + NET_ADMIN</td>
+<td><code>privileged</code></td>
+<td>gluetun VPN sidecar root + NET_ADMIN (outside baseline)</td>
 </tr>
 <tr>
 <td><code>external-secrets</code></td>
@@ -3466,11 +3467,6 @@ labeled too (previously out of scope); <code>cilium-secrets</code> (never schedu
 <td><code>storage</code></td>
 <td><code>baseline</code></td>
 <td>Garage is near-clean</td>
-</tr>
-<tr>
-<td><code>vpn</code></td>
-<td><code>privileged</code></td>
-<td>Already enforce-privileged; audit aligned</td>
 </tr>
 </tbody>
 </table>

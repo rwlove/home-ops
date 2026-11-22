@@ -1839,10 +1839,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#pattern-e-vpn-routed-app-pod-gateway-client" class="md-nav__link">
+  <a href="#pattern-e-vpn-routed-app-per-app-gluetun-sidecar" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Pattern E: VPN-routed app (pod-gateway client)
+        Pattern E: VPN-routed app (per-app gluetun sidecar)
       
     </span>
   </a>
@@ -2986,10 +2986,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#pattern-e-vpn-routed-app-pod-gateway-client" class="md-nav__link">
+  <a href="#pattern-e-vpn-routed-app-per-app-gluetun-sidecar" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Pattern E: VPN-routed app (pod-gateway client)
+        Pattern E: VPN-routed app (per-app gluetun sidecar)
       
     </span>
   </a>
@@ -3224,12 +3224,14 @@
 <code>network-policy/default-deny</code> today (verify:
 <code>grep -rl network-policy/default-deny kubernetes/apps | wc -l</code>). The
 2026-05-18 full reset described below was subsequently re-rolled-out
-successfully; the VXLAN-DHCP-incompatible carve-outs (<code>downloads</code>,
-<code>vpn</code>) remain intentional. The gotchas + patterns A–H + retrospective
+successfully. The <code>downloads</code> carve-out was retired 2026-11-21: pod-gateway
+was replaced by a gluetun VPN sidecar per app (Pattern E) and <code>downloads</code>
+has default-deny again; the <code>vpn</code> namespace is gone (#11829). The gotchas +
+patterns A–H + retrospective
 below are the evergreen value — keep them.</strong>
 Owner: home-ops
-Last updated: 2026-11-12 (re-rollout recorded; body below is the
-2026-05 reset retrospective)</p>
+Last updated: 2026-11-21 (downloads carve-out retired, Pattern E rewritten;
+body below is the 2026-05 reset retrospective)</p>
 <blockquote>
 <p><strong>2026-07-01 update:</strong> the oauth2-proxy fleet this plan references was
 retired (#12767) — auth now rides per-route Envoy Gateway extAuth
@@ -3301,6 +3303,13 @@ Decision #1. <code>downloads</code> + <code>vpn</code> carved out 2026-05-18 —
 </table>
 <p><strong>~35 PRs merged</strong> across baselines, lockdowns, fixes, and follow-ups.</p>
 <h2 id="downloads--vpn-carve-out-2026-05-18">Downloads + vpn carve-out (2026-05-18)<a class="headerlink" href="#downloads--vpn-carve-out-2026-05-18" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Resolved 2026-11-21 (#11829).</strong> The second revisit trigger below came
+true: pod-gateway (VXLAN + DHCP) was replaced by a gluetun native sidecar
+in each download app, with no DHCP and no cross-pod tunnel. <code>downloads</code>
+has default-deny again and the <code>vpn</code> namespace was removed. See Pattern E
+for the current design. The analysis below is kept as history.</p>
+</blockquote>
 <p>After the initial lockdown of <code>downloads</code> + <code>vpn</code> (Phase 3) shipped
 and soaked, the gateway-sidecar's init container began crashlooping.
 Sequence reconstructed from pod logs and Hubble:</p>
@@ -3757,13 +3766,38 @@ single pod):</p>
 </span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">      </span><span class="nt">toPorts</span><span class="p">:</span>
 </span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">ports</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[{</span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="s">"443"</span><span class="p p-Indicator">,</span><span class="nt"> protocol</span><span class="p">:</span><span class="w"> </span><span class="nv">TCP</span><span class="p p-Indicator">}]</span>
 </span></code></pre></div>
-<h3 id="pattern-e-vpn-routed-app-pod-gateway-client">Pattern E: VPN-routed app (pod-gateway client)<a class="headerlink" href="#pattern-e-vpn-routed-app-pod-gateway-client" title="Permanent link">&para;</a></h3>
-<p>These already work via the existing <code>downloads-gateway-pod-gateway</code>
-CNP in the routed namespaces. <strong>Do not</strong> add a default-deny to
-those namespaces (<code>downloads</code>, parts of <code>default</code>) until the
-pod-gateway interaction is re-verified with Hubble — the VXLAN
-encapsulation makes flow inspection trickier. Plan: pod-gateway
-namespaces get default-deny in a dedicated Phase 5b sub-step.</p>
+<h3 id="pattern-e-vpn-routed-app-per-app-gluetun-sidecar">Pattern E: VPN-routed app (per-app gluetun sidecar)<a class="headerlink" href="#pattern-e-vpn-routed-app-per-app-gluetun-sidecar" title="Permanent link">&para;</a></h3>
+<p>Every app in <code>downloads</code> egresses through its <strong>own</strong> gluetun WireGuard
+sidecar (an <code>initContainer</code> with <code>restartPolicy: Always</code>, gated by a
+<code>startupProbe</code> on gluetun's healthcheck). This replaced the shared
+pod-gateway (VXLAN + DHCP + admission webhook) on 2026-11-21 (#11829),
+which was a SPOF and incompatible with default-deny. Leak protection is
+layered and fails closed:</p>
+<ol>
+<li><strong>gluetun firewall</strong> (<code>FIREWALL=on</code>): only the relay endpoint on eth0;
+   inbound only on <code>FIREWALL_INPUT_PORTS</code> (the app's web/API port).</li>
+<li><strong>CNP egress default-deny</strong> per app: the only world egress is UDP/51820
+   to <em>that app's relay entry IP</em> (<code>toCIDR /32</code>), plus the app's explicit
+   in-cluster dependencies. CoreDNS is denied via <code>egressDeny</code> (all DNS is
+   gluetun DoT through the tunnel); an app that needs cluster names pins
+   them with <code>hostAliases</code>.</li>
+<li>App-level binding where the app supports it (the torrent client is
+   pinned to <code>wg0</code> by an init container on every start).</li>
+</ol>
+<p>A tunnel outage drops all internet egress (verified: tunnel down, gluetun
+killed, and gluetun's firewall deliberately opened; Cilium alone still
+denied non-relay UDP/51820). In-cluster traffic (web UI, the media
+managers' API calls) keeps working. Sustained outages page via
+<code>DownloadVpnTunnelRestartLoop</code> (Loki) and
+<code>DownloadVpnSidecarNotReady</code> / <code>DownloadVpnSidecarRestartLoop</code>
+(Prometheus).</p>
+<p><strong>Relay failover:</strong> pick a relay that is in gluetun's baked server list
+<em>and</em> <code>active</code> on <code>api.mullvad.net/www/relays/wireguard/</code> (and 1:1-NAT
+DataPacket for an IP-capped upstream), then (1) PR the relay's
+<code>ipv4_addr_in</code> into the app's CNP <code>toCIDR</code>, (2) set the app's
+<code>&lt;APP&gt;_SERVER_HOSTNAMES</code> field in the 1Password <code>vpn</code> item. Every app
+sharing the Mullvad key must use a distinct relay. A mismatch fails
+closed and fires <code>DownloadVpnSidecarNotReady</code>.</p>
 <h3 id="pattern-f-camera-ingress-frigate--reolink-on-iot-vlan-19216845">Pattern F: Camera ingress (Frigate → Reolink on iot VLAN 192.168.4/5)<a class="headerlink" href="#pattern-f-camera-ingress-frigate--reolink-on-iot-vlan-19216845" title="Permanent link">&para;</a></h3>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nn">---</span>
 </span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cilium.io/v2</span>
@@ -3929,11 +3963,11 @@ notes whether it falls inside NetworkPolicy scope.</p>
 <td>baseline <code>allow-monitoring-scrape</code> covers pod-level; host-net scrape is out of scope</td>
 </tr>
 <tr>
-<td>pod-gateway WireGuard</td>
-<td>downloads-gateway pod</td>
-<td>0.0.0.0/0:51820 UDP</td>
+<td>per-app gluetun WireGuard</td>
+<td>each <code>downloads</code> app pod</td>
+<td>its own relay <code>/32</code>:51820 UDP</td>
 <td>Yes</td>
-<td>existing CNP preserved</td>
+<td>per-app CNP (Pattern E)</td>
 </tr>
 </tbody>
 </table>

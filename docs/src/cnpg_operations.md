@@ -44,13 +44,17 @@ deviate from the fleet.
 
 Almost every cluster runs 3 instances (1 primary + 2 async standbys)
 on PostgreSQL 17.11 (stock `ghcr.io/cloudnative-pg/postgresql:17.11`,
-25 clusters). The exception to know about before you assume
-uniformity: three clusters (`postgres-immich`, `postgres-khoj`,
-`postgres-langgraph-memory`) run the `cloudnative-vectorchord:14.17`
-image instead — a **PG14** base — because they need
-pgvector/vectorchord extensions. Treat their major-version line and
-minor bumps as a separate track from the stock 17.x fleet, and always
-check the live `imageName` before planning a coordinated bump.
+25 clusters). Two image families sit outside that stock image, and
+you should check the live `imageName` before planning a coordinated
+bump: `postgres-adventurelog` runs `cloudnative-pg/postgis` (PostGIS
+3.7.0, `18.7-3.7.0-standard-bookworm`), and `postgres-immich`,
+`postgres-khoj` and `postgres-langgraph-memory` run
+`tensorchord/cloudnative-vectorchord` (VectorChord 1.1.1 + pgvector,
+`18.6-1.1.1`) because they need those extensions. All four were moved
+to PG 18 on 2026-11-21 (adventurelog 16 -> 18; the vectorchord three
+14 -> 14.24-1.1.1 -> 18.6-1.1.1, PG14 having reached community EOL on
+2026-11-12). Their images are digest-pinned and are now tracked by
+Renovate per major (see the Renovate paragraph below).
 
 Apps connect via the CNPG-managed services —
 `postgres-<app>-rw.databases.svc.cluster.local` for read-write,
@@ -359,11 +363,20 @@ A major (17 -> 18) or a distro change (bullseye bare tag ->
 `-standard-trixie`) is always a manual, planned PR; CNPG does not allow
 changing OS distro and major in the same hop.
 
-Remember the version outliers noted above (the three
-`cloudnative-vectorchord` **PG14** clusters) before assuming a
-fleet-wide bump PR covers every cluster — check each `cluster.yaml`'s
-current `imageName`, don't copy a version string across all clusters
-blind.
+The PostGIS and VectorChord images have their own rules
+(`cnpg-postgis-18`, `cnpg-vectorchord-18`, both `automerge: false`
+including digest-only rebuilds, because each one rolls the cluster). Their
+tag's PostGIS version/distro (PostGIS) or VectorChord version
+(VectorChord) is the versioning `compatibility` part, so Renovate only
+ever offers PG **minor** bumps on the same PostGIS/VectorChord. A
+VectorChord bump is manual: after the rolling update run
+`ALTER EXTENSION vchord UPDATE; ALTER EXTENSION vector UPDATE;` in each
+database that has them and `REINDEX` every vchordrq index (an old index
+errors `bad version number ... please use REINDEX` until rebuilt; Immich:
+`REINDEX INDEX face_index; REINDEX INDEX clip_index`, ~1 min). A PostGIS
+bump needs `SELECT postgis_extensions_upgrade()`. Check each
+`cluster.yaml`'s current `imageName`, don't copy a version string
+across all clusters blind.
 
 **Major-version bumps** (e.g. 16→17) *are* supported as a declarative
 in-place upgrade on this operator (CNPG ≥1.26; fleet is on 1.30): bump
@@ -517,9 +530,15 @@ above.
 - WAL-archive staleness by clock time is a false signal on an idle
   database — watch the `.ready`-segment backlog count, not time-since-
   last-archive.
-- Three `cloudnative-vectorchord` clusters (`postgres-immich`,
-  `postgres-khoj`, `postgres-langgraph-memory`) are on a **PG14** base,
-  off the stock-fleet 17.11 image — verify before a coordinated bump.
+- The PostGIS (`postgres-adventurelog`) and VectorChord
+  (`postgres-immich`, `postgres-khoj`, `postgres-langgraph-memory`)
+  clusters are off the stock `cloudnative-pg/postgresql` image — verify
+  the live `imageName` before a coordinated bump. Immich accepts
+  PostgreSQL >= 14 < 20 and VectorChord >= 0.3 < 2.0
+  (docs.immich.app/administration/postgres-standalone); `immich-admin
+  schema-check` may report false drift for two trigger functions when an
+  extension-member `pg_type` OID collides with a function OID (immich
+  sql-tools joins `pg_depend` without `classid`); it is cosmetic.
 - No `Pooler` exists anywhere in this fleet; apps connect straight to
   the `-rw`/`-ro`/`-r` services.
 - `bootstrap.recovery` only fires on first cluster creation — it is

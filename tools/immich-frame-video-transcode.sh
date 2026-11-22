@@ -52,7 +52,9 @@ STS=immich-server
 POD=immich-server-0
 CTR=main
 ES_PATH="kubernetes/apps/media/immich/app/externalsecret.yaml"
-KUSTOMIZATION=cluster-apps
+# The app Kustomization that renders ES_PATH. Not the cluster-apps parent: the
+# parent only applies child Kustomization objects, never the app's manifests.
+KUSTOMIZATION=immich
 ORG_REPO=rwlove/home-ops
 MAIN=main
 DEFAULT_ALBUM="ad782b0e-9e90-453c-98e7-086455300ef1"   # familyroom frame album
@@ -182,7 +184,8 @@ set_policy_via_pr() { # set_policy_via_pr <disabled|bitrate> <subject>
   git -C "$REPO" worktree remove --force "$wt" 2>/dev/null || true
   git push origin --delete "$br" >/dev/null 2>&1 || true
   # apply: reconcile git -> re-render secret -> restart to load subPath config
-  flux reconcile kustomization "$KUSTOMIZATION" >/dev/null 2>&1 || true
+  flux reconcile kustomization "$KUSTOMIZATION" -n "$NS" --with-source >/dev/null \
+    || die "flux reconcile of $NS/$KUSTOMIZATION failed"
   kubectl annotate externalsecret immich -n "$NS" "force-sync=$(date +%s)" --overwrite >/dev/null
   sleep 6
   kubectl rollout restart "statefulset/$STS" -n "$NS" >/dev/null

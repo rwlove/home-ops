@@ -62,3 +62,32 @@ Instead:
   setting keyed on that exact host string. Example: a media library
   manager's Remote Path Mapping must match its download client's host text,
   or imports stall.
+
+## Finding which workloads cause extra lookups
+
+`hubble_dns_queries_total` (Cilium Hubble metrics) carries the query name,
+`source_namespace`, `source_pod` and `ips_returned`. It covers A queries
+from pods whose traffic passes through the Cilium DNS proxy. A search-suffix
+miss is a query that returned no IPs and ends in a search suffix:
+
+```promql
+topk(15, sum by (source_namespace, workload) (
+  label_replace(
+    rate(hubble_dns_queries_total{ips_returned="0",
+      query=~".+\\..+\\.(svc\\.cluster\\.local|cluster\\.local|<lan-domain>)\\."}[1h]),
+    "workload", "$1", "source_pod", "(.+?)(-[a-z0-9]{8,10})?(-[a-z0-9]{5}|-[0-9]+)?$")
+) * 3600)
+```
+
+Cluster-wide context:
+
+- `sum(increase(coredns_dns_responses_total{rcode="NXDOMAIN"}[1h]))`: all
+  NXDOMAIN answers.
+- `sum(increase(coredns_proxy_request_duration_seconds_count[1h]))`: queries
+  CoreDNS forwarded off the cluster.
+- `sum(increase(cilium_proxy_upstream_reply_seconds_count{protocol_l7="dns",error="timeout"}[1h]))`:
+  DNS-proxy timeouts, which cause the 5 s client stalls.
+
+To see the actual names, run
+`hubble observe --protocol dns --type l7 --since 10m -o json` in each
+`cilium-agent` pod and group the NXDOMAIN responses by destination pod.

@@ -10,13 +10,23 @@ spec:
     name: coredns
   interval: 30m
   values:
+    # Bare metal only. Cluster DNS timeouts track CPU load on the hypervisor
+    # hosting the VM nodes (20-40% CPU steal observed 2026-11-22), and every
+    # replica used to land on those VMs (control-plane-only placement, two of
+    # three control-plane nodes are VMs). virtual-machine is set by the NFD
+    # rule node-feature-discovery/rules/virtual-machine.yaml; requiring "false"
+    # (not just "absent") also excludes unlabelled nodes. See docs/src/cluster_dns.md.
     affinity:
       nodeAffinity:
         requiredDuringSchedulingIgnoredDuringExecution:
           nodeSelectorTerms:
             - matchExpressions:
-                - key: node-role.kubernetes.io/control-plane
-                  operator: Exists
+                - key: feature.node.kubernetes.io/virtual-machine
+                  operator: In
+                  values: ["false"]
+                - key: kubernetes.io/arch
+                  operator: In
+                  values: ["amd64"]
     fullnameOverride: coredns
     image:
       repository: mirror.gcr.io/coredns/coredns
@@ -157,7 +167,7 @@ spec:
       - effect: NoSchedule
         key: node-role.kubernetes.io/control-plane
         operator: Exists
-    # Spread the 3 replicas across distinct control-plane nodes so a single node
+    # Spread the 3 replicas across distinct (bare-metal) nodes so a single node
     # event can't land 2 of 3 on one host (which doubled the blast radius during
     # the 2026-10-03 churn-DNS incident), and keep >=2 available during disruption.
     # Safe part-1 of the Cilium/CoreDNS RCA; the lb-algorithm parts are held for a

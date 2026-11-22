@@ -40,6 +40,15 @@ CoreDNS answers from three server blocks; the most specific zone wins.
      lookups fail. CoreDNS fails over on connection errors and failed health
      checks, not on a SERVFAIL from a gateway that is still reachable.
 
+## Where CoreDNS runs
+
+CoreDNS runs on **bare-metal nodes only** (`feature.node.kubernetes.io/virtual-machine: "false"`,
+set from the CPUID hypervisor flag by an NFD rule), spread one replica per node.
+Cluster DNS timeouts were traced to UDP loss that tracks CPU load on the hypervisor
+hosting the VM nodes. All three replicas used to run in those VMs, which could lose
+20-40% of their CPU to hypervisor steal. Switch port counters were ruled out as the
+main cause.
+
 ## Why `ndots` is not tuned
 
 With `ndots:5`, a name with fewer than 5 dots is tried with every search

@@ -2820,13 +2820,17 @@ ObjectStore/ScheduledBackup pair unless you have a real reason to
 deviate from the fleet.</p>
 <p>Almost every cluster runs 3 instances (1 primary + 2 async standbys)
 on PostgreSQL 17.11 (stock <code>ghcr.io/cloudnative-pg/postgresql:17.11</code>,
-25 clusters). The exception to know about before you assume
-uniformity: three clusters (<code>postgres-immich</code>, <code>postgres-khoj</code>,
-<code>postgres-langgraph-memory</code>) run the <code>cloudnative-vectorchord:14.17</code>
-image instead — a <strong>PG14</strong> base — because they need
-pgvector/vectorchord extensions. Treat their major-version line and
-minor bumps as a separate track from the stock 17.x fleet, and always
-check the live <code>imageName</code> before planning a coordinated bump.</p>
+25 clusters). Two image families sit outside that stock image, and
+you should check the live <code>imageName</code> before planning a coordinated
+bump: <code>postgres-adventurelog</code> runs <code>cloudnative-pg/postgis</code> (PostGIS
+3.7.0, <code>18.7-3.7.0-standard-bookworm</code>), and <code>postgres-immich</code>,
+<code>postgres-khoj</code> and <code>postgres-langgraph-memory</code> run
+<code>tensorchord/cloudnative-vectorchord</code> (VectorChord 1.1.1 + pgvector,
+<code>18.6-1.1.1</code>) because they need those extensions. All four were moved
+to PG 18 on 2026-11-21 (adventurelog 16 -&gt; 18; the vectorchord three
+14 -&gt; 14.24-1.1.1 -&gt; 18.6-1.1.1, PG14 having reached community EOL on
+2026-11-12). Their images are digest-pinned and are now tracked by
+Renovate per major (see the Renovate paragraph below).</p>
 <p>Apps connect via the CNPG-managed services —
 <code>postgres-&lt;app&gt;-rw.databases.svc.cluster.local</code> for read-write,
 <code>-ro</code> for read-only replica traffic, <code>-r</code> for any-instance read
@@ -3095,11 +3099,20 @@ major</strong> (per-current-major rules in <code>.github/renovate/packageRules.j
 A major (17 -&gt; 18) or a distro change (bullseye bare tag -&gt;
 <code>-standard-trixie</code>) is always a manual, planned PR; CNPG does not allow
 changing OS distro and major in the same hop.</p>
-<p>Remember the version outliers noted above (the three
-<code>cloudnative-vectorchord</code> <strong>PG14</strong> clusters) before assuming a
-fleet-wide bump PR covers every cluster — check each <code>cluster.yaml</code>'s
-current <code>imageName</code>, don't copy a version string across all clusters
-blind.</p>
+<p>The PostGIS and VectorChord images have their own rules
+(<code>cnpg-postgis-18</code>, <code>cnpg-vectorchord-18</code>, both <code>automerge: false</code>
+including digest-only rebuilds, because each one rolls the cluster). Their
+tag's PostGIS version/distro (PostGIS) or VectorChord version
+(VectorChord) is the versioning <code>compatibility</code> part, so Renovate only
+ever offers PG <strong>minor</strong> bumps on the same PostGIS/VectorChord. A
+VectorChord bump is manual: after the rolling update run
+<code>ALTER EXTENSION vchord UPDATE; ALTER EXTENSION vector UPDATE;</code> in each
+database that has them and <code>REINDEX</code> every vchordrq index (an old index
+errors <code>bad version number ... please use REINDEX</code> until rebuilt; Immich:
+<code>REINDEX INDEX face_index; REINDEX INDEX clip_index</code>, ~1 min). A PostGIS
+bump needs <code>SELECT postgis_extensions_upgrade()</code>. Check each
+<code>cluster.yaml</code>'s current <code>imageName</code>, don't copy a version string
+across all clusters blind.</p>
 <p><strong>Major-version bumps</strong> (e.g. 16→17) <em>are</em> supported as a declarative
 in-place upgrade on this operator (CNPG ≥1.26; fleet is on 1.30): bump
 <code>imageName</code> to the new major and the operator runs an <strong>offline</strong>
@@ -3224,9 +3237,15 @@ above.</p>
 <li>WAL-archive staleness by clock time is a false signal on an idle
   database — watch the <code>.ready</code>-segment backlog count, not time-since-
   last-archive.</li>
-<li>Three <code>cloudnative-vectorchord</code> clusters (<code>postgres-immich</code>,
-  <code>postgres-khoj</code>, <code>postgres-langgraph-memory</code>) are on a <strong>PG14</strong> base,
-  off the stock-fleet 17.11 image — verify before a coordinated bump.</li>
+<li>The PostGIS (<code>postgres-adventurelog</code>) and VectorChord
+  (<code>postgres-immich</code>, <code>postgres-khoj</code>, <code>postgres-langgraph-memory</code>)
+  clusters are off the stock <code>cloudnative-pg/postgresql</code> image — verify
+  the live <code>imageName</code> before a coordinated bump. Immich accepts
+  PostgreSQL &gt;= 14 &lt; 20 and VectorChord &gt;= 0.3 &lt; 2.0
+  (docs.immich.app/administration/postgres-standalone); <code>immich-admin
+  schema-check</code> may report false drift for two trigger functions when an
+  extension-member <code>pg_type</code> OID collides with a function OID (immich
+  sql-tools joins <code>pg_depend</code> without <code>classid</code>); it is cosmetic.</li>
 <li>No <code>Pooler</code> exists anywhere in this fleet; apps connect straight to
   the <code>-rw</code>/<code>-ro</code>/<code>-r</code> services.</li>
 <li><code>bootstrap.recovery</code> only fires on first cluster creation — it is

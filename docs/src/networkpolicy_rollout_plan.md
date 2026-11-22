@@ -4,12 +4,14 @@ Status: **COMPLETE — re-rollout finished. 22 namespaces carry
 `network-policy/default-deny` today (verify:
 `grep -rl network-policy/default-deny kubernetes/apps | wc -l`). The
 2026-05-18 full reset described below was subsequently re-rolled-out
-successfully; the VXLAN-DHCP-incompatible carve-outs (`downloads`,
-`vpn`) remain intentional. The gotchas + patterns A–H + retrospective
+successfully. The `downloads` carve-out was retired 2026-11-21: pod-gateway
+was replaced by a gluetun VPN sidecar per app (Pattern E) and `downloads`
+has default-deny again; the `vpn` namespace is gone (#11829). The gotchas +
+patterns A–H + retrospective
 below are the evergreen value — keep them.**
 Owner: home-ops
-Last updated: 2026-11-12 (re-rollout recorded; body below is the
-2026-05 reset retrospective)
+Last updated: 2026-11-21 (downloads carve-out retired, Pattern E rewritten;
+body below is the 2026-05 reset retrospective)
 
 > **2026-07-01 update:** the oauth2-proxy fleet this plan references was
 > retired (#12767) — auth now rides per-route Envoy Gateway extAuth
@@ -59,6 +61,12 @@ Decision #1. `downloads` + `vpn` carved out 2026-05-18 — see
 **~35 PRs merged** across baselines, lockdowns, fixes, and follow-ups.
 
 ## Downloads + vpn carve-out (2026-05-18)
+
+> **Resolved 2026-11-21 (#11829).** The second revisit trigger below came
+> true: pod-gateway (VXLAN + DHCP) was replaced by a gluetun native sidecar
+> in each download app, with no DHCP and no cross-pod tunnel. `downloads`
+> has default-deny again and the `vpn` namespace was removed. See Pattern E
+> for the current design. The analysis below is kept as history.
 
 After the initial lockdown of `downloads` + `vpn` (Phase 3) shipped
 and soaked, the gateway-sidecar's init container began crashlooping.
@@ -564,14 +572,40 @@ single pod):
         - ports: [{port: "443", protocol: TCP}]
 ```
 
-### Pattern E: VPN-routed app (pod-gateway client)
+### Pattern E: VPN-routed app (per-app gluetun sidecar)
 
-These already work via the existing `downloads-gateway-pod-gateway`
-CNP in the routed namespaces. **Do not** add a default-deny to
-those namespaces (`downloads`, parts of `default`) until the
-pod-gateway interaction is re-verified with Hubble — the VXLAN
-encapsulation makes flow inspection trickier. Plan: pod-gateway
-namespaces get default-deny in a dedicated Phase 5b sub-step.
+Every app in `downloads` egresses through its **own** gluetun WireGuard
+sidecar (an `initContainer` with `restartPolicy: Always`, gated by a
+`startupProbe` on gluetun's healthcheck). This replaced the shared
+pod-gateway (VXLAN + DHCP + admission webhook) on 2026-11-21 (#11829),
+which was a SPOF and incompatible with default-deny. Leak protection is
+layered and fails closed:
+
+1. **gluetun firewall** (`FIREWALL=on`): only the relay endpoint on eth0;
+   inbound only on `FIREWALL_INPUT_PORTS` (the app's web/API port).
+2. **CNP egress default-deny** per app: the only world egress is UDP/51820
+   to *that app's relay entry IP* (`toCIDR /32`), plus the app's explicit
+   in-cluster dependencies. CoreDNS is denied via `egressDeny` (all DNS is
+   gluetun DoT through the tunnel); an app that needs cluster names pins
+   them with `hostAliases`.
+3. App-level binding where the app supports it (the torrent client is
+   pinned to `wg0` by an init container on every start).
+
+A tunnel outage drops all internet egress (verified: tunnel down, gluetun
+killed, and gluetun's firewall deliberately opened; Cilium alone still
+denied non-relay UDP/51820). In-cluster traffic (web UI, the media
+managers' API calls) keeps working. Sustained outages page via
+`DownloadVpnTunnelRestartLoop` (Loki) and
+`DownloadVpnSidecarNotReady` / `DownloadVpnSidecarRestartLoop`
+(Prometheus).
+
+**Relay failover:** pick a relay that is in gluetun's baked server list
+*and* `active` on `api.mullvad.net/www/relays/wireguard/` (and 1:1-NAT
+DataPacket for an IP-capped upstream), then (1) PR the relay's
+`ipv4_addr_in` into the app's CNP `toCIDR`, (2) set the app's
+`<APP>_SERVER_HOSTNAMES` field in the 1Password `vpn` item. Every app
+sharing the Mullvad key must use a distinct relay. A mismatch fails
+closed and fires `DownloadVpnSidecarNotReady`.
 
 ### Pattern F: Camera ingress (Frigate → Reolink on iot VLAN 192.168.4/5)
 
@@ -675,7 +709,7 @@ notes whether it falls inside NetworkPolicy scope.
 | cert-manager → Let's Encrypt | cert-manager | acme-v02.api.letsencrypt.org | Yes | Phase 6 `toFQDNs` |
 | Envoy Gateway → backend pods | network ns envoy pods | app pods | Yes | every app namespace adds Pattern A |
 | Hubble metrics scrape | observability prom | port 9965 on every node | Mixed | baseline `allow-monitoring-scrape` covers pod-level; host-net scrape is out of scope |
-| pod-gateway WireGuard | downloads-gateway pod | 0.0.0.0/0:51820 UDP | Yes | existing CNP preserved |
+| per-app gluetun WireGuard | each `downloads` app pod | its own relay `/32`:51820 UDP | Yes | per-app CNP (Pattern E) |
 
 ---
 

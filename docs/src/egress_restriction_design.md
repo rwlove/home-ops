@@ -281,7 +281,7 @@ host.
 
 **Pro:** Filtering at the perimeter is a defense-in-depth layer that
 catches cluster-side bypass scenarios (a compromised CNI agent that
-ignores CNPs, a misconfigured pod-gateway leak). Single chokepoint to
+ignores CNPs, a misconfigured VPN-sidecar leak). Single chokepoint to
 maintain. brain config is already version-controlled in
 `rwlove/lovenet-network-configuration`.
 

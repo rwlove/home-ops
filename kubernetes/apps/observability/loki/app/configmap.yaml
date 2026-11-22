@@ -219,32 +219,33 @@ data:
                 and the ESPHome proxy device itself (bluetooth-proxy-gym-poe) for
                 PoE power / ethernet instability on the IoT VLAN. There is no proxy-state
                 metric yet, so this log-based rule is the only signal.
-      - name: vpn-egress-gateway
+      - name: download-vpn-tunnel
         rules:
-          - alert: DownloadPathVpnGatewayRestartLoop
+          - alert: DownloadVpnTunnelRestartLoop
             expr: |
-              sum(count_over_time({namespace="vpn"} | json | container_name="gluetun" |~ "(?i)restarting vpn because it failed to pass the healthcheck"[5m])) > 10
-            for: 5m
+              sum by (app) (count_over_time({namespace="downloads"} | json | container_name="gluetun" |~ "(?i)restarting vpn because it failed to pass the healthcheck"[15m])) > 5
+            for: 10m
             labels:
               severity: warning
               category: logs
             annotations:
-              summary: "Download-path VPN egress gateway: gluetun stuck in an internal restart loop"
+              summary: "Download VPN tunnel for {{ $labels.app }}: gluetun stuck in an internal restart loop"
               description: >-
-                {{ $value | humanize }} internal gluetun restarts in the
-                last 5m in the vpn namespace — the WireGuard tunnel is
-                failing its own healthcheck repeatedly and NOT recovering
-                on its own. This does not show up as a pod restart (CRI-O
-                restartCount stays 0), so this log-based alert is the only
-                signal. Every pod routed through this gateway
-                (routed_namespaces: [downloads]) has degraded or no
-                internet egress while this fires. Check:
-                  kubectl -n vpn logs -l app.kubernetes.io/instance=downloads-gateway -c gluetun --tail=100
-                If the tunnel is cycling through multiple resolved
-                endpoints and failing all of them, this is likely a
-                provider-side (Mullvad relay) outage, not a config
-                regression — cross-check the pinned SERVER_HOSTNAMES
-                relay's status before changing anything.
+                {{ $value | humanize }} internal gluetun VPN restarts in the
+                last 15m for {{ $labels.app }} (downloads namespace). Each app
+                has its own gluetun sidecar and relay; the tunnel is failing
+                its own healthcheck repeatedly and NOT recovering. This is not
+                a container restart (the sidecar stays Ready), so this
+                log-based rule is the only signal for it. The app fails
+                closed: nothing leaks, but its downloads are stalled. A single
+                self-healing blip (one restart, recovered in seconds) never
+                fires this. Check:
+                  kubectl -n downloads logs -l app.kubernetes.io/name={{ $labels.app }} -c gluetun --tail=100
+                If several apps fire together, suspect a provider-side outage
+                or the shared account/key; if one, check that app's relay
+                (status, and that its ipv4_addr_in still matches the CNP
+                toCIDR pin) before changing anything. Companion Prometheus
+                rules: DownloadVpnSidecarNotReady / DownloadVpnSidecarRestartLoop.
 
       # kagent watcher-fleet GPU/backend availability. Each triage run (local-cron,
       # ns ai) ends with a machine line `TRIAGE_RESULT=<outcome> agent=<name>`:

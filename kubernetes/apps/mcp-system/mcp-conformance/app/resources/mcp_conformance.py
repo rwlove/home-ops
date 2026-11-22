@@ -236,6 +236,28 @@ def mcp_session(token, path, vs_header):
     return session_id, tools, None
 
 
+def close_session(token, path, vs_header, session_id):
+    """Best-effort DELETE of a session we opened (MCP streamable-HTTP session
+    termination). Without it every run abandoned 3+ sessions per profile on the
+    broker and, through it, on each backend -- comfyui-mcp keeps every session
+    it ever saw and OOMs (~87 sessions per ~6h). Failure here is logged, never
+    a finding: it is cleanup, not a conformance signal."""
+    if not session_id:
+        return
+    headers = {"Authorization": "Bearer %s" % token, "Mcp-Session-Id": session_id}
+    if vs_header:
+        headers["X-Mcp-Virtualserver"] = vs_header
+    req = urllib.request.Request("https://%s%s" % (BROKER_HOST, path), headers=headers, method="DELETE")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            r.read()
+    except urllib.error.HTTPError as e:
+        if e.code not in (404, 405):  # already gone / server doesn't support DELETE
+            log("WARN: session DELETE returned %s" % e.code)
+    except Exception as e:
+        log("WARN: session DELETE failed: %r" % e)
+
+
 def call_tool(token, path, vs_header, session_id, tool, args):
     url = "https://%s%s" % (BROKER_HOST, path)
     headers = {"Authorization": "Bearer %s" % token, "Mcp-Session-Id": session_id}
@@ -298,9 +320,11 @@ def confirm_retry(token, profile, tool, args, first_err):
     session_id, _, serr = mcp_session(token, profile["path"], profile.get("virtualserver"))
     if not session_id:
         return False, None, "%s; confirm retry could not open a session: %s" % (first_err, serr)
+    # (tools/list errors on this fresh session don't matter -- we only need it to call one tool)
     ok, elapsed, err = call_tool(
         token, profile["path"], profile.get("virtualserver"), session_id, tool, args,
     )
+    close_session(token, profile["path"], profile.get("virtualserver"), session_id)
     if ok:
         log("Check B [%s] %s recovered on confirm retry -- transient, not reported" % (profile["name"], tool))
         return True, elapsed, None
@@ -454,6 +478,7 @@ def main():
                    profile["path"], profile.get("virtualserver"))
             )
             log("Check A [%s] SESSION FAILED: %s" % (profile["name"], err))
+            close_session(token, profile["path"], profile.get("virtualserver"), session_id)
             continue
 
         log("Check A [%s]: session established, %d tools live" % (profile["name"], len(tools)))
@@ -462,6 +487,7 @@ def main():
 
         profile["_session_id"] = session_id
         canary_call_findings(token, profile, tools, backends, call_failures)
+        close_session(token, profile["path"], profile.get("virtualserver"), session_id)
 
     findings += render_call_failures(call_failures)
     findings += check_c_kagent_discovery_staleness()

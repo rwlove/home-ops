@@ -149,13 +149,31 @@ jobs:
       # tree — so flate discovers it before anything substitutes from it. (When
       # cluster-config lived nested under an app that also substituted from it,
       # flate deadlocked and every Kustomization blocked; see PR #12734.)
+      # Coverage floor. flate exits 0 when it discovers *zero* Kustomizations
+      # (e.g. any root-level `patches:` in kubernetes/flux/cluster/kustomization.yaml
+      # makes v0.8.0 discover nothing), so a green run alone doesn't prove anything
+      # was tested. main tests ~316 Kustomizations; fail below 300.
       - name: Run flate test
         env:
           FLATE_BASE: ""
-        run: >-
-          flate test all
-          --path "${GITHUB_WORKSPACE}/kubernetes/flux"
-          --supply "${RUNNER_TEMP}/flate-supply.yaml"
+          MIN_KUSTOMIZATIONS: "300"
+        run: |
+          set -o pipefail
+          if [ -f kubernetes/flux/cluster/kustomization.yaml ] \
+            && grep -qE '^patches:' kubernetes/flux/cluster/kustomization.yaml; then
+            echo "::error file=kubernetes/flux/cluster/kustomization.yaml::root-level patches: here make flate discover 0 Kustomizations; put patches in a Component instead"
+            exit 1
+          fi
+          flate test all \
+            --path "${GITHUB_WORKSPACE}/kubernetes/flux" \
+            --supply "${RUNNER_TEMP}/flate-supply.yaml" \
+            | tee "${RUNNER_TEMP}/flate-test.log"
+          tested=$(grep -cE '✓[[:space:]]+Kustomization[[:space:]]' "${RUNNER_TEMP}/flate-test.log" || true)
+          echo "Kustomizations tested: ${tested} (floor ${MIN_KUSTOMIZATIONS})"
+          if [ "${tested}" -lt "${MIN_KUSTOMIZATIONS}" ]; then
+            echo "::error::flate tested only ${tested} Kustomizations (< ${MIN_KUSTOMIZATIONS}); coverage collapsed"
+            exit 1
+          fi
 
   diff:
     # Diff-against-default-branch only makes sense on PRs.

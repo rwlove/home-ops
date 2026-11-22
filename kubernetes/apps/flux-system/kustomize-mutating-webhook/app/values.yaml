@@ -55,6 +55,22 @@ env:
   # ingestion for no steady-state value. Raise it back temporarily when
   # actually debugging substitution behaviour.
   LOG_LEVEL: info
+  # Off since 2026-11-22; the chart default is "true". Each replica gets an
+  # informer resync every ~5-10 min, logs "Secret/ConfigMap updated,
+  # reloading config" with no key change (added_keys: [], removed_keys: []),
+  # and then re-stamps the config-reload annotation on every Kustomization
+  # ("updated":310). Across 3 replicas that was ~48 restamps/h ≈ 4.1 KS
+  # writes/s, matching the apiserver's ~4.2/s webhook UPDATE admissions.
+  # Each restamp also triggered a reconcile (~5x interval-driven load),
+  # and the bursts were admitted by this same webhook against its own
+  # RATE_LIMIT, which fits the 429s that halted cluster-apps.
+  #
+  # Cost of disabling: a Git change to cluster-config still propagates,
+  # because cluster-apps re-applies the children and this webhook mutates
+  # them on admission. A 1Password-only change to cluster-secrets now
+  # reaches children at the next cluster-apps apply (<=1h, or reconcile
+  # it), not within minutes. It already waits up to 1h for ESO.
+  AUTO_UPDATE_KUSTOMIZATIONS: "false"
 # Chart NP egress uses ipBlock 0.0.0.0/0 for 443/6443, which Cilium does
 # not match against the kube-apiserver (host-network identity, separate
 # from `world`). With it enabled, the 0.11.0 informer hangs on its

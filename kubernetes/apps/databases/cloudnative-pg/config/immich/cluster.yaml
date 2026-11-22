@@ -7,15 +7,15 @@ metadata:
 spec:
   instances: 3
 
-  # Hop 1 of the PG14 -> 18 program (minor + VectorChord bump on PG14):
-  # 14.17-0.3.0 -> 14.24-1.1.1. After the rolling update run (not declarative),
-  # with the app scaled down: ALTER EXTENSION vchord UPDATE; ALTER EXTENSION
-  # vector UPDATE; REINDEX INDEX face_index; REINDEX INDEX clip_index (old
-  # vchordrq indexes error "bad version number" until rebuilt). The legacy
-  # pgvecto.rs `vectors` extension is dropped before this hop (zero dependents
-  # re-checked after the pre-hop backup; not shipped for PG18). Hop 2 is the
-  # 18.6-1.1.1 major upgrade.
-  imageName: ghcr.io/tensorchord/cloudnative-vectorchord:14.24-1.1.1@sha256:86dec1dbc2bc72df7478ab58abf724e706ed04001bcc65adeaf728c88096441f
+  # PG 18 MAJOR upgrade (one-way once the pg_upgrade job swaps directories),
+  # hop 2 of the PG14 -> 18 program (hop 1 was 14.17-0.3.0 -> 14.24-1.1.1 plus
+  # ALTER EXTENSION vchord/vector UPDATE and REINDEX of face_index and
+  # clip_index; the legacy pgvecto.rs `vectors` extension was dropped first).
+  # Same distro (bookworm) and same VectorChord (1.1.1). Rollback BEFORE the
+  # swap / on job failure: revert imageName + serverName. After success:
+  # restore the pre-upgrade physical backup (old serverName archive) into a new
+  # PG14 cluster, or pg_restore the off-cluster dump.
+  imageName: ghcr.io/tensorchord/cloudnative-vectorchord:18.6-1.1.1@sha256:c7672bc011351a587cc292a94aac7eeebb593ed2e120077bd9c9944c9467db93
 
   primaryUpdateStrategy: unsupervised
 
@@ -66,9 +66,17 @@ spec:
   plugins:
     - name: barman-cloud.cloudnative-pg.io
       isWALArchiver: true
-      parameters: &params
+      parameters:
         barmanObjectName: garage-immich
-        serverName: postgres-immich-backup
+        # Bumped from postgres-immich-backup for the 14->18 major upgrade:
+        # pg_upgrade resets the timeline / system ID, so post-upgrade WAL and
+        # base backups must land under a fresh serverName. The old archive
+        # stays intact at postgres-immich-backup as the pre-upgrade restore
+        # point (PG14 data: restore it onto a PG14 vectorchord image;
+        # 14.24-1.1.1 for WAL after hop 1). `externalClusters.source` below
+        # keeps pointing at it (the YAML anchor was broken on purpose). A
+        # fresh base backup must be taken into the new path right after.
+        serverName: postgres-immich-backup-v18
 
   bootstrap:
     recovery:
@@ -78,4 +86,6 @@ spec:
     - name: source
       plugin:
         name: barman-cloud.cloudnative-pg.io
-        parameters: *params
+        parameters:
+          barmanObjectName: garage-immich
+          serverName: postgres-immich-backup

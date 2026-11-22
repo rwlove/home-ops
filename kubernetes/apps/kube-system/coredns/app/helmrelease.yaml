@@ -29,8 +29,33 @@ spec:
         memory: 128Mi
       limits:
         memory: 256Mi
+    # Three server blocks (most-specific zone wins):
+    #  1. cluster.local + reverse zones -- the kubernetes plugin, unchanged
+    #     behaviour (AAAA for a Service = NOERROR/empty, missing name = NXDOMAIN).
+    #  2. svc. / cluster. / pod. -- pseudo-TLDs that only exist in-cluster.
+    #     Answered NXDOMAIN locally so a failed/mistyped cluster name is never
+    #     forwarded to brain -> Pi-hole -> the internet.
+    #  3. . -- everything else. AAAA is answered NOERROR/empty locally (the
+    #     cluster is IPv4-only: Cilium enable-ipv6=false), so no IPv6 lookup
+    #     ever leaves the cluster; A is forwarded to brain (authoritative for the
+    #     LAN zone) with the beast Pi-hole as fallback, instead of whatever each
+    #     control-plane node's DHCP leases put in /etc/resolv.conf.
+    # Deliberately NOT done: ndots tuning. Five namespaces (ai, media, network,
+    # storage, tools) are real internet TLDs, so absolute-first lookup of a
+    # 2-dot relative name like <pod>.<svc>.media would ask the internet first.
     servers:
-      - plugins:
+      - zones:
+          - scheme: dns://
+            use_tcp: true
+            zone: cluster.local.
+          - scheme: dns://
+            use_tcp: true
+            zone: in-addr.arpa.
+          - scheme: dns://
+            use_tcp: true
+            zone: ip6.arpa.
+        port: 53
+        plugins:
           - name: errors
           - configBlock: |-
               lameduck 5s
@@ -50,8 +75,11 @@ spec:
           # silently breaking every toFQDNs egress allow. Cilium docs
           # recommend disabling autopath when using FQDN policies. See
           # reference_cilium_tofqdns_ndots_searchdomain_bind / PR #12456.
-          - name: forward
-            parameters: . /etc/resolv.conf
+          # Reverse lookups the kubernetes plugin doesn't own (LAN PTRs).
+          - configBlock: |-
+              policy sequential
+            name: forward
+            parameters: . 192.168.1.1 192.168.6.66
           - configBlock: |-
               prefetch 20
               serve_stale
@@ -64,11 +92,54 @@ spec:
           - configBlock: |-
               class error
             name: log
+      - zones:
+          - scheme: dns://
+            use_tcp: true
+            zone: svc.
+          - scheme: dns://
+            use_tcp: true
+            zone: cluster.
+          - scheme: dns://
+            use_tcp: true
+            zone: pod.
         port: 53
-        zones:
+        plugins:
+          - name: errors
+          - configBlock: |-
+              rcode NXDOMAIN
+            name: template
+            parameters: ANY ANY
+          - name: prometheus
+            parameters: 0.0.0.0:9153
+      - zones:
           - scheme: dns://
             use_tcp: true
             zone: .
+        port: 53
+        plugins:
+          - name: errors
+          - configBlock: |-
+              rcode NOERROR
+            name: template
+            parameters: IN AAAA .
+          # brain first (authoritative for the LAN zone, forwards on to both
+          # Pi-holes); beast Pi-hole only if brain is unhealthy.
+          - configBlock: |-
+              policy sequential
+            name: forward
+            parameters: . 192.168.1.1 192.168.6.66
+          - configBlock: |-
+              prefetch 20
+              serve_stale
+            name: cache
+          - name: loop
+          - name: reload
+          - name: loadbalance
+          - name: prometheus
+            parameters: 0.0.0.0:9153
+          - configBlock: |-
+              class error
+            name: log
     service:
       clusterIP: 10.43.0.10
       name: kube-dns

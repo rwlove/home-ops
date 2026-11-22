@@ -541,10 +541,10 @@ ceph -s   # via a mon pod / toolbox — confirm quorum before and after
 Applied 2026-11-16 to all 8 worker-class nodes
 (`worker2`–`worker8`, `spark`), mon-hosting `worker2` (`mon.l`) and
 `worker8` (`mon.m`) rolled last; quorum `[0,1,2]` and 0 mon restarts
-confirmed before/after each. **Masters (`master1`–`3`) were not
-rolled this pass** — they'll pick up the new values on their next
-`kubeadm upgrade`/config re-sync; follow-up if fleet-wide
-consistency on the control plane matters.
+confirmed before/after each. The masters (`master1`–`3`) were
+skipped that pass and picked the values up on 2026-11-22, when the
+whole fleet was re-synced for the kubelet changes in
+[Kubelet tuning](kubelet_tuning.md).
 
 **Verification.**
 

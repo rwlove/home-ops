@@ -122,3 +122,32 @@ scheduler:
   extraArgs:
   - name: bind-address
     value: 0.0.0.0
+---
+# Cluster-wide kubelet settings. kubeadm init uploads this to the
+# kube-system/kubelet-config ConfigMap, and every `kubeadm join` /
+# `kubeadm upgrade node` renders /var/lib/kubelet/config.yaml from that
+# ConfigMap. Only non-default fields are listed; kubeadm fills in the rest.
+# This file is bootstrap-only (not Flux-reconciled). On a running cluster,
+# change the ConfigMap and re-sync each node, per docs/src/kubelet_tuning.md.
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+cgroupDriver: systemd
+featureGates:
+  ClusterTrustBundle: true
+  ClusterTrustBundleProjection: true
+  PodCertificateRequest: true
+# Disk-pressure backstop plus age-based GC for dangling image digests. See
+# failure_mode_runbooks.md ("imageMaximumGCAge").
+imageGCHighThresholdPercent: 72
+imageGCLowThresholdPercent: 62
+imageMaximumGCAge: 48h0m0s
+# Pull up to three images at once. With serial pulls, one multi-GB image
+# (vLLM, ComfyUI, Frigate) blocked every other pod starting on that node:
+# p99 pull time was 440-1593s on several workers before this change.
+maxParallelImagePulls: 3
+serializeImagePulls: false
+# Graceful node shutdown. The kubelet takes a systemd-logind inhibitor lock
+# and gives pods 90s, then critical pods 30s, to stop cleanly on reboot or
+# UPS-initiated poweroff, instead of being killed mid-write.
+shutdownGracePeriod: 120s
+shutdownGracePeriodCriticalPods: 30s

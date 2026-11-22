@@ -1,0 +1,29 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/nfd.k8s-sigs.io/nodefeaturerule_v1alpha1.json
+apiVersion: nfd.k8s-sigs.io/v1alpha1
+kind: NodeFeatureRule
+metadata:
+  name: virtual-machine
+spec:
+  rules:
+    - # KVM guest (the beast-hosted nodes). The CPUID HYPERVISOR bit is set
+      # only inside a VM. Used to keep latency-sensitive infra (CoreDNS) off
+      # nodes that suffer hypervisor CPU steal -- see docs/src/cluster_dns.md.
+      name: virtual-machine
+      labels:
+        feature.node.kubernetes.io/virtual-machine: "true"
+      matchFeatures:
+        - feature: cpu.cpuid
+          matchExpressions:
+            HYPERVISOR: {op: Exists}
+
+    - # Bare metal: label explicitly so selectors can require "false" instead
+      # of relying on an absent label (absent would also match a node NFD has
+      # not labelled yet).
+      name: bare-metal
+      labels:
+        feature.node.kubernetes.io/virtual-machine: "false"
+      matchFeatures:
+        - feature: cpu.cpuid
+          matchExpressions:
+            HYPERVISOR: {op: DoesNotExist}

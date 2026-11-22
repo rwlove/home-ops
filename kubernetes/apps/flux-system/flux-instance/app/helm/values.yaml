@@ -22,11 +22,19 @@ instance:
       app.kubernetes.io/name: flux
   kustomize:
     patches:
-      - # Increase the number of workers
+      - # Increase the number of workers. kustomize-controller is excluded here:
+        # it gets --concurrent=20 from the in-memory-builds patch below. It used to
+        # be targeted by both, so its args carried --concurrent=10 AND
+        # --concurrent=20 and the effective value depended on arg order.
         patch: |
           - op: add
             path: /spec/template/spec/containers/0/args/-
             value: --concurrent=10
+        target:
+          kind: Deployment
+          name: (helm-controller|source-controller)
+      - # Requeue dependants quickly once a dependency becomes ready
+        patch: |
           - op: add
             path: /spec/template/spec/containers/0/args/-
             value: --requeue-dependency=5s

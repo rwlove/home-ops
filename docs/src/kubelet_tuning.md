@@ -23,8 +23,12 @@ rebuild silently drops the tuning.
 | `imageMaximumGCAge` | 48h | Removes dangling image digests that threshold GC never reaches |
 | `serializeImagePulls` / `maxParallelImagePulls` | false / 3 | With serial pulls, one multi-GB image blocked every other pod start on the node (p99 pull 440–1593s on several workers) |
 | `shutdownGracePeriod` / `shutdownGracePeriodCriticalPods` | 120s / 30s | Graceful node shutdown: regular pods get 90s, then critical pods 30s, on reboot or UPS poweroff |
+| `systemReserved` / `kubeReserved` | 1Gi + 100m each | Keeps pod requests from claiming the OS's and kubelet's memory; allocatable is 2.4Gi lower per node |
+| `evictionHard.memory.available` | 500Mi (was 100Mi) | The kubelet evicts pods before the kernel OOM killer has to step in. Every signal is listed, because setting the map replaces the defaults |
 
-Applied fleet-wide on 2026-11-22.
+Applied fleet-wide on 2026-11-22. Before the reservations, 13 CNPG clusters
+had their memory requests lowered (#16341, #16343, #16345) so every node's
+requests fit the smaller allocatable.
 
 ### Graceful node shutdown
 
@@ -80,9 +84,24 @@ disk threshold. On restart the kubelet re-admits the pods bound to the
 node against the new allocatable. If the sum of requests no longer fits,
 it can reject running pods (`OutOfmemory` / `OutOfcpu`). Before any such
 change, confirm on every node that the sum of memory requests stays below
-the new allocatable:
+the new allocatable. Count only Running/Pending pods: kube-state-metrics
+also reports the requests of Completed pods (such as a finished CronJob),
+which the kubelet ignores at admission:
 
 ```promql
-sum by (node)(kube_pod_container_resource_requests{resource="memory"})
+sum by (node)(kube_pod_container_resource_requests{resource="memory"}
+  * on(namespace,pod) group_left()
+    (max by (namespace,pod)(kube_pod_status_phase{phase=~"Running|Pending"}) == 1))
   / sum by (node)(kube_node_status_allocatable{resource="memory"})
 ```
+
+Check CPU requests the same way; reserving CPU shrinks CPU allocatable too.
+
+### Trap: do not cordon to make room
+
+`kubectl cordon` adds the `node.kubernetes.io/unschedulable` taint. Before
+2026-11-22 the descheduler's `RemovePodsViolatingNodeTaints` plugin treated
+that taint as a violation and evicted every pod on the node, including CNPG
+primaries (five failed over). The taint is now in the plugin's
+`excludedTaints`. Even so, to free room on one node, delete the specific
+pods you want moved instead of cordoning.

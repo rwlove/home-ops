@@ -105,8 +105,8 @@ mirroring `arc-runner-set-home-ops-allow`'s egress shape.
    workload; deferred as net-new hardening rather than done in this pass.
 
 `home`, `network`, `downloads`, `observability`, `storage`, `kube-system`,
-`longhorn-system`, `rook-ceph`, `vpn` are **terminal at privileged** — architectural
-(USB passthrough, pod-gateway, CSI, hostPID/hostPath); PSS cannot carve out their
+`longhorn-system`, `rook-ceph` are **terminal at privileged** — architectural
+(USB passthrough, per-app VPN sidecars, CSI, hostPID/hostPath); PSS cannot carve out their
 privileged pods without a per-pod exception model (Kyverno, out of scope).
 
 Audits running pods against the baseline defined in
@@ -262,8 +262,8 @@ have a structural reason:
 - `observability/smartctl-exporter` — needs SMART ioctls. **Keep.**
 - `home/matter-server` — Matter SDK requires root for bluetooth/IPv6
   multicast. **Likely keep — confirm.**
-- `downloads/*/gateway-sidecar` (all 5 *arr + jd2) — pod-gateway
-  sidecar runs as root by design. **Keep, document.**
+- `downloads/*/gluetun` (one per download app) — the gluetun VPN
+  sidecar runs as root to manage routes/iptables by design. **Keep, document.**
 - `collab/zulip` — Zulip image expects root entrypoint that drops to
   `zulip` user internally. **Verify drop-privs is real, then keep.**
 - `home/home-assistant-code` — code-server images start
@@ -289,8 +289,8 @@ namespace. This is inherent to the CSI architecture.
 
 ### C2. Network path containers
 
-- `vpn/downloads-gateway-pod-gateway-main` — needs `NET_ADMIN` +
-  `NET_RAW` to set up the gluetun tunnel and route table.
+- `downloads/*/gluetun` — needs `NET_ADMIN` to set up the WireGuard
+  tunnel, firewall and route table in each pod (not `privileged`).
 - `network/multus` — CNI plugin, needs `NET_ADMIN`.
 - `network/wg-easy` — wireguard kernel ops need `NET_ADMIN`. Already
   privileged; could potentially be reduced to `NET_ADMIN` cap-only.
@@ -339,9 +339,10 @@ namespace. This is inherent to the CSI architecture.
    `node-exporter RAPL needs runAsUser:0`), and smartctl needs ioctls
    no userspace cap exposes.
 
-3. **`vpn/downloads-gateway-pod-gateway-main`** (NET_ADMIN, NET_RAW,
-   UID 0 on sidecars). Pod-gateway architecture; sidecars need to
-   manipulate the netns. Already isolated to one namespace.
+3. **`downloads/*/gluetun`** (NET_ADMIN, UID 0, one sidecar per app).
+   The VPN sidecar must manipulate its pod's netns; the shared
+   pod-gateway it replaced (2026-11-21) is gone, along with the `vpn`
+   namespace.
 
 ## PSA enforcement plan
 
@@ -380,7 +381,7 @@ labeled too (previously out of scope); `cilium-secrets` (never schedules pods) a
 | `cert-manager` | `restricted` | Upstream pods are clean |
 | `collab` | `restricted` | oauth2-proxy hardened; zulip will fire |
 | `databases` | `baseline` | CNPG operator-managed; tighten later |
-| `downloads` | `baseline` | pod-gateway-sidecar root + NET_ADMIN |
+| `downloads` | `privileged` | gluetun VPN sidecar root + NET_ADMIN (outside baseline) |
 | `external-secrets` | `restricted` | ESO controller is clean |
 | `home` | `baseline` | frigate/z2m/zwave-js need privileged USB |
 | `istio-system` | `baseline` | istio CNI installer needs privileged init |
@@ -393,7 +394,6 @@ labeled too (previously out of scope); `cilium-secrets` (never schedules pods) a
 | `rook-ceph` | `privileged` | CSI + OSDs (audit doc C1) |
 | `selfhosted` | `restricted` | Small stateless set |
 | `storage` | `baseline` | Garage is near-clean |
-| `vpn` | `privileged` | Already enforce-privileged; audit aligned |
 
 ### Reading PSA audit-mode violations
 

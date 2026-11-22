@@ -9,7 +9,7 @@ spec:
     - name: slskd.session
       rules:
         # Backstop for the "half-open server session" failure mode: the
-        # downloads-gateway VXLAN tunnel flaps, slskd's Soulseek SERVER
+        # VPN tunnel (gluetun sidecar) flaps, slskd's Soulseek SERVER
         # connection goes half-open, but server.state stays "Connected,
         # LoggedIn" — the app itself can't tell the transport is dead until
         # the OS TCP timeout (~15m) forces a reconnect. server.state /
@@ -51,7 +51,7 @@ spec:
               slskd has received zero incoming distributed-mesh search
               requests for 15 minutes despite being scraped successfully.
               This is the signature of a half-open Soulseek server session
-              (downloads-gateway VXLAN tunnel flap) — server.state will
+              (VPN tunnel flap) — server.state will
               still report "Connected, LoggedIn" even though the transport
               is dead.
 
@@ -59,13 +59,13 @@ spec:
               restarted the pod on this same signal before this alert's
               15m window elapses. If this is firing, either that restart
               hasn't happened yet or it fired and the session is still
-              stale post-restart — check whether the downloads-gateway VPN
+              stale post-restart — check whether the gluetun VPN
               tunnel itself is down:
                 kubectl -n downloads get pods -l app.kubernetes.io/name=slskd
                 kubectl -n downloads logs -l app.kubernetes.io/name=slskd --tail=100
-                kubectl -n vpn get pods -l app.kubernetes.io/instance=downloads-gateway
+                kubectl -n downloads logs slskd-0 -c gluetun --tail=100
               Fix is a pod restart (reconnects the server session); if the
-              VPN gateway itself is down, restarting slskd alone won't
+              VPN tunnel itself is down, restarting slskd alone won't
               clear it.
           expr: |-
             (

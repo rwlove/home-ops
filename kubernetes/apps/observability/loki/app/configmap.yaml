@@ -127,44 +127,6 @@ data:
                 (audit=true lines) for the failing tool/server/status — a
                 backend MCP server is likely down or erroring.
 
-      # Backstop for a failure mode invisible to kube_pod_container_status_restarts_total:
-      # gluetun (the VPN client sidecar for the download-path egress gateway
-      # in the vpn namespace) restarts its own internal WireGuard process on
-      # a failed healthcheck WITHOUT the container or pod restarting — CRI-O
-      # and the kubelet see a live, Ready, restartCount:0 process throughout.
-      # No metrics endpoint is enabled on this deployment (no
-      # HTTP_CONTROL_SERVER / METRICS_ENABLED env, no ServiceMonitor), so a
-      # Prometheus-metric alert cannot see this signal; log content is the
-      # only observable. Confirmed live 2026-08-28 13:01-13:06 ET: gluetun
-      # logged `restarting VPN because it failed to pass the healthcheck:
-      # ... dial tcp4 1.1.1.1:443: i/o timeout` roughly every 6s across a
-      # ~4.5m outage window (~45 occurrences) before self-recovering with no
-      # config change on our side — see project_downloads_gateway_gluetun_
-      # silent_restart_loop.md.
-      #
-      # IMPORTANT: this pod runs 3 containers (main, gluetun, netshoot)
-      # sharing ONE Loki stream — the vector-agent sink indexes only
-      # {app="pod-gateway", namespace="vpn", node, service_name} at the pod
-      # level; there is NO indexed `container` label in this cluster's Loki
-      # schema (confirmed 2026-08-28 via list_loki_label_names — the shipped
-      # v1 of this rule used a nonexistent `container="gluetun"` matcher and
-      # silently matched zero streams instead of erroring, per
-      # feedback_public_sink_llm_digest_needs_mechanical_restricted_backstop-
-      # style "worse than nothing" failure). The per-container name is only
-      # inside the JSON-encoded line body as `container_name`, so isolate it
-      # with `| json | container_name="gluetun"` instead.
-      #
-      # A single normal reconnect (the design-intent CONNECTION_RETRY_COUNT
-      # recovery baked into the pod-gateway settings) produces at most one
-      # or two of these lines before the tunnel comes back — nowhere near
-      # threshold. `> 10` in a 5m window requires a genuinely sustained loop
-      # (~1 failure/30s sustained, well below today's observed ~1/6s
-      # cadence) to fire, so this rule is tuned to catch today's event
-      # comfortably (45 >> 10) without paging on routine single retries.
-      # `for: 5m` keeps a five-minute matching window so a loop has to
-      # persist across the whole window, not just spike once. Verified live
-      # against today's outage window (13:01-13:06 ET) post-fix: this exact
-      # matcher returns the historical restart-loop lines.
       # PUMP Voltra sidecar (collab ns) drives the Voltra trainer over BLE
       # through an ALWAYS-ON ESPHome bluetooth proxy (now bluetooth-proxy-gym-poe,
       # 10.10.20.59, a wired PoE ESP32 on the IoT VLAN; previously the WiFi
@@ -219,6 +181,23 @@ data:
                 and the ESPHome proxy device itself (bluetooth-proxy-gym-poe) for
                 PoE power / ethernet instability on the IoT VLAN. There is no proxy-state
                 metric yet, so this log-based rule is the only signal.
+      # Download-path VPN: every app in the downloads namespace has its own
+      # gluetun sidecar (#11829; this replaced the shared vpn-namespace
+      # gateway). gluetun restarts its WireGuard tunnel internally on a
+      # failed healthcheck WITHOUT the container restarting, so the
+      # restart-count / readiness Prometheus rules (DownloadVpnSidecar*)
+      # can't see a tunnel that keeps cycling; the log line is the only
+      # signal. Precedent: 2026-08-28, ~45 such lines in ~4.5m (one every
+      # ~6s) during a provider-side relay fault.
+      #
+      # This cluster's Loki has NO indexed `container` label (a matcher on
+      # it silently matches zero streams); the container name is only in the
+      # JSON line body, hence `| json | container_name="gluetun"`. Streams
+      # carry an `app` label, so the rule groups per app.
+      #
+      # Threshold: a single self-healing blip is ONE line (measured
+      # 2026-11-21: tunnel forced down, recovered in ~6s). `> 5` in 15m,
+      # held `for: 10m`, needs a loop sustained for most of the window.
       - name: download-vpn-tunnel
         rules:
           - alert: DownloadVpnTunnelRestartLoop

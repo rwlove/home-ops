@@ -9,12 +9,14 @@ spec:
 
   # Khoj stores embeddings via pgvector. Reuse the same vectorchord image
   # langgraph-memory + immich use (mature in this cluster, ships pgvector).
-  # Hop 1 of the PG14 -> 18 program (minor + VectorChord bump on PG14):
-  # 14.17-0.3.0 -> 14.24-1.1.1. After the rolling update run (not
-  # declarative): ALTER EXTENSION vector UPDATE. This DB has no vchord
-  # extension (only the preloaded library) and no vchordrq index. Hop 2 is the
-  # 18.6-1.1.1 major upgrade.
-  imageName: ghcr.io/tensorchord/cloudnative-vectorchord:14.24-1.1.1@sha256:86dec1dbc2bc72df7478ab58abf724e706ed04001bcc65adeaf728c88096441f
+  # PG 18 MAJOR upgrade (one-way once the pg_upgrade job swaps directories),
+  # hop 2 of the PG14 -> 18 program (hop 1 was 14.17-0.3.0 -> 14.24-1.1.1 plus
+  # ALTER EXTENSION vector UPDATE). Same distro (bookworm) and same
+  # VectorChord (1.1.1). Rollback BEFORE the swap / on job failure: revert
+  # imageName + serverName. After success: restore the pre-upgrade physical
+  # backup (old serverName archive) into a new PG14 cluster, or pg_restore the
+  # off-cluster dump.
+  imageName: ghcr.io/tensorchord/cloudnative-vectorchord:18.6-1.1.1@sha256:c7672bc011351a587cc292a94aac7eeebb593ed2e120077bd9c9944c9467db93
 
   primaryUpdateStrategy: unsupervised
 
@@ -64,7 +66,14 @@ spec:
       name: barman-cloud.cloudnative-pg.io
       parameters:
         barmanObjectName: garage-khoj
-        serverName: postgres-khoj-backup
+        # Bumped from postgres-khoj-backup for the 14->18 major upgrade:
+        # pg_upgrade resets the timeline / system ID, so post-upgrade WAL and
+        # base backups must land under a fresh serverName. The old archive
+        # stays intact at postgres-khoj-backup as the pre-upgrade restore point
+        # (PG14 data: restore it onto a PG14 vectorchord image; 14.24-1.1.1 for
+        # WAL after hop 1); externalClusters below still points at it. A fresh
+        # base backup must be taken into the new path right after.
+        serverName: postgres-khoj-backup-v18
 
   externalClusters:
     - name: postgres-khoj-backup

@@ -1,0 +1,66 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: download-vpn-tunnel
+spec:
+  groups:
+    # Every app in the downloads namespace egresses through its own gluetun
+    # native sidecar (an initContainer with restartPolicy: Always). A dead
+    # tunnel FAILS CLOSED (gluetun firewall + CNP egress pinned to the relay
+    # IP), so the symptom is silence: downloads stall, nothing leaks, and
+    # the app container stays Ready. These rules are what make that visible.
+    #
+    # Sustained-only by design: a single tunnel blip self-heals in seconds
+    # (gluetun restarts the VPN internally) and must not page. The
+    # internal-restart loop is covered by the Loki rule
+    # DownloadVpnTunnelRestartLoop (gluetun logs it; it is not a container
+    # restart). These cover what the log rule can't: a sidecar that is down
+    # or being restarted by its liveness probe, including a pod that cannot
+    # start at all because its startupProbe never sees a tunnel.
+    - name: download-vpn-tunnel
+      rules:
+        - alert: DownloadVpnSidecarNotReady
+          annotations:
+            summary: >-
+              Download VPN sidecar not ready: {{ $labels.namespace }}/{{ $labels.pod }}
+            description: >-
+              The gluetun sidecar in {{ $labels.namespace }}/{{ $labels.pod }}
+              has been not-Ready for 15m. This app has NO internet egress (it
+              fails closed: nothing leaks, downloads stall). If several apps
+              fire at once, suspect a provider-side outage, the shared key /
+              account, or a relay renumber, not a per-app fault.
+              A single app usually means its relay IP no longer matches the
+              CNP pin or its relay is down. Check:
+                kubectl -n downloads logs {{ $labels.pod }} -c gluetun --tail=100
+              and compare the relay's ipv4_addr_in
+              (api.mullvad.net/www/relays/wireguard/) with the toCIDR pin in
+              the app's CNP.
+          expr: |
+            max by (namespace, pod) (
+              kube_pod_init_container_status_ready{namespace="downloads", container="gluetun"}
+            ) == 0
+          for: 15m
+          labels:
+            severity: warning
+        - alert: DownloadVpnSidecarRestartLoop
+          annotations:
+            summary: >-
+              Download VPN sidecar restart-looping: {{ $labels.namespace }}/{{ $labels.pod }}
+            description: >-
+              The gluetun sidecar in {{ $labels.namespace }}/{{ $labels.pod }}
+              restarted {{ $value | humanize }} times in the last hour (its
+              liveness probe restarts it after ~3m of failed tunnel health
+              checks, or it is being OOM-killed). The app has intermittent or
+              no egress; it fails closed. Check the previous instance:
+                kubectl -n downloads logs {{ $labels.pod }} -c gluetun --previous --tail=100
+              and the termination reason (OOMKilled vs Error) in
+              kubectl -n downloads describe pod {{ $labels.pod }}.
+          expr: |
+            sum by (namespace, pod) (
+              increase(kube_pod_init_container_status_restarts_total{namespace="downloads", container="gluetun"}[1h])
+            ) >= 3
+          for: 5m
+          labels:
+            severity: warning

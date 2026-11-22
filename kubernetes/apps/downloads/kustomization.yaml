@@ -5,18 +5,15 @@ kind: Kustomization
 namespace: downloads
 components:
   - ../../components/network-policy/baseline
-  # workaround: https://github.com/angelnu/helm-charts/issues/414 — re-add default-deny when pod-gateway DHCP-over-VXLAN works under Cilium default-deny (or when pod-gateway is replaced with a static-IP wireguard pattern)
-  # Tracking: home-ops#11829
-  # Detail: the pod-gateway sidecar's init container brings up a VXLAN
-  # tunnel to vpn/pod-gateway then runs `udhcpc` on vxlan0 to lease an
-  # IP. The DHCP discover is a 255.255.255.255 broadcast encapsulated
-  # inside the VXLAN unicast tunnel. Under cilium default-deny the
-  # broadcast return path (DHCP OFFER) is silently dropped — cilium's
-  # identity for the broadcast frame inside the tunnel doesn't match
-  # vpn/pod-gateway's identity. ICMP allow (PR #11548) was necessary
-  # but not sufficient: VXLAN tunnel comes up, then DHCP times out and
-  # the init container crashloops. Tracked in #11493 / pod-gateway
-  # upstream issues #414-#416.
+  # default-deny re-enabled 2026-11-21 (#11829): pod-gateway's
+  # DHCP-over-VXLAN, which broke under default-deny, is gone. Every app
+  # egresses via its own gluetun sidecar with a per-app CNP (egress
+  # default-deny, relay /32 only). Pre-flight ingress audit: every
+  # cross-ns caller's egress rule (internal gateway, the media managers,
+  # the Soulseek orchestrator, the media-stack MCP backend) has a
+  # matching per-app ingress allow; scrape, probes and
+  # intra-ns are covered by baseline.
+  - ../../components/network-policy/default-deny
 resources:
   - ./namespace.yaml
   - ./jdownloader2/ks.yaml

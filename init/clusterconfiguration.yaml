@@ -132,6 +132,17 @@ scheduler:
 apiVersion: kubelet.config.k8s.io/v1beta1
 kind: KubeletConfiguration
 cgroupDriver: systemd
+# Reserve memory for the OS and the kubelet/runtime so pod requests can't claim
+# the whole node, and start evicting pods at 500Mi free instead of 100Mi. CPU
+# is kept small (100m each) because CPU requests sit at ~96% of allocatable on
+# the 8-core workers and CPU is compressible. Every eviction signal is listed
+# explicitly: setting evictionHard replaces the whole default map.
+evictionHard:
+  imagefs.available: 15%
+  imagefs.inodesFree: 5%
+  memory.available: 500Mi
+  nodefs.available: 10%
+  nodefs.inodesFree: 5%
 featureGates:
   ClusterTrustBundle: true
   ClusterTrustBundleProjection: true
@@ -141,6 +152,9 @@ featureGates:
 imageGCHighThresholdPercent: 72
 imageGCLowThresholdPercent: 62
 imageMaximumGCAge: 48h0m0s
+kubeReserved:
+  cpu: 100m
+  memory: 1Gi
 # Pull up to three images at once. With serial pulls, one multi-GB image
 # (vLLM, ComfyUI, Frigate) blocked every other pod starting on that node:
 # p99 pull time was 440-1593s on several workers before this change.
@@ -151,3 +165,6 @@ serializeImagePulls: false
 # UPS-initiated poweroff, instead of being killed mid-write.
 shutdownGracePeriod: 120s
 shutdownGracePeriodCriticalPods: 30s
+systemReserved:
+  cpu: 100m
+  memory: 1Gi

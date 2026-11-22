@@ -329,8 +329,15 @@ spec:
           # WireGuard handshake + tunnel to the Mullvad relay. Every other
           # external flow is inside this tunnel. Replaces the pod-gateway
           # VXLAN/4789 + ICMP allows.
-          - toEntities:
-              - world
+          # Pinned to THIS app's relay entry IP (us-nyc-wg-303), not any world
+          # host: while gluetun restarts, Cilium is the only egress gate, and
+          # "any host on UDP/51820" would let cleartext UDP reach a stranger
+          # listening on that port. Entry IPs are per-server and stable;
+          # a relay failover is now: pick relay -> set its ipv4_addr_in here
+          # (api.mullvad.net/www/relays/wireguard/) -> edit the 1P field.
+          # A mismatch fails closed (no tunnel) and fires the outage alert.
+          - toCIDR:
+              - 143.244.47.91/32
             toPorts:
               - ports:
                   - port: "51820"

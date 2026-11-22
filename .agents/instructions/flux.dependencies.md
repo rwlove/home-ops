@@ -45,9 +45,9 @@ during an Authelia incident.
 
 ## Never set on a child
 
-- `sourceRef` and `prune: true`: the `cluster-apps` parent patch
+- `sourceRef`, `retryInterval` and `prune: true`: the `cluster-apps` parent patch
   (`kubernetes/flux/cluster/ks.yaml`) injects both and **overrides** any child
-  value (strategic merge is patch-wins). `retryInterval` is injected too (2m).
+  value (strategic merge is patch-wins). It sets `retryInterval: 2m`.
 - To opt a child out of pruning, label it `home-ops.io/child-prune: disabled`
   (literal in its `ks.yaml`; `prune: false` may stay as documentation).
 - To protect a parent-rendered object from garbage collection entirely, label

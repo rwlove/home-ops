@@ -1,6 +1,7 @@
 @AGENTS.md
 @.agents/instructions/claude-runner-routing.md
 @.agents/instructions/configmap.resources.instructions.md
+@.agents/instructions/flux.dependencies.md
 @.agents/instructions/flux.sorting.instructions.md
 @.agents/instructions/gpu-routing.md
 @.agents/instructions/helmfile.sorting.instructions.md

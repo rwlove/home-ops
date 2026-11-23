@@ -219,25 +219,6 @@ spec:
             port: *httpPort
         primary: true
 
-    route:
-      app:
-        annotations:
-          glance/name: "QBittorrent"
-          glance/show: "true"
-          glance/icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/qbittorrent.png"
-          glance/id: "Downloads"
-        hostnames:
-          - "bt.${SECRET_DOMAIN}"
-        parentRefs:
-          - name: internal
-            namespace: network
-            sectionName: https
-        rules:
-          - backendRefs:
-              - kind: Service
-                name: qbittorrent
-                port: 8080
-
     persistence:
       config:
         existingClaim: qbittorrent-config-pvc
@@ -322,3 +303,36 @@ spec:
               - ports:
                   - port: "51820"
                     protocol: UDP
+    route:
+      qbittorrent: # key == release name -> no suffix -> "qbittorrent" (unchanged)
+        annotations:
+          glance/name: QBittorrent
+          glance/show: "true"
+          glance/icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/qbittorrent.png
+          glance/id: Downloads
+        hostnames:
+          - bt.${SECRET_DOMAIN}
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - kind: Service
+                name: qbittorrent
+                port: 8080
+      public:      # -> "qbittorrent-public"
+        hostnames:
+          - bt.${SECRET_DOMAIN}
+        parentRefs:
+          - name: internal
+            namespace: network
+            sectionName: https
+        rules:
+          - matches:
+              - path:
+                  type: PathPrefix
+                  value: /api
+            backendRefs:
+              - identifier: app
+                port: 8080

@@ -6,7 +6,7 @@ Whenever asked to sort these files, follow these instructions:
 
 ## Override rules for Kubernetes related file types
 
-- There should be no `namespace` field, remove it if it exists, except for `cluster-apps` which must have `namespace: flux-system` below `name` in the `metadata` section.
+- There should be no `namespace` field, remove it if it exists, except for the Flux parents in `kubernetes/flux/cluster/ks.yaml` (`cluster-config` and every Kustomization labelled `home-ops.io/tier-parent: "true"`), which must have `namespace: flux-system` below `name` in the `metadata` section.
 
 - Whenever they are present on the same level of a YAML structure, these fields should be sorted as follows:
   - "---" (required, insert at top if missing)

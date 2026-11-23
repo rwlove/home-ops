@@ -62,3 +62,17 @@ spec:
           annotations:
             summary: brain's chrony metrics have stopped updating
             description: "The chrony textfile collector on brain has not refreshed its metrics for 10m+, so the other brain time alerts are working from stale data. On brain check the collector's systemd timer or cron job and run `chronyc tracking` directly.\n  VALUE = {{ $value }} seconds since last run"
+
+        - alert: BrainTimeNotServing
+          # Since 2026-11-23 brain serves ~25 LAN clients (the k8s nodes, the
+          # Omada APs and switches, DHCP option 42 clients), so an hour with no
+          # NTP requests means chrony stopped answering, the allow lines or the
+          # firewall changed, or clients were repointed elsewhere. increase()
+          # handles the counter reset when chronyd restarts.
+          expr: increase(chrony_server_ntp_packets_received_total{instance=~"brain\\..*:9100"}[1h]) == 0
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: brain has served no NTP requests for over an hour
+            description: "brain's chrony received no NTP requests in the last hour, although the LAN's hosts, access points and switches all use it for time. On brain check `ss -ulnp | grep :123` (chronyd listening), `chronyc serverstats`, the `allow` lines in /etc/chrony.conf, and `firewall-cmd --zone=iot --list-services`.\n  VALUE = {{ $value }} requests in the last hour"

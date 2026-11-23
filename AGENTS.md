@@ -448,7 +448,7 @@ Not inlined, to stay inside the context budget. Read the file when its subject c
 - **[`.agents/instructions/schema.correction.md`](.agents/instructions/schema.correction.md)** — Fixing yaml-language-server schema URLs and CRD validation errors.
 - **[`.agents/instructions/gpu-routing.md`](.agents/instructions/gpu-routing.md)** — Which GPU (P40 / DGX Spark) a workload belongs on, and why.
 - **[`.agents/instructions/helmrelease.security.md`](.agents/instructions/helmrelease.security.md)** — securityContext defaults for HelmReleases and the documented escape hatches.
-- **[`.agents/instructions/configmap.resources.instructions.md`](.agents/instructions/configmap.resources.instructions.md)** — When to use configMapGenerator vs a literal ConfigMap, and the resources/ convention.
+- **[`.agents/instructions/configmap.resources.instructions.md`](.agents/instructions/configmap.resources.instructions.md)** — When to use configMapGenerator vs a literal ConfigMap, and the resources/ convention. **Removing a subPath-mounted key takes two PRs** (mount first, then key); enforced by `tools/lint-subpath-key-removal.py`.
 - **[`.agents/instructions/workarounds.md`](.agents/instructions/workarounds.md)** — How upstream workarounds are tracked and retired. **Read before filing any upstream issue/PR**: every upstream filing needs a `workaround`-labeled tracking issue here.
 - **[`.agents/instructions/helmfile.sorting.instructions.md`](.agents/instructions/helmfile.sorting.instructions.md)** — Ordering rules for bootstrap helmfile.d.
 - **[`.agents/instructions/flux.sorting.instructions.md`](.agents/instructions/flux.sorting.instructions.md)** — Ordering rules for Flux ks.yaml files.

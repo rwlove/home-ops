@@ -11,8 +11,13 @@ HARD design constraints (repo policy / memory), encoded here:
     esphome-0's Multus NIC on the IoT VLAN — the only path to the devices —
     exactly as the manual dashboard flow does. This process never touches the
     mcp-gateway. (reference_mcp_broker_unsafe_for_unattended_loops)
-  * Compile is a HARD gate: a non-zero `esphome compile` aborts the run before
-    any OTA; a firmware that did not compile green is never flashed.
+  * Compile is a HARD gate: a firmware that did not compile green is never
+    flashed. A compile failure leaves that device untouched (nothing was
+    uploaded), so the run SKIPS it and continues with the next candidate; only
+    an OTA or post-flash verify failure stops the run, because only then is a
+    device in an unknown state. A device whose compile failed is recorded in
+    state (`compile_failures`) and sorted to the BACK of later batches, so one
+    device that keeps failing can never starve the rest of the fleet.
   * Trigger = the dashboard's OWN device list (`GET /devices`) for core-version
     drift, PLUS a per-device content hash of the rendered /config file for
     config changes (Renovate `@tag` bumps, hand edits). The dashboard's
@@ -271,20 +276,30 @@ def classify(devs, state):
         elif drift:
             candidates.append((fn, "core-version-drift %s->%s"
                                % (d["deployed"], d["current"])))
+    # Devices whose compile failed recently go last (fewest failures first,
+    # then by name), so a persistently failing build can't hold the head of
+    # every batch.
+    candidates.sort(key=lambda c: (state.get(c[0], {}).get("compile_failures", 0), c[0]))
     return candidates, seeded
+
+
+class CompileFailed(RuntimeError):
+    """Compile failed: nothing was uploaded, the device is untouched."""
 
 
 def flash_one(fn, devs, state):
     """Compile (hard gate) then OTA one device; verify online. Returns a result
-    dict. Raises RuntimeError on a hard failure (caller stops the run)."""
+    dict. Raises CompileFailed when the build fails (device untouched, caller
+    continues) and RuntimeError on an OTA/verify failure (caller stops the run)."""
     addr = devs[fn]["address"]
     log("=== %s (%s) — compiling ===" % (fn, addr))
     rc, out, err = exec_pod(
         "esphome compile %s/%s" % (CONFIG_DIR, fn), timeout=COMPILE_TIMEOUT)
     tail = (out or err).splitlines()[-8:]
     if rc != 0:
-        raise RuntimeError("compile FAILED (rc=%s) for %s:\n%s"
-                           % (rc, fn, "\n".join(tail)))
+        why = "timed out after %ss" % COMPILE_TIMEOUT if rc == 124 else "rc=%s" % rc
+        raise CompileFailed("compile FAILED (%s) for %s:\n%s"
+                            % (why, fn, "\n".join(tail)))
     log("compile OK: %s" % fn)
     if DRY_RUN:
         log("DRY_RUN: skipping OTA for %s (no upload, no state write)" % fn)
@@ -304,7 +319,7 @@ def flash_one(fn, devs, state):
                            % (fn, DEVICE_API_PORT, VERIFY_TIMEOUT))
     cur = config_hash(fn)
     if cur:
-        state[fn] = {"hash": cur}
+        state[fn] = {"hash": cur}  # also clears any compile_failures count
         save_state(state)
     log("VERIFIED online: %s" % fn)
     return {"fn": fn, "status": "flashed"}
@@ -344,7 +359,7 @@ def main():
                             " | deferred: %s" % ", ".join(f for f, _ in deferred)
                             if deferred else ""))
 
-    results, failure = [], None
+    results, failure, compile_failed = [], None, []
     for fn, reason in batch:
         # Pre-flight reachability: an offline device is skipped (not a failure),
         # so it never stops the run or pages. Deferred to a future run; when it
@@ -359,6 +374,14 @@ def main():
             res = flash_one(fn, devs, state)
             res["reason"] = reason
             results.append(res)
+        except CompileFailed as e:
+            log("SKIP (compile failed, device untouched): %s" % e)
+            compile_failed.append((fn, str(e)))
+            if not DRY_RUN:
+                entry = state.setdefault(fn, {})
+                entry["compile_failures"] = entry.get("compile_failures", 0) + 1
+                save_state(state)
+            continue
         except RuntimeError as e:
             log("STOP: %s" % e)
             failure = (fn, str(e))
@@ -372,7 +395,8 @@ def main():
     # stack's job, and nagging here would re-alert on known-offline states). It
     # rides along as context only when an email is already going out for a
     # flash / failure / dry-run compile.
-    send = bool(flashed) or failure is not None or (DRY_RUN and bool(compiled))
+    send = (bool(flashed) or failure is not None or bool(compile_failed)
+            or (DRY_RUN and bool(compiled)))
     if not send:
         log("RECONCILE_RESULT=noop-no-action skipped=%d" % len(skipped))
         return 0
@@ -390,6 +414,11 @@ def main():
     if skipped:
         lines += ["", "**Skipped (offline — deferred to a future run):**"]
         lines += ["- `%s` — %s" % (r["fn"], r["reason"]) for r in skipped]
+    if compile_failed:
+        lines += ["", "**Compile failed (not flashed, device untouched; retried "
+                  "later, behind the other devices):**"]
+        for f, err in compile_failed:
+            lines += ["- `%s`" % f, "```", err[:600], "```"]
     if failure:
         lines += ["", "**FAILED (run stopped):**", "- `%s`" % failure[0],
                   "```", failure[1][:600], "```"]
@@ -397,10 +426,11 @@ def main():
         lines += ["", "**Deferred to next run (per-run cap %d):**" % MAX_PER_RUN]
         lines += ["- `%s` — %s" % (f, r) for f, r in deferred]
 
-    subject = "esphome-reconciler: %d flashed%s%s%s" % (
+    subject = "esphome-reconciler: %d flashed%s%s%s%s" % (
         len(flashed),
         ", %d compiled" % len(compiled) if compiled else "",
         ", %d offline" % len(skipped) if skipped else "",
+        ", %d compile failed" % len(compile_failed) if compile_failed else "",
         ", 1 FAILED" if failure else "")
     body = "\n".join(lines)
     try:
@@ -409,9 +439,10 @@ def main():
     except Exception as e:  # noqa: BLE001
         log("WARN: notify-mcp delivery failed: %r" % e)
         # analysis is in the log; do not hard-fail on a delivery hiccup.
-    log("RECONCILE_RESULT=flashed=%d compiled=%d skipped=%d failed=%d deferred=%d"
-        % (len(flashed), len(compiled), len(skipped), 1 if failure else 0,
-           len(deferred)))
+    log("RECONCILE_RESULT=flashed=%d compiled=%d skipped=%d compile_failed=%d "
+        "failed=%d deferred=%d"
+        % (len(flashed), len(compiled), len(skipped), len(compile_failed),
+           1 if failure else 0, len(deferred)))
     return 0
 
 

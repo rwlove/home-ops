@@ -57,8 +57,17 @@ so it is never a candidate — un-exclude it in spring.
 
 One device at a time: compile → OTA → **verify** the device's native-API port
 (`:6053`) accepts a connection again (clean reboot, no boot-loop) before the
-next. Any failure (compile, OTA, or verify timeout) **stops the run** — it never
-cascades into the next device in an unknown state. `MAX_PER_RUN` (default 3)
+next. An **OTA or verify failure stops the run** — it never cascades into the
+next device while one is in an unknown state.
+
+A **compile failure does not stop the run.** Nothing was uploaded, so that
+device is untouched: it is skipped, reported in the email, and its
+`compile_failures` count in the state file goes up. Candidates are sorted by
+that count (then by name), so a device that keeps failing moves to the back of
+later batches instead of blocking the rest of the fleet. A successful flash
+resets the count. Before 2026-11-23 a compile failure stopped the run, and
+because candidates were sorted by name, one voice satellite timing out every
+night held up every device behind it. `MAX_PER_RUN` (default 3)
 caps each run; the rest defer to subsequent runs. A core image bump marks the
 whole fleet out-of-date, so the cap + daily cadence drains it over several days
 — never a concurrent mass reflash of garage doors / alarm panel / voice / pool.

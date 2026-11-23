@@ -66,7 +66,10 @@ master_join_cmd="${worker_join_cmd} --control-plane --certificate-key ${certs}"
 for cp_host in "${JOIN_MASTERS[@]}" ; do
     echo "########## Joining (master) ${cp_host} #"
     prep_netfilter "$cp_host"
-    ssh "root@${cp_host}.${SECRET_DOMAIN}" "mkdir -p /etc/kubernetes/manifests && ${master_join_cmd}"
+    # Smaller kubelet reservations on the VM masters; see docs/src/kubelet_tuning.md.
+    ssh "root@${cp_host}.${SECRET_DOMAIN}" "mkdir -p /etc/kubernetes/manifests /etc/kubernetes/patches"
+    scp ./init/patches/small-control-plane/* "root@${cp_host}.${SECRET_DOMAIN}:/etc/kubernetes/patches/"
+    ssh "root@${cp_host}.${SECRET_DOMAIN}" "${master_join_cmd} --patches /etc/kubernetes/patches"
 done
 
 for worker_host in "${WORKERS[@]}" ; do

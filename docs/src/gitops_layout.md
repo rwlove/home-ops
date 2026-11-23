@@ -98,9 +98,13 @@ pruning parents on independent timers can race. So a move always runs in a
    Anything removed from a parent's root during the window is dropped from its
    inventory rather than collected.
 2. PR: the source (and, if it already exists, the destination) parent →
-   `prune: false`.
+   `prune: false`, each with the annotation
+   `home-ops.io/move-window: "<this PR's number>"`. `tools/lint-flux-parents.py`
+   rejects `prune: false` without it, so a window can't be left open by
+   accident.
 3. PR (single commit): add or extend the destination root, and remove the dirs
-   from the source root. A new parent is created with `prune: false`. Before
+   from the source root. A new parent is created with `prune: false` and the
+   same `home-ops.io/move-window` annotation. Before
    pushing: build every root, check the union of all roots has no duplicates
    and equals the pre-window set, and run both lints.
 4. Reconcile destination → source → destination. Check:
@@ -110,7 +114,8 @@ pruning parents on independent timers can race. So a move always runs in a
    - no child Kustomization's `generation` changed;
    - nothing was deleted.
 5. Leak check: no object labelled for a parent is missing from its inventory.
-6. PR: every involved parent → `prune: true`, once each parent's
+6. PR: every involved parent → `prune: true` (and drop the
+   `home-ops.io/move-window` annotation), once each parent's
    `lastAppliedRevision` includes the move. Then unfreeze.
 
 A correction inside the window (a dir in the wrong tier) is safe while every

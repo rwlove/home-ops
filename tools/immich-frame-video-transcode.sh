@@ -52,7 +52,7 @@ STS=immich-server
 POD=immich-server-0
 CTR=main
 ES_PATH="kubernetes/apps/media/immich/app/externalsecret.yaml"
-# The app Kustomization that renders ES_PATH. Not the cluster-apps parent: the
+# The app Kustomization that renders ES_PATH. Not its tier parent: the
 # parent only applies child Kustomization objects, never the app's manifests.
 KUSTOMIZATION=immich
 ORG_REPO=rwlove/home-ops

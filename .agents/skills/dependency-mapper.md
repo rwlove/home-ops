@@ -324,9 +324,11 @@ kubectl get kustomization -n flux-system <dependency-name>
 
 This repository:
 
-- Cluster entry point: `kubernetes/flux/cluster/ks.yaml` defines the
-  `cluster-apps` Kustomization (path `./kubernetes/apps`) which Flux
-  recurses into.
+- Cluster entry point: `kubernetes/flux/cluster/ks.yaml` defines four
+  tier parents (`cluster-infra`, `cluster-platform`, `cluster-apps`,
+  `cluster-media`; roots `kubernetes/tiers/<tier>` and `kubernetes/apps`),
+  which Flux recurses into. The parents are identical apart from path and
+  prune (`tools/lint-flux-parents.py`). See `docs/src/gitops_layout.md`.
 - Per-app Kustomizations live next to each app at
   `kubernetes/apps/<namespace>/<app>/ks.yaml`. The `metadata.name` is
   just the app name (e.g., `nextcloud`, `videodupfinder`); there is no

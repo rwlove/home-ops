@@ -53,7 +53,7 @@ flux get all -A | grep -v True
 
 # Force reconciliation
 flux reconcile source git flux-system
-flux reconcile ks cluster-apps -n flux-system
+flux reconcile ks cluster-infra -n flux-system   # or cluster-platform / cluster-apps / cluster-media (see gitops_layout.md)
 flux reconcile hr <name> -n <ns>
 
 # Why is this HelmRelease unhappy?

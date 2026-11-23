@@ -120,7 +120,9 @@ media-pull-stack UIs which are still gated by oauth2-proxy).
 
 **Outcome:** All default-deny CNPs deleted from the 19 remaining
 locked-down namespaces. `cluster-apps` Flux Kustomization SUSPENDED
-to persist the rollback before this commit lands. Posture is now
+to persist the rollback before this commit lands. (Historical: since the
+2026-11 tier split, `cluster-apps` covers only home/selfhosted/collab; see
+`gitops_layout.md`. Suspending a parent is not a current procedure.) Posture is now
 **zero default-deny** cluster-wide. Baseline + per-app allow CNPs
 remain in git and in-cluster but have no enforcement effect without
 a default-deny.

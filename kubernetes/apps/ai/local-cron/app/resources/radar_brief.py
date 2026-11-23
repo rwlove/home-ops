@@ -234,7 +234,7 @@ def awaiting_review_line():
 
 def _week_label(today, d):
     """This-week label for date d: the bare weekday name, or "next <Weekday>"
-    for the day 7 out that shares today's weekday name."""
+    for a day a week out that shares today's weekday name (Sunday briefs)."""
     name = d.strftime("%A")
     return "next " + name if (d - today).days >= 7 else name
 
@@ -325,24 +325,24 @@ def main():
     # relies on). Inject the REAL date + an explicit window into the prompt so
     # the model never guesses "today" — F3: a weak local model asked to find
     # "today's" events with no date anchor will happily hallucinate one.
-    # Window is 7 days (the "This week" section), matching the laptop
-    # `whats-next` skill's own Source 4 calendar pull — widened from the
-    # original 3-day "Coming up" window when PRs were demoted to a footer
-    # and Vikunja due-dates became the lead content. The weekday-name map is
+    # The "This week" window is the rest of the calendar week (see below).
+    # The weekday-name map is
     # the same determinism move applied to "This week"'s weekday-only line
     # format — a weak local model asked to derive "what day of the week is
     # 2026-11-19" from an ISO date will sometimes get it wrong; handing it
     # the precomputed mapping removes that failure mode entirely.
     today = datetime.date.today()
-    # "This week" starts TOMORROW: anything dated today is Today-only. The
-    # window still reaches today+7, whose weekday collides with today's, so
-    # that day is labelled "next <Weekday>" — otherwise next Monday's
-    # recurring event reads as a duplicate of today's on a Monday brief.
+    # "This week" runs TOMORROW through Sunday: anything dated today is
+    # Today-only, and the week ends where the calendar week does (a Monday
+    # brief covers Tue-Sun). A Sunday brief would otherwise have an empty
+    # week, so it covers the coming Mon-Sun instead; that window's last day
+    # shares today's weekday, hence the "next Sunday" label.
     window_start = today + datetime.timedelta(days=1)
-    window_end = today + datetime.timedelta(days=7)
+    window_end = today + datetime.timedelta(days=(6 - today.weekday()) or 7)
     weekday_map = "; ".join(
         "%s=%s" % (d.isoformat(), _week_label(today, d))
-        for d in (today + datetime.timedelta(days=i) for i in range(1, 8))
+        for d in (today + datetime.timedelta(days=i)
+                  for i in range(1, (window_end - today).days + 1))
     )
     date_context = (
         "Today's actual date is %s (America/New_York); today's items go under "

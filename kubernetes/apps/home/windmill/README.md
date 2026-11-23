@@ -97,6 +97,26 @@ curl -k https://windmill.${SECRET_DOMAIN}  # → 200 + Windmill UI
 
 First image pull is **~5 minutes** — the image is 4 GiB.
 
+### Instance setting: telemetry off (not in Git)
+
+Windmill CE sends daily usage telemetry (version, base URL, job, login,
+worker and user counts) to `stats.windmill.dev` by default. Neither the
+chart nor any env var exposes the switch; it is the instance (global)
+setting `disable_stats`, stored in Windmill's database. It was set to
+`true` on 2026-11-22. **Re-apply it after any database rebuild or
+restore-to-empty**, using a super-admin token (the workflows token in
+`windmill-workflows-secret` has super-admin):
+
+```sh
+kubectl -n home port-forward svc/windmill-app 18000:8000 &
+TOK=$(kubectl -n home get secret windmill-workflows-secret \
+  -o jsonpath='{.data.WINDMILL_TOKEN}' | base64 -d)
+curl -X POST -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' \
+  -d '{"value": true}' http://127.0.0.1:18000/api/settings/global/disable_stats
+curl -H "Authorization: Bearer $TOK" \
+  http://127.0.0.1:18000/api/settings/global/disable_stats   # → true
+```
+
 ## Phase 1b — Authelia SSO via oauth2-proxy (future)
 
 When ready, follow the av1corrector-oauth2-proxy pattern at

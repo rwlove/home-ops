@@ -90,6 +90,26 @@ instance:
         target:
           kind: Deployment
           name: kustomize-controller
+      - # Raise the kustomize-controller CPU limit from the upstream 1 core.
+        # With 20 workers, a merge wave pins it at the limit (80-90% of CFS
+        # periods throttled), stretching cluster-apps reconciles from ~25s to 5m+.
+        # Idle use is ~40m, so this only widens the burst ceiling.
+        patch: |
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: all
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: manager
+                    resources:
+                      limits:
+                        cpu: "2"
+        target:
+          kind: Deployment
+          name: kustomize-controller
       - # Enable Helm repositories caching
         patch: |
           - op: add

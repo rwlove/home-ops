@@ -21,7 +21,12 @@ For MCP servers under `kubernetes/apps/mcp-system/`, prefer the
 Ask the user for:
 
 1. **App name** — e.g. `nametag`, `pump`
-2. **Namespace** — must already exist under `kubernetes/apps/<namespace>/`
+2. **Namespace** — must already exist under `kubernetes/apps/<namespace>/`.
+   A *new* namespace dir must also be listed in exactly one tier root
+   (`kubernetes/tiers/{infra,platform,media}/kustomization.yaml`, or
+   `kubernetes/apps/kustomization.yaml` for household apps). See
+   `docs/src/gitops_layout.md` § Adding a namespace;
+   `tools/lint-tier-membership.py` enforces it.
 3. **Image repository** — e.g. `ghcr.io/<owner>/<repo>`
 4. **Image tag** — preferably a sha-pinned tag (`v1.76.0@sha256:...`)
 5. **Port** — application HTTP port

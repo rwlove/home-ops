@@ -124,7 +124,7 @@ These were previously stand-alone scripts; recorded here as `kubectl`/`flux`/`ss
 
 | Operation | Command |
 |---|---|
-| Force-reconcile cluster-apps | `flux --namespace flux-system reconcile kustomization cluster-apps --with-source` |
+| Force-reconcile a tier parent | `flux reconcile source git home-ops-kubernetes -n flux-system`, then `flux reconcile kustomization cluster-<infra\|platform\|apps\|media> -n flux-system` (see `docs/src/gitops_layout.md`) |
 | Print Ceph dashboard password | `just k8s ceph-password` |
 | Spawn netshoot | `just k8s netshoot` (or `kubectl -n downloads run tmp-shell --rm -i --tty --image nicolaka/netshoot`) |
 | Run nvidia-smi on a GPU node | `kubectl -n default run nvidia-shell -i --tty --overrides='{"apiVersion":"v1","spec":{"nodeSelector":{"nvidia.com/gpu.present":"true"},"runtimeClassName":"nvidia"}}' --image nvidia/cuda:12.6.2-devel-ubuntu22.04 -- nvidia-smi` |

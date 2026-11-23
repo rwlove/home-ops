@@ -66,7 +66,8 @@ home-ops/
 ├── kubernetes/          # Kubernetes configurations (Flux-managed)
 │   ├── apps/            # Application configs
 │   ├── components/      # Reusable k8s components
-│   └── flux/            # Flux cluster definitions
+│   ├── flux/            # Flux cluster definitions (tier parents: docs/src/gitops_layout.md)
+│   └── tiers/           # Roots of the infra/platform/media tier parents (../apps/<ns> refs)
 ├── bootstrap/           # Bootstrap templates (helmfile.d, templates)
 ├── docs/                # Material for MkDocs documentation
 ├── init/                # Cluster initialization scripts
@@ -97,7 +98,7 @@ home-ops/
 Git push → Flux source sync → Kustomization → HelmRelease → k8s resources
 ```
 
-Flux recursively searches `kubernetes/apps/` for `kustomization.yaml` files. Each must define a namespace and Flux kustomization (`ks.yaml`).
+Flux delivers `kubernetes/apps/` through four tier parents (`cluster-infra`, `cluster-platform`, `cluster-apps`, `cluster-media`). Each namespace dir is listed by exactly one tier root (`kubernetes/apps/kustomization.yaml` or `kubernetes/tiers/<tier>/kustomization.yaml`). Each namespace dir defines its Namespace and the apps' Flux Kustomizations (`ks.yaml`). Moving a dir between tiers needs a prune-off window: see `docs/src/gitops_layout.md`.
 
 ### Conventions
 

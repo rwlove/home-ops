@@ -44,22 +44,22 @@ spec:
           # (visible in the app's health page) until the IP here is updated:
           #   kubectl get svc -n <ns> <name> -o jsonpath='{.spec.clusterIP}'
           hostAliases:
-            - ip: 10.43.176.163  # databases/postgres-prowlarr-rw
+            - ip: 10.43.176.163  # this app's CNPG rw Service
               hostnames:
                 - postgres-prowlarr-rw.databases.svc.cluster.local
-            - ip: 10.43.172.207  # media/lidarr
+            - ip: 10.43.172.207  # a media manager's Service
               hostnames:
                 - lidarr.media
-            - ip: 10.43.78.194  # media/radarr
+            - ip: 10.43.78.194  # a media manager's Service
               hostnames:
                 - radarr.media
-            - ip: 10.43.243.63  # media/sonarr
+            - ip: 10.43.243.63  # a media manager's Service
               hostnames:
                 - sonarr.media
-            - ip: 10.43.213.60  # downloads/qbittorrent
+            - ip: 10.43.213.60  # the torrent client's Service
               hostnames:
                 - qbittorrent
-            - ip: 10.43.132.202  # downloads/sabnzbd
+            - ip: 10.43.132.202  # the Usenet app's Service
               hostnames:
                 - sabnzbd
           securityContext:
@@ -75,8 +75,8 @@ spec:
           # Native sidecar (restartPolicy: Always): starts before the app,
           # gates it on a healthy tunnel via startupProbe, and stays up for
           # the pod's lifetime. gluetun's firewall is the primary
-          # kill-switch; the CNP below (egress default-deny, world UDP/51820
-          # only, CoreDNS denied) is the second.
+          # kill-switch; the CNP below (egress default-deny, UDP/51820 to this
+          # app's relay /32 only, CoreDNS denied) is the second.
           gluetun:
             image:
               repository: ghcr.io/qdm12/gluetun
@@ -302,7 +302,7 @@ spec:
           # fetch is inside this tunnel. Replaces the pod-gateway
           # VXLAN/4789 + ICMP allows.
           #
-          # Deliberately NO FlareSolverr allow: it runs in the media ns
+          # Deliberately NO allow for the Cloudflare-bypass proxy: it runs in the media ns
           # outside the VPN, so any indexer routed through it would fetch
           # from the home IP. Zero indexers use it today; leaving it
           # unreachable makes that fail closed instead of leaking.

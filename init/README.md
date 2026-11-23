@@ -10,9 +10,13 @@ Everything is driven from the **laptop** now — the repo no longer needs a chec
 
 | Script | Run from | When | What it does |
 |---|---|---|---|
-| `nodes.sh` | n/a (sourced) | n/a | Canonical node inventory (`MASTER_INIT`, `JOIN_MASTERS`, `WORKERS`, `LONGHORN_NODES`, teardown order). Sourced by create/destroy. |
+| `nodes.sh` | n/a (sourced) | n/a | Canonical node inventory (`MASTER_INIT`, `JOIN_MASTERS`, `SMALL_CONTROL_PLANE`, `WORKERS`, `LONGHORN_NODES`, teardown order) plus `sync_kubelet_patches`. Sourced by create/destroy/kubelet-resync. |
 | `clusterconfiguration.yaml` | n/a (manifest) | n/a | The `ClusterConfiguration` + `InitConfiguration` `kubeadm` ingests. `create-cluster.sh` renders it (`envsubst`) and `scp`s it to `master1`. |
 | `create-cluster.sh` | Laptop (`just cluster create`) | Once, full bring-up | End-to-end: renders kube-vip on `master1`, `kubeadm init`, pulls the kubeconfig, joins masters 2/3 + every worker, labels Longhorn nodes, makes `master1` schedulable, then bootstraps the in-cluster apps (secrets → CRDs → bootstrap helmfile → Flux). Requires `SECRET_DOMAIN`. |
+| `joinconfiguration-control-plane.yaml` | n/a (manifest) | n/a | `JoinConfiguration` for masters 2/3. `create-cluster.sh` fills in the minted token, CA hash and certificate key (`envsubst`). Declares the kubelet patches directory. |
+| `upgradeconfiguration.yaml` | n/a (manifest) | n/a | `UpgradeConfiguration` for kubelet re-syncs. Declares the same patches directory, so per-node overrides survive. |
+| `patches/<group>/` | n/a (manifests) | n/a | kubeadm patches for a node group. `small-control-plane` sets the kubelet memory reservations on the VM masters. `sync_kubelet_patches` in `nodes.sh` assigns groups to nodes. See [`kubelet_tuning.md`](../docs/src/kubelet_tuning.md). |
+| `kubelet-resync.sh` | Laptop (`just cluster kubelet-resync <node>`) | After a kubelet-config change | Syncs the node's patches from git, re-renders its kubelet config from the `kubelet-config` ConfigMap, restarts the kubelet, and prints the resulting reservations. |
 | `kube-vip.sh` | A control-plane host (root) | Standalone | The canonical kube-vip static-pod generator, used by [`promote_worker_to_control_plane.md`](../docs/src/promote_worker_to_control_plane.md). `create-cluster.sh` inlines an equivalent render over `ssh`; keep VIP/interface/version in sync. |
 | `approve-csrs.sh` | Laptop (`just cluster approve-csrs`) | Ad-hoc fallback | Approves pending node CSRs in bulk when `kubelet-csr-approver` isn't up yet. |
 | `destroy-cluster.sh` | Laptop (`just cluster destroy`) | Tearing down to rebuild | Prompts for a `DESTROY` confirmation, suspends the Rook/Ceph HelmReleases, drains every node, runs `kubeadm reset`, wipes Ceph OSD devices, clears `/var/lib/{etcd,kubelet,longhorn,rook}`. **Destructive — only reuses the same hardware.** |

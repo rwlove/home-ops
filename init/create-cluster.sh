@@ -61,15 +61,24 @@ echo "#### [4/6] Join control-plane + worker nodes ####"
 certs=$(ssh "$m1" "kubeadm init phase upload-certs --upload-certs --config /tmp/clusterconfiguration.yaml" | tail -n 1)
 echo "certs: ${certs}"
 worker_join_cmd=$(ssh "$m1" "kubeadm token create --print-join-command")
-master_join_cmd="${worker_join_cmd} --control-plane --certificate-key ${certs}"
+# Masters join from init/joinconfiguration-control-plane.yaml so the kubelet
+# patches directory is declared in config, not a flag. Pull the minted values
+# out of the printed command:
+#   kubeadm join <endpoint> --token <t> --discovery-token-ca-cert-hash <h>
+read -r JOIN_ENDPOINT JOIN_TOKEN JOIN_CA_HASH < <(awk '{for(i=1;i<=NF;i++){if($i=="join")e=$(i+1);if($i=="--token")t=$(i+1);if($i=="--discovery-token-ca-cert-hash")h=$(i+1)}} END{print e,t,h}' <<<"$worker_join_cmd")
+JOIN_CERT_KEY="$certs"
+export JOIN_ENDPOINT JOIN_TOKEN JOIN_CA_HASH JOIN_CERT_KEY
+join_rendered=$(mktemp -t joinconfiguration.XXXXXX.yaml)
+trap 'rm -f "$rendered" "$join_rendered"' EXIT
+envsubst < ./init/joinconfiguration-control-plane.yaml > "$join_rendered"
 
 for cp_host in "${JOIN_MASTERS[@]}" ; do
     echo "########## Joining (master) ${cp_host} #"
     prep_netfilter "$cp_host"
-    # Smaller kubelet reservations on the VM masters; see docs/src/kubelet_tuning.md.
-    ssh "root@${cp_host}.${SECRET_DOMAIN}" "mkdir -p /etc/kubernetes/manifests /etc/kubernetes/patches"
-    scp ./init/patches/small-control-plane/* "root@${cp_host}.${SECRET_DOMAIN}:/etc/kubernetes/patches/"
-    ssh "root@${cp_host}.${SECRET_DOMAIN}" "${master_join_cmd} --patches /etc/kubernetes/patches"
+    ssh "root@${cp_host}.${SECRET_DOMAIN}" "mkdir -p /etc/kubernetes/manifests"
+    sync_kubelet_patches "$cp_host"
+    scp -q "$join_rendered" "root@${cp_host}.${SECRET_DOMAIN}:/tmp/joinconfiguration.yaml"
+    ssh "root@${cp_host}.${SECRET_DOMAIN}" "kubeadm join --config /tmp/joinconfiguration.yaml; status=\$?; rm -f /tmp/joinconfiguration.yaml; exit \$status"
 done
 
 for worker_host in "${WORKERS[@]}" ; do

@@ -16,6 +16,10 @@ create:
 destroy:
     cd .. && ./init/destroy-cluster.sh
 
+[doc('Re-sync one node kubelet config (ConfigMap + git patches) and restart the kubelet')]
+kubelet-resync node:
+    cd .. && ./init/kubelet-resync.sh {{node}}
+
 [doc('Approve pending node CSRs (fallback when kubelet-csr-approver is not up yet)')]
 approve-csrs:
     cd .. && ./init/approve-csrs.sh

@@ -2537,10 +2537,16 @@ change out to running nodes.</p>
 </tr>
 <tr>
 <td>Per-node overrides</td>
-<td><code>init/patches/&lt;group&gt;/</code>, copied to <code>/etc/kubernetes/patches</code> on the nodes in that group</td>
+<td><code>init/patches/&lt;group&gt;/</code>, assigned to nodes in <code>init/nodes.sh</code> (<code>SMALL_CONTROL_PLANE</code>)</td>
 </tr>
 </tbody>
 </table>
+<p>Nobody edits a node's <code>/etc/kubernetes/patches</code> by hand.
+<code>sync_kubelet_patches</code> (<code>init/nodes.sh</code>) rewrites it from git on every join
+and every re-sync. kubeadm finds it through committed config files, not a
+flag: <code>init/joinconfiguration-control-plane.yaml</code> at join and
+<code>init/upgradeconfiguration.yaml</code> at re-sync. A rebuild from scratch
+(<code>just cluster create</code>) reproduces the overrides.</p>
 <p>The ConfigMap is not Flux-reconciled. Editing it changes nothing until each
 node re-syncs. Keep <code>init/clusterconfiguration.yaml</code> in step with it, or a
 rebuild silently drops the tuning.</p>
@@ -2612,8 +2618,7 @@ kube-apiserver spike evicted kube-vip (about 100 evictions in a day on
 master3, 2026-11-23). Static pods are exempt from eviction, so the
 reservation protected nothing there. They run <code>kubeReserved.memory: 0</code> and
 <code>systemReserved.memory: 512Mi</code> instead, from
-<code>init/patches/small-control-plane/kubeletconfiguration+merge.yaml</code>, which sits
-at <code>/etc/kubernetes/patches/</code> on each of them. master1 (bare metal, ~30Gi,
+<code>init/patches/small-control-plane/kubeletconfiguration+merge.yaml</code>. master1 (bare metal, ~30Gi,
 schedulable) keeps the cluster-wide values.</p>
 <p>kube-vip also carries <code>priorityClassName: system-node-critical</code> and a 64Mi
 memory request, so it is no longer the first pod evicted under pressure.</p>
@@ -2626,13 +2631,14 @@ memory request, so it is no longer the first pod evicted under pressure.</p>
 <li>Re-sync one node at a time. A canary worker with no Ceph mon goes first,
    mon-hosting workers go last, then the masters one at a time:</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>ssh<span class="w"> </span>root@&lt;node&gt;<span class="w"> </span><span class="s2">"cp /var/lib/kubelet/config.yaml /var/lib/kubelet/config.yaml.bak &amp;&amp; \</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="s2">  kubeadm upgrade node phase kubelet-config --patches /etc/kubernetes/patches &amp;&amp; \</span>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="s2">  systemctl restart kubelet"</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>just<span class="w"> </span>cluster<span class="w"> </span>kubelet-resync<span class="w"> </span>&lt;short-node-name&gt;
 </span></code></pre></div>
-<p>Always pass <code>--patches /etc/kubernetes/patches</code>. On a node without that
-   directory it is a no-op; on master2 and master3, leaving it off silently
-   drops the control-plane override.</p>
+<p>It syncs the node's patches directory from git, then runs
+   <code>kubeadm upgrade node phase kubelet-config --config
+   /etc/kubernetes/upgradeconfiguration.yaml</code>. Then it restarts the kubelet
+   and prints the resulting reservations. Do not run <code>kubeadm upgrade node</code>
+   by hand without that config file. A bare run skips the patches and
+   silently reverts master2 and master3 to the cluster-wide values.</p>
 <p>Restarting the kubelet does not touch running containers. CRI-O and
    containerd are separate daemons, and static pods (etcd, apiserver)
    keep running.

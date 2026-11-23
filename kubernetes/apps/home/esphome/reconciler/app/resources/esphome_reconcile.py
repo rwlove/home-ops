@@ -43,7 +43,7 @@ Env (all optional except where noted; defaults shown):
   EXCLUDE_DEVICES="" (comma-sep config filenames NEVER touched — wins over FORCE;
                       e.g. pool-controller.yaml while the pool is winterized)
   DRY_RUN=true       (OFF gate; "false" permits OTA)
-  COMPILE_TIMEOUT=600  UPLOAD_TIMEOUT=300  VERIFY_TIMEOUT=240  VERIFY_POLL=10
+  COMPILE_TIMEOUT=1500  UPLOAD_TIMEOUT=300  VERIFY_TIMEOUT=240  VERIFY_POLL=10
   DEVICE_API_PORT=6053
   NOTIFY_URL=http://notify-mcp.mcp-system:8060/send  AGENT=smart-home-operator
 
@@ -72,7 +72,7 @@ MAX_PER_RUN = int(os.environ.get("MAX_PER_RUN", "3"))
 FORCE = [x.strip() for x in os.environ.get("FORCE_DEVICES", "").split(",") if x.strip()]
 EXCLUDE = [x.strip() for x in os.environ.get("EXCLUDE_DEVICES", "").split(",") if x.strip()]
 DRY_RUN = os.environ.get("DRY_RUN", "true").lower() != "false"
-COMPILE_TIMEOUT = int(os.environ.get("COMPILE_TIMEOUT", "600"))
+COMPILE_TIMEOUT = int(os.environ.get("COMPILE_TIMEOUT", "1500"))
 UPLOAD_TIMEOUT = int(os.environ.get("UPLOAD_TIMEOUT", "300"))
 VERIFY_TIMEOUT = int(os.environ.get("VERIFY_TIMEOUT", "240"))
 VERIFY_POLL = int(os.environ.get("VERIFY_POLL", "10"))

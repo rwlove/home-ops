@@ -93,25 +93,26 @@ CONTRACT = (
     "unreachable' if the Vikunja calls are the ones that failed) — never omit the "
     "gap silently, never fill it with a guess.\n"
     "- LINE FORMAT for every Today/This-week line: `<time-or-weekday> — <item> "
-    "· <source> · <owner>`. Content leads; source and owner trail:\n"
+    "[· calendar] · <owner>`. Content leads; source and owner trail:\n"
     "  * The calendar event summary or Vikunja task title carries a leading "
     "`[Persona]` tag by convention (e.g. `[Crusher]`, `[storage-operator]`, case-"
     "insensitive). STRIP that tag from the item text and move it to the END of "
     "the line, lowercased, as the owner (e.g. `crusher`, `storage-operator`, "
     "`vila`). If an item has no `[Persona]` tag, omit the trailing owner "
     "entirely — never invent one.\n"
-    "  * `<source>` is the literal word `calendar` for a calendar event or "
-    "`vikunja` for a Vikunja task.\n"
+    "  * A calendar event carries the literal word `calendar` before the owner. "
+    "A Vikunja task carries NO source word at all — never write `vikunja` on a "
+    "line.\n"
     "  * In `### Today`: a calendar event's `<time-or-weekday>` is its TIME "
     "ONLY, `HH:MM ET` (never a date — it's today). A Vikunja task due exactly "
     "today leads with the word `today`; an OVERDUE Vikunja task leads with the "
     "word `overdue`; a fallback task (used ONLY when nothing is due today or "
     "overdue) has no leading time token at all — start directly with the item.\n"
     "  * In `### This week`: every line (calendar or Vikunja) leads with the "
-    "WEEKDAY NAME ONLY, taken from the weekday map you were given — never a "
-    "time, never a numeric date.\n"
+    "WEEKDAY LABEL ONLY, copied verbatim from the weekday map you were given "
+    "(e.g. `Wednesday`, `next Monday`) — never a time, never a numeric date.\n"
     "  * Examples: `11:30 ET — PT — ATI Physical Therapy · calendar · "
-    "crusher`, `overdue — Replace HVAC filter (P3) · vikunja · vila`, "
+    "crusher`, `overdue — Replace HVAC filter (P3) · vila`, "
     "`Wednesday — Check image-GC report: ~/image-gc-check-latest.txt · "
     "calendar · storage-operator`.\n"
     "- STRUCTURE the reply so it SCANS — never one prose paragraph. Emit, in order:\n"
@@ -120,10 +121,12 @@ CONTRACT = (
     "label; if NOTHING is due today or overdue, fall back to the top 3-5 highest-"
     "priority OPEN tasks instead so this section is never empty. Then list today's "
     "calendar events.\n"
-    "  (b) a `### This week` heading, ordered CHRONOLOGICALLY. List Vikunja tasks "
-    "due within the next 7 days (same P5-to-P1 then soonest-due ranking, excluding "
-    "anything already listed under Today) together with calendar events in that "
-    "window. Omit this heading entirely if nothing qualifies.\n"
+    "  (b) a `### This week` heading, ordered CHRONOLOGICALLY. It covers TOMORROW "
+    "onward only — anything dated today belongs under Today and must NEVER appear "
+    "here too. List Vikunja tasks due in that window (same P5-to-P1 then soonest-"
+    "due ranking, excluding anything already listed under Today) together with "
+    "calendar events in that window. Omit this heading entirely if nothing "
+    "qualifies.\n"
     "  (c) a final `### Open PRs awaiting you` heading — a short, PLAIN, UNRANKED "
     "list of open home-ops PRs (not folded into Today/This week, no trailing "
     "owner on these lines). Note each PR's CI state if the tool surfaces it; "
@@ -229,6 +232,43 @@ def awaiting_review_line():
             "in a Claude session)" % count)
 
 
+def _week_label(today, d):
+    """This-week label for date d: the bare weekday name, or "next <Weekday>"
+    for the day 7 out that shares today's weekday name."""
+    name = d.strftime("%A")
+    return "next " + name if (d - today).days >= 7 else name
+
+
+_SECTION_RE = re.compile(r"^\s*#{1,6}\s*(.+?)\s*$")
+_VIKUNJA_SRC_RE = re.compile(r"\s*·\s*vikunja\b", re.IGNORECASE)
+
+
+def _tidy_lines(text, today):
+    """Deterministic backstop for two format rules a weak model drifts on:
+    drop the `· vikunja` source tag (todos need no source word), and drop any
+    This-week line led by TODAY's bare weekday name — This week starts
+    tomorrow, so such a line can only be a repeat of a Today item (the
+    same-weekday day a week out is labelled "next <Weekday>")."""
+    if not text:
+        return text
+    today_name = today.strftime("%A").lower()
+    out, section = [], ""
+    for ln in text.splitlines():
+        m = _SECTION_RE.match(ln)
+        if m:
+            section = m.group(1).strip("*_ ").lower()
+        elif section == "this week":
+            lead = ln.strip().lstrip("-*• ").strip("*_ ").lower()
+            if lead.startswith(today_name):
+                log("WARN: dropped This-week line dated today: %r" % ln)
+                continue
+        out.append(_VIKUNJA_SRC_RE.sub("", ln))
+    # A This-week heading left with no lines under it goes too.
+    tidied = "\n".join(out)
+    tidied = re.sub(r"(?im)^[ \t]*#{1,6}[ \t]*this week[ \t]*\n(?:[ \t]*\n)*(?=[ \t]*#{1,6}\s|\Z)", "", tidied)
+    return tidied.strip()
+
+
 def log(m):
     print(m, flush=True)
 
@@ -294,30 +334,32 @@ def main():
     # 2026-11-19" from an ISO date will sometimes get it wrong; handing it
     # the precomputed mapping removes that failure mode entirely.
     today = datetime.date.today()
+    # "This week" starts TOMORROW: anything dated today is Today-only. The
+    # window still reaches today+7, whose weekday collides with today's, so
+    # that day is labelled "next <Weekday>" — otherwise next Monday's
+    # recurring event reads as a duplicate of today's on a Monday brief.
+    window_start = today + datetime.timedelta(days=1)
     window_end = today + datetime.timedelta(days=7)
     weekday_map = "; ".join(
-        "%s=%s%s" % (
-            (today + datetime.timedelta(days=i)).isoformat(),
-            (today + datetime.timedelta(days=i)).strftime("%A"),
-            " (today)" if i == 0 else "",
-        )
-        for i in range(8)
+        "%s=%s" % (d.isoformat(), _week_label(today, d))
+        for d in (today + datetime.timedelta(days=i) for i in range(1, 8))
     )
     date_context = (
-        "Today's actual date is %s (America/New_York). Treat %s through %s "
-        "inclusive as the 'This week' window for both calendar events and "
-        "Vikunja task due dates. Do NOT assume, guess, or carry over any other "
-        "date — use exactly this one.\n\n"
-        "Weekday names for this window (America/New_York), precomputed — use "
-        "ONLY these for the 'This week' section's weekday labels, never "
+        "Today's actual date is %s (America/New_York); today's items go under "
+        "Today ONLY. Treat %s through %s inclusive as the 'This week' window "
+        "for both calendar events and Vikunja task due dates. Do NOT assume, "
+        "guess, or carry over any other date — use exactly this one.\n\n"
+        "Weekday labels for this window (America/New_York), precomputed — use "
+        "ONLY these, verbatim, for the 'This week' section's labels, never "
         "compute or guess one yourself: %s\n\n"
-        % (today.isoformat(), today.isoformat(), window_end.isoformat(), weekday_map)
+        % (today.isoformat(), window_start.isoformat(), window_end.isoformat(), weekday_map)
     )
     prompt = date_context + os.environ["PROMPT"].strip() + CONTRACT
     day = today.isoformat()
 
     text, state = a2a_client.call_agent(AGENT_URL, AGENT, prompt, budget=BUDGET, message_id="radar-brief")
     text = _clean(text)
+    text = _tidy_lines(text, today)
 
     if not text:
         log("no agent text (state=%s) — silent skipped run; tomorrow retries" % state)

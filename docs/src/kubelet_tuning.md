@@ -9,7 +9,8 @@ change out to running nodes.
 |---|---|
 | New cluster (`kubeadm init`) | The `KubeletConfiguration` document in `init/clusterconfiguration.yaml` |
 | Running cluster | The kubeadm-managed `kube-system/kubelet-config` ConfigMap |
-| Per node | `/var/lib/kubelet/config.yaml`, rendered from the ConfigMap |
+| Per node | `/var/lib/kubelet/config.yaml`, rendered from the ConfigMap plus any kubeadm patch in `/etc/kubernetes/patches` |
+| Per-node overrides | `init/patches/<group>/`, copied to `/etc/kubernetes/patches` on the nodes in that group |
 
 The ConfigMap is not Flux-reconciled. Editing it changes nothing until each
 node re-syncs. Keep `init/clusterconfiguration.yaml` in step with it, or a
@@ -25,6 +26,9 @@ rebuild silently drops the tuning.
 | `shutdownGracePeriod` / `shutdownGracePeriodCriticalPods` | 120s / 30s | Graceful node shutdown: regular pods get 90s, then critical pods 30s, on reboot or UPS poweroff |
 | `systemReserved` / `kubeReserved` | 1Gi + 100m each | Keeps pod requests from claiming the OS's and kubelet's memory; allocatable is 2.4Gi lower per node |
 | `evictionHard.memory.available` | 500Mi (was 100Mi) | The kubelet evicts pods before the kernel OOM killer has to step in. Every signal is listed, because setting the map replaces the defaults |
+
+master2 and master3 override the memory reservations (see
+[Control-plane override](#control-plane-override)).
 
 Applied fleet-wide on 2026-11-22. Before the reservations, 13 CNPG clusters
 had their memory requests lowered (#16341, #16343, #16345) so every node's
@@ -48,6 +52,22 @@ poweroff`/`reboot`, an ACPI power button, a UPS client calling
 this way are left behind as `Failed` with reason `Terminated`. Their
 controllers replace them, and the pod GC removes the leftovers.
 
+### Control-plane override
+
+master2 and master3 are ~10Gi VMs that run only the control plane and
+DaemonSets. With the cluster-wide reservations, their pod memory sat about
+790Mi above the 500Mi `allocatableMemory.available` threshold, and every
+kube-apiserver spike evicted kube-vip (about 100 evictions in a day on
+master3, 2026-11-23). Static pods are exempt from eviction, so the
+reservation protected nothing there. They run `kubeReserved.memory: 0` and
+`systemReserved.memory: 512Mi` instead, from
+`init/patches/small-control-plane/kubeletconfiguration+merge.yaml`, which sits
+at `/etc/kubernetes/patches/` on each of them. master1 (bare metal, ~30Gi,
+schedulable) keeps the cluster-wide values.
+
+kube-vip also carries `priorityClassName: system-node-critical` and a 64Mi
+memory request, so it is no longer the first pod evicted under pressure.
+
 ## Rolling a change out
 
 1. Back up the ConfigMap:
@@ -59,8 +79,13 @@ controllers replace them, and the pod GC removes the leftovers.
 
    ```sh
    ssh root@<node> "cp /var/lib/kubelet/config.yaml /var/lib/kubelet/config.yaml.bak && \
-     kubeadm upgrade node phase kubelet-config && systemctl restart kubelet"
+     kubeadm upgrade node phase kubelet-config --patches /etc/kubernetes/patches && \
+     systemctl restart kubelet"
    ```
+
+   Always pass `--patches /etc/kubernetes/patches`. On a node without that
+   directory it is a no-op; on master2 and master3, leaving it off silently
+   drops the control-plane override.
 
    Restarting the kubelet does not touch running containers. CRI-O and
    containerd are separate daemons, and static pods (etcd, apiserver)

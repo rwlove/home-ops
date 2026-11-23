@@ -195,6 +195,31 @@ jobs:
       shell: bash
       run: tools/lint-esphome-config-substitutions.py
 
+  subpath-key-removal:
+    name: subpath-key-removal
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: arc-runner-set-home-ops
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        # HEAD is the PR merge commit; HEAD^1 is the base it merges into.
+        fetch-depth: 2
+        persist-credentials: false
+
+    - name: Setup Python
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      with:
+        python-version: 3.15.x
+
+    - name: Install PyYAML
+      shell: bash
+      run: pip install pyyaml
+
+    - name: Check no ConfigMap/Secret key is removed while a subPath mounts it
+      shell: bash
+      run: tools/lint-subpath-key-removal.py --base HEAD^1 --head HEAD
+
   readme-drift:
     name: readme-drift
     runs-on: arc-runner-set-home-ops
@@ -221,6 +246,7 @@ jobs:
     - cnp-empty-rules
     - claude-runner-no-broker
     - envsubst-shell-vars
+    - subpath-key-removal
     - readme-drift
     if: ${{ !cancelled() }}
     name: Lint successful

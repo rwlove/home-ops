@@ -46,6 +46,32 @@ spec:
                 readOnly: true
 ```
 
+## Removing (or renaming) a subPath-mounted key — two PRs
+
+Never remove a generator file / ConfigMap key and its `subPath` mount in
+the same PR. The app's Kustomization applies the ConfigMap first, Reloader
+restarts the pod on the **old** spec (which still mounts the missing key →
+`CreateContainerError: ... Not a directory`), the Helm upgrade times out
+because a StatefulSet won't replace a stuck pod, and Helm remediation rolls
+back to that same unstartable spec. This took ESPHome down on 2026-11-22
+(#16357). `tools/lint-subpath-key-removal.py` (pre-commit + CI) blocks it.
+
+1. **PR 1:** remove the `subPath` mount from the HelmRelease. Leave the
+   key in place. Merge and confirm the pod rolled onto the new spec.
+2. **PR 2:** remove the generator `files:` entry and the
+   `resources/<filename>`.
+3. If the mount targeted a PVC-backed path (e.g. `/config` on a PVC), the
+   kubelet leaves a 0-byte stub file on the volume; delete it.
+
+A rename is a remove plus an add: add the new key and mount first, then
+remove the old ones in a second PR.
+
+**If it already deadlocked:** wait for any `pending-rollback` to finish,
+run `flux -n <ns> reconcile hr <name> --reset` to start a fresh upgrade,
+and as soon as the StatefulSet template shows the new spec, delete the
+stuck pod (`kubectl -n <ns> delete pod <name>-0`). It comes back on the new
+revision and the upgrade completes.
+
 ## Why
 
 - One filename, three places (disk, ConfigMap key, in-container path) —

@@ -10,6 +10,23 @@ MASTER_INIT="master1"
 # Additional control-plane nodes joined after init.
 JOIN_MASTERS=(master2 master3)
 
+# Nodes that get the kubelet patches in init/patches/small-control-plane/: the
+# ~10Gi VM masters, where the cluster-wide memory reservations leave too little
+# headroom above the eviction threshold (see docs/src/kubelet_tuning.md).
+SMALL_CONTROL_PLANE=(master2 master3)
+
+# Make a node's /etc/kubernetes/patches match git: the small-control-plane
+# patches on SMALL_CONTROL_PLANE nodes, empty everywhere else. kubeadm reads
+# this directory on join (joinconfiguration-control-plane.yaml) and on every
+# re-sync (upgradeconfiguration.yaml). Needs SECRET_DOMAIN.
+sync_kubelet_patches() {
+    local host="root@${1}.${SECRET_DOMAIN}"
+    ssh "$host" "mkdir -p /etc/kubernetes/patches && find /etc/kubernetes/patches -maxdepth 1 -name '*.yaml' -delete"
+    if [[ " ${SMALL_CONTROL_PLANE[*]} " == *" ${1} "* ]]; then
+        scp -q ./init/patches/small-control-plane/*.yaml "${host}:/etc/kubernetes/patches/"
+    fi
+}
+
 # Worker nodes joined to the cluster.
 WORKERS=(worker2 worker3 worker4 worker5 worker6 worker7 worker8)
 

@@ -1067,6 +1067,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#control-plane-override" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Control-plane override
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2420,6 +2431,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#control-plane-override" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Control-plane override
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2511,7 +2533,11 @@ change out to running nodes.</p>
 </tr>
 <tr>
 <td>Per node</td>
-<td><code>/var/lib/kubelet/config.yaml</code>, rendered from the ConfigMap</td>
+<td><code>/var/lib/kubelet/config.yaml</code>, rendered from the ConfigMap plus any kubeadm patch in <code>/etc/kubernetes/patches</code></td>
+</tr>
+<tr>
+<td>Per-node overrides</td>
+<td><code>init/patches/&lt;group&gt;/</code>, copied to <code>/etc/kubernetes/patches</code> on the nodes in that group</td>
 </tr>
 </tbody>
 </table>
@@ -2560,6 +2586,8 @@ rebuild silently drops the tuning.</p>
 </tr>
 </tbody>
 </table>
+<p>master2 and master3 override the memory reservations (see
+<a href="#control-plane-override">Control-plane override</a>).</p>
 <p>Applied fleet-wide on 2026-11-22. Before the reservations, 13 CNPG clusters
 had their memory requests lowered (#16341, #16343, #16345) so every node's
 requests fit the smaller allocatable.</p>
@@ -2576,6 +2604,19 @@ poweroff</code>/<code>reboot</code>, an ACPI power button, a UPS client calling
 <code>shutdown</code>). A hard power cut still kills everything. Pods stopped
 this way are left behind as <code>Failed</code> with reason <code>Terminated</code>. Their
 controllers replace them, and the pod GC removes the leftovers.</p>
+<h3 id="control-plane-override">Control-plane override<a class="headerlink" href="#control-plane-override" title="Permanent link">&para;</a></h3>
+<p>master2 and master3 are ~10Gi VMs that run only the control plane and
+DaemonSets. With the cluster-wide reservations, their pod memory sat about
+790Mi above the 500Mi <code>allocatableMemory.available</code> threshold, and every
+kube-apiserver spike evicted kube-vip (about 100 evictions in a day on
+master3, 2026-11-23). Static pods are exempt from eviction, so the
+reservation protected nothing there. They run <code>kubeReserved.memory: 0</code> and
+<code>systemReserved.memory: 512Mi</code> instead, from
+<code>init/patches/small-control-plane/kubeletconfiguration+merge.yaml</code>, which sits
+at <code>/etc/kubernetes/patches/</code> on each of them. master1 (bare metal, ~30Gi,
+schedulable) keeps the cluster-wide values.</p>
+<p>kube-vip also carries <code>priorityClassName: system-node-critical</code> and a 64Mi
+memory request, so it is no longer the first pod evicted under pressure.</p>
 <h2 id="rolling-a-change-out">Rolling a change out<a class="headerlink" href="#rolling-a-change-out" title="Permanent link">&para;</a></h2>
 <ol>
 <li>Back up the ConfigMap:
@@ -2586,8 +2627,12 @@ controllers replace them, and the pod GC removes the leftovers.</p>
    mon-hosting workers go last, then the masters one at a time:</li>
 </ol>
 <div class="language-sh highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>ssh<span class="w"> </span>root@&lt;node&gt;<span class="w"> </span><span class="s2">"cp /var/lib/kubelet/config.yaml /var/lib/kubelet/config.yaml.bak &amp;&amp; \</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="s2">  kubeadm upgrade node phase kubelet-config &amp;&amp; systemctl restart kubelet"</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="s2">  kubeadm upgrade node phase kubelet-config --patches /etc/kubernetes/patches &amp;&amp; \</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="s2">  systemctl restart kubelet"</span>
 </span></code></pre></div>
+<p>Always pass <code>--patches /etc/kubernetes/patches</code>. On a node without that
+   directory it is a no-op; on master2 and master3, leaving it off silently
+   drops the control-plane override.</p>
 <p>Restarting the kubelet does not touch running containers. CRI-O and
    containerd are separate daemons, and static pods (etcd, apiserver)
    keep running.

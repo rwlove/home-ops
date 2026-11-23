@@ -1,0 +1,32 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/v1/configmap_v1.json
+# CNPG custom monitoring queries for postgres-pump (wired in via
+# spec.monitoring.customQueriesConfigMap on ./cluster.yaml). PUMP's Go server
+# exposes no /metrics, so the weigh-in freshness signal is read straight from
+# its own table by the CNPG instance exporter.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-pump-monitoring
+  labels:
+    # CNPG re-reads the query ConfigMap when this label is present.
+    cnpg.io/reload: ""
+data:
+  queries: |
+    # Exported as cnpg_pump_weight_last_reading_timestamp_seconds, one series
+    # per instance (replicas serve it too). Keyed on the measurement `date`, NOT
+    # `recorded_at`: recorded_at is the insert time, so a manual backfill of old
+    # weigh-ins would reset it and mask a dead scale. `date <= CURRENT_DATE`
+    # ignores any future-dated row. Epoch of local midnight on the latest
+    # weigh-in day (session TimeZone is America/New_York, see cluster.yaml).
+    pump_weight:
+      query: |
+        SELECT EXTRACT(EPOCH FROM (MAX(date)::timestamp AT TIME ZONE 'America/New_York'))::bigint AS last_reading_timestamp_seconds
+        FROM public.weight
+        WHERE date <= CURRENT_DATE
+      target_databases:
+        - pump
+      metrics:
+        - last_reading_timestamp_seconds:
+            usage: "GAUGE"
+            description: "Epoch seconds (local midnight) of the most recent body-weight reading date in PUMP"

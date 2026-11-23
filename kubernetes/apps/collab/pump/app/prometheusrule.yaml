@@ -122,3 +122,47 @@ spec:
           for: 5m
           labels:
             severity: warning
+        # The scale (or its ingest path) silently stopped logging for 16 days
+        # in Nov 2026 and nothing alerted. Rob weighs in every ~2-5 days; over
+        # the prior 200 days the longest normal gap was 9 days (plus one 29-day
+        # outlier), so >10 days with no new reading is a real stall, not a
+        # skipped week. Signal is the latest weigh-in `date` (not recorded_at,
+        # which a manual backfill would reset), exported by the CNPG custom
+        # query in databases/cloudnative-pg/config/pump/monitoring-configmap.yaml.
+        # max() collapses the per-instance series so a failover/replica lag
+        # cannot flap it. Warning only: nothing is on fire, the data is just
+        # not arriving.
+        - alert: PumpWeightReadingStale
+          annotations:
+            summary: no PUMP body-weight reading in >10 days
+            description: |
+              The newest body-weight reading in PUMP is more than 10 days old
+              (normal cadence is every 2-5 days, longest normal gap ~9). The
+              scale or its ingest path (the bluetooth-proxy-gym-poe ESPHome
+              device POSTing to pump-ingest) has probably stopped logging.
+              Check that device's power/link and its scale config, then pump-0
+              logs for rejected weight posts (WEIGHT_INGEST_KEY). The age is
+              `time() - max(cnpg_pump_weight_last_reading_timestamp_seconds)`.
+          expr: |-
+            time() - max(cnpg_pump_weight_last_reading_timestamp_seconds{namespace="databases"}) > 10 * 86400
+          for: 6h
+          labels:
+            severity: warning
+        # Guard for the alert above: if the custom query or exporter breaks
+        # the metric vanishes and PumpWeightReadingStale would go silently
+        # quiet (absent series never compares true). 1h rides out a CNPG
+        # switchover / rolling restart.
+        - alert: PumpWeightMetricAbsent
+          annotations:
+            summary: PUMP weigh-in freshness metric missing (>1h)
+            description: |
+              cnpg_pump_weight_last_reading_timestamp_seconds is not being
+              exported, so PumpWeightReadingStale cannot fire. Check the
+              postgres-pump-monitoring ConfigMap, the postgres-pump-metrics
+              PodMonitor, and `cnpg_collector_last_collection_error` on
+              postgres-pump instances.
+          expr: |-
+            absent(cnpg_pump_weight_last_reading_timestamp_seconds{namespace="databases"})
+          for: 1h
+          labels:
+            severity: warning

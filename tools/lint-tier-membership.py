@@ -9,7 +9,9 @@ that two roots list makes both parents fight over its owner labels, and the
 next removal from one of them deletes based on whichever label is live.
 
 A dir may instead be disabled: commented out (`# - <dir>`) in exactly one root
-and listed in none.
+and listed in none. A root may list only whole namespace dirs: an entry that
+points below one (`../../apps/home/esphome`) would let two parents render the
+same Kustomization, so it is an error.
 
 Usage: lint-tier-membership.py [REPO_ROOT]   (default: .)
 """
@@ -21,14 +23,14 @@ import sys
 ENTRY = re.compile(r"^\s*(#\s*)?-\s+(\S+)\s*$")
 
 
-def entries(root: pathlib.Path, kfile: pathlib.Path):
+def entries(root: pathlib.Path, kfile: pathlib.Path, errors: list):
     """Yield (dir, active) for every resources entry that names an apps dir."""
     in_resources = False
     for line in kfile.read_text().splitlines():
         if re.match(r"^resources:\s*$", line):
             in_resources = True
             continue
-        if in_resources and re.match(r"^\S", line) and not line.lstrip().startswith("#"):
+        if in_resources and re.match(r"^[A-Za-z_]", line):
             in_resources = False
         if not in_resources:
             continue
@@ -38,6 +40,8 @@ def entries(root: pathlib.Path, kfile: pathlib.Path):
         target = (kfile.parent / m.group(2)).resolve()
         apps = (root / "kubernetes/apps").resolve()
         if target.parent != apps:
+            if apps in target.parents and m.group(1) is None:
+                errors.append(f"{kfile}: `{m.group(2)}` points inside a namespace dir; roots may list only whole kubernetes/apps/<dir> entries")
             continue
         yield target.name, m.group(1) is None
 
@@ -49,11 +53,11 @@ def main() -> int:
     dirs = {p.name for p in apps.iterdir() if p.is_dir()}
     active: dict[str, list[str]] = {}
     disabled: dict[str, list[str]] = {}
+    errors = []
     for kfile in roots:
         rel = str(kfile.relative_to(root))
-        for name, is_active in entries(root, kfile):
+        for name, is_active in entries(root, kfile, errors):
             (active if is_active else disabled).setdefault(name, []).append(rel)
-    errors = []
     for name in sorted(set(active) - dirs):
         errors.append(f"{', '.join(active[name])}: lists `{name}`, which is not a dir under kubernetes/apps")
     for name in sorted(dirs):

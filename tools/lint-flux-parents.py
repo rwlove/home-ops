@@ -16,8 +16,17 @@ Checks:
   (removing a parent must not delete its children), both substitution sources
   (manifests with $${...} escapes only render through them), sourceRef,
   dependsOn cluster-config, and the child-default spec.patches;
-- no kustomization.yaml with root-level patches in the dir (flate would
-  discover 0 Kustomizations and exit 0).
+- the parents' paths are exactly the roots, one to one: ./kubernetes/apps plus
+  every ./kubernetes/tiers/<t> that has a kustomization.yaml (a root no parent
+  points at leaves its dirs unmanaged);
+- the child-default patches are the expected three, including the
+  home-ops.io/child-prune=disabled opt-out (removing it from every copy at once
+  would still pass an identity check);
+- `prune: false` only with the annotation home-ops.io/move-window naming the
+  open window's PR (a forgotten one silently leaks removals);
+- no other YAML in the dir: the sync Kustomization applies the whole directory,
+  so a parent in a second file would skip this lint; and no kustomization.yaml
+  with root-level patches (flate would discover 0 Kustomizations and exit 0).
 
 Usage: lint-flux-parents.py [DIR]   (default: kubernetes/flux/cluster)
 """
@@ -36,6 +45,12 @@ def main() -> int:
     base = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else "kubernetes/flux/cluster")
     errors = []
 
+    for f in sorted(base.iterdir()):
+        if f.name != "ks.yaml" and f.suffix in (".yaml", ".yml"):
+            errors.append(f"{f}: only ks.yaml belongs here (the sync Kustomization applies every file in {base})")
+        if f.is_dir():
+            errors.append(f"{f}: no subdirectories here (no kustomize Components: flate never applies them)")
+
     kfile = base / "kustomization.yaml"
     if kfile.exists():
         root = yaml.safe_load(kfile.read_text()) or {}
@@ -44,6 +59,7 @@ def main() -> int:
                 errors.append(f"{kfile}: root-level `{key}` makes flate test 0 Kustomizations")
 
     shared = {}
+    paths = {}
     for doc in yaml.safe_load_all((base / "ks.yaml").read_text()):
         if not isinstance(doc, dict) or doc.get("kind") != "Kustomization":
             continue
@@ -61,6 +77,9 @@ def main() -> int:
             errors.append(f"{where}: set path")
         if not isinstance(spec.get("prune"), bool):
             errors.append(f"{where}: set prune explicitly")
+        if spec.get("prune") is False and not (meta.get("annotations") or {}).get("home-ops.io/move-window"):
+            errors.append(f"{where}: prune: false needs the annotation home-ops.io/move-window: \"<PR#>\" (a tier-move window); otherwise set prune: true")
+        paths[name] = str(spec.get("path", "")).removeprefix("./").rstrip("/")
         shared[name] = {k: v for k, v in spec.items() if k not in PER_PARENT}
 
     if not shared:
@@ -77,8 +96,19 @@ def main() -> int:
             errors.append(f"{where}: deletionPolicy must be Orphan")
         if len(((ref.get("postBuild") or {}).get("substituteFrom")) or []) < 2:
             errors.append(f"{where}: postBuild.substituteFrom must list cluster-config and cluster-secrets")
-        if not ref.get("patches"):
-            errors.append(f"{where}: spec.patches (the child defaults) is missing")
+        patches = ref.get("patches") or []
+        if len(patches) != 3:
+            errors.append(f"{where}: expected the 3 child-default patches, found {len(patches)}")
+        optout = [p for p in patches if (p.get("target") or {}).get("labelSelector") == "home-ops.io/child-prune=disabled"]
+        if len(optout) != 1 or "prune: false" not in str(optout[0].get("patch", "")):
+            errors.append(f"{where}: missing the home-ops.io/child-prune=disabled -> prune: false opt-out patch")
+        repo = base.parents[2] if len(base.parents) > 2 else pathlib.Path(".")
+        roots = {"kubernetes/apps"} | {str(k.parent.relative_to(repo)) for k in (repo / "kubernetes/tiers").glob("*/kustomization.yaml")}
+        got = sorted(paths.values())
+        if len(set(got)) != len(got):
+            errors.append(f"{base}/ks.yaml: two parents share a path: {got}")
+        if set(got) != roots:
+            errors.append(f"{base}/ks.yaml: parent paths {sorted(set(got))} must equal the roots {sorted(roots)} one to one")
         if (ref.get("sourceRef") or {}).get("name") != "home-ops-kubernetes":
             errors.append(f"{where}: sourceRef must be home-ops-kubernetes")
         if not any(d.get("name") == "cluster-config" for d in ref.get("dependsOn") or []):

@@ -26,36 +26,15 @@ kind: Kustomization
 metadata:
   name: cluster-apps
   namespace: flux-system
+  labels:
+    # Shared parent settings (interval, retry, timeout, sourceRef, dependsOn,
+    # substitution, Orphan) come from ./components/tier-defaults, selected by
+    # this label. spec.patches stays inline and must be identical on every
+    # parent (tools/lint-flux-parents.py).
+    home-ops.io/tier-parent: "true"
 spec:
   path: ./kubernetes/apps
-  interval: 1h
-  # retryInterval defaults to interval (1h). A failed render (e.g. an admission
-  # webhook 429) then waits up to an hour unless a new commit lands. 2026-11-21
-  # 15:27 sat failed for 51 min this way.
-  retryInterval: 2m
-  # timeout also defaults to interval; a hung apply would hold the parent 1h.
-  timeout: 10m
   prune: true
-  wait: false
-  sourceRef:
-    kind: GitRepository
-    name: home-ops-kubernetes
-    namespace: flux-system
-  dependsOn:
-    - name: cluster-config
-      namespace: flux-system
-  postBuild:
-    substituteFrom:
-      - kind: ConfigMap
-        name: cluster-config
-      - kind: Secret
-        name: cluster-secrets
-  # Orphan, not WaitForTermination: if this parent object is ever removed from
-  # kubernetes/flux/cluster/ (a rename, a bad revert), the sync Kustomization
-  # deletes it, and WaitForTermination would then delete every child
-  # Kustomization it owns, and through them every app. Orphan leaves them
-  # in place. Children keep their own WaitForTermination via the patch below.
-  deletionPolicy: Orphan
   patches:
     # Inject sourceRef and prune defaults into every child Kustomization.
     #

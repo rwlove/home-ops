@@ -1,0 +1,45 @@
+---
+# Shared settings for every Flux tier parent (strategic merge; selected by the
+# home-ops.io/tier-parent=true label). Strategic merge on a CRD replaces lists,
+# so this file OWNS spec.dependsOn and postBuild: a parent must not declare its
+# own (tools/lint-flux-parents.py rejects it).
+#
+# The child-default spec.patches are NOT here: flate reads each parent's own
+# YAML and applies its inline spec.patches, but never applies Component
+# patches, so with them here CI would render every child without its
+# defaults. They stay inline on each parent in ../../ks.yaml, and the lint
+# requires every parent's copy to be identical.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: _
+spec:
+  interval: 1h
+  # retryInterval defaults to interval (1h). A failed render (e.g. an admission
+  # webhook 429) then waits up to an hour unless a new commit lands. 2026-11-21
+  # 15:27 sat failed for 51 min this way.
+  retryInterval: 2m
+  # timeout also defaults to interval; a hung apply would hold the parent 1h.
+  timeout: 10m
+  wait: false
+  sourceRef:
+    kind: GitRepository
+    name: home-ops-kubernetes
+    namespace: flux-system
+  dependsOn:
+    - name: cluster-config
+      namespace: flux-system
+  # Required, not optional: kube-system/node-tuning (and any manifest using
+  # $${...} escapes) only renders correctly through parent substitution.
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: cluster-config
+      - kind: Secret
+        name: cluster-secrets
+  # Orphan, not WaitForTermination: if a parent object is ever removed from
+  # kubernetes/flux/cluster/ (a rename, a bad revert), the sync Kustomization
+  # deletes it, and WaitForTermination would then delete every child
+  # Kustomization it owns, and through them every app. Orphan leaves them
+  # in place. Children keep their own WaitForTermination via the patch below.
+  deletionPolicy: Orphan

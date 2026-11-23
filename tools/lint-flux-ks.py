@@ -9,8 +9,8 @@ must:
   .agents/instructions/flux.dependencies.md for when `wait: true` is warranted.
 - set `timeout` explicitly. Unset, it defaults to the interval (30m/1h), so a
   stuck health check holds for up to an hour.
-- NOT set `sourceRef`, `retryInterval`, or `prune: true`. The cluster-apps
-  parent patch (kubernetes/flux/cluster/ks.yaml) injects all three and
+- NOT set `sourceRef`, `retryInterval`, or `prune: true`. The tier parents'
+  patch (spec.patches in kubernetes/flux/cluster/ks.yaml) injects all three and
   overrides whatever the child declares, so a child value is dead config that
   only looks tunable.
   `prune: false` stays allowed as documentation for the label-selected opt-out
@@ -54,11 +54,11 @@ def check(path: pathlib.Path) -> list[str]:
         if "timeout" not in spec:
             errors.append(f"{where}: set `timeout` explicitly (default = interval)")
         if "sourceRef" in spec:
-            errors.append(f"{where}: drop `sourceRef` (injected by the cluster-apps parent patch)")
+            errors.append(f"{where}: drop `sourceRef` (injected by the tier-defaults parent patch)")
         if "retryInterval" in spec:
-            errors.append(f"{where}: drop `retryInterval` (injected by the cluster-apps parent patch: 2m)")
+            errors.append(f"{where}: drop `retryInterval` (injected by the tier-defaults parent patch: 2m)")
         if spec.get("prune") is True:
-            errors.append(f"{where}: drop `prune: true` (injected by the cluster-apps parent patch)")
+            errors.append(f"{where}: drop `prune: true` (injected by the tier-defaults parent patch)")
     return errors
 
 

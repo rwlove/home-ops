@@ -15,6 +15,14 @@ spec:
   # chore's own description), and how to clear it, with deep links. Silent when
   # nothing is due. Deterministic: no LLM, no k8s API.
   #
+  # Sensor-backed chores are CHECKED BEFORE EMAILING: a due chore whose Grocy
+  # `ha_check` userfield holds a Jinja template is rendered against live Home
+  # Assistant (POST /api/template). A render starting "OK" means the equipment
+  # already satisfies the chore -> the digest tracks the execution in Grocy and
+  # sends nothing. Any other render is put in the email as "Live from HA"; an
+  # unreachable HA falls back to the plain email. The template (and its
+  # serial-bearing entity IDs) lives in Grocy, not in this public repo.
+  #
   # HomeBox here is the sysadminsmedia fork (v0.26): API is /api/v1/entities
   # (+ per-entity detail for warrantyExpires), NOT the classic /api/v1/items.
   #
@@ -63,6 +71,7 @@ spec:
                 - |
                   HB="http://homebox.selfhosted:7745"
                   GR="http://grocy.selfhosted:80"
+                  HA="http://home-assistant.home:8123"
                   # Weekly cron (Mon 08:00 ET). Warranty reminders fire in two
                   # ~1-week-wide bands sized to the weekly cadence so each is
                   # caught by exactly one run: ~90 days out, and ~7 days out.
@@ -209,7 +218,7 @@ spec:
                     head -n "$$MAX" /tmp/due.tsv > /tmp/due.capped && mv /tmp/due.capped /tmp/due.tsv
                   fi
 
-                  SENT=0; FAILED=0
+                  SENT=0; FAILED=0; AUTO=0
                   while IFS="$$TAB" read -r KIND NAME DETAIL ID; do
                     [ -z "$$NAME" ] && continue
                     printf 'DUE  %-10s | %-30s | %s\n' "$$KIND" "$$NAME" "$$DETAIL"
@@ -224,8 +233,42 @@ spec:
                                     "$$GR/api/objects/chores/$$ID" 2>/dev/null | jq -r '.description // ""' 2>/dev/null)"
                         fi
                         [ -z "$$PROC" ] && PROC="_(No procedure recorded yet — ask Vila to add one to this chore in Grocy.)_"
-                        BODY="$$(printf '**Do now:** %s  (%s)\n\n**Procedure:**\n%s\n\n**When done — clear it:** open Grocy -> Chores overview, find "%s", and click *Track execution of now* (this resets the next-due date).\n[Grocy chores](%s/choresoverview)' \
-                          "$$NAME" "$$DETAIL" "$$PROC" "$$NAME" "$$GR_PUB")"
+                        # Check before emailing: render the chore's ha_check
+                        # userfield (if any) against live HA. "OK..." -> track
+                        # the execution in Grocy and skip the email.
+                        LIVE=""
+                        HCT=""
+                        if [ -n "$$ID" ]; then
+                          HCT="$$(curl -sS --max-time 15 -H "GROCY-API-KEY: $${GROCY_API_KEY}" \
+                                   "$$GR/api/userfields/chores/$$ID" 2>/dev/null | jq -r '.ha_check // ""' 2>/dev/null)" || HCT=""
+                        fi
+                        if [ -n "$$HCT" ]; then
+                          if HR="$$(curl -sSf --max-time 20 -X POST \
+                                     -H "Authorization: Bearer $${HA_TOKEN}" -H 'Content-Type: application/json' \
+                                     -d "$$(jq -n --arg t "$$HCT" '{template:$$t}')" "$$HA/api/template")"; then
+                            case "$$HR" in
+                              OK*)
+                                if curl -sSf --max-time 20 -o /dev/null -X POST \
+                                     -H "GROCY-API-KEY: $${GROCY_API_KEY}" -H 'Content-Type: application/json' \
+                                     -d '{}' "$$GR/api/chores/$$ID/execute"; then
+                                  echo "AUTO-VERIFIED via HA: $$NAME -- $$HR (tracked in Grocy, no email)"
+                                  AUTO=$$((AUTO + 1))
+                                  continue
+                                fi
+                                LIVE="HA reads healthy ($$HR) but the Grocy auto-track failed -- track it by hand."
+                                ;;
+                              *) LIVE="$$HR" ;;
+                            esac
+                          else
+                            LIVE="_(HA check unavailable -- verify by hand.)_"
+                          fi
+                        fi
+                        # ($$(...) strips trailing newlines, so the HA line's
+                        # separator lives in the format string, not in LIVE.)
+                        HAFMT=''
+                        [ -n "$$LIVE" ] && HAFMT='**Live from HA:** %s\n\n'
+                        BODY="$$(printf "**Do now:** %s  (%s)\n\n$${HAFMT}**Procedure:**\n%s\n\n**When done — clear it:** open Grocy -> Chores overview, find \"%s\", and click *Track execution of now* (this resets the next-due date).\n[Grocy chores](%s/choresoverview)" \
+                          "$$NAME" "$$DETAIL" $${LIVE:+"$$LIVE"} "$$PROC" "$$NAME" "$$GR_PUB")"
                         ;;
                       warranty)
                         # DETAIL is always "expiring (...)" now -- already-
@@ -249,6 +292,9 @@ spec:
 
                     REQ="$$(jq -n --arg s "$$SUBJECT" --arg b "$$BODY" --arg a "vila" \
                               '{subject:$$s, body:$$b, agent:$$a}')"
+                    if [ -n "$${DRY_RUN:-}" ]; then
+                      printf 'DRY_RUN would send:\n%s\n' "$$REQ"; continue
+                    fi
                     HTTP="$$(curl -sS --max-time 30 -o /tmp/send.out -w '%{http_code}' \
                               -H 'Content-Type: application/json' -d "$$REQ" \
                               http://notify-mcp.mcp-system:8060/send)"
@@ -257,7 +303,7 @@ spec:
                       *) echo "FATAL: notify-mcp /send HTTP $$HTTP for '$$SUBJECT'"; cat /tmp/send.out; FAILED=$$((FAILED + 1));;
                     esac
                   done < /tmp/due.tsv
-                  echo "----- sent $$SENT email(s); $$FAILED failed -----"
+                  echo "----- sent $$SENT email(s); $$AUTO auto-verified via HA; $$FAILED failed -----"
                   [ "$$FAILED" -eq 0 ] || exit 1
               env:
                 - name: HOME

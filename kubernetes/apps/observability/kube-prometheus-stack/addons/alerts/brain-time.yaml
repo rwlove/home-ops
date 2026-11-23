@@ -1,0 +1,64 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  labels:
+    prometheus: k8s
+    role: alert-rules
+  name: brain-time-rules
+spec:
+  groups:
+    - name: brain-time.rules
+      rules:
+        # brain is the LAN's only NTP server (chrony, minsources 2, with
+        # `local stratum 10 orphan` as the internet-loss fallback). These rules
+        # read the chrony textfile-collector metrics scraped from brain's
+        # node-exporter. They are chrony-specific and complement — not
+        # duplicate — the generic kernel-clock rules HostClockSkew /
+        # HostClockNotSynchronising above (node_timex_*), which can't see
+        # upstream-source health, stratum, or the orphan fallback.
+        #
+        # Every expression selects series that exist only once the collector is
+        # deployed, so before rollout there is no series and nothing fires.
+        # Absence of the metrics themselves is deliberately NOT alerted here
+        # (no absent()) until the collector is confirmed live.
+        - alert: BrainTimeUnsynced
+          # stratum 0 = chrony reports unsynchronised; >= 10 = brain has
+          # fallen back to its local orphan clock, i.e. lost every upstream.
+          expr: chrony_tracking_stratum{instance=~"brain\\..*:9100"} == 0 or chrony_tracking_stratum{instance=~"brain\\..*:9100"} >= 10
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: brain is not synchronised to an upstream time source
+            description: "brain's NTP service has been unsynchronised or running on its local fallback clock for 15m+, so every LAN client is being served time that may be drifting. On brain run `chronyc tracking` and `chronyc sources -v`, then check its internet and DNS path.\n  VALUE = {{ $value }}"
+
+        - alert: BrainTimeFewSources
+          expr: chrony_sources_usable{instance=~"brain\\..*:9100"} < 2
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: brain has fewer than 2 usable NTP sources
+            description: "brain has {{ $value }} usable upstream NTP source(s); it is configured to require at least 2 before it trusts its time. On brain run `chronyc sources -v` to see which servers are unreachable or rejected.\n  VALUE = {{ $value }}"
+
+        - alert: BrainTimeOffsetHigh
+          expr: abs(chrony_tracking_system_time_offset_seconds{instance=~"brain\\..*:9100"}) > 0.05
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: brain's clock is more than 50 ms off its time sources
+            description: "brain's system clock differs from its NTP sources by more than 50 ms for 10m+. On brain run `chronyc tracking` and `chronyc sourcestats` to check for a bad source or a stepping clock.\n  VALUE = {{ $value }} seconds"
+
+        - alert: BrainTimeMetricsStale
+          # Fires only while the series still exists but is not being refreshed
+          # (cron/timer stopped). A fully absent series is not alerted yet.
+          expr: time() - chrony_textfile_last_run_timestamp_seconds{instance=~"brain\\..*:9100"} > 300
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: brain's chrony metrics have stopped updating
+            description: "The chrony textfile collector on brain has not refreshed its metrics for 10m+, so the other brain time alerts are working from stale data. On brain check the collector's systemd timer or cron job and run `chronyc tracking` directly.\n  VALUE = {{ $value }} seconds since last run"

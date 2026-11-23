@@ -302,6 +302,10 @@ isolation, no DNS isolation.
 
 ## Current state (snapshot)
 
+> Pre-rollout snapshot (2026-05). The pod-gateway policies listed below,
+> including the reflected copy in `default`, were removed 2026-11-21 with
+> pod-gateway itself (#11829); see Pattern E.
+
 - Cilium 1.19, `enable-policy=default`, `policy-cidr-match-mode=""`
   (this is the precondition for the apiserver footgun — see Risks).
 - Hubble enabled cluster-wide, `hubble-network-policy-correlation-enabled=true`,
@@ -343,8 +347,9 @@ allow, and zero default-deny. Good starting position.
 2. **No `toCIDR: 0.0.0.0/0` for cluster-internal targets.** Per
    `project_cilium_ipblock_apiserver.md`, `0.0.0.0/0` does **not**
    match `kube-apiserver` (host-network identity). Use entity
-   selectors. The pod-gateway egress is the documented exception
-   (WireGuard UDP/51820 to true world).
+   selectors. The documented exception is each download app's
+   WireGuard egress: UDP/51820 to that app's own relay entry IP
+   (`toCIDR` /32, Pattern E).
 3. **Allow before deny.** Every namespace gets the baseline
    allow-policies merged and Hubble-verified *before* the
    default-deny policy lands in the same PR. Default-deny is the

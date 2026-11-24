@@ -77,7 +77,11 @@ spec:
   # ICMP. ESP32 radios routinely drop/deprioritise ICMP while the API stays
   # healthy: bluetooth-proxy-wifi-2 showed 0.7% ICMP success over 30d (alert
   # fired continuously) yet served Home Assistant sensor data the whole time.
-  # A TCP connect to 6053 is the signal HA itself depends on. Alerts via
+  # Module esphome_api (helmrelease.yaml) makes the API task answer a
+  # deliberately bad frame header, not just accept TCP: a bare tcp_connect
+  # stayed green for ~2 days in Nov 2026 while wifi-2 had stopped feeding
+  # Home Assistant, because the ESP32 network stack completes the TCP
+  # handshake even when the ESPHome loop is wedged. Alerts via
   # BlackboxIoTDeviceUnreachable (same avg_over_time<0.5 / for:15m semantics
   # as `devices`); rules live in helmrelease.yaml.
   # bluetooth-proxy-gym-poe (10.10.20.59, switch-basement port 3) carries both
@@ -87,7 +91,7 @@ spec:
   # odd connect (~80-100% success in testing), which the 15m
   # avg_over_time<0.5 window tolerates.
   interval: 2m
-  module: tcp_connect
+  module: esphome_api
   prober:
     url: blackbox-exporter.observability.svc.cluster.local:9115
   targets:

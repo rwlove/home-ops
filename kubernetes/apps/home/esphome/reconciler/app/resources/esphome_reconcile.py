@@ -26,6 +26,9 @@ HARD design constraints (repo policy / memory), encoded here:
   * ONE device at a time; verify API (:6053) back up before the next. A core
     image bump marks the whole fleet out-of-date, so MAX_PER_RUN caps each run
     and the rest drain over subsequent runs — never a concurrent mass reflash.
+    The cap counts devices ATTEMPTED; offline skips don't consume a slot, so a
+    run keeps walking the candidate list until MAX_PER_RUN reachable devices
+    have been compiled/flashed (or the list runs out).
   * Offline devices never fail a run. A candidate is TCP-probed on :6053 before
     any compile/OTA; if unreachable it is SKIPPED (not compiled, not flashed, no
     state write) and deferred to a future run — NOT treated as a failure (which
@@ -352,15 +355,17 @@ def main():
         log("RECONCILE_RESULT=noop")
         return 0
 
-    batch = candidates[:MAX_PER_RUN]
-    deferred = candidates[MAX_PER_RUN:]
     log("candidates: %s" % ", ".join("%s(%s)" % (f, r) for f, r in candidates))
-    log("this run: %s%s" % (", ".join(f for f, _ in batch),
-                            " | deferred: %s" % ", ".join(f for f, _ in deferred)
-                            if deferred else ""))
 
-    results, failure, compile_failed = [], None, []
-    for fn, reason in batch:
+    # MAX_PER_RUN caps devices ATTEMPTED (reachable -> compile/flash), not
+    # candidates considered: an offline skip costs nothing, so it must not burn
+    # a slot — the walk moves on to the next candidate until the cap is filled.
+    results, failure, compile_failed, deferred = [], None, [], []
+    attempted = 0
+    for i, (fn, reason) in enumerate(candidates):
+        if attempted >= MAX_PER_RUN:
+            deferred = candidates[i:]
+            break
         # Pre-flight reachability: an offline device is skipped (not a failure),
         # so it never stops the run or pages. Deferred to a future run; when it
         # comes back online it is still a candidate (no state was written).
@@ -370,6 +375,7 @@ def main():
                 % (fn, addr or "no-address", DEVICE_API_PORT))
             results.append({"fn": fn, "status": "skipped-offline", "reason": reason})
             continue
+        attempted += 1
         try:
             res = flash_one(fn, devs, state)
             res["reason"] = reason
@@ -386,6 +392,10 @@ def main():
             log("STOP: %s" % e)
             failure = (fn, str(e))
             break  # do not cascade into the next device in an unknown state
+
+    log("attempted %d/%d%s" % (attempted, MAX_PER_RUN,
+                               " | deferred: %s" % ", ".join(f for f, _ in deferred)
+                               if deferred else ""))
 
     # ---- report (problems/results only) ----
     flashed = [r["fn"] for r in results if r["status"] == "flashed"]

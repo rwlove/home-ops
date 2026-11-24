@@ -191,6 +191,41 @@ jobs:
       shell: bash
       run: tools/lint-flux-parents.py
 
+  move-window-freeze:
+    name: move-window-freeze
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: arc-runner-set-home-ops
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        # HEAD is the PR merge commit; HEAD^1 is the base it merges into.
+        fetch-depth: 2
+        persist-credentials: false
+
+    - name: Setup Python
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      with:
+        python-version: 3.15.x
+
+    - name: Install PyYAML
+      shell: bash
+      run: pip install pyyaml
+
+    - name: No tier-root change while a move window is open
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+      # The window state comes from main as it is now, so a re-run after the
+      # window opens sees it (a re-run keeps the original merge commit).
+      run: |
+        git fetch --depth=1 --no-tags origin main
+        tools/lint-move-window-freeze.py --base HEAD^1 --head HEAD --window-ref FETCH_HEAD
+
   claude-runner-no-broker:
     name: claude-runner-no-broker
     runs-on: arc-runner-set-home-ops
@@ -287,6 +322,7 @@ jobs:
     - flux-ks-explicit
     - tier-membership
     - flux-parents
+    - move-window-freeze
     - claude-runner-no-broker
     - envsubst-shell-vars
     - subpath-key-removal

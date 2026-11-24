@@ -99,7 +99,12 @@ Every check below is a mode of `tools/tier-move-gates.sh` (also
 checkout at the revision under test.
 
 1. Freeze writers: suspend the home-ops RenovateJob, and merge nothing else.
-   Record the baseline: `tier-gate baseline`.
+   Record the baseline: `tier-gate baseline`. Once the window PR (step 2)
+   merges, the `move-window-freeze` Lint job fails any PR that changes
+   `kubernetes/apps/` or `kubernetes/tiers/`. It gates only CI that runs
+   during the window, because branch protection does not require branches
+   to be up to date, so re-run Lint on the open PRs that touch those paths:
+   `tier-gate freeze-prs` lists them.
    Anything removed from a parent's root during the window is dropped from its
    inventory rather than collected.
 2. PR: the source (and, if it already exists, the destination) parent →
@@ -109,7 +114,9 @@ checkout at the revision under test.
    accident.
 3. PR (single commit): add or extend the destination root, and remove the dirs
    from the source root. A new parent is created with `prune: false` and the
-   same `home-ops.io/move-window` annotation. Before
+   same `home-ops.io/move-window` annotation. Its description carries the line
+   `Move-Window: <window PR number>`, which exempts it from the freeze job (as
+   it does a correction inside the window). Before
    pushing: build every root, check the union of all roots has no duplicates
    and equals the pre-window set (`tier-gate union`), and run both lints.
 4. Reconcile destination → source → destination. Check:

@@ -2581,8 +2581,12 @@ data:</p>
 object only if its live owner labels still name the pruning parent, but two
 pruning parents on independent timers can race. So a move always runs in a
 <strong>window</strong> in which every involved parent is <code>prune: false</code>:</p>
+<p>Every check below is a mode of <code>tools/tier-move-gates.sh</code> (also
+<code>just k8s tier-gate &lt;mode&gt;</code>), read-only against the cluster. Run it from a
+checkout at the revision under test.</p>
 <ol>
 <li>Freeze writers: suspend the home-ops RenovateJob, and merge nothing else.
+   Record the baseline: <code>tier-gate baseline</code>.
    Anything removed from a parent's root during the window is dropped from its
    inventory rather than collected.</li>
 <li>PR: the source (and, if it already exists, the destination) parent →
@@ -2594,17 +2598,20 @@ pruning parents on independent timers can race. So a move always runs in a
    from the source root. A new parent is created with <code>prune: false</code> and the
    same <code>home-ops.io/move-window</code> annotation. Before
    pushing: build every root, check the union of all roots has no duplicates
-   and equals the pre-window set, and run both lints.</li>
+   and equals the pre-window set (<code>tier-gate union</code>), and run both lints.</li>
 <li>Reconcile destination → source → destination. Check:</li>
 <li>each parent's inventory equals its render, and the moved objects have left
-     the source;</li>
-<li>owner labels name the new parent;</li>
-<li>no child Kustomization's <code>generation</code> changed;</li>
-<li>nothing was deleted.</li>
-<li>Leak check: no object labelled for a parent is missing from its inventory.</li>
+     the source (<code>tier-gate move &lt;dest&gt; &lt;src&gt;</code>);</li>
+<li>owner labels name the new parent (<code>tier-gate owner</code>);</li>
+<li>no child Kustomization's <code>generation</code> changed (<code>tier-gate gen</code>);</li>
+<li>nothing was deleted (<code>tier-gate gcwatch &lt;since&gt;</code>).</li>
+<li>Leak check: no object labelled for a parent is missing from its inventory
+   (<code>tier-gate leak &lt;parent&gt;</code>, for every involved parent).</li>
 <li>PR: every involved parent → <code>prune: true</code> (and drop the
    <code>home-ops.io/move-window</code> annotation), once each parent's
-   <code>lastAppliedRevision</code> includes the move. Then unfreeze.</li>
+   <code>lastAppliedRevision</code> includes the move (<code>tier-gate flip-pre &lt;move commit&gt;</code>
+   checks that plus the owner and leak gates). Then unfreeze. After each merge,
+   <code>tier-gate postmerge &lt;commit&gt;</code> waits for CI on main and checks the runners.</li>
 </ol>
 <p>A correction inside the window (a dir in the wrong tier) is safe while every
 side is <code>prune: false</code>. After the window closes, any further move needs a new

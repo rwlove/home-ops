@@ -37,6 +37,9 @@ bash rolling-upgrade.sh          # runs in the foreground; long — background i
 - **Gates between every node:** etcd quorum 3/3, ceph OSDs all-up + no PG/OSD
   warns (pre-existing `AUTH_INSECURE_*` tolerated), Longhorn no-faulted-volume
   floor. Any anomaly `die()`s the whole run rather than cascading.
+- **Reboot gate:** `longhorn_detach_gate` refuses to reboot a node while any Longhorn
+  volume still reports it as `currentNodeID` (bounded wait, then abort); the node is
+  `sync`ed right before the reboot (#13744).
 - **Never two control planes at once;** the heaviest CP goes last.
 - **`--skip-phases=addon`** on `upgrade apply` so kubeadm leaves the
   Flux-managed CoreDNS / Cilium-replaced kube-proxy untouched.

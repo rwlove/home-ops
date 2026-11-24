@@ -205,6 +205,14 @@ flushed.
    volume unmount is exactly what creates the dirty log. If a volume will not
    detach, **stop — do not force-reboot.**
 
+   **Enforced in `tools/cluster-upgrade/rolling-upgrade.sh`:** after the package
+   upgrade and immediately before the reboot, `longhorn_detach_gate` polls until
+   no Longhorn volume reports `status.currentNodeID == <node>` (bounded at ~5
+   min; an API error counts as "not safe"). On timeout it aborts non-zero
+   *before* the reboot, naming the holder volumes. The script then runs `sync`
+   on the node and triggers the reboot. The manual check below remains the
+   reference for hand-run upgrades.
+
    ```sh
    # Must print nothing before rebooting <node>:
    kubectl get volumes.longhorn.io -n longhorn-system -o json | jq -r \

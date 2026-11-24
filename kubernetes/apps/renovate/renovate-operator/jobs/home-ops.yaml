@@ -38,6 +38,16 @@ spec:
       value: enabled
     - name: RENOVATE_CACHE_PRIVATE_PACKAGES
       value: "true"
+    # Renovate caches datasource release lists for a hardcoded 15 min, so an
+    # hourly schedule never hits it and every run re-fetches every tag list
+    # from the registries. 120 min spans the hourly interval: cached runs skip
+    # those registry calls (Docker Hub pull quota) and finish ~13% faster, at
+    # the cost of noticing a new release up to 2h late. This does not fix the
+    # occasional "lookupUpdates error" on the dashboard; that comes from
+    # Renovate's hardcoded 120s package-cache mutex timing out while large
+    # tag lists are processed on a single CPU-bound Node thread.
+    - name: RENOVATE_CACHE_TTL_OVERRIDE
+      value: '{"datasource-releases-*": 120}'
   image: ghcr.io/renovatebot/renovate:44.258.1@sha256:f88c659a3fbec410e4661cfc1f3a1c1a848c421c81418cd5d6f491c05cf4412e
   parallelism: 5
   provider:

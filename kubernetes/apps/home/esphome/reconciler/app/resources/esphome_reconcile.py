@@ -53,6 +53,7 @@ Env (all optional except where noted; defaults shown):
   DRY_RUN=true       (OFF gate; "false" permits OTA)
   COMPILE_TIMEOUT=1500  UPLOAD_TIMEOUT=300  VERIFY_TIMEOUT=240  VERIFY_POLL=10
   DEVICE_API_PORT=6053
+  REACH_ATTEMPTS=3  REACH_TIMEOUT=10   (pre-flight probe: tries x connect timeout)
   NOTIFY_URL=http://notify-mcp.mcp-system:8060/send  AGENT=smart-home-operator
 
 Exit codes: 0 on a clean run OR a device failure that was emailed (the email is
@@ -85,6 +86,8 @@ UPLOAD_TIMEOUT = int(os.environ.get("UPLOAD_TIMEOUT", "300"))
 VERIFY_TIMEOUT = int(os.environ.get("VERIFY_TIMEOUT", "240"))
 VERIFY_POLL = int(os.environ.get("VERIFY_POLL", "10"))
 DEVICE_API_PORT = os.environ.get("DEVICE_API_PORT", "6053")
+REACH_ATTEMPTS = int(os.environ.get("REACH_ATTEMPTS", "3"))
+REACH_TIMEOUT = int(os.environ.get("REACH_TIMEOUT", "10"))
 NOTIFY_URL = os.environ.get("NOTIFY_URL", "http://notify-mcp.mcp-system:8060/send")
 AGENT = os.environ.get("AGENT", "smart-home-operator")
 
@@ -206,18 +209,28 @@ def save_state(state):
 
 
 def is_reachable(address):
-    """Single-shot TCP probe of the device native-API port from inside esphome-0
+    """Bounded TCP probe of the device native-API port from inside esphome-0
     (over the Multus IoT NIC). Unlike verify_online (which POLLS for a post-OTA
-    reboot), this is one quick check: 'is this device online right now?' — used
-    pre-flight so an unreachable device is skipped gracefully instead of hard-
-    failing its OTA and stopping the run. A device with no address is unreachable.
+    reboot), this answers 'is this device online right now?' — used pre-flight
+    so an unreachable device is skipped gracefully instead of hard-failing its
+    OTA and stopping the run. A device with no address is unreachable.
+
+    Retries (REACH_ATTEMPTS x REACH_TIMEOUT, in one exec): esphome-0 sits
+    directly on the IoT L2, so the first connect to a device it hasn't talked
+    to recently waits on ARP, and some ESP radios miss ARP broadcasts for
+    seconds. A single 4s try marked a live proxy offline on 2026-11-24.
     """
     if not address:
         return False
-    probe = ("python3 -c \"import socket;socket.setdefaulttimeout(4);"
-             "socket.create_connection(('%s',%s));print('UP')\""
-             % (address, DEVICE_API_PORT))
-    rc, out, _ = exec_pod(probe, timeout=10)
+    probe = ("python3 -c \"import socket,time\n"
+             "for i in range(%d):\n"
+             "  try:\n"
+             "    socket.create_connection(('%s',%s),timeout=%d).close();print('UP');break\n"
+             "  except OSError:\n"
+             "    time.sleep(2)\""
+             % (REACH_ATTEMPTS, address, DEVICE_API_PORT, REACH_TIMEOUT))
+    rc, out, _ = exec_pod(probe,
+                          timeout=REACH_ATTEMPTS * (REACH_TIMEOUT + 2) + 10)
     return rc == 0 and "UP" in out
 
 

@@ -27,8 +27,13 @@ on:
     paths:
       - "kubernetes/**"
 
+# PRs share one group per PR number, so a new push cancels the stale run.
+# Pushes to main are grouped by commit SHA, so a later merge never cancels an
+# earlier commit's full-tree validation. Grouping by ref used to cancel 38 of
+# 88 main runs (43%), leaving the combined tree after back-to-back merges
+# untested.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.number || github.sha }}
   cancel-in-progress: true
 
 permissions:
@@ -38,6 +43,7 @@ jobs:
   filter-changes:
     name: Filter changes
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       changed-files: ${{ steps.changed-files.outputs.changed_files }}
     steps:
@@ -45,14 +51,20 @@ jobs:
         id: changed-files
         uses: bjw-s-labs/action-changed-files@147be9638332cf68fd60714a610509d7a9360d60 # v0.7.0
         with:
+          # Deletions must count: a PR that only removes an app dir can break
+          # the tree (e.g. a stale entry in a parent kustomization), and
+          # without this the change list is empty and flate is skipped.
+          include_deleted_files: true
           patterns: |-
             kubernetes/**/*
+            .github/flate-supply.yaml
             .github/workflows/flate.yaml
 
   test:
     if: ${{ needs.filter-changes.outputs.changed-files != '[]' }}
     name: flate test
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     needs:
       - filter-changes
     permissions:
@@ -90,50 +102,8 @@ jobs:
           # on nearly every run; requests not made can't be rate-limited.
           cache: true
 
-      # flate v0.7 stopped silently stubbing Secret/ConfigMap values it can't
-      # read from Git (home-operations/flate#1367). The two gha-runner-scale-set
-      # HelmReleases source `githubConfigSecret.*` via `valuesFrom` from the
-      # in-cluster `actions-runner-controller-auth` Secret (an ExternalSecret,
-      # never in Git), so without a supplied stub the chart's githubsecret.yaml
-      # validation fails at helm-template time. Staged to RUNNER_TEMP (not a
-      # committed file) so the same step works on every checkout/leg, including
-      # jobs that render the default branch. All values are placeholders.
-      - name: Prepare flate supply
-        run: |
-          cat > "${RUNNER_TEMP}/flate-supply.yaml" <<'EOF'
-          ---
-          apiVersion: v1
-          kind: Secret
-          metadata:
-            name: actions-runner-controller-auth
-            namespace: actions-runner-privileged
-          stringData:
-            github_app_id: "dummy"
-            github_app_installation_id: "dummy"
-            github_app_private_key: "dummy"
-          ---
-          apiVersion: v1
-          kind: Secret
-          metadata:
-            name: actions-runner-controller-auth
-            namespace: actions-runner-system
-          stringData:
-            github_app_id: "dummy"
-            github_app_installation_id: "dummy"
-            github_app_private_key: "dummy"
-          # flate v0.8 enforces Flux semantics: the tier parents' required
-          # substituteFrom Secret must exist (v0.7 tolerated it missing), or
-          # every Kustomization is blocked. SECRET_DOMAIN is its only key.
-          ---
-          apiVersion: v1
-          kind: Secret
-          metadata:
-            name: cluster-secrets
-            namespace: flux-system
-          stringData:
-            SECRET_DOMAIN: "example.com"
-          EOF
-
+      # Cluster-only Secrets flate can't read from Git are stubbed from the
+      # committed .github/flate-supply.yaml (see its header).
       # `test all` reconciles every Kustomization + HelmRelease (Helm rendering
       # is on by default) starting from the Flux entrypoint and following each
       # KS spec.path through the tree. Replaces `flux-local test --enable-helm`.
@@ -166,7 +136,7 @@ jobs:
           fi
           flate test all \
             --path "${GITHUB_WORKSPACE}/kubernetes/flux" \
-            --supply "${RUNNER_TEMP}/flate-supply.yaml" \
+            --supply "${GITHUB_WORKSPACE}/.github/flate-supply.yaml" \
             | tee "${RUNNER_TEMP}/flate-test.log"
           tested=$(grep -cE '✓[[:space:]]+Kustomization[[:space:]]' "${RUNNER_TEMP}/flate-test.log" || true)
           echo "Kustomizations tested: ${tested} (floor ${MIN_KUSTOMIZATIONS})"
@@ -180,6 +150,7 @@ jobs:
     if: ${{ github.event_name == 'pull_request' && needs.filter-changes.outputs.changed-files != '[]' }}
     name: flate diff
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     needs:
       - filter-changes
     permissions:
@@ -217,44 +188,8 @@ jobs:
           # baseline), so it fetches roughly double and benefits more.
           cache: true
 
-      # Stub for cluster-only Secrets flate v0.7 won't auto-fill — see the
-      # `test` job above. Supplied objects apply to both legs of the diff.
-      - name: Prepare flate supply
-        run: |
-          cat > "${RUNNER_TEMP}/flate-supply.yaml" <<'EOF'
-          ---
-          apiVersion: v1
-          kind: Secret
-          metadata:
-            name: actions-runner-controller-auth
-            namespace: actions-runner-privileged
-          stringData:
-            github_app_id: "dummy"
-            github_app_installation_id: "dummy"
-            github_app_private_key: "dummy"
-          ---
-          apiVersion: v1
-          kind: Secret
-          metadata:
-            name: actions-runner-controller-auth
-            namespace: actions-runner-system
-          stringData:
-            github_app_id: "dummy"
-            github_app_installation_id: "dummy"
-            github_app_private_key: "dummy"
-          # flate v0.8 enforces Flux semantics: the tier parents' required
-          # substituteFrom Secret must exist (v0.7 tolerated it missing), or
-          # every Kustomization is blocked. SECRET_DOMAIN is its only key.
-          ---
-          apiVersion: v1
-          kind: Secret
-          metadata:
-            name: cluster-secrets
-            namespace: flux-system
-          stringData:
-            SECRET_DOMAIN: "example.com"
-          EOF
-
+      # Cluster-only Secrets flate can't read from Git are stubbed from the
+      # committed .github/flate-supply.yaml (see its header).
       # flate's changed-only mode (--path-orig baseline = the default-branch
       # checkout) reconciles just the subtree the PR touches. FLATE_BASE="" so
       # the setup action's base can't collide with --path-orig (mutually
@@ -268,7 +203,7 @@ jobs:
           flate diff all \
             --path "${GITHUB_WORKSPACE}/pull/kubernetes/flux" \
             --path-orig "${GITHUB_WORKSPACE}/default/kubernetes/flux" \
-            --supply "${RUNNER_TEMP}/flate-supply.yaml" \
+            --supply "${GITHUB_WORKSPACE}/pull/.github/flate-supply.yaml" \
             -o diff > diff-full.patch || true
           cp diff-full.patch diff.patch
           # GitHub comment hard limit is 65536 chars; cap with a notice.
@@ -276,10 +211,12 @@ jobs:
             head -c 60000 diff-full.patch > diff.patch
             printf '\n\n... truncated at 60000 bytes (full render in the uploaded artifact).\n' >> diff.patch
           fi
+          # Random delimiter so a diff line can never end the output early.
+          delim="DIFF_EOF_$(openssl rand -hex 8)"
           {
-            echo 'content<<DIFF_EOF'
+            echo "content<<${delim}"
             cat diff.patch
-            echo DIFF_EOF
+            echo "${delim}"
           } >> "${GITHUB_OUTPUT}"
 
       - name: Upload diff artifact
@@ -294,9 +231,9 @@ jobs:
         run: |
           {
             echo '## Flux diff (flate)'
-            echo '```diff'
+            echo '`````diff'
             cat diff.patch
-            echo '```'
+            echo '`````'
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Generate Token
@@ -313,19 +250,45 @@ jobs:
         with:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           header: ${{ github.event.pull_request.number }}/kubernetes/flate
+          # Five-backtick fence: a rendered manifest containing ``` (e.g. a
+          # Markdown ConfigMap) can't close it early.
           message: |
-            ```diff
+            `````diff
             ${{ steps.diff.outputs.content }}
-            ```
+            `````
+
+      # A later push that leaves no diff would otherwise keep the previous
+      # push's (now wrong) diff comment on the PR.
+      - name: Generate Token (stale comment cleanup)
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        if: ${{ github.event.pull_request.head.repo.full_name == github.repository && steps.diff.outputs.content == '' }}
+        id: app-token-cleanup
+        with:
+          client-id: ${{ secrets.LOVENET_RENOVATE_OPERATOR_CLIENT_ID }}
+          private-key: ${{ secrets.LOVENET_RENOVATE_OPERATOR_PRIVATE_KEY }}
+
+      - name: Delete stale comment
+        if: ${{ github.event.pull_request.head.repo.full_name == github.repository && steps.diff.outputs.content == '' }}
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
+        with:
+          GITHUB_TOKEN: ${{ steps.app-token-cleanup.outputs.token }}
+          header: ${{ github.event.pull_request.number }}/kubernetes/flate
+          delete: true
 
   flate-success:
+    # filter-changes is listed so its failure fails the gate: otherwise test
+    # and diff are SKIPPED and the gate goes green with nothing rendered.
+    # `cancelled` counts as failure too (a job cancelled on its own, e.g. by
+    # its timeout, while the workflow run itself was not).
     needs:
+      - filter-changes
       - test
       - diff
     if: ${{ !cancelled() }}
     name: flate successful
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Check job status
-        if: ${{ contains(needs.*.result, 'failure') }}
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
         run: exit 1

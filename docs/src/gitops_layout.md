@@ -94,7 +94,12 @@ object only if its live owner labels still name the pruning parent, but two
 pruning parents on independent timers can race. So a move always runs in a
 **window** in which every involved parent is `prune: false`:
 
+Every check below is a mode of `tools/tier-move-gates.sh` (also
+`just k8s tier-gate <mode>`), read-only against the cluster. Run it from a
+checkout at the revision under test.
+
 1. Freeze writers: suspend the home-ops RenovateJob, and merge nothing else.
+   Record the baseline: `tier-gate baseline`.
    Anything removed from a parent's root during the window is dropped from its
    inventory rather than collected.
 2. PR: the source (and, if it already exists, the destination) parent →
@@ -106,17 +111,20 @@ pruning parents on independent timers can race. So a move always runs in a
    from the source root. A new parent is created with `prune: false` and the
    same `home-ops.io/move-window` annotation. Before
    pushing: build every root, check the union of all roots has no duplicates
-   and equals the pre-window set, and run both lints.
+   and equals the pre-window set (`tier-gate union`), and run both lints.
 4. Reconcile destination → source → destination. Check:
    - each parent's inventory equals its render, and the moved objects have left
-     the source;
-   - owner labels name the new parent;
-   - no child Kustomization's `generation` changed;
-   - nothing was deleted.
-5. Leak check: no object labelled for a parent is missing from its inventory.
+     the source (`tier-gate move <dest> <src>`);
+   - owner labels name the new parent (`tier-gate owner`);
+   - no child Kustomization's `generation` changed (`tier-gate gen`);
+   - nothing was deleted (`tier-gate gcwatch <since>`).
+5. Leak check: no object labelled for a parent is missing from its inventory
+   (`tier-gate leak <parent>`, for every involved parent).
 6. PR: every involved parent → `prune: true` (and drop the
    `home-ops.io/move-window` annotation), once each parent's
-   `lastAppliedRevision` includes the move. Then unfreeze.
+   `lastAppliedRevision` includes the move (`tier-gate flip-pre <move commit>`
+   checks that plus the owner and leak gates). Then unfreeze. After each merge,
+   `tier-gate postmerge <commit>` waits for CI on main and checks the runners.
 
 A correction inside the window (a dir in the wrong tier) is safe while every
 side is `prune: false`. After the window closes, any further move needs a new

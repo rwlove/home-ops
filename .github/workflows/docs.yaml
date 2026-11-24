@@ -33,7 +33,12 @@ jobs:
     # lack node — same gotcha documented in flate.yaml's diff/comment
     # split. setup-python self-downloads CPython; pip reaches PyPI via the
     # runner CNP's wildcard 443 egress.
-    runs-on: arc-runner-set-home-ops
+    #
+    # Fork PRs build on ubuntu-latest instead: a fork controls the code that
+    # runs (docs/hooks.py, requirements.txt), so it never gets an in-cluster
+    # runner.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'arc-runner-set-home-ops' || 'ubuntu-latest' }}
+    timeout-minutes: 30
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: true
@@ -49,7 +54,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          token: "${{ steps.app-token.outputs.token || github.token }}"
+          # The deploy step takes the App token as an input, so nothing
+          # needs git credentials left on disk.
+          persist-credentials: false
 
       - name: Setup Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0

@@ -1,0 +1,201 @@
+---
+# promtool unit tests for the PUMP weigh-in alerts in prometheusrule.yaml
+# (PumpWeightReadingStale, PumpWeightMetricAbsent). Not a Kubernetes
+# manifest: it is deliberately absent from kustomization.yaml, so Flux
+# never applies it.
+#
+# promtool reads plain rule files, not the PrometheusRule CR, so extract
+# `.spec` first and run the tests from a scratch dir (rule_files below is
+# relative to this file):
+#
+#   d=$(mktemp -d)
+#   yq '.spec' prometheusrule.yaml > "$d/pump-rules.generated.yaml"
+#   cp prometheusrule.test.yaml "$d/"
+#   promtool test rules "$d/prometheusrule.test.yaml"
+#
+# Notes on the fixtures:
+# - promtool's clock starts at unix epoch 0, so time() == eval_time in
+#   seconds. A series value of 0 therefore means "last weigh-in was at
+#   epoch 0" and its age at eval_time T is simply T.
+# - The real metric is the epoch of midnight America/New_York on the latest
+#   weigh-in date, one series per postgres-pump pod. All three pods are
+#   modelled; the alert collapses them with max().
+# - Series are sampled every 1m: the default 5m lookback would make a
+#   coarser series go stale between samples and trip the absent() alert.
+# - Thresholds under test (read from the rule, not invented here):
+#   PumpWeightReadingStale: age > 10 * 86400 = 864000s, for 6h.
+#   PumpWeightMetricAbsent: absent(...{namespace="databases"}), for 1h.
+
+rule_files:
+  - pump-rules.generated.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # Fresh reading: newest weigh-in is 4d old. Even at exactly 10d of age
+  # (strict >) and well before the 6h `for:` can elapse, nothing fires.
+  - name: stale - fresh reading does not fire
+    interval: 1m
+    input_series:
+      - series: 'cnpg_pump_weight_last_reading_timestamp_seconds{namespace="databases", pod="postgres-pump-1", job="databases/postgres-pump-metrics"}'
+        values: "345600x25000"
+      - series: 'cnpg_pump_weight_last_reading_timestamp_seconds{namespace="databases", pod="postgres-pump-2", job="databases/postgres-pump-metrics"}'
+        values: "345600x25000"
+      - series: 'cnpg_pump_weight_last_reading_timestamp_seconds{namespace="databases", pod="postgres-pump-3", job="databases/postgres-pump-metrics"}'
+        values: "345600x25000"
+    alert_rule_test:
+      - eval_time: 9d
+        alertname: PumpWeightReadingStale
+        exp_alerts: []
+      - eval_time: 14d # age == 10d exactly; threshold is strict >
+        alertname: PumpWeightReadingStale
+        exp_alerts: []
+      - eval_time: 14d6h # age 10d6h, but the 6h `for:` has not elapsed
+        alertname: PumpWeightReadingStale
+        exp_alerts: []
+
+  # Old reading past the threshold: age crosses 10d at eval 10d+1m
+  # (pending), and must hold 6h to fire.
+  - name: stale - old reading fires after threshold + for
+    interval: 1m
+    input_series:
+      - series: 'cnpg_pump_weight_last_reading_timestamp_seconds{namespace="databases", pod="postgres-pump-1", job="databases/postgres-pump-metrics"}'
+        values: "0x25000"
+      - series: 'cnpg_pump_weight_last_reading_timestamp_seconds{namespace="databases", pod="postgres-pump-2", job="databases/postgres-pump-metrics"}'
+        values: "0x25000"
+      - series: 'cnpg_pump_weight_last_reading_timestamp_seconds{namespace="databases", pod="postgres-pump-3", job="databases/postgres-pump-metrics"}'
+        values: "0x25000"
+    alert_rule_test:
+      - eval_time: 10d # age == threshold, strict >: not even pending
+        alertname: PumpWeightReadingStale
+        exp_alerts: []
+      - eval_time: 10d1m # pending since here (864060s)
+        alertname: PumpWeightReadingStale
+        exp_alerts: []
+      - eval_time: 885600s # 1m short of 6h pending
+        alertname: PumpWeightReadingStale
+        exp_alerts: []
+      - eval_time: 885660s # pending (864060s) + 6h
+        alertname: PumpWeightReadingStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: no PUMP body-weight reading in >10 days
+              description: |
+                The newest body-weight reading in PUMP is more than 10 days old
+                (normal cadence is every 2-5 days, longest normal gap ~9). The
+                scale or its ingest path (the bluetooth-proxy-gym-poe ESPHome
+                device POSTing to pump-ingest) has probably stopped logging.
+                Check that device's power/link and its scale config, then pump-0
+                logs for rejected weight posts (WEIGHT_INGEST_KEY). The age is
+                `time() - max(cnpg_pump_weight_last_reading_timestamp_seconds)`.
+
+  # max() semantics: two replicas lagging on an old value must not fire
+  # while the primary has a fresh reading.
+  - name: stale - one fresh replica suppresses lagging replicas
+    interval: 1m
+    input_series:
+      - series: 'cnpg_pump_weight_last_reading_timestamp_seconds{namespace="databases", pod="postgres-pump-1", job="databases/postgres-pump-metrics"}'
+        values: "0x25000"
+      - series: 'cnpg_pump_weight_last_reading_timestamp_seconds{namespace="databases", pod="postgres-pump-2", job="databases/postgres-pump-metrics"}'
+        values: "0x25000"
+      - series: 'cnpg_pump_weight_last_reading_timestamp_seconds{namespace="databases", pod="postgres-pump-3", job="databases/postgres-pump-metrics"}'
+        values: "950400x25000" # 11d: fresh at eval 12d
+    alert_rule_test:
+      - eval_time: 12d
+        alertname: PumpWeightReadingStale
+        exp_alerts: []
+
+  # Recovery: alert is firing, then a new weigh-in lands (value jumps to
+  # 11d) and it resolves.
+  - name: stale - new weigh-in resolves a firing alert
+    interval: 1m
+    input_series:
+      - series: 'cnpg_pump_weight_last_reading_timestamp_seconds{namespace="databases", pod="postgres-pump-1", job="databases/postgres-pump-metrics"}'
+        values: "0x15840 950400x9000"
+    alert_rule_test:
+      - eval_time: 10d12h # firing
+        alertname: PumpWeightReadingStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: no PUMP body-weight reading in >10 days
+              description: |
+                The newest body-weight reading in PUMP is more than 10 days old
+                (normal cadence is every 2-5 days, longest normal gap ~9). The
+                scale or its ingest path (the bluetooth-proxy-gym-poe ESPHome
+                device POSTing to pump-ingest) has probably stopped logging.
+                Check that device's power/link and its scale config, then pump-0
+                logs for rejected weight posts (WEIGHT_INGEST_KEY). The age is
+                `time() - max(cnpg_pump_weight_last_reading_timestamp_seconds)`.
+      - eval_time: 11d10m # reading landed at 11d
+        alertname: PumpWeightReadingStale
+        exp_alerts: []
+
+  # Documented limitation: with the metric gone, the stale alert cannot
+  # fire (absent series never compares true). PumpWeightMetricAbsent is
+  # the guard; the next test covers it.
+  - name: stale - metric absent does not fire (absent guard covers it)
+    interval: 1m
+    input_series:
+      - series: 'unrelated_metric{namespace="databases"}'
+        values: "1x25000"
+    alert_rule_test:
+      - eval_time: 20d
+        alertname: PumpWeightReadingStale
+        exp_alerts: []
+
+  # Metric present throughout: absent alert never fires.
+  - name: absent - metric present does not fire
+    interval: 1m
+    input_series:
+      - series: 'cnpg_pump_weight_last_reading_timestamp_seconds{namespace="databases", pod="postgres-pump-1", job="databases/postgres-pump-metrics"}'
+        values: "345600x400"
+    alert_rule_test:
+      - eval_time: 3h
+        alertname: PumpWeightMetricAbsent
+        exp_alerts: []
+
+  # Metric vanishes after 2h (series ends at t=7200s; absent from ~7500s
+  # once the 5m lookback expires). Pending for 1h, then fires with the
+  # label set absent() derives from the equality matcher.
+  - name: absent - metric gone > 1h fires
+    interval: 1m
+    input_series:
+      - series: 'cnpg_pump_weight_last_reading_timestamp_seconds{namespace="databases", pod="postgres-pump-1", job="databases/postgres-pump-metrics"}'
+        values: "345600x120"
+    alert_rule_test:
+      - eval_time: 2h30m # absent for ~25m: pending only
+        alertname: PumpWeightMetricAbsent
+        exp_alerts: []
+      - eval_time: 3h10m # absent for >1h
+        alertname: PumpWeightMetricAbsent
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: databases
+            exp_annotations:
+              summary: PUMP weigh-in freshness metric missing (>1h)
+              description: |
+                cnpg_pump_weight_last_reading_timestamp_seconds is not being
+                exported, so PumpWeightReadingStale cannot fire. Check the
+                postgres-pump-monitoring ConfigMap, the postgres-pump-metrics
+                PodMonitor, and the postgres-pump instance logs for
+                "Error collecting user query" (query pump_weight). A failing
+                user query does NOT raise cnpg_collector_last_collection_error,
+                which stays 0. "permission denied for table weight" means the
+                pg_monitor grant (PUMP migration v26) is missing.
+
+  # A 30m gap (CNPG switchover / rolling restart) is ridden out by the
+  # 1h `for:` and must not page.
+  - name: absent - 30m gap (switchover) does not fire
+    interval: 1m
+    input_series:
+      - series: 'cnpg_pump_weight_last_reading_timestamp_seconds{namespace="databases", pod="postgres-pump-1", job="databases/postgres-pump-metrics"}'
+        values: "345600x60 _x30 345600x400"
+    alert_rule_test:
+      - eval_time: 2h30m
+        alertname: PumpWeightMetricAbsent
+        exp_alerts: []

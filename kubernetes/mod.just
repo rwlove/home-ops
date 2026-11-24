@@ -91,3 +91,7 @@ pg-backup-now app:
       '  pluginConfiguration:' \
       '    name: barman-cloud.cloudnative-pg.io' \
       | kubectl -n databases create -f -
+
+[doc('Tier-move window gates (docs/src/gitops_layout.md); run with no mode for usage')]
+tier-gate *args:
+    cd "{{ justfile_directory() }}" && tools/tier-move-gates.sh {{ args }}

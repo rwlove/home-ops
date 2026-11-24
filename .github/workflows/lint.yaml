@@ -15,10 +15,22 @@ concurrency:
 permissions:
   contents: read
 
+# Runner choice, repeated per job (`runs-on` can't read env):
+#   arc-runner-set-home-ops for same-repo PRs and manual runs;
+#   ubuntu-latest for PRs from forks.
+# The self-hosted runners live inside the cluster, and a fork PR controls the
+# code these jobs execute (it can edit tools/lint-*.py), so fork code never
+# gets a self-hosted runner. Fork PRs still run every lint, on GitHub's
+# runners, so the required "Lint successful" gate keeps its full coverage.
+#
+# Changed-file lists come from PR filenames, so they reach the shell through
+# env vars (parsed as JSON), never `${{ }}` interpolation into a script.
+
 jobs:
   actionlint:
     name: actionlint
-    runs-on: arc-runner-set-home-ops
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'arc-runner-set-home-ops' || 'ubuntu-latest' }}
+    timeout-minutes: 20
     steps:
     - name: Checkout
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -42,7 +54,8 @@ jobs:
 
   yamllint:
     name: yamllint
-    runs-on: arc-runner-set-home-ops
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'arc-runner-set-home-ops' || 'ubuntu-latest' }}
+    timeout-minutes: 20
     steps:
     - name: Checkout
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -58,7 +71,7 @@ jobs:
           **/*.yml
 
     - name: Setup Python
-      id: setup-python
+      if: steps.changed-files.outputs.changed_files != '[]'
       uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
       with:
         python-version: 3.15.x
@@ -72,12 +85,15 @@ jobs:
     - name: Run yamllint
       if: steps.changed-files.outputs.changed_files != '[]'
       shell: bash
+      env:
+        CHANGED_FILES: ${{ steps.changed-files.outputs.changed_files }}
       run: |
-        yamllint --config-file .yamllint.yaml --format github ${{ join(fromJSON(steps.changed-files.outputs.changed_files), ' ') }}
+        python -c 'import json, os, sys; files = json.loads(os.environ["CHANGED_FILES"]); os.execvp("yamllint", ["yamllint", "--config-file", ".yamllint.yaml", "--format", "github", "--", *files])'
 
   markdownlint:
     name: markdownlint
-    runs-on: arc-runner-set-home-ops
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'arc-runner-set-home-ops' || 'ubuntu-latest' }}
+    timeout-minutes: 20
     steps:
     - name: Checkout
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -107,102 +123,24 @@ jobs:
         markdownlint_config: .markdownlint.yaml
         file_pattern: ${{ join(fromJSON(steps.changed-files.outputs.changed_files), ' ') }}
 
-  cnp-empty-rules:
-    name: cnp-empty-rules
-    runs-on: arc-runner-set-home-ops
-    steps:
-    - name: Checkout
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      with:
-        persist-credentials: false
-
-    - name: Setup Python
-      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-      with:
-        python-version: 3.15.x
-
-    - name: Install PyYAML
-      shell: bash
-      run: pip install pyyaml
-
-    - name: Lint CiliumNetworkPolicy manifests for empty-rules shape
-      shell: bash
-      run: tools/lint-cnp-empty-rules.py kubernetes
-
-  flux-ks-explicit:
-    name: flux-ks-explicit
-    runs-on: arc-runner-set-home-ops
-    steps:
-    - name: Checkout
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      with:
-        persist-credentials: false
-
-    - name: Setup Python
-      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-      with:
-        python-version: 3.15.x
-
-    - name: Install PyYAML
-      shell: bash
-      run: pip install pyyaml
-
-    - name: Child Flux Kustomizations set wait/timeout; no child sourceRef / prune:true
-      shell: bash
-      run: tools/lint-flux-ks.py kubernetes/apps
-
-  tier-membership:
-    name: tier-membership
-    runs-on: arc-runner-set-home-ops
-    steps:
-    - name: Checkout
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      with:
-        persist-credentials: false
-
-    - name: Setup Python
-      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-      with:
-        python-version: 3.15.x
-
-    - name: Every kubernetes/apps dir is listed by exactly one Flux parent root
-      shell: bash
-      run: tools/lint-tier-membership.py
-
-  flux-parents:
-    name: flux-parents
-    runs-on: arc-runner-set-home-ops
-    steps:
-    - name: Checkout
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      with:
-        persist-credentials: false
-
-    - name: Setup Python
-      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-      with:
-        python-version: 3.15.x
-
-    - name: Install PyYAML
-      shell: bash
-      run: pip install pyyaml
-
-    - name: Flux tier parents carry the tier label and identical specs
-      shell: bash
-      run: tools/lint-flux-parents.py
-
-  move-window-freeze:
-    name: move-window-freeze
-    if: ${{ github.event_name == 'pull_request' }}
-    runs-on: arc-runner-set-home-ops
+  # The repo-local lints, one job instead of one runner pod each. Every lint
+  # step runs even if an earlier one failed (`!cancelled()`), so a PR sees all
+  # of its failures at once, and each still reports as its own step.
+  # Mirrors the `repo: local` hooks in .pre-commit-config.yaml.
+  repo-lints:
+    name: repo-lints
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'arc-runner-set-home-ops' || 'ubuntu-latest' }}
+    timeout-minutes: 30
     permissions:
       contents: read
+      # move-window-freeze reads the PR's labels/state.
       pull-requests: read
     steps:
     - name: Checkout
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
-        # HEAD is the PR merge commit; HEAD^1 is the base it merges into.
+        # On a PR, HEAD is the merge commit and HEAD^1 the base it merges
+        # into; subpath-key-removal and move-window-freeze diff the two.
         fetch-depth: 2
         persist-credentials: false
 
@@ -215,7 +153,53 @@ jobs:
       shell: bash
       run: pip install pyyaml
 
-    - name: No tier-root change while a move window is open
+    - name: cnp-empty-rules
+      if: ${{ !cancelled() }}
+      shell: bash
+      run: tools/lint-cnp-empty-rules.py kubernetes
+
+    - name: longhorn-static-only
+      if: ${{ !cancelled() }}
+      shell: bash
+      run: tools/lint-longhorn-static.py kubernetes
+
+    - name: flux-ks-explicit
+      if: ${{ !cancelled() }}
+      shell: bash
+      run: tools/lint-flux-ks.py kubernetes/apps
+
+    - name: tier-membership
+      if: ${{ !cancelled() }}
+      shell: bash
+      run: tools/lint-tier-membership.py
+
+    - name: flux-parents
+      if: ${{ !cancelled() }}
+      shell: bash
+      run: tools/lint-flux-parents.py
+
+    - name: claude-runner-no-broker
+      if: ${{ !cancelled() }}
+      shell: bash
+      run: tools/lint-claude-runner-no-broker.py kubernetes .github
+
+    - name: envsubst-shell-vars
+      if: ${{ !cancelled() }}
+      shell: bash
+      run: tools/lint-envsubst-shell-vars.py kubernetes
+
+    - name: esphome-config-substitutions
+      if: ${{ !cancelled() }}
+      shell: bash
+      run: tools/lint-esphome-config-substitutions.py
+
+    - name: readme-drift
+      if: ${{ !cancelled() }}
+      shell: bash
+      run: tools/lint-readme-drift.py
+
+    - name: move-window-freeze
+      if: ${{ !cancelled() && github.event_name == 'pull_request' }}
       shell: bash
       env:
         GITHUB_TOKEN: ${{ github.token }}
@@ -226,111 +210,22 @@ jobs:
         git fetch --depth=1 --no-tags origin main
         tools/lint-move-window-freeze.py --base HEAD^1 --head HEAD --window-ref FETCH_HEAD
 
-  claude-runner-no-broker:
-    name: claude-runner-no-broker
-    runs-on: arc-runner-set-home-ops
-    steps:
-    - name: Checkout
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      with:
-        persist-credentials: false
-
-    - name: Setup Python
-      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-      with:
-        python-version: 3.15.x
-
-    - name: Check claude-runner is never wired to the MCP broker
-      shell: bash
-      run: tools/lint-claude-runner-no-broker.py kubernetes .github
-
-  envsubst-shell-vars:
-    name: envsubst-shell-vars
-    runs-on: arc-runner-set-home-ops
-    steps:
-    - name: Checkout
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      with:
-        persist-credentials: false
-
-    - name: Setup Python
-      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-      with:
-        python-version: 3.15.x
-
-    - name: Install PyYAML
-      shell: bash
-      run: pip install pyyaml
-
-    - name: Check shell vars in container command/args are escaped for envsubst
-      shell: bash
-      run: tools/lint-envsubst-shell-vars.py kubernetes
-
-    - name: Check ESPHome ${var} substitutions are escaped for envsubst
-      shell: bash
-      run: tools/lint-esphome-config-substitutions.py
-
-  subpath-key-removal:
-    name: subpath-key-removal
-    if: ${{ github.event_name == 'pull_request' }}
-    runs-on: arc-runner-set-home-ops
-    steps:
-    - name: Checkout
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      with:
-        # HEAD is the PR merge commit; HEAD^1 is the base it merges into.
-        fetch-depth: 2
-        persist-credentials: false
-
-    - name: Setup Python
-      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-      with:
-        python-version: 3.15.x
-
-    - name: Install PyYAML
-      shell: bash
-      run: pip install pyyaml
-
-    - name: Check no ConfigMap/Secret key is removed while a subPath mounts it
+    - name: subpath-key-removal
+      if: ${{ !cancelled() && github.event_name == 'pull_request' }}
       shell: bash
       run: tools/lint-subpath-key-removal.py --base HEAD^1 --head HEAD
-
-  readme-drift:
-    name: readme-drift
-    runs-on: arc-runner-set-home-ops
-    steps:
-    - name: Checkout
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      with:
-        persist-credentials: false
-
-    - name: Setup Python
-      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-      with:
-        python-version: 3.15.x
-
-    - name: Check README badges match repo reality
-      shell: bash
-      run: tools/lint-readme-drift.py
 
   lint_success:
     needs:
     - actionlint
     - yamllint
     - markdownlint
-    - cnp-empty-rules
-    - flux-ks-explicit
-    - tier-membership
-    - flux-parents
-    - move-window-freeze
-    - claude-runner-no-broker
-    - envsubst-shell-vars
-    - subpath-key-removal
-    - readme-drift
+    - repo-lints
     if: ${{ !cancelled() }}
     name: Lint successful
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
     - name: Check job status
-      if: ${{ contains(needs.*.result, 'failure') }}
+      if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
       run: exit 1

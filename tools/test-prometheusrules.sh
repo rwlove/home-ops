@@ -23,7 +23,7 @@
 set -euo pipefail
 
 # renovate: datasource=docker depName=quay.io/prometheus/prometheus
-PROMETHEUS_VERSION="v3.5.0"
+PROMETHEUS_VERSION="v3.16.0"
 IMAGE="quay.io/prometheus/prometheus:${PROMETHEUS_VERSION}"
 
 root="${1:-kubernetes}"

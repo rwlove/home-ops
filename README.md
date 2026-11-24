@@ -560,7 +560,7 @@ Repo-local conventions (auto-loaded by AI agents from [`.agents/instructions/`](
 
 ## 🙏 Acknowledgements
 
-Inspired by the [k8s-at-home](https://github.com/k8s-at-home) community. [@whazor](https://github.com/whazor) maintains the excellent [k8s-at-home search](https://nanne.dev/k8s-at-home-search/) — a great way to discover how others configure the same Helm releases.
+Inspired by the [k8s-at-home](https://github.com/k8s-at-home) community. [@whazor](https://github.com/whazor) maintains the excellent [kubesearch.dev](https://kubesearch.dev/) — a great way to discover how others configure the same Helm releases.
 
 <div align="center">
 <sub>This repo has been continuously reconciling itself since <b>March 2021</b>.</sub>

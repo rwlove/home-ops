@@ -57,6 +57,7 @@ import urllib.request
 
 import a2a_client
 import cilium_verify
+import ha_verify
 import longhorn_verify
 import observability_verify
 from english_gate import is_non_english
@@ -419,6 +420,8 @@ def main():
                     body = cilium_verify.suppress_false_exhaustion(body, log=log)
                 if os.environ.get("OBS_VERIFY") == "true":
                     body = observability_verify.verify(body, log=log)
+                if os.environ.get("HA_VERIFY") == "true":
+                    body = ha_verify.verify(body, log=log)
                 if is_empty_finding(body):
                     # Nothing but a roster under a bare tag → nothing actionable.
                     result = "allclear"

@@ -47,7 +47,12 @@ persona):
   rewrites a "Kustomizations failing/pending" claim to its real root(s) when
   Prometheus shows a `DependencyNotReady` cascade, and corrects any
   "<node>: N GB free" figure that disagrees with `node_filesystem_avail_bytes`.
-- `smart-home-triage` / `smart-home-doer`
+- `smart-home-triage` / `smart-home-doer` — `resources/ha_verify.py` checks
+  each finding that names an entity_id against live HA state (one
+  `POST /api/template`): it drops a battery claim when no device behind the
+  entities has a working battery sensor, drops a "down" claim when every named
+  entity is up, and replaces the model's outage duration with one computed
+  from `last_changed`. HA unreachable → body passes through unchanged.
 - `storage-triage` / `storage-doer`
 
 Every triage email body starts at the first `PROBLEM:` line: anything the

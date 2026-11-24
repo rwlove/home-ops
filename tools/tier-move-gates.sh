@@ -13,6 +13,7 @@
 #   tools/tier-move-gates.sh flip-pre <rev>      # step 6 precondition (rev = the move commit)
 #   tools/tier-move-gates.sh health              # essential infra + Flux not-ready
 #   tools/tier-move-gates.sh postmerge <rev>     # CI on main + ARC runners for a merge commit
+#   tools/tier-move-gates.sh freeze-prs          # open PRs touching the tier roots (re-run their Lint)
 #
 # Parents and their roots come from kubernetes/flux/cluster/ks.yaml (the
 # home-ops.io/tier-parent label and spec.path), so a new tier needs no edit here.
@@ -157,6 +158,16 @@ postmerge)
     kubectl -n actions-runner-system get pods --no-headers | grep -E "^$pfx" | grep -q ' Running ' || fail "ARC $pfx not Running"
   done
   echo "postmerge OK" ;;
+freeze-prs)
+  # Lint that passed before the window opened stays green (branch protection
+  # is not strict). Re-running it re-reads the window state from main.
+  gh pr list --state open --limit 200 --json number,headRefName,title,files \
+    --jq '.[]|select([.files[].path|test("^kubernetes/(apps|tiers)/")]|any)|"\(.number)\t\(.headRefName)\t\(.title)"' |
+    while IFS=$'\t' read -r n ref title; do
+      id=$(gh run list --workflow lint.yaml --branch "$ref" --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+      echo "#$n $title"
+      if [ -n "$id" ]; then echo "  gh run rerun $id"; else echo "  no Lint run found; push to the branch to trigger one"; fi
+    done ;;
 *)
   sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'
   exit 2 ;;

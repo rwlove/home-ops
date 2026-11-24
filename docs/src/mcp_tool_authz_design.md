@@ -78,7 +78,7 @@ can call **any** federated tool. There is no per-caller restriction.
 Today that is tolerable because every MCP client is driven interactively
 by Rob. It stops being tolerable the moment an agent runs unattended:
 the in-cluster `opencode` server
-([`kubernetes/apps/ai/opencode`](https://github.com/rwlove/home-ops/tree/main/kubernetes/apps/ai/opencode))
+([`kubernetes/apps/ai/opencode`](https://github.com/rwlove/home-ops/tree/493cd95cf9f8260282ab9433297127fe1f7ba115/kubernetes/apps/ai/opencode), since retired)
 runs a `bash` tool and has egress to the gateway, so a single
 mis-planned session can mutate the cluster, the network, or Home
 Assistant with nothing in the path to stop it.

@@ -3162,6 +3162,13 @@ flushed.</p>
    volume unmount is exactly what creates the dirty log. If a volume will not
    detach, <strong>stop — do not force-reboot.</strong></li>
 </ol>
+<p><strong>Enforced in <code>tools/cluster-upgrade/rolling-upgrade.sh</code>:</strong> after the package
+   upgrade and immediately before the reboot, <code>longhorn_detach_gate</code> polls until
+   no Longhorn volume reports <code>status.currentNodeID == &lt;node&gt;</code> (bounded at ~5
+   min; an API error counts as "not safe"). On timeout it aborts non-zero
+   <em>before</em> the reboot, naming the holder volumes. The script then runs <code>sync</code>
+   on the node and triggers the reboot. The manual check below remains the
+   reference for hand-run upgrades.</p>
 <div class="language-sh highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Must print nothing before rebooting &lt;node&gt;:</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>volumes.longhorn.io<span class="w"> </span>-n<span class="w"> </span>longhorn-system<span class="w"> </span>-o<span class="w"> </span>json<span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-r<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span>--arg<span class="w"> </span>n<span class="w"> </span><span class="s2">"&lt;node&gt;.</span><span class="si">${</span><span class="nv">SECRET_DOMAIN</span><span class="si">}</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>

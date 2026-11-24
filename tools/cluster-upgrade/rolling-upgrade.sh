@@ -12,7 +12,9 @@
 #   2. longhorn_clear_node DELETES replicas that have a healthy copy elsewhere
 #      (instant) instead of evicting/rebuilding them (~12-25 min/node saved).
 #      Longhorn re-replenishes the deleted replicas in the background after.
-#   3. Health gate is a SAFETY FLOOR only: blocks iff a volume is FAULTED
+#   3. REBOOT GATE (longhorn_detach_gate): reboot is refused until no Longhorn volume
+#      reports currentNodeID==<node>; node is `sync`ed right before reboot (#13744).
+#   4. Health gate is a SAFETY FLOOR only: blocks iff a volume is FAULTED
 #      (0 replicas). Degraded/reduced-redundancy is allowed during the window.
 #
 # PREREQUISITES (operator, before running — see README.md):
@@ -120,6 +122,23 @@ longhorn_wait_healthy(){ # SAFETY FLOOR: block iff an ATTACHED volume is FAULTED
   die "longhorn: attached volume(s) FAULTED (0 replicas)"
 }
 
+longhorn_detach_gate(){ # REBOOT GATE (home-ops#13744): refuse to reboot while ANY Longhorn volume is still attached to node $1.
+  # Replica eviction is not enough: an attached volume at reboot time leaves a dirty xfs log -> xfs_repair -L -> lost writes.
+  # Waits (bounded, ~5 min) for status.currentNodeID != node on every volume; die() = abort BEFORE the reboot, never force.
+  local n=$1.$D i out att
+  for i in $(seq 1 60); do
+    if out=$(kc get volumes.longhorn.io -n longhorn-system -o jsonpath="{range .items[?(@.status.currentNodeID=='$n')]}{.metadata.name}{'\n'}{end}" 2>&1); then
+      att=$(printf '%s' "$out" | grep -c .)
+      [ "$att" = "0" ] && { echo "  [$(ts)] longhorn: 0 volumes attached to $1 - safe to reboot"; return 0; }
+      [ $((i%3)) -eq 1 ] && echo "  [$(ts)] longhorn: $att volume(s) still attached to $1: $(printf '%s' "$out" | tr '\n' ' ')"
+    else
+      echo "  [$(ts)] longhorn: attach check failed (treating as NOT safe): $out"   # never assume detached on API error
+    fi
+    sleep 5
+  done
+  die "$1 still has Longhorn volume(s) attached after 5m - NOT rebooting (find the holder, detach, relaunch; do not force-reboot)"
+}
+
 already_done(){ [ "$(kc get node $1.$D -o jsonpath='{.status.nodeInfo.kubeletVersion}' 2>/dev/null)" = "$VER" ]; }
 
 cnpg_failover(){ # $1 node (cordon first). Delete primaries -> CNPG promotes a replica elsewhere.
@@ -170,9 +189,11 @@ pkg_upgrade_reboot(){ # CentOS/cri-o RPM node. $2 optional dnf exclude (e.g. GPU
     LK=\$(ls -1 /boot/vmlinuz-* | grep -v rescue | sort -V | tail -1 | sed 's|/boot/vmlinuz-||')
     [ -f /boot/initramfs-\${LK}.img ] || dracut -f /boot/initramfs-\${LK}.img \$LK
     systemctl enable crio kubelet
-    systemd-run --on-active=5s --unit=upgrade-reboot systemctl reboot
   " >/tmp/up-$w.log 2>&1 || die "$w package upgrade failed (see /tmp/up-$w.log)"
-  echo "  [$(ts)] $w upgraded + reboot triggered"
+  echo "  [$(ts)] $w packages upgraded"
+  longhorn_detach_gate $w   # abort (non-zero) before reboot if any Longhorn volume is still attached
+  nssh $w "sync; sync; systemd-run --on-active=5s --unit=upgrade-reboot systemctl reboot" >>/tmp/up-$w.log 2>&1 || die "$w sync/reboot trigger failed (see /tmp/up-$w.log)"
+  echo "  [$(ts)] $w synced + reboot triggered"
 }
 
 wait_ready(){ local w=$1 i r v; sleep 45

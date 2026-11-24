@@ -33,36 +33,42 @@ spec:
 
         type: statefulset
 
-        # /config/.vscode (--user-data-dir / --extensions-dir) was created
-        # uid=1000(coder):gid=1000 mode 0700 on 2026-07-02 13:20 — the
-        # window between #12790 (set runAsUser:568) and #12794 (fixed
-        # HOME=/config): the first rollout crashed on an unwritable
-        # $HOME/.config and Helm auto-rolled the StatefulSet back to its
-        # prior root-uid spec, during which code-server's image ran its
-        # fixuid dance and wrote .vscode as the image-native coder user.
-        # runAsUser 568 is deliberate (matches HA's UID so web-editor
-        # writes need no chown) and the rest of /config is already 568:568
-        # — fsGroupChangePolicy:OnRootMismatch never revisits that one
-        # leftover dir because its own parent/root already matches.
-        # Reclaim just .vscode on startup; idempotent + self-heals, and
-        # scoped tightly so it never touches HA's own /config data.
-        # Mirrors the established init-perms pattern used by other
-        # app-template HelmReleases in this repo for a stale UID that
-        # survives an fsGroupChangePolicy:OnRootMismatch skip.
+        # code-server state lives in /config/.code-server, NOT /config/.vscode:
+        # /config is also the opened workspace, so its .vscode/ is the
+        # *workspace* settings folder, and sharing it with --user-data-dir made
+        # stale workspace settings override the user settings below.
+        # The seed step runs as the pod user (568). /config is world-writable,
+        # so no root chown is needed (the old init-perms step only reclaimed a
+        # one-off 1000-owned /config/.vscode, already 568:568).
         initContainers:
-          init-perms:
+          seed:
             image:
               repository: ghcr.io/coder/code-server
               tag: 4.146.0@sha256:fc708b18f6c613b5a9d00f1d1801e58376d3df9c5b5de77f5c02d67b711f99c9
+            env:
+              HOME: /config
             command:
-              - chown
-              - -R
-              - 568:568
-              - /config/.vscode
-            securityContext:
-              runAsUser: 0
-              runAsGroup: 0
-              runAsNonRoot: false
+              - /bin/sh
+              - -c
+              - |
+                set -eu
+                data=/config/.code-server/data
+                ext=/config/.code-server/extensions
+                mkdir -p "$data/User" "$ext"
+                # Git wins: user settings are replaced from the ConfigMap on
+                # every start. Change them in resources/settings.json.
+                cp /seed/settings.json "$data/User/settings.json"
+                # Install only what's missing (the running editor auto-updates
+                # extensions itself). Additive and best-effort: an Open VSX
+                # outage must not keep the editor from starting.
+                have=$(code-server --extensions-dir "$ext" --list-extensions 2>/dev/null | tr 'A-Z' 'a-z')
+                grep -Ev '^[[:space:]]*(#|$)' /seed/extensions.txt | while read -r id; do
+                  lc=$(echo "$id" | tr 'A-Z' 'a-z')
+                  echo "$have" | grep -qx "$lc" && continue
+                  code-server --user-data-dir "$data" --extensions-dir "$ext" \
+                    --install-extension "$id" \
+                    || echo "WARN: failed to install $id"
+                done
 
         containers:
           app:
@@ -72,16 +78,16 @@ spec:
 
             env:
               # code-server writes $HOME/.config/code-server/config.yaml at
-              # startup; point HOME at the shared PVC so runAsUser 2000
+              # startup; point HOME at the shared PVC so runAsUser 568
               # can write it. Prior default was /root (unwritable non-root).
               HOME: /config
             args:
               - --auth
               - none
               - --user-data-dir
-              - /config/.vscode
+              - /config/.code-server/data
               - --extensions-dir
-              - /config/.vscode
+              - /config/.code-server/extensions
               - --port
               - "8080"
               - /config
@@ -125,6 +131,14 @@ spec:
         existingClaim: home-assistant-config-pvc
         globalMounts:
           - path: /config
+      seed:
+        type: configMap
+        name: home-assistant-code-settings
+        advancedMounts:
+          home-assistant-code:
+            seed:
+              - path: /seed
+                readOnly: true
     networkpolicies:
       allow:
         type: cilium

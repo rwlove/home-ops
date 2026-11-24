@@ -244,7 +244,7 @@ test cycle:
 - `home/node-red` (Node-style app dirs)
 - `home/emqx` (Erlang VM cache)
 - `home/home-assistant-code` (code-server: writes
-  to `/home/coder` — already PVC-backed, ROOTFS itself should be
+  to `$HOME=/config` (PVC) — ROOTFS itself should be
   fine; needs test)
 - `ai/{comfyui,khoj,ollama}` (ML model caches; some are
   already PVC-mounted)
@@ -266,8 +266,9 @@ have a structural reason:
   sidecar runs as root to manage routes/iptables by design. **Keep, document.**
 - `collab/zulip` — Zulip image expects root entrypoint that drops to
   `zulip` user internally. **Verify drop-privs is real, then keep.**
-- `home/home-assistant-code` — code-server images start
-  as root then drop. **Verify, then keep.**
+- `home/home-assistant-code` — **Resolved 2026-11-24:** the only root
+  container was the `init-perms` chown, replaced by an unprivileged
+  `seed` init container; every container now runs as UID 568.
 - `ai/khoj` — review.
 - `media/immichkiosk-transcode` — review (likely needs ffmpeg perms).
 

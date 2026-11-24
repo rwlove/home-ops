@@ -2586,7 +2586,12 @@ pruning parents on independent timers can race. So a move always runs in a
 checkout at the revision under test.</p>
 <ol>
 <li>Freeze writers: suspend the home-ops RenovateJob, and merge nothing else.
-   Record the baseline: <code>tier-gate baseline</code>.
+   Record the baseline: <code>tier-gate baseline</code>. Once the window PR (step 2)
+   merges, the <code>move-window-freeze</code> Lint job fails any PR that changes
+   <code>kubernetes/apps/</code> or <code>kubernetes/tiers/</code>. It gates only CI that runs
+   during the window, because branch protection does not require branches
+   to be up to date, so re-run Lint on the open PRs that touch those paths:
+   <code>tier-gate freeze-prs</code> lists them.
    Anything removed from a parent's root during the window is dropped from its
    inventory rather than collected.</li>
 <li>PR: the source (and, if it already exists, the destination) parent →
@@ -2596,7 +2601,9 @@ checkout at the revision under test.</p>
    accident.</li>
 <li>PR (single commit): add or extend the destination root, and remove the dirs
    from the source root. A new parent is created with <code>prune: false</code> and the
-   same <code>home-ops.io/move-window</code> annotation. Before
+   same <code>home-ops.io/move-window</code> annotation. Its description carries the line
+   <code>Move-Window: &lt;window PR number&gt;</code>, which exempts it from the freeze job (as
+   it does a correction inside the window). Before
    pushing: build every root, check the union of all roots has no duplicates
    and equals the pre-window set (<code>tier-gate union</code>), and run both lints.</li>
 <li>Reconcile destination → source → destination. Check:</li>

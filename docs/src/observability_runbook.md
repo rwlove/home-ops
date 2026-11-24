@@ -114,8 +114,17 @@ interval delays detection past what the alert's `for:` assumes. See
 for the live pairing conventions (interval vs `scrapeTimeout` vs the
 alert's `for:`), including the "devices" / "devices-sleepy" split for
 targets with legitimate radio/power-save downtime, and the
-"devices-esphome" probe, which checks ESPHome devices with a TCP connect
-to the native API port (6053) because ESP32s drop ICMP while healthy, and
+"devices-esphome" probe, which checks ESPHome devices on the native API
+port (6053) because ESP32s drop ICMP while healthy. It uses the
+`esphome_api` module, not a bare TCP connect: an ESP32's network stack
+completes the TCP handshake even when the ESPHome loop is wedged, so
+`tcp_connect` stayed green for two days while a Bluetooth proxy had stopped
+feeding Home Assistant. The module sends a deliberately bad frame header
+and requires the device's encrypted-API reject frame back (22 bytes,
+`\x01\x00\x13\x01Bad indicator byte`), so the API task itself has to
+answer. A plaintext-API device does not send that frame and needs its own
+module. If an ESPHome release changes the reject text, every target fails
+at once: re-capture the bytes. Also covered here is
 the "devices-http" probe, which checks low-traffic devices (the weather
 gateway) over their local HTTP API with a 75s budget, because a cold
 neighbor entry (missed ARP broadcasts in WiFi power-save) makes

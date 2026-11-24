@@ -255,6 +255,35 @@ spec:
           tcp:
             preferred_ip_protocol: ipv4
           timeout: 5s
+        # ESPHome native-API liveness (devices-esphome Probe). A bare TCP
+        # connect to :6053 is not enough: the ESP32 lwIP stack completes the
+        # handshake even when the ESPHome main loop / API task is wedged
+        # (2026-11-22: bluetooth-proxy-wifi-2 stopped feeding Home Assistant
+        # for ~2 days while tcp_connect stayed green at 99%). This module
+        # makes the API task itself answer.
+        #
+        # `send` always appends "\n", so "pr" goes out as exactly 3 bytes,
+        # one frame header whose indicator byte ("p") is not the Noise 0x01.
+        # An encrypted (Noise) device's API task replies with an explicit
+        # handshake-reject frame and closes with FIN:
+        #   0x01 0x00 0x13 | 0x01 "Bad indicator byte"   (22 bytes, 1 segment)
+        # A hung device accepts TCP but never writes, so the read hits the
+        # timeout and the probe fails. expect_bytes (raw read) is used rather
+        # than `expect` because that regex path scans for newline-terminated
+        # lines and fails on the timeout/FIN without one.
+        #
+        # Every current target uses API encryption. A plaintext-API device
+        # does not send this frame and needs its own module. If an ESPHome
+        # release rewords the reject string, every target fails at once
+        # (loud, fleet-wide), not silently, so re-capture the bytes then.
+        esphome_api:
+          prober: tcp
+          tcp:
+            preferred_ip_protocol: ipv4
+            query_response:
+              - send: "pr"
+              - expect_bytes: "\x01\x00\x13\x01Bad indicator byte"
+          timeout: 5s
     fullnameOverride: blackbox-exporter
     image:
       registry: quay.io

@@ -21,6 +21,7 @@ jobs:
   scan:
     name: Scan for inline secrets
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -31,14 +32,22 @@ jobs:
           # the two branches symmetric.
           fetch-depth: 0
 
+      # Verified against the release's checksums file. Keep the version in
+      # step with the gitleaks `rev:` in .pre-commit-config.yaml; Renovate
+      # tracks both.
       - name: Install gitleaks
         env:
+          # renovate: datasource=github-releases depName=gitleaks/gitleaks
           GITLEAKS_VERSION: 8.30.1
         run: |
           set -euo pipefail
-          curl -fsSL \
-            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
-            | tar -xz -C "${RUNNER_TEMP}" gitleaks
+          v="${GITLEAKS_VERSION#v}"
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${v}"
+          tarball="gitleaks_${v}_linux_x64.tar.gz"
+          cd "${RUNNER_TEMP}"
+          curl -fsSLO "${base}/${tarball}"
+          curl -fsSL "${base}/gitleaks_${v}_checksums.txt" | grep " ${tarball}\$" | sha256sum -c -
+          tar -xzf "${tarball}" gitleaks
           echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"
 
       - name: Scan PR commits
@@ -49,7 +58,7 @@ jobs:
           gitleaks detect \
             --no-banner \
             --config=.gitleaks.toml \
-            --log-opts="origin/${{ github.base_ref }}..HEAD" \
+            --log-opts="origin/${GITHUB_BASE_REF}..HEAD" \
             --verbose --redact
 
       - name: Scan working tree

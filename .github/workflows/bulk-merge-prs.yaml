@@ -14,10 +14,14 @@ on:
         default: "any"
         required: false
 
+# Merging goes through the GitHub App token; the workflow token reads nothing.
+permissions: {}
+
 jobs:
   bulk-merge-prs:
     name: Bulk Merge PRs
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Generate Token
         uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3
@@ -26,31 +30,46 @@ jobs:
           client-id: "${{ secrets.LOVENET_RENOVATE_OPERATOR_CLIENT_ID }}"
           private-key: "${{ secrets.LOVENET_RENOVATE_OPERATOR_PRIVATE_KEY }}"
 
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          token: "${{ steps.app-token.outputs.token }}"
-
+      # Skipped, never merged here:
+      # - `hold` and `type/major` labels. These are ONE search string: `gh pr
+      #   list --search` is a single-value flag, so passing it twice kept only
+      #   the last value and dropped the `hold` exclusion.
+      # - any PR touching kubernetes/apps/databases/cloudnative-pg/ (operator
+      #   chart, engine images, cluster specs). CNPG Postgres upgrades are
+      #   owner-sequenced behind a pre-upgrade backup, so they are judged by
+      #   the diff, not by branch name or label.
+      # A PR whose merge fails (e.g. required checks not green) is reported
+      # and the loop continues; the job fails at the end if any did.
       - name: Merge
         shell: bash
         env:
-          GITHUB_TOKEN: "${{ steps.app-token.outputs.token }}"
+          GH_TOKEN: "${{ steps.app-token.outputs.token }}"
+          GH_REPO: "${{ github.repository }}"
+          DRY_RUN: "${{ github.event.inputs.dryRun }}"
+          LABELS: "${{ github.event.inputs.labels }}"
         run: |
-          args=()
-          args+=(--state open)
-          args+=(--search "-label:hold")
-          args+=(--search "-label:type/major")
-          if [ "${{ github.event.inputs.labels }}" != "any" ]; then
-              IFS=',' read -ra labels <<< "${{ github.event.inputs.labels }}"
-              for label in "${labels[@]}"; do
-                  args+=(--label "${label}")
-              done
+          set -euo pipefail
+          args=(--state open --limit 200 --search "-label:hold -label:type/major")
+          if [ "${LABELS}" != "any" ]; then
+            IFS=',' read -ra labels <<< "${LABELS}"
+            for label in "${labels[@]}"; do
+              args+=(--label "${label}")
+            done
           fi
-          for id in $(gh pr list "${args[@]}" --jq '.[].number' --json number); do
-              if [ "${{ github.event.inputs.dryRun }}" = "true" ]; then
-                  echo "Dry run: gh pr merge $id --squash"
-                  continue
-              fi
-              gh pr merge "${id}" --squash
-              sleep 2
+          failed=0
+          for id in $(gh pr list "${args[@]}" --json number --jq '.[].number'); do
+            if gh pr diff "${id}" --name-only | grep -q '^kubernetes/apps/databases/cloudnative-pg/'; then
+              echo "Skip #${id}: touches CNPG (owner-sequenced upgrade, never bulk-merged)"
+              continue
+            fi
+            if [ "${DRY_RUN}" = "true" ]; then
+              echo "Dry run: gh pr merge ${id} --squash"
+              continue
+            fi
+            if ! gh pr merge "${id}" --squash; then
+              echo "::warning::merge of #${id} failed"
+              failed=1
+            fi
+            sleep 2
           done
+          exit "${failed}"

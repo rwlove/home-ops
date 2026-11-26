@@ -1,0 +1,54 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/persistentvolumeclaim-v1.json
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  namespace: selfhosted
+  name: ppcollection-data-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  volumeMode: Filesystem
+  resources:
+    requests:
+      storage: 2Gi
+  volumeName: ppcollection-data-pv
+  storageClassName: ppcollection-data-storage-class
+
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/persistentvolume-v1.json
+#
+# Static provisioning (the repo's static-PV+volumeHandle pattern): the PV pins
+# PVC ppcollection-data-pvc to the readable-named Longhorn volume
+# `ppcollection-data-ext4` (Volume CR under longhorn-system/longhorn/volumes/).
+#
+# Holds the app's SQLite DB, uploaded photos/documents and the self-generated
+# session secret -- hand-entered, irreplaceable records data, so Longhorn
+# (survives cluster loss via the NFS backup target) at 2 replicas, ext4.
+# Backups are automatic via Longhorn's `default` recurring-job group (daily
+# snapshot + weekly + monthly backup) plus weekly-filesystem-trim; those
+# recurring-job-group labels live on the Longhorn Volume CR, not this PV.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ppcollection-data-pv
+  labels:
+    type: longhorn
+    recurring-job-group.longhorn.io/weekly-backup: enabled
+    recurring-job-group.longhorn.io/daily-snapshot: enabled
+    recurring-job-group.longhorn.io/weekly-filesystem-trim: enabled
+spec:
+  capacity:
+    storage: 2Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ppcollection-data-storage-class
+  csi:
+    driver: driver.longhorn.io
+    fsType: ext4
+    volumeAttributes:
+      numberOfReplicas: "2"
+      staleReplicaTimeout: "2880"
+    volumeHandle: ppcollection-data-ext4

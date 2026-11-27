@@ -65,7 +65,11 @@ Every workaround in code also has a tracking issue with the
   `workaround-watcher`: `Watch: <github issue/PR URL>` — the single item
   whose resolution retires the workaround — or `Watch: none` when no
   upstream item gates it (no upstream issue exists, or the exit is a local
-  migration). Without it the watcher falls back to an `Upstream: <url>`
+  migration). When the fix has merged but not yet shipped, use
+  `Watch: <github commit URL>` (the fix's merge commit): the watcher flags
+  it once the repo's latest release contains that commit, so a closed
+  issue can't retire a workaround before a release carries the fix.
+  Without a `Watch:` line the watcher falls back to an `Upstream: <url>`
   line, then the first GitHub link under an `## …Upstream…` heading, which
   misfires on bodies that cite a closed "closest match". An upstream issue
   closed NOT_PLANNED is never treated as retireable — re-point `Watch:`.

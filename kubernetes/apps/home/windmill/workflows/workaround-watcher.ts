@@ -10,10 +10,14 @@
 //       has no upstream at all);
 //    b. an `Upstream: <url>` line;
 //    c. the first GitHub issue/PR link under a `## …Upstream…` heading.
-// 3. Fetch the upstream issue/PR state via the GitHub REST API.
-// 4. Flag for removal only when the gate is genuinely met: a merged PR, or
-//    an issue closed as COMPLETED. An issue closed NOT_PLANNED means the fix
-//    is never coming — the workaround is permanent, not retireable.
+// 3. Fetch the upstream issue/PR state via the GitHub REST API. A
+//    `Watch: <github commit URL>` gates on a *release* instead: the fix has
+//    merged but not shipped, so check whether the repo's latest release
+//    contains that commit.
+// 4. Flag for removal only when the gate is genuinely met: a merged PR, an
+//    issue closed as COMPLETED, or a watched commit in the latest release.
+//    An issue closed NOT_PLANNED means the fix is never coming — the
+//    workaround is permanent, not retireable.
 // 5. Email a summary (via in-cluster smtp-relay) if any removals are due.
 //
 // Anonymous GitHub API access (60 req/hr) is sufficient for the weekly
@@ -40,6 +44,8 @@ type WorkaroundCheckResult = {
         | "open"
         | "closed"
         | "merged"
+        | "released"
+        | "unreleased"
         | "not_planned"
         | "none"
         | "unknown"
@@ -125,6 +131,11 @@ async function checkOne(tracking: GhIssue): Promise<WorkaroundCheckResult> {
     }
     const upstreamUrl = found;
 
+    const commit = parseGhCommitUrl(upstreamUrl);
+    if (commit) {
+        return { ...base, upstream_url: upstreamUrl, ...(await checkCommitReleased(commit)) };
+    }
+
     const parsed = parseGhUrl(upstreamUrl);
     if (!parsed) {
         return {
@@ -132,7 +143,7 @@ async function checkOne(tracking: GhIssue): Promise<WorkaroundCheckResult> {
             upstream_url: upstreamUrl,
             upstream_state: "unparseable",
             removable: false,
-            note: "upstream URL not on github.com/<owner>/<repo>/{issues,pull}/<n>",
+            note: "upstream URL not on github.com/<owner>/<repo>/{issues,pull}/<n> or /commit/<sha>",
         };
     }
 
@@ -184,6 +195,47 @@ async function checkOne(tracking: GhIssue): Promise<WorkaroundCheckResult> {
     };
 }
 
+// A watched commit is retireable once the repo's latest release contains it:
+// comparing <sha>...<tag> gives "ahead" or "identical" when the tag
+// descends from the commit.
+async function checkCommitReleased(c: {
+    owner: string;
+    repo: string;
+    sha: string;
+}): Promise<Pick<WorkaroundCheckResult, "upstream_state" | "removable" | "note">> {
+    const gh = (path: string) =>
+        fetch(`${GH_BASE}/repos/${c.owner}/${c.repo}/${path}`, {
+            headers: { Accept: "application/vnd.github+json" },
+            signal: AbortSignal.timeout(TIMEOUT_MS),
+        });
+    const relResp = await gh("releases/latest");
+    if (!relResp.ok) {
+        return {
+            upstream_state: "unknown",
+            removable: false,
+            note: `latest release fetch failed: HTTP ${relResp.status}`,
+        };
+    }
+    const tag = ((await relResp.json()) as { tag_name: string }).tag_name;
+    const cmpResp = await gh(`compare/${c.sha}...${encodeURIComponent(tag)}`);
+    if (!cmpResp.ok) {
+        return {
+            upstream_state: "unknown",
+            removable: false,
+            note: `compare ${c.sha.slice(0, 7)}...${tag} failed: HTTP ${cmpResp.status}`,
+        };
+    }
+    const status = ((await cmpResp.json()) as { status: string }).status;
+    const released = status === "ahead" || status === "identical";
+    return {
+        upstream_state: released ? "released" : "unreleased",
+        removable: released,
+        note: released
+            ? `commit ${c.sha.slice(0, 7)} is in latest release ${tag} — bump to it before removing`
+            : `commit ${c.sha.slice(0, 7)} not yet in latest release ${tag}`,
+    };
+}
+
 // Returns the URL to watch, "none" for an explicit `Watch: none`, or null.
 function findUpstream(body: string): string | "none" | null {
     const w = body.match(WATCH_RE);
@@ -201,6 +253,17 @@ function findUpstream(body: string): string | "none" | null {
         }
     }
     return null;
+}
+
+function parseGhCommitUrl(
+    url: string,
+): { owner: string; repo: string; sha: string } | null {
+    // Matches https://github.com/<owner>/<repo>/commit/<sha>
+    const m = url.match(
+        /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/commit\/([0-9a-f]{7,40})\b/i,
+    );
+    if (!m) return null;
+    return { owner: m[1], repo: m[2], sha: m[3] };
 }
 
 function parseGhUrl(

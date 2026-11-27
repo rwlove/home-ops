@@ -68,7 +68,12 @@ spec:
                 # Deterministic HA ground-truth backstop (resources/ha_verify.py):
                 # drops battery claims for devices with no working battery
                 # sensor and down claims for entities that are up, and
-                # replaces model-stated outage durations with last_changed.
+                # replaces model-stated outage durations with last_changed,
+                # strips "seasonal / not a fault / no action needed"
+                # dismissals for entities not on its known-noise allowlist, and
+                # marks entity_ids HA does not know as [unverified entity].
+                # Keep the allowlist (_KNOWN_NOISE_*) in sync with the KNOWN
+                # paragraphs in PROMPT below.
                 - name: HA_VERIFY
                   value: "true"
                 - name: HA_URL
@@ -111,6 +116,25 @@ spec:
                     persistently-`unavailable` mirror as a tracked-known
                     condition, not a new incident.
 
+                    NEVER DISMISS BY GUESSWORK: an entity or device that is
+                    unavailable/offline is a REAL problem unless it is named in
+                    one of the KNOWN/EXPECTED, KNOWN FLAKY or UNAVAILABLE BY
+                    DESIGN paragraphs below. Do NOT write it off as seasonal,
+                    holiday, "taken down", "being removed", "expected" or "not
+                    a fault" from your own reasoning -- decorations, holiday
+                    lighting, outdoor and seasonal devices (a Christmas tree
+                    that is up in late November has automations that depend on
+                    it) get no special treatment. Report it, say how long it has
+                    been down, and propose a concrete check (Z-Wave JS node
+                    status, ping/refresh, power). Never write "no action needed"
+                    about an entity that is not in those paragraphs.
+
+                    ENTITY IDS: quote entity_ids exactly as returned by your
+                    tools (`ha_search_entities` / `ha_get_state`). Never
+                    construct, shorten or "tidy" an id from a device name; if
+                    you are not certain an id exists, search for it first.
+                    Unfound ids are marked `[unverified entity]` in the email.
+
                     KNOWN/EXPECTED (do not report as problems): the pool is
                     winterized for the 2026-2027 off-season (closed 2026-10-12;
                     ESPHome `pool_controller` device disabled 2026-10-14;
@@ -122,8 +146,11 @@ spec:
                     and its battery entity), and the disabled
                     pool-light automations are expected
                     unavailable/offline/disabled until spring reopening — this is
-                    acknowledged, not a fault. Remove this paragraph when the pool
-                    reopens for the season.
+                    acknowledged, not a fault. This applies ONLY to the exact
+                    entities named above and is NOT a general rule about
+                    seasonal devices: nothing else is "seasonal" or
+                    "off-season" by inference. Remove this paragraph when the
+                    pool reopens for the season.
 
                     KNOWN FLAKY (do not report intermittent unavailability): the
                     Pro Check BLE propane monitor

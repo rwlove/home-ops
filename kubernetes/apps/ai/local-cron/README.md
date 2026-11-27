@@ -52,7 +52,17 @@ persona):
   `POST /api/template`): it drops a battery claim when no device behind the
   entities has a working battery sensor, drops a "down" claim when every named
   entity is up, and replaces the model's outage duration with one computed
-  from `last_changed`. HA unreachable → body passes through unchanged.
+  from `last_changed`. It also strips dismissal reasoning ("seasonal",
+  "post-holiday", "taken down", "not a fault", "no action needed", "expected
+  unavailable", "by design") from any finding that names an entity not on its
+  known-noise allowlist (`_KNOWN_NOISE_*` in `ha_verify.py`, mirroring the
+  KNOWN/EXPECTED paragraphs of the cronjob prompt) and appends a visible
+  `[unverified dismissal removed …]` line, so a real outage still reaches the
+  email; and it marks every entity_id HA does not know with `[unverified
+  entity]`. **Adding a known-noise entity means updating both the prompt and the
+  allowlist.** HA unreachable → body passes through unchanged. Tests:
+  `cd resources && PYTHONPATH=. python3 -m unittest test_ha_verify` (stdlib
+  only; not shipped in the ConfigMap).
 - `storage-triage` / `storage-doer`
 
 Every triage email body starts at the first `PROBLEM:` line: anything the

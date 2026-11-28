@@ -80,13 +80,18 @@ _KNOWN_NOISE_PREFIXES = (
     "camera.reolink_frontdoor",
     "binary_sensor.openplantbook_upload_problem",
     "media_player.home_assistant_voice_",     # Voice PE Music Assistant mirrors
+    "light.kitchen_sink",                     # Hue bulb on a dumb wall switch
+    "select.0x0017880106758823_",             # ... and its Z2M config entities
+    "number.0x0017880106758823_",
+    "update.0x0017880106758823",
+    "button.kitchen_sink_",
 )
 # For a chunk that names no entity_id at all: these name-fragments stand in for
 # the allowlist.
 _KNOWN_NOISE_WORDS = re.compile(
     r"(?i)pool[ _]controller|whisperflo|pool (?:pump|temperature|temp probe|light)|"
     r"propane|pro check|openplantbook|front[- ]?door camera|reolink[_ ]frontdoor|"
-    r"voice pe|sendspin|music assistant mirror"
+    r"voice pe|sendspin|music assistant mirror|kitchen[ _]sink"
 )
 # Dismissal reasoning. Deliberately narrow: wording the model used to write off a
 # real outage, not general prose.

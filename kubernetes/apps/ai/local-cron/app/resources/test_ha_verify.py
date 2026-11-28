@@ -66,6 +66,14 @@ class DismissalCheck(unittest.TestCase):
         self.assertIn("expected unavailable until spring. No action needed.", out)
         self.assertNotIn("unverified", out)
 
+    def test_switched_kitchen_sink_keeps_its_dismissal(self):
+        body = ("light.kitchen_sink unavailable since 2026-11-27 16:54 ET; the "
+                "wall switch is off, by design. Not a fault.")
+        out = ha_verify.verify(
+            body, render=_renderer(_row("light.kitchen_sink")), now=NOW)
+        self.assertIn("by design. Not a fault.", out)
+        self.assertNotIn("unverified", out)
+
     def test_mixed_allowlisted_and_real_entity_is_flagged(self):
         body = ("PROBLEM: sensor.pool_controller_ph and %s are unavailable. "
                 "Seasonal, not a fault." % TREE_SW)
